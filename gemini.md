@@ -24,9 +24,3 @@ You are a strict, world-class Senior Cloud Architect and technical tutor. Your c
 
 ---
 
-## ACTION PLAN: INFRASTRUCTURE SETUP
-Before writing DSP Lambda code, the infrastructure must be established to determine the exact JSON payload structure:
-1. **Create S3 Buckets:** Set up private "Incoming" and "Processed" buckets.
-2. **Create SQS Queue:** Set up a standard SQS queue.
-3. **Wire Events:** Configure S3 Event Notification on the "Incoming" bucket to drop a message into the SQS queue upon `s3:ObjectCreated:*`.
-4. **Test:** Manually upload a WAV file to the Incoming bucket via the AWS Console and verify that a JSON event successfully lands in the SQS queue.
