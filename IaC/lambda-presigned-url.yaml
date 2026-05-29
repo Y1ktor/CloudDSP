@@ -1,0 +1,58 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudDSP: Pre-signed URL Generator Lambda and Execution Role'
+
+Resources:
+  # 1. The IAM Execution Role
+  PresignedUrlLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        # Standard policy to allow Lambda to write logs to CloudWatch
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3PutObjectPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                # Restrict to the specific incoming bucket (Needs /* at the end for PutObject)
+                Resource: !Sub "arn:aws:s3:::clouddsp-incoming-audio-${AWS::AccountId}-${AWS::Region}/*"
+
+  # 2. The Lambda Function
+  PresignedUrlFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: CloudDSP-GeneratePresignedUrl
+      Handler: lambda-s3-presigned.lambda_handler
+      Role: !GetAtt PresignedUrlLambdaRole.Arn
+      Runtime: python3.11
+      Timeout: 10
+      MemorySize: 128
+      # Assuming you zip the lambda-s3-presigned.py and upload it to an S3 bucket for deployment. 
+      # For now, using inline code as a placeholder if you deploy via console, 
+      # or you'll need to package it via AWS SAM/CLI.
+      Code:
+        ZipFile: |
+          # The code from src/presigned_url/lambda-s3-presigned.py will go here when packaged
+          import json
+          def lambda_handler(event, context):
+              return { "statusCode": 200, "body": json.dumps("Placeholder") }
+      Environment:
+        Variables:
+          # Passing the exact bucket name to the Lambda environment
+          INCOMING_BUCKET_NAME: !Sub "clouddsp-incoming-audio-${AWS::AccountId}-${AWS::Region}"
+
+Outputs:
+  LambdaFunctionName:
+    Value: !Ref PresignedUrlFunction
+  LambdaRoleArn:
+    Value: !GetAtt PresignedUrlLambdaRole.Arn

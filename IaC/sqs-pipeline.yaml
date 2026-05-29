@@ -1,0 +1,69 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudDSP Infrastructure: S3 Buckets and SQS Queue for Audio Processing'
+
+Resources:
+  ProcessingQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      # Visibility timeout of 16 minutes (960 seconds) to allow 15 min Lambda max execution
+      VisibilityTimeout: 960
+      # Retention period of 1 day (86400 seconds)
+      MessageRetentionPeriod: 86400
+
+  ProcessingQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref ProcessingQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: s3.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt ProcessingQueue.Arn
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                aws:SourceArn: !Sub "arn:aws:s3:::clouddsp-incoming-audio-${AWS::AccountId}-${AWS::Region}"
+
+  IncomingBucket:
+    Type: AWS::S3::Bucket
+    DependsOn: ProcessingQueuePolicy
+    Properties:
+      BucketName: !Sub "clouddsp-incoming-audio-${AWS::AccountId}-${AWS::Region}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      NotificationConfiguration:
+        QueueConfigurations:
+          - Event: s3:ObjectCreated:*
+            Queue: !GetAtt ProcessingQueue.Arn
+
+  ProcessedBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "clouddsp-processed-audio-${AWS::AccountId}-${AWS::Region}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+Outputs:
+  IncomingBucketName:
+    Description: Name of the incoming audio S3 bucket
+    Value: !Ref IncomingBucket
+  ProcessedBucketName:
+    Description: Name of the processed audio S3 bucket
+    Value: !Ref ProcessedBucket
+  ProcessingQueueUrl:
+    Description: URL of the SQS queue for processing
+    Value: !Ref ProcessingQueue
+  ProcessingQueueArn:
+    Description: ARN of the SQS queue for processing
+    Value: !GetAtt ProcessingQueue.Arn

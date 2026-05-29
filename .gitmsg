@@ -1,0 +1,5 @@
+feat: setup initial S3/SQS infrastructure and pre-signed URL lambda
+
+- Implement sqs-pipeline.yaml to deploy basic infrastructure including connection between S3 bucket and SQS queue.
+- Add `cfn-execution-role.yaml` to define least-privilege IAM permissions for CloudFormation deployment.
+- Implement Python Lambda `lambda-s3-presigned.py` to securely generate S3 pre-signed upload URLs with dynamic file naming and CORS configuration.
