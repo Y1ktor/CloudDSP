@@ -1,6 +1,12 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: 'CloudDSP: User Upload Pipeline (S3 Buckets, API Gateway, and Pre-signed URL Lambda)'
 
+Parameters:
+  PedalboardLayerArn:
+    Type: String
+    Description: 'The ARN of the Lambda Layer containing Pedalboard, Numpy, etc.'
+    Default: 'arn:aws:lambda:us-east-1:512383926199:layer:AudioProcessingPedalboard'
+
 Resources:
   # ==========================================
   # 1. STORAGE LAYER (S3 Buckets)
@@ -144,6 +150,7 @@ Resources:
           - '*'
         AllowMethods:
           - GET
+          - POST
           - OPTIONS
         AllowHeaders:
           - Content-Type
@@ -182,13 +189,124 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${IngestionHttpApi}/*/*"
 
+  # ==========================================
+  # 5. SQS PROCESSING QUEUE
+  # ==========================================
+  ProcessingQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      VisibilityTimeout: 960
+      MessageRetentionPeriod: 86400
+
+  # ==========================================
+  # 6. SQS API GATEWAY INTEGRATION
+  # ==========================================
+  ApiGatewaySqsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: apigateway.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: SqsPublishPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt ProcessingQueue.Arn
+
+  SqsApiIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref IngestionHttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationSubtype: SQS-SendMessage
+      CredentialsArn: !GetAtt ApiGatewaySqsRole.Arn
+      PayloadFormatVersion: '1.0'
+      RequestParameters:
+        QueueUrl: !Ref ProcessingQueue
+        MessageBody: "$request.body"
+
+  ApplyEffectApiRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref IngestionHttpApi
+      RouteKey: 'POST /apply-effect'
+      Target: !Join [ "/", [ "integrations", !Ref SqsApiIntegration ] ]
+
+  # ==========================================
+  # 7. DSP COMPUTE LAYER (Worker Lambda)
+  # ==========================================
+  DspWorkerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaSQSQueueExecutionRole
+      Policies:
+        - PolicyName: S3AudioAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub "arn:aws:s3:::clouddsp-incoming-audio-${AWS::AccountId}-${AWS::Region}/*"
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub "arn:aws:s3:::clouddsp-processed-audio-${AWS::AccountId}-${AWS::Region}/*"
+
+  DspWorkerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: CloudDSP-AudioProcessor
+      Handler: dsp.lambda_handler
+      Role: !GetAtt DspWorkerRole.Arn
+      Runtime: python3.11
+      Timeout: 900 # 15 minutes max
+      MemorySize: 2048 # High memory for faster DSP processing
+      EphemeralStorage:
+        Size: 2048 # 2GB of /tmp storage for handling large audio files
+      Layers:
+        - !Ref PedalboardLayerArn
+      Code:
+        # Placeholder: This code will be packaged and uploaded via AWS CLI/SAM
+        # Pointing to the directory where dsp.py lives
+        S3Bucket: placeholder
+        S3Key: placeholder
+      Environment:
+        Variables:
+          INCOMING_BUCKET_NAME: !Ref IncomingBucket
+          PROCESSED_BUCKET_NAME: !Ref ProcessedBucket
+
+  DspSqsEventSource:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !GetAtt ProcessingQueue.Arn
+      FunctionName: !GetAtt DspWorkerFunction.Arn
+      BatchSize: 10 
+      Enabled: true
+
 # ==========================================
 # OUTPUTS
 # ==========================================
 Outputs:
   ApiEndpoint:
-    Description: "HTTP API endpoint URL for getting pre-signed URLs"
-    Value: !Sub "https://${IngestionHttpApi}.execute-api.${AWS::Region}.amazonaws.com/upload-url"
+    Description: "HTTP API endpoint URL"
+    Value: !Sub "https://${IngestionHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
   IncomingBucketName:
     Description: Name of the incoming audio S3 bucket
     Value: !Ref IncomingBucket
@@ -199,3 +317,9 @@ Outputs:
     Value: !Ref IngestionFunction
   LambdaRoleArn:
     Value: !GetAtt IngestionLambdaRole.Arn
+  ProcessingQueueUrl:
+    Description: URL of the SQS queue for processing
+    Value: !Ref ProcessingQueue
+  ProcessingQueueArn:
+    Description: ARN of the SQS queue for processing
+    Value: !GetAtt ProcessingQueue.Arn

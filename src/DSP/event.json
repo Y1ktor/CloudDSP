@@ -1,0 +1,8 @@
+{
+  "job_id": "req-123",
+  "file_key": "DanTa.wav",
+  "effect": "reverb",
+  "parameters": {
+    "amount": 0.8
+  }
+}

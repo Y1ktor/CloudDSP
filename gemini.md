@@ -11,9 +11,9 @@ You are a strict, world-class Senior Cloud Architect and technical tutor. Your c
 - **Flow:** Frontend JavaScript -> API Gateway Auth -> Lambda URL Generator -> Upload direct to S3.
 - **Constraint:** Strictly bypass API Gateway and SQS for heavy raw audio files to avoid the 10MB payload limit.
 
-### Phase 2: Decoupled Ingestion
-- **Flow:** S3 Landing Bucket -> S3 Event Notification -> JSON Metadata Message -> SQS Queue Buffer.
-- **Logic:** SQS must handle the smoothing of concurrent user traffic spikes.
+### Phase 2: Interactive Processing Pipeline
+- **Flow:** Frontend UI (Parameter Adjustment) -> API Gateway (POST `/apply-effect`) -> Direct SQS Integration -> SQS Queue Buffer.
+- **Logic:** Processing is driven on-demand by the frontend rather than automatic S3 triggers. The UI sends a JSON payload (specifying `file_key`, operation type, and tweak parameters) to the API Gateway, which pushes the message directly into SQS to handle concurrent user traffic spikes.
 
 ### Phase 3: The Processing Compute (Python Lambda)
 - **Specs:** SQS Message Triggers -> Heavy Audio Python Lambda (FFmpeg, Pedalboard, Librosa layer).

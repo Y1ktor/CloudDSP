@@ -1,5 +1,7 @@
-refactor: update architecture to remove SQS ingestion queue
+feat: implement interactive DSP worker lambda and test suite
 
-- Remove SQS queue and S3 event notification from the architecture, as uploads to S3 will no longer automatically push messages to an SQS queue.
-- Consolidate S3, API Gateway, and Pre-signed URL Lambda infrastructure into a single `upload-pipeline.yaml` template.
-- Rename and retain component templates (`audio-s3.yaml`, `api-lambda.yaml`) for reference.
+- Refactor `dsp.py` into an SQS-triggered AWS Lambda handler that manages S3 downloads/uploads and ephemeral storage.
+- Implement Ring Modulation effect using native numpy math.
+- Create standalone test scripts (`test_bitcrush.py`, `test_flanger.py`, `test_ring_mod.py`) for isolated DSP development.
+- Update `upload-pipeline.yaml` with the DSP Worker Lambda, assigning 2GB memory/ephemeral storage, explicit IAM bucket permissions, and setting SQS BatchSize to 1 to prevent processing timeouts.
+- Update `gemini.md` architecture logic to document the API-driven interactive pipeline.
