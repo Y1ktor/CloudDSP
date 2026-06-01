@@ -1,0 +1,9 @@
+{
+  "job_id": "test-bitcrush-001",
+  "file_key": "PYT-sample.wav",
+  "effect": "bitcrush",
+  "parameters": {
+    "bitrate": 4,
+    "decimation": 4
+  }
+}

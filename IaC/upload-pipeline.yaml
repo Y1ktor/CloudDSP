@@ -282,11 +282,7 @@ Resources:
         Size: 2048 # 2GB of /tmp storage for handling large audio files
       Layers:
         - !Ref PedalboardLayerArn
-      Code:
-        # Placeholder: This code will be packaged and uploaded via AWS CLI/SAM
-        # Pointing to the directory where dsp.py lives
-        S3Bucket: placeholder
-        S3Key: placeholder
+      Code: ../src/DSP/src
       Environment:
         Variables:
           INCOMING_BUCKET_NAME: !Ref IncomingBucket

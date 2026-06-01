@@ -1,0 +1,304 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudDSP: User Upload Pipeline (S3 Buckets, API Gateway, and Pre-signed
+  URL Lambda)'
+Parameters:
+  PedalboardLayerArn:
+    Type: String
+    Description: The ARN of the Lambda Layer containing Pedalboard, Numpy, etc.
+    Default: arn:aws:lambda:us-east-1:512383926199:layer:AudioProcessingPedalboard:4
+Resources:
+  IncomingBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName:
+        Fn::Sub: clouddsp-incoming-audio-${AWS::AccountId}-${AWS::Region}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+  ProcessedBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName:
+        Fn::Sub: clouddsp-processed-audio-${AWS::AccountId}-${AWS::Region}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+  IngestionLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+          Action: sts:AssumeRole
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+      - PolicyName: S3PutObjectPolicy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - s3:PutObject
+            Resource:
+              Fn::Sub: arn:aws:s3:::clouddsp-incoming-audio-${AWS::AccountId}-${AWS::Region}/*
+  IngestionFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: CloudDSP-GenerateIngestion
+      Handler: index.lambda_handler
+      Role:
+        Fn::GetAtt:
+        - IngestionLambdaRole
+        - Arn
+      Runtime: python3.12
+      Timeout: 10
+      MemorySize: 128
+      Code:
+        ZipFile: "import json\nimport os\nimport boto3\nimport uuid\n\n# Initialize\
+          \ the S3 client outside the handler\ns3_client = boto3.client('s3')\n\n\
+          # Pull the bucket name from the environment variable (set by CloudFormation)\n\
+          BUCKET_NAME = os.environ.get('INCOMING_BUCKET_NAME')\n\ndef lambda_handler(event,\
+          \ context):\n\n    # Parse query parameters from frontend request\n    query_params\
+          \ = event.get('queryStringParameters', {}) or {}\n    file_name = query_params.get('filename')\n\
+          \    file_type = query_params.get('filetype') # e.g., audio/wav, audio/mpeg\n\
+          \n    try:\n\n        # Ensure we have a valid filename and construct the\
+          \ key\n        safe_file_name = file_name if file_name else \"unnamed_file\"\
+          \n        file_key = f\"uploads/{uuid.uuid4()}-{safe_file_name}\"\n    \
+          \    \n        # Use provided file type or fallback to a generic binary\
+          \ stream\n        content_type = file_type if file_type else 'application/octet-stream'\n\
+          \n        # Generate the pre-signed URL for a PUT request\n        presigned_url\
+          \ = s3_client.generate_presigned_url(\n            ClientMethod='put_object',\n\
+          \            Params={\n                'Bucket': BUCKET_NAME, # Using the\
+          \ Environment Variable\n                'Key': file_key,\n             \
+          \   'ContentType': content_type\n            },\n            ExpiresIn=300\
+          \ # URL expires in 5 minutes\n        )\n        \n        return {\n  \
+          \          'statusCode': 200,\n            'headers': {\n              \
+          \  'Access-Control-Allow-Origin': '*',\n                \"Access-Control-Allow-Methods\"\
+          : \"GET,OPTIONS\",\n                \"Access-Control-Allow-Headers\": \"\
+          Content-Type\",\n                'Content-Type': 'application/json'\n  \
+          \          },\n            'body': json.dumps({\n                'uploadUrl':\
+          \ presigned_url,\n                'key': file_key\n            })\n    \
+          \    }\n    except Exception as e:\n        print(f\"Error generating pre-signed\
+          \ URL: {e}\")\n        return {\n            'statusCode': 500,\n      \
+          \      'headers': {\n                'Access-Control-Allow-Origin': '*',\n\
+          \                \"Access-Control-Allow-Methods\": \"GET,OPTIONS\",\n  \
+          \              \"Access-Control-Allow-Headers\": \"Content-Type\",\n   \
+          \             'Content-Type': 'application/json'\n            },\n     \
+          \       'body': json.dumps({'error': 'Failed to generate upload URL'})\n\
+          \        }\n"
+      Environment:
+        Variables:
+          INCOMING_BUCKET_NAME:
+            Ref: IncomingBucket
+  IngestionHttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: CloudDSP-IngestionApi
+      ProtocolType: HTTP
+      CorsConfiguration:
+        AllowOrigins:
+        - '*'
+        AllowMethods:
+        - GET
+        - POST
+        - OPTIONS
+        AllowHeaders:
+        - Content-Type
+  LambdaApiIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId:
+        Ref: IngestionHttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri:
+        Fn::GetAtt:
+        - IngestionFunction
+        - Arn
+      PayloadFormatVersion: '2.0'
+  IngestionApiRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId:
+        Ref: IngestionHttpApi
+      RouteKey: GET /upload-url
+      Target:
+        Fn::Join:
+        - /
+        - - integrations
+          - Ref: LambdaApiIntegration
+  IngestionApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId:
+        Ref: IngestionHttpApi
+      StageName: $default
+      AutoDeploy: true
+  IngestionApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::GetAtt:
+        - IngestionFunction
+        - Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Sub: arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${IngestionHttpApi}/*/*
+  ProcessingQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      VisibilityTimeout: 960
+      MessageRetentionPeriod: 86400
+  ApiGatewaySqsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: apigateway.amazonaws.com
+          Action: sts:AssumeRole
+      Policies:
+      - PolicyName: SqsPublishPolicy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action: sqs:SendMessage
+            Resource:
+              Fn::GetAtt:
+              - ProcessingQueue
+              - Arn
+  SqsApiIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId:
+        Ref: IngestionHttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationSubtype: SQS-SendMessage
+      CredentialsArn:
+        Fn::GetAtt:
+        - ApiGatewaySqsRole
+        - Arn
+      PayloadFormatVersion: '1.0'
+      RequestParameters:
+        QueueUrl:
+          Ref: ProcessingQueue
+        MessageBody: $request.body
+  ApplyEffectApiRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId:
+        Ref: IngestionHttpApi
+      RouteKey: POST /apply-effect
+      Target:
+        Fn::Join:
+        - /
+        - - integrations
+          - Ref: SqsApiIntegration
+  DspWorkerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+          Action: sts:AssumeRole
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaSQSQueueExecutionRole
+      Policies:
+      - PolicyName: S3AudioAccessPolicy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - s3:GetObject
+            Resource:
+              Fn::Sub: arn:aws:s3:::clouddsp-incoming-audio-${AWS::AccountId}-${AWS::Region}/*
+          - Effect: Allow
+            Action:
+            - s3:PutObject
+            Resource:
+              Fn::Sub: arn:aws:s3:::clouddsp-processed-audio-${AWS::AccountId}-${AWS::Region}/*
+  DspWorkerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: CloudDSP-AudioProcessor
+      Handler: dsp.lambda_handler
+      Role:
+        Fn::GetAtt:
+        - DspWorkerRole
+        - Arn
+      Runtime: python3.11
+      Timeout: 900
+      MemorySize: 2048
+      EphemeralStorage:
+        Size: 2048
+      Layers:
+      - Ref: PedalboardLayerArn
+      Code:
+        S3Bucket: clouddsp-deployment-artifacts-512383926199-useast1
+        S3Key: dfcee04fab52c2a1344210e16f154330
+      Environment:
+        Variables:
+          INCOMING_BUCKET_NAME:
+            Ref: IncomingBucket
+          PROCESSED_BUCKET_NAME:
+            Ref: ProcessedBucket
+  DspSqsEventSource:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn:
+        Fn::GetAtt:
+        - ProcessingQueue
+        - Arn
+      FunctionName:
+        Fn::GetAtt:
+        - DspWorkerFunction
+        - Arn
+      BatchSize: 10
+      Enabled: true
+Outputs:
+  ApiEndpoint:
+    Description: HTTP API endpoint URL
+    Value:
+      Fn::Sub: https://${IngestionHttpApi}.execute-api.${AWS::Region}.amazonaws.com
+  IncomingBucketName:
+    Description: Name of the incoming audio S3 bucket
+    Value:
+      Ref: IncomingBucket
+  ProcessedBucketName:
+    Description: Name of the processed audio S3 bucket
+    Value:
+      Ref: ProcessedBucket
+  LambdaFunctionName:
+    Value:
+      Ref: IngestionFunction
+  LambdaRoleArn:
+    Value:
+      Fn::GetAtt:
+      - IngestionLambdaRole
+      - Arn
+  ProcessingQueueUrl:
+    Description: URL of the SQS queue for processing
+    Value:
+      Ref: ProcessingQueue
+  ProcessingQueueArn:
+    Description: ARN of the SQS queue for processing
+    Value:
+      Fn::GetAtt:
+      - ProcessingQueue
+      - Arn

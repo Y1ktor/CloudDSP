@@ -1,6 +1,9 @@
 import os
+import sys
 from pedalboard import Pedalboard, Chorus
 from pedalboard.io import AudioFile
+
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 def apply_flanger(input_file, output_file, rate_hz=0.5, depth=0.8, centre_delay_ms=2.0, feedback=0.7, mix=0.5):
     print(f"Applying Flanger (Rate: {rate_hz}Hz, Depth: {depth}, Delay: {centre_delay_ms}ms, Feedback: {feedback}, Mix: {mix}) to {input_file}")
@@ -35,5 +38,8 @@ if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
     os.chdir(script_dir)
     
+    input_wav = "../assets/PYT-sample.wav"
+    output_wav = "test_out_flanger.wav"
+    
     print("\n[TEST] Running standalone flanger test...")
-    apply_flanger("PYT-sample.wav", "test_out_flanger.wav")
+    apply_flanger(input_wav, output_wav)

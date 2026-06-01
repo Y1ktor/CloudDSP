@@ -1,6 +1,9 @@
 import os
+import sys
 import numpy as np
 from pedalboard.io import AudioFile
+
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 def apply_ring_mod(input_file, output_file, frequency_hz=600.0, mix=1.0):
     print(f"Applying Ring Modulator (Frequency: {frequency_hz}Hz, Mix: {mix}) to {input_file}")
@@ -30,5 +33,8 @@ if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
     os.chdir(script_dir)
     
+    input_wav = "../assets/PYT-sample.wav"
+    output_wav = "test_out_ring_mod.wav"
+    
     print("\n[TEST] Running standalone ring modulator test...")
-    apply_ring_mod("PYT-sample.wav", "test_out_ring_mod.wav")
+    apply_ring_mod(input_wav, output_wav)
