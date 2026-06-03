@@ -1,6 +1,6 @@
-chore: restructure DSP Lambda files and track packaged template
+feat: implement real-time web audio equalizer and visualizer
 
-- Restructure `src/DSP/` into isolated `src`, `tests`, and `assets` directories for clean and lightweight lambda packaging.
-- Add mock SQS payload `message.json` to `assets/` for testing bitcrusher.
-- Fix relative `Code` path in `upload-pipeline.yaml` to `../src/DSP/src`.
-- Add generated deployment artifact `packaged.yaml`.
+- Build initial `index.html` with a 3-band interactive EQ UI and logarithmic canvas spectrum analyzer.
+- Refactor JavaScript into ES6 modules (`main.js`, `audio.js`, `visualizer.js`) for clean architecture.
+- Implement 'Two Analyser' technique (Pre-EQ and Post-EQ) to accurately calculate and visually exaggerate delta changes caused by slider interactions.
+- Extract visualizer math constants (padding, multipliers, frequency bounds) into tunable configurations.
