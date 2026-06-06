@@ -1,6 +1,8 @@
-feat: implement real-time web audio equalizer and visualizer
+feat: implement fully interactive 2D EQ canvas controls
 
-- Build initial `index.html` with a 3-band interactive EQ UI and logarithmic canvas spectrum analyzer.
-- Refactor JavaScript into ES6 modules (`main.js`, `audio.js`, `visualizer.js`) for clean architecture.
-- Implement 'Two Analyser' technique (Pre-EQ and Post-EQ) to accurately calculate and visually exaggerate delta changes caused by slider interactions.
-- Extract visualizer math constants (padding, multipliers, frequency bounds) into tunable configurations.
+- Upgrade EQ to 3 fully configurable Peaking (Bell) bands (Freq, Q, Gain).
+- Implement 2D canvas hit-detection, scaling physical mouse coordinates to internal resolution.
+- Add inverse logarithmic math (`getFreqFromX`) to translate horizontal pixel movement back to precise frequency values.
+- Render draggable control nodes on the EQ peaks with dynamic hover and active visual states.
+- Sync bi-directional state between canvas dragging, Web Audio API filters, and HTML input sliders in real-time.
+- Layer individual faint filter curves beneath the cumulative white polynomial curve for enhanced visual feedback.
