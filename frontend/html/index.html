@@ -8,16 +8,30 @@
 <body>
     <h1>CloudDSP Interactive EQ</h1>
     
+    <div style="margin-bottom: 20px;">
+        <label for="audio-upload" style="font-weight: bold;">Load Audio File:</label>
+        <input type="file" id="audio-upload" accept="audio/*">
+    </div>
+
     <div>
-        <!-- Removed crossorigin="anonymous" to fix local file:// playback -->
-        <audio id="audio-source" src="../assets/Yosemite.mp3" controls></audio>
+        <audio id="audio-source" controls></audio>
     </div>
     
     <div style="margin-top: 20px;">
-        <canvas id="visualizer" width="800" height="300" style="background-color: #222; border-radius: 4px; width: 100%; max-width: 1000px; display: block;"></canvas>
+        <canvas id="visualizer" width="800" height="400" style="background-color: #222; border-radius: 4px; width: 100%; max-width: 1000px; display: block;"></canvas>
     </div>
     
-    <div style="margin-top: 20px; display: flex; gap: 20px;">
+    <div style="margin-top: 20px; display: flex; gap: 20px; flex-wrap: wrap;">
+        <!-- Band 0 (Highpass) -->
+        <div style="background: #eee; padding: 10px; border-radius: 5px;">
+            <h4>HPF (Cut)</h4>
+            <label>Freq: <span id="b0-freq-val">20</span> Hz</label><br>
+            <input type="range" id="b0-freq" min="20" max="2000" value="20" step="1"><br>
+            
+            <label>Q-Factor: <span id="b0-q-val">0.7</span></label><br>
+            <input type="range" id="b0-q" min="0.1" max="10" value="0.7" step="0.1"><br>
+        </div>
+
         <!-- Band 1 -->
         <div style="background: #eee; padding: 10px; border-radius: 5px;">
             <h4>Band 1 (Bell)</h4>
@@ -55,6 +69,16 @@
 
             <label>Gain: <span id="b3-gain-val">0</span> dB</label><br>
             <input type="range" id="b3-gain" min="-15" max="15" value="0" step="0.1">
+        </div>
+
+        <!-- Band 4 (Lowpass) -->
+        <div style="background: #eee; padding: 10px; border-radius: 5px;">
+            <h4>LPF (Cut)</h4>
+            <label>Freq: <span id="b4-freq-val">20000</span> Hz</label><br>
+            <input type="range" id="b4-freq" min="200" max="20000" value="20000" step="1"><br>
+            
+            <label>Q-Factor: <span id="b4-q-val">0.7</span></label><br>
+            <input type="range" id="b4-q" min="0.1" max="10" value="0.7" step="0.1"><br>
         </div>
     </div>
 

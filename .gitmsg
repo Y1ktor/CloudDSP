@@ -1,8 +1,6 @@
-feat: implement fully interactive 2D EQ canvas controls
+feat: finalize EQ visualizer UI layout and local playback
 
-- Upgrade EQ to 3 fully configurable Peaking (Bell) bands (Freq, Q, Gain).
-- Implement 2D canvas hit-detection, scaling physical mouse coordinates to internal resolution.
-- Add inverse logarithmic math (`getFreqFromX`) to translate horizontal pixel movement back to precise frequency values.
-- Render draggable control nodes on the EQ peaks with dynamic hover and active visual states.
-- Sync bi-directional state between canvas dragging, Web Audio API filters, and HTML input sliders in real-time.
-- Layer individual faint filter curves beneath the cumulative white polynomial curve for enhanced visual feedback.
+- Add local file upload support using Blob URLs for instant, zero-latency audio preview.
+- Implement Highpass and Lowpass filter bands (Bands 0 and 4) to act as frequency cut-offs.
+- Expand canvas layout: increase height to 400px, add 60px top padding, and draw a horizontal ceiling grid line to perfectly frame the spectrum analyzer.
+- Update hit-detection math and visual routing to safely ignore un-gained cut filters and respect dynamic layout padding.

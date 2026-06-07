@@ -18,7 +18,12 @@ export function initializeAudioEngine(audioElement, sliders) {
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
     const source = audioContext.createMediaElementSource(audioElement);
     
-    // Create Filters (All Peaking/Bell curves now)
+    // Create Filters (Highpass, 3 Peaking, Lowpass)
+    const b0Filter = audioContext.createBiquadFilter();
+    b0Filter.type = 'highpass';
+    b0Filter.frequency.value = sliders.b0.freq.value;
+    b0Filter.Q.value = sliders.b0.q.value;
+    
     const b1Filter = audioContext.createBiquadFilter();
     b1Filter.type = 'peaking';
     b1Filter.frequency.value = sliders.b1.freq.value;
@@ -37,6 +42,11 @@ export function initializeAudioEngine(audioElement, sliders) {
     b3Filter.Q.value = sliders.b3.q.value;
     b3Filter.gain.value = sliders.b3.gain.value;
 
+    const b4Filter = audioContext.createBiquadFilter();
+    b4Filter.type = 'lowpass';
+    b4Filter.frequency.value = sliders.b4.freq.value;
+    b4Filter.Q.value = sliders.b4.q.value;
+
     // Create Pre-EQ Analyser
     const preAnalyser = audioContext.createAnalyser();
     preAnalyser.fftSize = 4096; 
@@ -51,18 +61,20 @@ export function initializeAudioEngine(audioElement, sliders) {
     // Connect Audio Chain
     // Split the raw source: one copy goes to the preAnalyser, the other goes into the EQ chain
     source.connect(preAnalyser);
-    source.connect(b1Filter);
+    source.connect(b0Filter);
     
+    b0Filter.connect(b1Filter);
     b1Filter.connect(b2Filter);
     b2Filter.connect(b3Filter);
+    b3Filter.connect(b4Filter);
     
     // The end of the EQ chain goes into the postAnalyser, and then to the speakers
-    b3Filter.connect(postAnalyser);
+    b4Filter.connect(postAnalyser);
     postAnalyser.connect(audioContext.destination);
 
     return {
         audioContext,
-        filters: [b1Filter, b2Filter, b3Filter],
+        filters: [b0Filter, b1Filter, b2Filter, b3Filter, b4Filter],
         preAnalyser,
         preDataArray,
         postAnalyser,
