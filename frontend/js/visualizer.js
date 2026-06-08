@@ -12,6 +12,13 @@ const BASE_HEIGHT_RATIO = 0.7;        // Max height of bars relative to the cent
 const BASE_VISUAL_MULTIPLIER = 1.1;   // General exaggeration for all audio bars
 const EQ_DELTA_MULTIPLIER = 1.5;      // Exaggeration applied exclusively to changes caused by the EQ sliders
 const GRID_FREQUENCIES = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000];
+const BAND_COLORS = [
+    '255, 165, 0',   // Band 0 (Light Orange)
+    '255, 235, 59',  // Band 1 (Light Yellow)
+    '100, 255, 100', // Band 2 (Light Green)
+    '100, 200, 255', // Band 3 (Light Blue)
+    '200, 100, 255'  // Band 4 (Light Purple)
+];
 
 const canvas = document.getElementById('visualizer');
 const canvasCtx = canvas.getContext('2d');
@@ -104,6 +111,71 @@ function drawGridAndLabels(ctx, width, usableHeight, centerY) {
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
     ctx.lineWidth = 1;
     ctx.stroke();
+}
+
+/**
+ * Draws the top navigation bar, including the 5 colored sections, text labels, and canvas buttons.
+ * 
+ * @param {CanvasRenderingContext2D} ctx - The 2D rendering context for the canvas.
+ * @param {number} width - The total width of the canvas.
+ * @param {Array<BiquadFilterNode>} filters - The array of active Web Audio EQ filters (used to get the mode for buttons).
+ */
+function drawTopNavBar(ctx, width, filters) {
+    // Draw 5 Background Sections in the Top Padding
+    const blockWidth = (width / 5) - 40; // Maintain original block width
+    const gap = 10; // Reduced gap between bands
+    const totalBlocksWidth = (5 * blockWidth) + (4 * gap);
+    const startX = width - 20 - totalBlocksWidth; // Anchor exactly to the right edge (minus 20px padding)
+    
+    const sectionLabels = [
+        "", // Band 0 has HTML buttons overlaid
+        "Band 1 (Low)",
+        "Band 2 (Mid)",
+        "Band 3 (High)",
+        ""  // Band 4 has HTML buttons overlaid
+    ];
+
+    for (let i = 0; i < 5; i++) {
+        const blockX = startX + (i * (blockWidth + gap));
+        
+        // Draw the colored background block (opacity reduced to 0.3)
+        ctx.fillStyle = `rgba(${BAND_COLORS[i]}, 0.3)`;
+        ctx.fillRect(blockX, 10, blockWidth, PADDING_TOP_PX - 20);
+
+        if (sectionLabels[i]) {
+            // Draw the text labels directly onto the canvas for the middle bands
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)'; // Bright white text for readability against colors
+            ctx.font = 'bold 12px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(sectionLabels[i], blockX + (blockWidth / 2), PADDING_TOP_PX / 2);
+        } else {
+            // Draw canvas-based Mode Toggle buttons for Bands 0 and 4
+            const modeName = filters[i].type;
+            const btnText = `Mode: ${modeName.charAt(0).toUpperCase() + modeName.slice(1)}`;
+            
+            // Button Box
+            const btnWidth = 100;
+            const btnHeight = 20;
+            const btnX = blockX + (blockWidth / 2) - (btnWidth / 2);
+            const btnY = (PADDING_TOP_PX / 2) - (btnHeight / 2);
+            
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+            ctx.fillRect(btnX, btnY, btnWidth, btnHeight);
+            
+            // Button Border
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(btnX, btnY, btnWidth, btnHeight);
+            
+            // Button Text
+            ctx.fillStyle = 'white';
+            ctx.font = '12px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(btnText, btnX + (btnWidth / 2), btnY + (btnHeight / 2));
+        }
+    }
 }
 
 /**
@@ -219,14 +291,6 @@ function drawEQCurves(ctx, filters, width, centerY, uiState) {
     ctx.fill();
 
     // Draw Individual Faint Filter Curves (Foreground)
-    const filterRGBs = [
-        '255, 255, 255', // Band 0 (White/Grey for Highpass)
-        '255, 50, 50',   // Band 1 (Red)
-        '50, 255, 50',   // Band 2 (Green)
-        '50, 150, 255',  // Band 3 (Blue)
-        '255, 255, 255'  // Band 4 (White/Grey for Lowpass)
-    ];
-
     magResponses.forEach((magResponse, filterIndex) => {
         ctx.beginPath();
         for (let i = 0; i < numPoints; i++) {
@@ -250,7 +314,7 @@ function drawEQCurves(ctx, filters, width, centerY, uiState) {
             opacity = 0.8;   
         }
 
-        ctx.strokeStyle = `rgba(${filterRGBs[filterIndex]}, ${opacity})`;
+        ctx.strokeStyle = `rgba(${BAND_COLORS[filterIndex]}, ${opacity})`;
         ctx.lineWidth = lineWidth;
         ctx.stroke();
     });
@@ -269,41 +333,43 @@ function drawControlNodes(ctx, filters, width, centerY, uiState) {
     const maxDeltaY = centerY - 2; 
     const pxPerDb = maxDeltaY / 15;
     
-    const nodeColors = [
-        '0, 0, 0',       // Band 0 (Unused)
-        '255, 50, 50',   // Band 1 RGB
-        '50, 255, 50',   // Band 2 RGB
-        '50, 150, 255',  // Band 3 RGB
-        '0, 0, 0'        // Band 4 (Unused)
-    ];
-
     filters.forEach((filter, index) => {
-        // Skip drawing control nodes for Highpass and Lowpass
-        if (index === 0 || index === 4) return;
-        
         const freq = filter.frequency.value;
-        const gain = filter.gain.value;
+        let yOffset;
+        
+        if (filter.type === 'highpass' || filter.type === 'lowpass') {
+            // For Cut filters, Y-axis represents Q (Resonance)
+            yOffset = filter.Q.value * pxPerDb;
+        } else {
+            // For Bell/Shelf filters, Y-axis represents Gain
+            yOffset = filter.gain.value * pxPerDb;
+        }
 
         const x = getLogX(freq, width);
-        const yOffset = gain * pxPerDb;
         // Shift targetY down by PADDING_TOP_PX
         const targetY = PADDING_TOP_PX + centerY - yOffset;
 
         let radius = 6;
         let opacity = 0.4; 
+        let isInteractive = false;
         
         if (uiState.hoveredNode === index || uiState.activeDragBand === index) {
             opacity = 1.0;
+            isInteractive = true;
             if (uiState.activeDragBand === index) radius = 8;
         }
 
         ctx.beginPath();
         ctx.arc(x, targetY, radius, 0, 2 * Math.PI);
-        ctx.fillStyle = `rgba(${nodeColors[index]}, ${opacity})`;
+        ctx.fillStyle = `rgba(${BAND_COLORS[index]}, ${opacity})`;
         ctx.fill();
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = `rgba(255, 255, 255, ${opacity + 0.2})`;
-        ctx.stroke();
+        
+        // Only draw the white border ring if the node is actively hovered or dragged
+        if (isInteractive) {
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = `rgba(255, 255, 255, ${opacity + 0.2})`;
+            ctx.stroke();
+        }
     });
 }
 
@@ -335,6 +401,7 @@ export function drawVisualizer(preAnalyser, preDataArray, postAnalyser, postData
     const centerY = usableHeight / 2;
 
     drawGridAndLabels(canvasCtx, canvas.width, usableHeight, centerY);
+    drawTopNavBar(canvasCtx, canvas.width, filters);
     drawAudioBars(canvasCtx, preAnalyser, preDataArray, postAnalyser, postDataArray, audioContext.sampleRate, canvas.width, usableHeight);
     drawEQCurves(canvasCtx, filters, canvas.width, centerY, uiState);
     if (uiState) {

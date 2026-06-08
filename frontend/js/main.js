@@ -25,31 +25,44 @@ fileInput.addEventListener('change', (e) => {
  * A helper function to group and retrieve the DOM elements associated with a specific EQ band.
  * 
  * @param {string} bandId - The prefix identifier for the HTML elements (e.g., 'b1', 'b2').
- * @param {boolean} hasGain - Whether the band has a gain slider (true for bell, false for HPF/LPF).
+ * @param {boolean} hasToggle - Whether the band has toggleable containers (for pass/shelf).
  * @returns {Object} An object containing references to the interactive input sliders and their corresponding text label display elements.
  */
-const getBandUI = (bandId, hasGain = true) => {
+const getBandUI = (bandId, hasToggle = false) => {
     const ui = {
         freq: document.getElementById(`${bandId}-freq`),
         q: document.getElementById(`${bandId}-q`),
+        gain: document.getElementById(`${bandId}-gain`), // Always grab it, even if hidden initially
         labels: {
             freq: document.getElementById(`${bandId}-freq-val`),
-            q: document.getElementById(`${bandId}-q-val`),
+            q: document.getElementById(`${bandId}-q-val`)
         }
     };
-    if (hasGain) {
-        ui.gain = document.getElementById(`${bandId}-gain`);
+    
+    if (ui.gain) {
         ui.labels.gain = document.getElementById(`${bandId}-gain-val`);
     }
+
+    if (hasToggle) {
+        ui.gainContainer = document.getElementById(`${bandId}-gain-container`);
+        ui.qContainer = document.getElementById(`${bandId}-q-container`);
+    }
+    
     return ui;
 };
 
 const sliders = {
-    b0: getBandUI('b0', false), // Highpass
-    b1: getBandUI('b1', true),  // Bell 1
-    b2: getBandUI('b2', true),  // Bell 2
-    b3: getBandUI('b3', true),  // Bell 3
-    b4: getBandUI('b4', false)  // Lowpass
+    b0: getBandUI('b0', true),  // Highpass/Lowshelf
+    b1: getBandUI('b1'),        // Bell 1
+    b2: getBandUI('b2'),        // Bell 2
+    b3: getBandUI('b3'),        // Bell 3
+    b4: getBandUI('b4', true)   // Lowpass/Highshelf
+};
+
+// Track the current mode of the outer filters
+const filterModes = {
+    b0: 'highpass',
+    b4: 'lowpass'
 };
 
 let audioEngine = null;
@@ -95,26 +108,41 @@ canvas.addEventListener('mousemove', (e) => {
         let newY = mouseY - PADDING_TOP_PX;
         let newX = mouseX;
         
-        // Clamp the Y drag to the +/- 15dB physical boundaries relative to the new usable area
-        const minY = centerY - (15 * pxPerDb);
-        const maxY = centerY - (-15 * pxPerDb);
+        // Determine Y-axis limits depending on what parameter we are controlling
+        const filter = audioEngine.filters[uiState.activeDragBand];
+        const isPassFilter = (filter.type === 'highpass' || filter.type === 'lowpass');
+        const yLimit = isPassFilter ? 20 : 15;
+        
+        // Clamp the Y drag to the physical boundaries relative to the new usable area
+        const minY = centerY - (yLimit * pxPerDb);
+        const maxY = centerY - (-yLimit * pxPerDb);
         if (newY < minY) newY = minY;
         if (newY > maxY) newY = maxY;
 
         // Convert pixels back into audio values
-        const newGain = (centerY - newY) / pxPerDb;
+        const newYValue = (centerY - newY) / pxPerDb;
         const newFreq = getFreqFromX(newX, canvas.width);
         
         // 1. Update the underlying Web Audio API Filter instantly
-        const filter = audioEngine.filters[uiState.activeDragBand];
-        filter.gain.value = newGain;
         filter.frequency.value = newFreq;
 
         // 2. Sync the HTML sliders and text labels
-        const bandKey = `b${uiState.activeDragBand + 1}`;
+        const bandKey = `b${uiState.activeDragBand}`;
         
-        sliders[bandKey].gain.value = newGain;
-        sliders[bandKey].labels.gain.innerText = newGain.toFixed(1);
+        // If it's a Cut filter, Y-axis controls Q. Otherwise, Y-axis controls Gain.
+        if (filter.type === 'highpass' || filter.type === 'lowpass') {
+            filter.Q.value = newYValue;
+            if (sliders[bandKey].q) {
+                sliders[bandKey].q.value = newYValue;
+                sliders[bandKey].labels.q.innerText = newYValue.toFixed(1);
+            }
+        } else {
+            filter.gain.value = newYValue;
+            if (sliders[bandKey].gain) {
+                sliders[bandKey].gain.value = newYValue;
+                sliders[bandKey].labels.gain.innerText = newYValue.toFixed(1);
+            }
+        }
         
         sliders[bandKey].freq.value = newFreq;
         sliders[bandKey].labels.freq.innerText = Math.round(newFreq);
@@ -129,18 +157,27 @@ canvas.addEventListener('mousemove', (e) => {
         // We use a sensitivity multiplier (e.g., 0.02) so it doesn't jump too fast
         let newQ = uiState.startQ - (deltaX * 0.02);
         
-        // Clamp the Q-factor to the limits defined in our HTML sliders (0.1 to 10.0)
-        if (newQ < 0.1) newQ = 0.1;
-        if (newQ > 10.0) newQ = 10.0;
+        // Clamp the Q-factor based on filter type. Cut filters have a +/- 20dB range. Others are 0.1 to 10.0.
+        if (audioEngine.filters[uiState.activeZoneDragBand].type === 'highpass' || audioEngine.filters[uiState.activeZoneDragBand].type === 'lowpass') {
+             if (newQ < -20.0) newQ = -20.0;
+             if (newQ > 20.0) newQ = 20.0;
+        } else {
+             if (newQ < 0.1) newQ = 0.1;
+             if (newQ > 10.0) newQ = 10.0;
+        }
         
         // 1. Update the underlying Web Audio API Filter instantly
         const filter = audioEngine.filters[uiState.activeZoneDragBand];
         filter.Q.value = newQ;
         
         // 2. Sync the HTML slider and text label
-        const bandKey = `b${uiState.activeZoneDragBand + 1}`;
-        sliders[bandKey].q.value = newQ;
-        sliders[bandKey].labels.q.innerText = newQ.toFixed(1);
+        const bandKey = `b${uiState.activeZoneDragBand}`;
+        
+        // Safety check to ensure the band has a Q control currently visible
+        if (sliders[bandKey].q) {
+            sliders[bandKey].q.value = newQ;
+            sliders[bandKey].labels.q.innerText = newQ.toFixed(1);
+        }
         
         // Keep the cursor locked to horizontal resize during the drag
         canvas.style.cursor = 'ew-resize';
@@ -151,13 +188,13 @@ canvas.addEventListener('mousemove', (e) => {
         let hoveredZone = -1;
         
         // 1. Check control circle hitboxes first (highest priority)
-        // Skip filters 0 and 4 because they are highpass/lowpass without gain
         audioEngine.filters.forEach((filter, index) => {
-            if (index === 0 || index === 4) return;
-            
             const nodeX = getLogX(filter.frequency.value, canvas.width);
+            
+            // For Cut filters, Y-axis represents Q. For others, it represents Gain.
+            let yValue = (filter.type === 'highpass' || filter.type === 'lowpass') ? filter.Q.value : filter.gain.value;
             // Re-add PADDING_TOP_PX to nodeY so it matches the physical canvas pixel exactly
-            const nodeY = PADDING_TOP_PX + centerY - (filter.gain.value * pxPerDb);
+            const nodeY = PADDING_TOP_PX + centerY - (yValue * pxPerDb);
             
             const dx = mouseX - nodeX;
             const dy = mouseY - nodeY;
@@ -173,6 +210,8 @@ canvas.addEventListener('mousemove', (e) => {
             const ZONE_WIDTH = 40; // Fixed horizontal width (+/- 20px)
             
             audioEngine.filters.forEach((filter, index) => {
+                // Skip checking zones for Bands 0 and 4 entirely
+                // (They either have no gain, or no Q-factor to stretch)
                 if (index === 0 || index === 4) return;
                 
                 const nodeX = getLogX(filter.frequency.value, canvas.width);
@@ -196,8 +235,29 @@ canvas.addEventListener('mousemove', (e) => {
         uiState.hoveredNode = hoveredNode;
         uiState.hoveredZone = hoveredZone;
         
-        // Change cursor to indicate horizontal dragging when in the zone (but not on the node)
-        if (hoveredZone !== -1 && hoveredNode === -1) {
+        // Check if hovering over canvas mode buttons
+        const blockWidth = (canvas.width / 5) - 40;
+        const gap = 10;
+        const totalBlocksWidth = (5 * blockWidth) + (4 * gap);
+        const startX = canvas.width - 20 - totalBlocksWidth;
+        
+        const btnWidth = 100;
+        const btnHeight = 20;
+        const btnY = (PADDING_TOP_PX / 2) - (btnHeight / 2);
+        
+        const b0BlockX = startX;
+        const b4BlockX = startX + (4 * (blockWidth + gap));
+        
+        const b0BtnX = b0BlockX + (blockWidth / 2) - (btnWidth / 2);
+        const b4BtnX = b4BlockX + (blockWidth / 2) - (btnWidth / 2);
+        
+        const isHoveringB0Btn = mouseX >= b0BtnX && mouseX <= b0BtnX + btnWidth && mouseY >= btnY && mouseY <= btnY + btnHeight;
+        const isHoveringB4Btn = mouseX >= b4BtnX && mouseX <= b4BtnX + btnWidth && mouseY >= btnY && mouseY <= btnY + btnHeight;
+
+        // Change cursor to indicate interactability
+        if (isHoveringB0Btn || isHoveringB4Btn) {
+            canvas.style.cursor = 'pointer';
+        } else if (hoveredZone !== -1 && hoveredNode === -1) {
             canvas.style.cursor = 'ew-resize';
         } else {
             canvas.style.cursor = 'default';
@@ -206,6 +266,68 @@ canvas.addEventListener('mousemove', (e) => {
 });
 
 canvas.addEventListener('mousedown', (e) => {
+    if (!audioEngine) return;
+    
+    // Scale coordinates
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const mouseX = (e.clientX - rect.left) * scaleX;
+    const mouseY = (e.clientY - rect.top) * scaleY;
+
+    // Check if a Canvas Mode Button was clicked
+    const PADDING_TOP_PX = 60;
+    const blockWidth = (canvas.width / 5) - 40;
+    const gap = 10;
+    const totalBlocksWidth = (5 * blockWidth) + (4 * gap);
+    const startX = canvas.width - 20 - totalBlocksWidth;
+    
+    const btnWidth = 100;
+    const btnHeight = 20;
+    const btnY = (PADDING_TOP_PX / 2) - (btnHeight / 2);
+
+    // Band 0 Button Hitbox
+    const b0BlockX = startX;
+    const b0BtnX = b0BlockX + (blockWidth / 2) - (btnWidth / 2);
+    if (mouseX >= b0BtnX && mouseX <= b0BtnX + btnWidth && mouseY >= btnY && mouseY <= btnY + btnHeight) {
+        const filter = audioEngine.filters[0];
+        const band = sliders.b0;
+        if (filterModes.b0 === 'highpass') {
+            filterModes.b0 = 'lowshelf';
+            filter.type = 'lowshelf';
+            band.gainContainer.style.display = 'block';
+            band.qContainer.style.display = 'none';
+            filter.gain.value = parseFloat(band.gain.value);
+        } else {
+            filterModes.b0 = 'highpass';
+            filter.type = 'highpass';
+            band.gainContainer.style.display = 'none';
+            band.qContainer.style.display = 'block';
+        }
+        return; // Stop further hit detection if button was clicked
+    }
+
+    // Band 4 Button Hitbox
+    const b4BlockX = startX + (4 * (blockWidth + gap));
+    const b4BtnX = b4BlockX + (blockWidth / 2) - (btnWidth / 2);
+    if (mouseX >= b4BtnX && mouseX <= b4BtnX + btnWidth && mouseY >= btnY && mouseY <= btnY + btnHeight) {
+        const filter = audioEngine.filters[4];
+        const band = sliders.b4;
+        if (filterModes.b4 === 'lowpass') {
+            filterModes.b4 = 'highshelf';
+            filter.type = 'highshelf';
+            band.gainContainer.style.display = 'block';
+            band.qContainer.style.display = 'none';
+            filter.gain.value = parseFloat(band.gain.value);
+        } else {
+            filterModes.b4 = 'lowpass';
+            filter.type = 'lowpass';
+            band.gainContainer.style.display = 'none';
+            band.qContainer.style.display = 'block';
+        }
+        return; // Stop further hit detection if button was clicked
+    }
+
     // Priority 1: Check if we hit a node (2D movement)
     if (uiState.hoveredNode !== -1) {
         uiState.activeDragBand = uiState.hoveredNode;
@@ -248,11 +370,13 @@ audioEngine = initializeAudioEngine(audioElement, sliders);
         band.labels.freq.innerText = value;
     });
     
-    band.q.addEventListener('input', (e) => {
-        const value = parseFloat(e.target.value);
-        filter.Q.value = value;
-        band.labels.q.innerText = value.toFixed(1);
-    });
+    if (band.q) {
+        band.q.addEventListener('input', (e) => {
+            const value = parseFloat(e.target.value);
+            filter.Q.value = value;
+            band.labels.q.innerText = value.toFixed(1);
+        });
+    }
     
     if (band.gain) {
         band.gain.addEventListener('input', (e) => {
