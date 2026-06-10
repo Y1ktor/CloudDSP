@@ -121,6 +121,32 @@ function drawGridAndLabels(ctx, width, usableHeight, centerY) {
  * @param {Array<BiquadFilterNode>} filters - The array of active Web Audio EQ filters (used to get the mode for buttons).
  */
 function drawTopNavBar(ctx, width, filters, uiState) {
+    // Draw Power Button
+    const powerX = 40;
+    const powerY = PADDING_TOP_PX / 2;
+    const powerRadius = 12;
+    
+    let powerOn = uiState && uiState.globalPower !== undefined ? uiState.globalPower : true;
+    let powerHovered = uiState && uiState.hoveredPowerBtn;
+    
+    let powerOpacity = powerOn ? 0.6 : 0.4;
+    if (powerHovered) powerOpacity += 0.3;
+    
+    const powerColor = powerOn ? `100, 255, 100` : `255, 100, 100`; // Green for ON, Red for OFF
+    
+    ctx.beginPath();
+    // Draw arc from top-right down to top-left, leaving a gap at the top
+    ctx.arc(powerX, powerY, powerRadius, -Math.PI * 0.35, Math.PI * 1.35);
+    ctx.strokeStyle = `rgba(${powerColor}, ${powerOpacity})`;
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    ctx.beginPath();
+    // Draw the vertical line through the gap
+    ctx.moveTo(powerX, powerY - powerRadius + 2);
+    ctx.lineTo(powerX, powerY + 2);
+    ctx.stroke();
+
     // Draw 5 Background Sections in the Top Padding
     const blockWidth = (width / 5) - 40; // Maintain original block width
     const gap = 10; // Reduced gap between bands

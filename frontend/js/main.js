@@ -72,11 +72,14 @@ const uiState = {
     hoveredNode: -1,
     hoveredZone: -1,
     hoveredTopBand: -1,
+    hoveredPowerBtn: false,
+    globalPower: true,
     activeDragBand: -1,
     activeZoneDragBand: -1,
     dragStartX: 0,
     startQ: 1.0,
-    bandStates: [true, true, true, true, true]
+    bandStates: [true, true, true, true, true],
+    savedBandStates: null
 };
 
 const canvas = document.getElementById('visualizer');
@@ -265,8 +268,15 @@ canvas.addEventListener('mousemove', (e) => {
         const isHoveringB0Btn = mouseX >= b0BtnX && mouseX <= b0BtnX + btnWidth && mouseY >= btnY && mouseY <= btnY + btnHeight;
         const isHoveringB4Btn = mouseX >= b4BtnX && mouseX <= b4BtnX + btnWidth && mouseY >= btnY && mouseY <= btnY + btnHeight;
 
+        // Check if hovering over power button
+        const powerX = 40;
+        const powerY = PADDING_TOP_PX / 2;
+        const powerRadius = 12;
+        const distToPower = Math.sqrt(Math.pow(mouseX - powerX, 2) + Math.pow(mouseY - powerY, 2));
+        uiState.hoveredPowerBtn = distToPower <= powerRadius + 4;
+
         // Change cursor to indicate interactability
-        if (isHoveringB0Btn || isHoveringB4Btn) {
+        if (uiState.hoveredPowerBtn || isHoveringB0Btn || isHoveringB4Btn || hoveredTopBand !== -1) {
             canvas.style.cursor = 'pointer';
         } else if (hoveredZone !== -1 && hoveredNode === -1) {
             canvas.style.cursor = 'ew-resize';
@@ -339,11 +349,48 @@ canvas.addEventListener('mousedown', (e) => {
         return; // Stop further hit detection if button was clicked
     }
 
+    // Check Global Power Button Click
+    const powerX = 40;
+    const powerY = PADDING_TOP_PX / 2;
+    const powerRadius = 12;
+    const distToPower = Math.sqrt(Math.pow(mouseX - powerX, 2) + Math.pow(mouseY - powerY, 2));
+    if (distToPower <= powerRadius + 4) {
+        uiState.globalPower = !uiState.globalPower;
+        
+        if (!uiState.globalPower) {
+            // Turning OFF: Save current state, then turn all off
+            uiState.savedBandStates = [...uiState.bandStates];
+            uiState.bandStates.fill(false);
+        } else {
+            // Turning ON: Restore saved state if exists, else turn all on
+            if (uiState.savedBandStates) {
+                uiState.bandStates = [...uiState.savedBandStates];
+                uiState.savedBandStates = null;
+            } else {
+                uiState.bandStates.fill(true);
+            }
+        }
+        
+        rebuildAudioGraph(audioEngine, uiState.bandStates);
+        return;
+    }
+
     // Check if a Top Band Label was clicked (toggling band on/off)
     for (let i = 0; i < 5; i++) {
         const blockX = startX + (i * (blockWidth + gap));
         if (mouseX >= blockX && mouseX <= blockX + blockWidth && mouseY >= 10 && mouseY <= PADDING_TOP_PX - 10) {
             uiState.bandStates[i] = !uiState.bandStates[i];
+            
+            if (uiState.bandStates[i]) {
+                // Turned a band ON: ensure global power is on and discard any saved state
+                uiState.globalPower = true;
+                uiState.savedBandStates = null;
+            } else if (uiState.bandStates.every(state => !state)) {
+                // Turned the LAST active band OFF: set global power off and clear saved state
+                uiState.globalPower = false;
+                uiState.savedBandStates = null;
+            }
+
             rebuildAudioGraph(audioEngine, uiState.bandStates);
             return; // Stop further hit detection
         }
@@ -376,6 +423,7 @@ canvas.addEventListener('mouseleave', () => {
     uiState.hoveredNode = -1;
     uiState.hoveredZone = -1;
     uiState.hoveredTopBand = -1;
+    uiState.hoveredPowerBtn = false;
     canvas.style.cursor = 'default';
 });
 
