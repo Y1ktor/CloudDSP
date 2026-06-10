@@ -120,7 +120,7 @@ function drawGridAndLabels(ctx, width, usableHeight, centerY) {
  * @param {number} width - The total width of the canvas.
  * @param {Array<BiquadFilterNode>} filters - The array of active Web Audio EQ filters (used to get the mode for buttons).
  */
-function drawTopNavBar(ctx, width, filters) {
+function drawTopNavBar(ctx, width, filters, uiState) {
     // Draw 5 Background Sections in the Top Padding
     const blockWidth = (width / 5) - 40; // Maintain original block width
     const gap = 10; // Reduced gap between bands
@@ -129,17 +129,22 @@ function drawTopNavBar(ctx, width, filters) {
     
     const sectionLabels = [
         "", // Band 0 has HTML buttons overlaid
-        "Band 1 (Low)",
-        "Band 2 (Mid)",
-        "Band 3 (High)",
+        "Band 1",
+        "Band 2",
+        "Band 3",
         ""  // Band 4 has HTML buttons overlaid
     ];
 
     for (let i = 0; i < 5; i++) {
         const blockX = startX + (i * (blockWidth + gap));
         
-        // Draw the colored background block (opacity reduced to 0.3)
-        ctx.fillStyle = `rgba(${BAND_COLORS[i]}, 0.3)`;
+        // Draw the colored background block
+        let isBandOn = uiState && uiState.bandStates ? uiState.bandStates[i] : true;
+        let opacity = isBandOn ? 0.6 : 0.2;
+        if (uiState && uiState.hoveredTopBand === i) {
+            opacity = isBandOn ? 0.8 : 0.5;
+        }
+        ctx.fillStyle = `rgba(${BAND_COLORS[i]}, ${opacity})`;
         ctx.fillRect(blockX, 10, blockWidth, PADDING_TOP_PX - 20);
 
         if (sectionLabels[i]) {
@@ -265,6 +270,7 @@ function drawEQCurves(ctx, filters, width, centerY, uiState) {
     for (let i = 0; i < numPoints; i++) {
         let totalMag = 1.0; 
         for (let j = 0; j < magResponses.length; j++) {
+            if (uiState && uiState.bandStates && !uiState.bandStates[j]) continue;
             totalMag *= magResponses[j][i];
         }
         
@@ -307,11 +313,12 @@ function drawEQCurves(ctx, filters, width, centerY, uiState) {
         }
 
         let lineWidth = 1.5;
-        let opacity = 0.25; 
+        let isBandOn = uiState && uiState.bandStates ? uiState.bandStates[filterIndex] : true;
+        let opacity = isBandOn ? 0.25 : 0.2; 
         
-        if (uiState && uiState.hoveredZone === filterIndex) {
+        if (uiState && (uiState.hoveredZone === filterIndex || uiState.hoveredTopBand === filterIndex)) {
             lineWidth = 1.5; 
-            opacity = 0.8;   
+            opacity = isBandOn ? 0.8 : 0.2;   
         }
 
         ctx.strokeStyle = `rgba(${BAND_COLORS[filterIndex]}, ${opacity})`;
@@ -401,7 +408,7 @@ export function drawVisualizer(preAnalyser, preDataArray, postAnalyser, postData
     const centerY = usableHeight / 2;
 
     drawGridAndLabels(canvasCtx, canvas.width, usableHeight, centerY);
-    drawTopNavBar(canvasCtx, canvas.width, filters);
+    drawTopNavBar(canvasCtx, canvas.width, filters, uiState);
     drawAudioBars(canvasCtx, preAnalyser, preDataArray, postAnalyser, postDataArray, audioContext.sampleRate, canvas.width, usableHeight);
     drawEQCurves(canvasCtx, filters, canvas.width, centerY, uiState);
     if (uiState) {

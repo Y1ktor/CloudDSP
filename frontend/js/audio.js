@@ -74,10 +74,43 @@ export function initializeAudioEngine(audioElement, sliders) {
 
     return {
         audioContext,
+        source,
         filters: [b0Filter, b1Filter, b2Filter, b3Filter, b4Filter],
         preAnalyser,
         preDataArray,
         postAnalyser,
         postDataArray
     };
+}
+
+/**
+ * Rebuilds the audio routing graph, allowing specific EQ bands to be bypassed.
+ * 
+ * @param {Object} audioEngine - The core audio components object.
+ * @param {Array<boolean>} bandStates - Array of 5 booleans representing the ON/OFF state of each band.
+ */
+export function rebuildAudioGraph(audioEngine, bandStates) {
+    const { source, filters, preAnalyser, postAnalyser, audioContext } = audioEngine;
+    
+    // 1. Disconnect everything
+    source.disconnect();
+    filters.forEach(f => f.disconnect());
+    postAnalyser.disconnect();
+
+    // 2. Re-connect preAnalyser (always receives raw source)
+    source.disconnect(preAnalyser); // make sure it's disconnected first if needed, though we just did above
+    source.connect(preAnalyser);
+
+    // 3. Rebuild the EQ chain
+    let currentNode = source;
+    for (let i = 0; i < 5; i++) {
+        if (bandStates[i]) {
+            currentNode.connect(filters[i]);
+            currentNode = filters[i];
+        }
+    }
+
+    // 4. Connect to postAnalyser and destination
+    currentNode.connect(postAnalyser);
+    postAnalyser.connect(audioContext.destination);
 }

@@ -1,6 +1,6 @@
 // main.js
 // Controller file connecting UI, Audio, and Visualizer modules
-import { initializeAudioEngine } from './audio.js';
+import { initializeAudioEngine, rebuildAudioGraph } from './audio.js';
 import { drawVisualizer, getLogX, getFreqFromX } from './visualizer.js';
 
 const audioElement = document.getElementById('audio-source');
@@ -71,10 +71,12 @@ let audioEngine = null;
 const uiState = {
     hoveredNode: -1,
     hoveredZone: -1,
+    hoveredTopBand: -1,
     activeDragBand: -1,
     activeZoneDragBand: -1,
     dragStartX: 0,
-    startQ: 1.0
+    startQ: 1.0,
+    bandStates: [true, true, true, true, true]
 };
 
 const canvas = document.getElementById('visualizer');
@@ -235,11 +237,20 @@ canvas.addEventListener('mousemove', (e) => {
         uiState.hoveredNode = hoveredNode;
         uiState.hoveredZone = hoveredZone;
         
-        // Check if hovering over canvas mode buttons
+        // Check if hovering over canvas mode buttons or top band labels
         const blockWidth = (canvas.width / 5) - 40;
         const gap = 10;
         const totalBlocksWidth = (5 * blockWidth) + (4 * gap);
         const startX = canvas.width - 20 - totalBlocksWidth;
+        
+        let hoveredTopBand = -1;
+        for (let i = 0; i < 5; i++) {
+            const blockX = startX + (i * (blockWidth + gap));
+            if (mouseX >= blockX && mouseX <= blockX + blockWidth && mouseY >= 10 && mouseY <= PADDING_TOP_PX - 10) {
+                hoveredTopBand = i;
+            }
+        }
+        uiState.hoveredTopBand = hoveredTopBand;
         
         const btnWidth = 100;
         const btnHeight = 20;
@@ -328,6 +339,16 @@ canvas.addEventListener('mousedown', (e) => {
         return; // Stop further hit detection if button was clicked
     }
 
+    // Check if a Top Band Label was clicked (toggling band on/off)
+    for (let i = 0; i < 5; i++) {
+        const blockX = startX + (i * (blockWidth + gap));
+        if (mouseX >= blockX && mouseX <= blockX + blockWidth && mouseY >= 10 && mouseY <= PADDING_TOP_PX - 10) {
+            uiState.bandStates[i] = !uiState.bandStates[i];
+            rebuildAudioGraph(audioEngine, uiState.bandStates);
+            return; // Stop further hit detection
+        }
+    }
+
     // Priority 1: Check if we hit a node (2D movement)
     if (uiState.hoveredNode !== -1) {
         uiState.activeDragBand = uiState.hoveredNode;
@@ -354,6 +375,7 @@ canvas.addEventListener('mouseleave', () => {
     uiState.activeZoneDragBand = -1;
     uiState.hoveredNode = -1;
     uiState.hoveredZone = -1;
+    uiState.hoveredTopBand = -1;
     canvas.style.cursor = 'default';
 });
 
