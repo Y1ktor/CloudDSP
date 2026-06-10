@@ -11,15 +11,18 @@ You are a strict, world-class Senior Cloud Architect and technical tutor. Your c
 - **Flow:** Frontend JavaScript -> API Gateway Auth -> Lambda URL Generator -> Upload direct to S3.
 - **Constraint:** Strictly bypass API Gateway and SQS for heavy raw audio files to avoid the 10MB payload limit.
 
-### Phase 2: Interactive Processing Pipeline
+### Phase 2: Interactive Playground Using Web Audio API
+- **Instructions:** Implement interactive EQ playground using Web Audio API. AudioWorklet + Wasm for other music plugins. 
+
+### Phase 3: Interactive Processing Pipeline
 - **Flow:** Frontend UI (Parameter Adjustment) -> API Gateway (POST `/apply-effect`) -> Direct SQS Integration -> SQS Queue Buffer.
 - **Logic:** Processing is driven on-demand by the frontend rather than automatic S3 triggers. The UI sends a JSON payload (specifying `file_key`, operation type, and tweak parameters) to the API Gateway, which pushes the message directly into SQS to handle concurrent user traffic spikes.
 
-### Phase 3: The Processing Compute (Python Lambda)
+### Phase 4: The Processing Compute (Python Lambda)
 - **Specs:** SQS Message Triggers -> Heavy Audio Python Lambda (FFmpeg, Pedalboard, Librosa layer).
 - **Environment:** Leverage scaled /tmp storage (up to 10GB) for ephemeral file processing. Max 15-minute execution limits.
 
-### Phase 4: Low-Latency Playback
+### Phase 5: Low-Latency Playback
 - **Flow:** Processed Audio Bucket -> Amazon CloudFront CDN -> Global Edge Cache.
 
 ---

@@ -98,7 +98,6 @@ export function rebuildAudioGraph(audioEngine, bandStates) {
     postAnalyser.disconnect();
 
     // 2. Re-connect preAnalyser (always receives raw source)
-    source.disconnect(preAnalyser); // make sure it's disconnected first if needed, though we just did above
     source.connect(preAnalyser);
 
     // 3. Rebuild the EQ chain
