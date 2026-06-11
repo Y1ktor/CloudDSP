@@ -9,12 +9,58 @@ const fileInput = document.getElementById('audio-upload');
 // Custom Audio Player UI Elements
 const playPauseBtn = document.getElementById('play-pause-btn');
 const goToBeginningBtn = document.getElementById('go-to-beginning-btn');
+const recordBtn = document.getElementById('record-btn');
 const playIcon = document.getElementById('play-icon');
 const pauseIcon = document.getElementById('pause-icon');
 const seekBar = document.getElementById('seek-bar');
 const timeDisplay = document.getElementById('time-display');
 const volumeSlider = document.getElementById('volume-slider');
 const fileNameDisplay = document.getElementById('file-name-display');
+const canvasContainer = document.querySelector('.canvas-container');
+
+// Recording State Machine
+let recordState = 'idle'; // 'idle', 'preparing', 'recording'
+let countdownInterval = null;
+
+const updateRecordUI = (content) => {
+    recordBtn.innerHTML = content;
+};
+
+const circleIcon = `<div style="width: 14px; height: 14px; background-color: #ff3b3b; border-radius: 50%;"></div>`;
+
+recordBtn.addEventListener('click', () => {
+    if (recordState === 'idle') {
+        // Start prep
+        recordState = 'preparing';
+        let count = 3;
+        updateRecordUI(`<span class="countdown-text">${count}</span>`);
+        
+        countdownInterval = setInterval(() => {
+            count--;
+            if (count > 0) {
+                updateRecordUI(`<span class="countdown-text">${count}</span>`);
+            } else {
+                // Prep finished, start recording
+                clearInterval(countdownInterval);
+                recordState = 'recording';
+                updateRecordUI(circleIcon);
+                recordBtn.classList.add('is-recording');
+            }
+        }, 1000);
+        
+    } else if (recordState === 'preparing') {
+        // Cancel prep
+        clearInterval(countdownInterval);
+        recordState = 'idle';
+        updateRecordUI(circleIcon);
+        
+    } else if (recordState === 'recording') {
+        // Stop recording
+        recordState = 'idle';
+        recordBtn.classList.remove('is-recording');
+        // Future: trigger audio export logic here
+    }
+});
 
 // Helper to format seconds to M:SS
 const formatTime = (timeInSeconds) => {
@@ -170,6 +216,7 @@ const uiState = {
     hoveredNode: -1,
     hoveredZone: -1,
     hoveredTopBand: -1,
+    hoveredBadge: -1,
     hoveredPowerBtn: false,
     globalPower: true,
     activeDragBand: -1,
@@ -199,7 +246,7 @@ canvas.addEventListener('mousemove', (e) => {
 
     // Mathematical constants identical to visualizer.js
     const PADDING_BOTTOM_PX = 20;
-    const PADDING_TOP_PX = 60;
+    const PADDING_TOP_PX = 40;
     const usableHeight = canvas.height - PADDING_BOTTOM_PX - PADDING_TOP_PX;
     const centerY = usableHeight / 2;
     const maxDeltaY = centerY - 2; 
@@ -345,27 +392,33 @@ canvas.addEventListener('mousemove', (e) => {
         const startX = canvas.width - 20 - totalBlocksWidth;
         
         let hoveredTopBand = -1;
+        let hoveredBadge = -1;
         for (let i = 0; i < 5; i++) {
             const blockX = startX + (i * (blockWidth + gap));
             if (mouseX >= blockX && mouseX <= blockX + blockWidth && mouseY >= 10 && mouseY <= PADDING_TOP_PX - 10) {
-                hoveredTopBand = i;
+                
+                // Check explicitly if we hit the right-side badge area for Bands 0 and 4
+                let hitBadge = false;
+                if (i === 0 || i === 4) {
+                    const badgeW = 24;
+                    const badgeH = 16;
+                    const badgeX = blockX + (blockWidth / 2) + 10;
+                    const badgeY = (PADDING_TOP_PX / 2) - (badgeH / 2);
+                    if (mouseX >= badgeX && mouseX <= badgeX + badgeW && mouseY >= badgeY && mouseY <= badgeY + badgeH) {
+                        hoveredBadge = i;
+                        hitBadge = true;
+                    }
+                }
+                
+                // If not hitting the badge, then we are hovering the main band
+                if (!hitBadge) {
+                    hoveredTopBand = i;
+                }
             }
         }
         uiState.hoveredTopBand = hoveredTopBand;
+        uiState.hoveredBadge = hoveredBadge;
         
-        const btnWidth = 100;
-        const btnHeight = 20;
-        const btnY = (PADDING_TOP_PX / 2) - (btnHeight / 2);
-        
-        const b0BlockX = startX;
-        const b4BlockX = startX + (4 * (blockWidth + gap));
-        
-        const b0BtnX = b0BlockX + (blockWidth / 2) - (btnWidth / 2);
-        const b4BtnX = b4BlockX + (blockWidth / 2) - (btnWidth / 2);
-        
-        const isHoveringB0Btn = mouseX >= b0BtnX && mouseX <= b0BtnX + btnWidth && mouseY >= btnY && mouseY <= btnY + btnHeight;
-        const isHoveringB4Btn = mouseX >= b4BtnX && mouseX <= b4BtnX + btnWidth && mouseY >= btnY && mouseY <= btnY + btnHeight;
-
         // Check if hovering over power button
         const powerX = 40;
         const powerY = PADDING_TOP_PX / 2;
@@ -374,7 +427,7 @@ canvas.addEventListener('mousemove', (e) => {
         uiState.hoveredPowerBtn = distToPower <= powerRadius + 4;
 
         // Change cursor to indicate interactability
-        if (uiState.hoveredPowerBtn || isHoveringB0Btn || isHoveringB4Btn || hoveredTopBand !== -1) {
+        if (uiState.hoveredPowerBtn || uiState.hoveredBadge !== -1 || hoveredTopBand !== -1) {
             canvas.style.cursor = 'pointer';
         } else if (hoveredZone !== -1 && hoveredNode === -1) {
             canvas.style.cursor = 'ew-resize';
@@ -395,56 +448,52 @@ canvas.addEventListener('mousedown', (e) => {
     const mouseY = (e.clientY - rect.top) * scaleY;
 
     // Check if a Canvas Mode Button was clicked
-    const PADDING_TOP_PX = 60;
+    const PADDING_TOP_PX = 40;
     const blockWidth = (canvas.width / 7) - 10;
     const gap = 8;
     const totalBlocksWidth = (5 * blockWidth) + (4 * gap);
     const startX = canvas.width - 20 - totalBlocksWidth;
     
-    const btnWidth = 100;
-    const btnHeight = 20;
-    const btnY = (PADDING_TOP_PX / 2) - (btnHeight / 2);
-
-    // Band 0 Button Hitbox
-    const b0BlockX = startX;
-    const b0BtnX = b0BlockX + (blockWidth / 2) - (btnWidth / 2);
-    if (mouseX >= b0BtnX && mouseX <= b0BtnX + btnWidth && mouseY >= btnY && mouseY <= btnY + btnHeight) {
-        const filter = audioEngine.filters[0];
-        const band = sliders.b0;
-        if (filterModes.b0 === 'highpass') {
-            filterModes.b0 = 'lowshelf';
-            filter.type = 'lowshelf';
-            band.gainContainer.style.display = 'block';
-            band.qContainer.style.display = 'none';
-            filter.gain.value = parseFloat(band.gain.value);
-        } else {
-            filterModes.b0 = 'highpass';
-            filter.type = 'highpass';
-            band.gainContainer.style.display = 'none';
-            band.qContainer.style.display = 'block';
+    // Check Badge Hits for Mode Toggles (Bands 0 and 4)
+    for (let i of [0, 4]) {
+        const blockX = startX + (i * (blockWidth + gap));
+        const badgeW = 24;
+        const badgeH = 16;
+        const badgeX = blockX + (blockWidth / 2) + 10;
+        const badgeY = (PADDING_TOP_PX / 2) - (badgeH / 2);
+        
+        if (mouseX >= badgeX && mouseX <= badgeX + badgeW && mouseY >= badgeY && mouseY <= badgeY + badgeH) {
+            const filter = audioEngine.filters[i];
+            const band = sliders[`b${i}`];
+            if (i === 0) {
+                if (filterModes.b0 === 'highpass') {
+                    filterModes.b0 = 'lowshelf';
+                    filter.type = 'lowshelf';
+                    band.gainContainer.style.display = 'block';
+                    band.qContainer.style.display = 'none';
+                    filter.gain.value = parseFloat(band.gain.value);
+                } else {
+                    filterModes.b0 = 'highpass';
+                    filter.type = 'highpass';
+                    band.gainContainer.style.display = 'none';
+                    band.qContainer.style.display = 'block';
+                }
+            } else if (i === 4) {
+                if (filterModes.b4 === 'lowpass') {
+                    filterModes.b4 = 'highshelf';
+                    filter.type = 'highshelf';
+                    band.gainContainer.style.display = 'block';
+                    band.qContainer.style.display = 'none';
+                    filter.gain.value = parseFloat(band.gain.value);
+                } else {
+                    filterModes.b4 = 'lowpass';
+                    filter.type = 'lowpass';
+                    band.gainContainer.style.display = 'none';
+                    band.qContainer.style.display = 'block';
+                }
+            }
+            return; // Stop further hit detection
         }
-        return; // Stop further hit detection if button was clicked
-    }
-
-    // Band 4 Button Hitbox
-    const b4BlockX = startX + (4 * (blockWidth + gap));
-    const b4BtnX = b4BlockX + (blockWidth / 2) - (btnWidth / 2);
-    if (mouseX >= b4BtnX && mouseX <= b4BtnX + btnWidth && mouseY >= btnY && mouseY <= btnY + btnHeight) {
-        const filter = audioEngine.filters[4];
-        const band = sliders.b4;
-        if (filterModes.b4 === 'lowpass') {
-            filterModes.b4 = 'highshelf';
-            filter.type = 'highshelf';
-            band.gainContainer.style.display = 'block';
-            band.qContainer.style.display = 'none';
-            filter.gain.value = parseFloat(band.gain.value);
-        } else {
-            filterModes.b4 = 'lowpass';
-            filter.type = 'lowpass';
-            band.gainContainer.style.display = 'none';
-            band.qContainer.style.display = 'block';
-        }
-        return; // Stop further hit detection if button was clicked
     }
 
     // Check Global Power Button Click
@@ -521,6 +570,7 @@ canvas.addEventListener('mouseleave', () => {
     uiState.hoveredNode = -1;
     uiState.hoveredZone = -1;
     uiState.hoveredTopBand = -1;
+    uiState.hoveredBadge = -1;
     uiState.hoveredPowerBtn = false;
     canvas.style.cursor = 'default';
 });

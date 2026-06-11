@@ -122,6 +122,22 @@ h1 {
     box-shadow: 0 8px 16px rgba(0,0,0,0.5);
 }
 
+#record-btn {
+    transition: background-color 0.2s, box-shadow 0.3s;
+}
+
+#record-btn.is-recording {
+    box-shadow: 0 0 0 2px #ff3b3b;
+    border-radius: 4px; /* Make it a square-ish border around the circular button */
+}
+
+.countdown-text {
+    color: white; /* Same color as play button icons */
+    font-weight: bold;
+    font-size: 16px;
+    font-family: monospace;
+}
+
 /* Bottom Band Controls Layout */
 .bands-container {
     margin-top: 20px;

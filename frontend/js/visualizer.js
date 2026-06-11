@@ -7,7 +7,7 @@
 const MIN_FREQ_HZ = 20;               // Left boundary of the EQ graph
 const MAX_FREQ_HZ = 20000;            // Right boundary of the EQ graph
 const PADDING_BOTTOM_PX = 20;         // Space reserved at the bottom for text labels
-const PADDING_TOP_PX = 60;            // Space reserved at the top (3x bottom padding)
+const PADDING_TOP_PX = 40;            // Space reserved at the top (3x bottom padding)
 const BASE_HEIGHT_RATIO = 0.7;        // Max height of bars relative to the center line (0.7 = 70%)
 const BASE_VISUAL_MULTIPLIER = 1.1;   // General exaggeration for all audio bars
 const EQ_DELTA_MULTIPLIER = 1.5;      // Exaggeration applied exclusively to changes caused by the EQ sliders
@@ -154,11 +154,11 @@ function drawTopNavBar(ctx, width, filters, uiState) {
     const startX = width - 20 - totalBlocksWidth; // Anchor exactly to the right edge (minus 20px padding)
     
     const sectionLabels = [
-        "", // Band 0 has HTML buttons overlaid
+        "Band 0",
         "Band 1",
         "Band 2",
         "Band 3",
-        ""  // Band 4 has HTML buttons overlaid
+        "Band 4"
     ];
 
     for (let i = 0; i < 5; i++) {
@@ -166,45 +166,60 @@ function drawTopNavBar(ctx, width, filters, uiState) {
         
         // Draw the colored background block
         let isBandOn = uiState && uiState.bandStates ? uiState.bandStates[i] : true;
-        let opacity = isBandOn ? 0.6 : 0.2;
+        let opacity = 0; // No background when idle
         if (uiState && uiState.hoveredTopBand === i) {
-            opacity = isBandOn ? 0.8 : 0.5;
+            opacity = 0.3; // 0.3 opacity when hovered, regardless of state
         }
         ctx.fillStyle = `rgba(${BAND_COLORS[i]}, ${opacity})`;
         ctx.fillRect(blockX, 10, blockWidth, PADDING_TOP_PX - 20);
 
         if (sectionLabels[i]) {
             // Draw the text labels directly onto the canvas for the middle bands
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)'; // Bright white text for readability against colors
+            let textOpacity = isBandOn ? 1.0 : 0.4;
+            ctx.fillStyle = `rgba(${BAND_COLORS[i]}, ${textOpacity})`;
             ctx.font = 'bold 12px Arial';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText(sectionLabels[i], blockX + (blockWidth / 2), PADDING_TOP_PX / 2);
+            
+            if (i === 0 || i === 4) {
+                // Shift main label left to make room for badge
+                ctx.fillText(sectionLabels[i], blockX + (blockWidth / 2) - 15, PADDING_TOP_PX / 2);
+                
+                // Draw Mode Badge
+                const modeName = filters[i].type;
+                let badgeText = '';
+                if (modeName === 'highpass') badgeText = 'HP';
+                else if (modeName === 'lowshelf') badgeText = 'LS';
+                else if (modeName === 'lowpass') badgeText = 'LP';
+                else if (modeName === 'highshelf') badgeText = 'HS';
+                
+                const badgeW = 24;
+                const badgeH = 16;
+                const badgeX = blockX + (blockWidth / 2) + 10;
+                const badgeY = (PADDING_TOP_PX / 2) - (badgeH / 2);
+                
+                let isBadgeHovered = uiState && uiState.hoveredBadge === i;
+                let badgeOpacity = isBadgeHovered ? 1.0 : (isBandOn ? 0.6 : 0.3);
+                
+                ctx.fillStyle = `rgba(${BAND_COLORS[i]}, 0.1)`;
+                ctx.beginPath();
+                ctx.roundRect ? ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 3) : ctx.rect(badgeX, badgeY, badgeW, badgeH);
+                ctx.fill();
+                
+                ctx.strokeStyle = `rgba(${BAND_COLORS[i]}, ${badgeOpacity})`;
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.roundRect ? ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 3) : ctx.rect(badgeX, badgeY, badgeW, badgeH);
+                ctx.stroke();
+                
+                ctx.fillStyle = `rgba(${BAND_COLORS[i]}, ${badgeOpacity})`;
+                ctx.font = 'bold 9px Arial';
+                ctx.fillText(badgeText, badgeX + (badgeW / 2), PADDING_TOP_PX / 2);
+            } else {
+                ctx.fillText(sectionLabels[i], blockX + (blockWidth / 2), PADDING_TOP_PX / 2);
+            }
         } else {
-            // Draw canvas-based Mode Toggle buttons for Bands 0 and 4
-            const modeName = filters[i].type;
-            const btnText = `Mode: ${modeName.charAt(0).toUpperCase() + modeName.slice(1)}`;
-            
-            // Button Box
-            const btnWidth = 100;
-            const btnHeight = 20;
-            const btnX = blockX + (blockWidth / 2) - (btnWidth / 2);
-            const btnY = (PADDING_TOP_PX / 2) - (btnHeight / 2);
-            
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-            ctx.fillRect(btnX, btnY, btnWidth, btnHeight);
-            
-            // Button Border
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-            ctx.lineWidth = 1;
-            ctx.strokeRect(btnX, btnY, btnWidth, btnHeight);
-            
-            // Button Text
-            ctx.fillStyle = 'white';
-            ctx.font = '12px Arial';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(btnText, btnX + (btnWidth / 2), btnY + (btnHeight / 2));
+            // This else block is no longer needed but kept empty for safety, will be removed.
         }
     }
 }
