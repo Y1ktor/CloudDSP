@@ -43,9 +43,15 @@ export function initializeAudioEngine(audioElement, sliders) {
     b3Filter.gain.value = sliders.b3.gain.value;
 
     const b4Filter = audioContext.createBiquadFilter();
-    b4Filter.type = 'lowpass';
+    b4Filter.type = 'peaking';
     b4Filter.frequency.value = sliders.b4.freq.value;
     b4Filter.Q.value = sliders.b4.q.value;
+    b4Filter.gain.value = sliders.b4.gain.value;
+
+    const b5Filter = audioContext.createBiquadFilter();
+    b5Filter.type = 'lowpass';
+    b5Filter.frequency.value = sliders.b5.freq.value;
+    b5Filter.Q.value = sliders.b5.q.value;
 
     // Create Pre-EQ Analyser
     const preAnalyser = audioContext.createAnalyser();
@@ -67,15 +73,16 @@ export function initializeAudioEngine(audioElement, sliders) {
     b1Filter.connect(b2Filter);
     b2Filter.connect(b3Filter);
     b3Filter.connect(b4Filter);
+    b4Filter.connect(b5Filter);
     
     // The end of the EQ chain goes into the postAnalyser, and then to the speakers
-    b4Filter.connect(postAnalyser);
+    b5Filter.connect(postAnalyser);
     postAnalyser.connect(audioContext.destination);
 
     return {
         audioContext,
         source,
-        filters: [b0Filter, b1Filter, b2Filter, b3Filter, b4Filter],
+        filters: [b0Filter, b1Filter, b2Filter, b3Filter, b4Filter, b5Filter],
         preAnalyser,
         preDataArray,
         postAnalyser,
@@ -102,7 +109,7 @@ export function rebuildAudioGraph(audioEngine, bandStates) {
 
     // 3. Rebuild the EQ chain
     let currentNode = source;
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 6; i++) {
         if (bandStates[i]) {
             currentNode.connect(filters[i]);
             currentNode = filters[i];

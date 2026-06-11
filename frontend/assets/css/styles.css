@@ -123,6 +123,10 @@ h1 {
 }
 
 #record-btn {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    margin: 0 5px;
     transition: background-color 0.2s, box-shadow 0.3s;
 }
 

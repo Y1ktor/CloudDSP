@@ -17,7 +17,8 @@ const BAND_COLORS = [
     '255, 235, 59',  // Band 1 (Light Yellow)
     '100, 255, 100', // Band 2 (Light Green)
     '100, 200, 255', // Band 3 (Light Blue)
-    '200, 100, 255'  // Band 4 (Light Purple)
+    '200, 100, 255', // Band 4 (Light Purple)
+    '255, 100, 200'  // Band 5 (Light Pink)
 ];
 
 const canvas = document.getElementById('visualizer');
@@ -147,10 +148,10 @@ function drawTopNavBar(ctx, width, filters, uiState) {
     ctx.lineTo(powerX, powerY + 2);
     ctx.stroke();
 
-    // Draw 5 Background Sections in the Top Padding
-    const blockWidth = (width / 7) - 10; // Decrease width to make room for audio player on the left
+    // Draw 6 Background Sections in the Top Padding
+    const blockWidth = (width / 8) - 10; // Decrease width to make room for audio player on the left
     const gap = 8; // Reduced gap between bands
-    const totalBlocksWidth = (5 * blockWidth) + (4 * gap);
+    const totalBlocksWidth = (6 * blockWidth) + (5 * gap);
     const startX = width - 20 - totalBlocksWidth; // Anchor exactly to the right edge (minus 20px padding)
     
     const sectionLabels = [
@@ -158,10 +159,11 @@ function drawTopNavBar(ctx, width, filters, uiState) {
         "Band 1",
         "Band 2",
         "Band 3",
-        "Band 4"
+        "Band 4",
+        "Band 5"
     ];
 
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 6; i++) {
         const blockX = startX + (i * (blockWidth + gap));
         
         // Draw the colored background block
@@ -181,7 +183,7 @@ function drawTopNavBar(ctx, width, filters, uiState) {
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             
-            if (i === 0 || i === 4) {
+            if (i === 0 || i === 5) {
                 // Shift main label left to make room for badge
                 ctx.fillText(sectionLabels[i], blockX + (blockWidth / 2) - 15, PADDING_TOP_PX / 2);
                 

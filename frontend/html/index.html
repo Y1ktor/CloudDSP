@@ -80,8 +80,8 @@
         <!-- Band 2 -->
         <div class="band-card">
             <h4>Band 2 (Bell)</h4>
-            <label>Freq: <span id="b2-freq-val">1000</span> Hz</label><br>
-            <input type="range" id="b2-freq" min="20" max="20000" value="1000" step="1"><br>
+            <label>Freq: <span id="b2-freq-val">500</span> Hz</label><br>
+            <input type="range" id="b2-freq" min="20" max="20000" value="500" step="1"><br>
             
             <label>Q-Factor: <span id="b2-q-val">1.0</span></label><br>
             <input type="range" id="b2-q" min="0.1" max="10" value="1.0" step="0.1"><br>
@@ -93,8 +93,8 @@
         <!-- Band 3 -->
         <div class="band-card">
             <h4>Band 3 (Bell)</h4>
-            <label>Freq: <span id="b3-freq-val">5000</span> Hz</label><br>
-            <input type="range" id="b3-freq" min="20" max="20000" value="5000" step="1"><br>
+            <label>Freq: <span id="b3-freq-val">2000</span> Hz</label><br>
+            <input type="range" id="b3-freq" min="20" max="20000" value="2000" step="1"><br>
             
             <label>Q-Factor: <span id="b3-q-val">1.0</span></label><br>
             <input type="range" id="b3-q" min="0.1" max="10" value="1.0" step="0.1"><br>
@@ -103,20 +103,33 @@
             <input type="range" id="b3-gain" min="-15" max="15" value="0" step="0.1">
         </div>
 
-        <!-- Band 4 (Lowpass/Highshelf) -->
+        <!-- Band 4 (Bell) -->
         <div class="band-card">
-            <h4>Band 4</h4>
-            <label>Freq: <span id="b4-freq-val">20000</span> Hz</label><br>
-            <input type="range" id="b4-freq" min="200" max="20000" value="20000" step="1"><br>
+            <h4>Band 4 (Bell)</h4>
+            <label>Freq: <span id="b4-freq-val">5000</span> Hz</label><br>
+            <input type="range" id="b4-freq" min="20" max="20000" value="5000" step="1"><br>
             
-            <div id="b4-q-container">
-                <label>Q (Resonance): <span id="b4-q-val">0</span> dB</label><br>
-                <input type="range" id="b4-q" min="-20" max="20" value="0" step="0.1"><br>
+            <label>Q-Factor: <span id="b4-q-val">1.0</span></label><br>
+            <input type="range" id="b4-q" min="0.1" max="10" value="1.0" step="0.1"><br>
+
+            <label>Gain: <span id="b4-gain-val">0</span> dB</label><br>
+            <input type="range" id="b4-gain" min="-15" max="15" value="0" step="0.1">
+        </div>
+
+        <!-- Band 5 (Lowpass/Highshelf) -->
+        <div class="band-card">
+            <h4>Band 5</h4>
+            <label>Freq: <span id="b5-freq-val">20000</span> Hz</label><br>
+            <input type="range" id="b5-freq" min="200" max="20000" value="20000" step="1"><br>
+            
+            <div id="b5-q-container">
+                <label>Q (Resonance): <span id="b5-q-val">0</span> dB</label><br>
+                <input type="range" id="b5-q" min="-20" max="20" value="0" step="0.1"><br>
             </div>
 
-            <div id="b4-gain-container" style="display: none;">
-                <label>Gain: <span id="b4-gain-val">0</span> dB</label><br>
-                <input type="range" id="b4-gain" min="-15" max="15" value="0" step="0.1">
+            <div id="b5-gain-container" style="display: none;">
+                <label>Gain: <span id="b5-gain-val">0</span> dB</label><br>
+                <input type="range" id="b5-gain" min="-15" max="15" value="0" step="0.1">
             </div>
         </div>
     </div>

@@ -45,6 +45,12 @@ recordBtn.addEventListener('click', () => {
                 recordState = 'recording';
                 updateRecordUI(circleIcon);
                 recordBtn.classList.add('is-recording');
+                
+                // Start playback automatically
+                if (audioEngine && audioEngine.audioContext.state === 'suspended') {
+                    audioEngine.audioContext.resume();
+                }
+                audioElement.play();
             }
         }, 1000);
         
@@ -58,6 +64,10 @@ recordBtn.addEventListener('click', () => {
         // Stop recording
         recordState = 'idle';
         recordBtn.classList.remove('is-recording');
+        
+        // Pause playback automatically
+        audioElement.pause();
+        
         // Future: trigger audio export logic here
     }
 });
@@ -200,13 +210,14 @@ const sliders = {
     b1: getBandUI('b1'),        // Bell 1
     b2: getBandUI('b2'),        // Bell 2
     b3: getBandUI('b3'),        // Bell 3
-    b4: getBandUI('b4', true)   // Lowpass/Highshelf
+    b4: getBandUI('b4'),        // Bell 4
+    b5: getBandUI('b5', true)   // Lowpass/Highshelf
 };
 
 // Track the current mode of the outer filters
 const filterModes = {
     b0: 'highpass',
-    b4: 'lowpass'
+    b5: 'lowpass'
 };
 
 let audioEngine = null;
@@ -223,7 +234,7 @@ const uiState = {
     activeZoneDragBand: -1,
     dragStartX: 0,
     startQ: 1.0,
-    bandStates: [true, true, true, true, true],
+    bandStates: [true, true, true, true, true, true],
     savedBandStates: null
 };
 
@@ -360,9 +371,9 @@ canvas.addEventListener('mousemove', (e) => {
             const ZONE_WIDTH = 40; // Fixed horizontal width (+/- 20px)
             
             audioEngine.filters.forEach((filter, index) => {
-                // Skip checking zones for Bands 0 and 4 entirely
+                // Skip checking zones for Bands 0 and 5 entirely
                 // (They either have no gain, or no Q-factor to stretch)
-                if (index === 0 || index === 4) return;
+                if (index === 0 || index === 5) return;
                 
                 const nodeX = getLogX(filter.frequency.value, canvas.width);
                 const nodeY = PADDING_TOP_PX + centerY - (filter.gain.value * pxPerDb);
@@ -386,20 +397,20 @@ canvas.addEventListener('mousemove', (e) => {
         uiState.hoveredZone = hoveredZone;
         
         // Check if hovering over canvas mode buttons or top band labels
-        const blockWidth = (canvas.width / 7) - 10;
+        const blockWidth = (canvas.width / 8) - 10;
         const gap = 8;
-        const totalBlocksWidth = (5 * blockWidth) + (4 * gap);
+        const totalBlocksWidth = (6 * blockWidth) + (5 * gap);
         const startX = canvas.width - 20 - totalBlocksWidth;
         
         let hoveredTopBand = -1;
         let hoveredBadge = -1;
-        for (let i = 0; i < 5; i++) {
+        for (let i = 0; i < 6; i++) {
             const blockX = startX + (i * (blockWidth + gap));
             if (mouseX >= blockX && mouseX <= blockX + blockWidth && mouseY >= 10 && mouseY <= PADDING_TOP_PX - 10) {
                 
-                // Check explicitly if we hit the right-side badge area for Bands 0 and 4
+                // Check explicitly if we hit the right-side badge area for Bands 0 and 5
                 let hitBadge = false;
-                if (i === 0 || i === 4) {
+                if (i === 0 || i === 5) {
                     const badgeW = 24;
                     const badgeH = 16;
                     const badgeX = blockX + (blockWidth / 2) + 10;
@@ -449,13 +460,13 @@ canvas.addEventListener('mousedown', (e) => {
 
     // Check if a Canvas Mode Button was clicked
     const PADDING_TOP_PX = 40;
-    const blockWidth = (canvas.width / 7) - 10;
+    const blockWidth = (canvas.width / 8) - 10;
     const gap = 8;
-    const totalBlocksWidth = (5 * blockWidth) + (4 * gap);
+    const totalBlocksWidth = (6 * blockWidth) + (5 * gap);
     const startX = canvas.width - 20 - totalBlocksWidth;
     
-    // Check Badge Hits for Mode Toggles (Bands 0 and 4)
-    for (let i of [0, 4]) {
+    // Check Badge Hits for Mode Toggles (Bands 0 and 5)
+    for (let i of [0, 5]) {
         const blockX = startX + (i * (blockWidth + gap));
         const badgeW = 24;
         const badgeH = 16;
@@ -478,15 +489,15 @@ canvas.addEventListener('mousedown', (e) => {
                     band.gainContainer.style.display = 'none';
                     band.qContainer.style.display = 'block';
                 }
-            } else if (i === 4) {
-                if (filterModes.b4 === 'lowpass') {
-                    filterModes.b4 = 'highshelf';
+            } else if (i === 5) {
+                if (filterModes.b5 === 'lowpass') {
+                    filterModes.b5 = 'highshelf';
                     filter.type = 'highshelf';
                     band.gainContainer.style.display = 'block';
                     band.qContainer.style.display = 'none';
                     filter.gain.value = parseFloat(band.gain.value);
                 } else {
-                    filterModes.b4 = 'lowpass';
+                    filterModes.b5 = 'lowpass';
                     filter.type = 'lowpass';
                     band.gainContainer.style.display = 'none';
                     band.qContainer.style.display = 'block';
@@ -523,7 +534,7 @@ canvas.addEventListener('mousedown', (e) => {
     }
 
     // Check if a Top Band Label was clicked (toggling band on/off)
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 6; i++) {
         const blockX = startX + (i * (blockWidth + gap));
         if (mouseX >= blockX && mouseX <= blockX + blockWidth && mouseY >= 10 && mouseY <= PADDING_TOP_PX - 10) {
             uiState.bandStates[i] = !uiState.bandStates[i];
@@ -579,7 +590,7 @@ canvas.addEventListener('mouseleave', () => {
 audioEngine = initializeAudioEngine(audioElement, sliders);
 
 // Bind UI Sliders to the Web Audio Filters for each band
-[sliders.b0, sliders.b1, sliders.b2, sliders.b3, sliders.b4].forEach((band, index) => {
+[sliders.b0, sliders.b1, sliders.b2, sliders.b3, sliders.b4, sliders.b5].forEach((band, index) => {
     const filter = audioEngine.filters[index];
     
     band.freq.addEventListener('input', (e) => {
