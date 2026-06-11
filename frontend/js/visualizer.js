@@ -148,8 +148,8 @@ function drawTopNavBar(ctx, width, filters, uiState) {
     ctx.stroke();
 
     // Draw 5 Background Sections in the Top Padding
-    const blockWidth = (width / 5) - 40; // Maintain original block width
-    const gap = 10; // Reduced gap between bands
+    const blockWidth = (width / 7) - 10; // Decrease width to make room for audio player on the left
+    const gap = 8; // Reduced gap between bands
     const totalBlocksWidth = (5 * blockWidth) + (4 * gap);
     const startX = width - 20 - totalBlocksWidth; // Anchor exactly to the right edge (minus 20px padding)
     

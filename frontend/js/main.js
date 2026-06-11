@@ -6,6 +6,79 @@ import { drawVisualizer, getLogX, getFreqFromX } from './visualizer.js';
 const audioElement = document.getElementById('audio-source');
 const fileInput = document.getElementById('audio-upload');
 
+// Custom Audio Player UI Elements
+const playPauseBtn = document.getElementById('play-pause-btn');
+const goToBeginningBtn = document.getElementById('go-to-beginning-btn');
+const playIcon = document.getElementById('play-icon');
+const pauseIcon = document.getElementById('pause-icon');
+const seekBar = document.getElementById('seek-bar');
+const timeDisplay = document.getElementById('time-display');
+const volumeSlider = document.getElementById('volume-slider');
+const fileNameDisplay = document.getElementById('file-name-display');
+
+// Helper to format seconds to M:SS
+const formatTime = (timeInSeconds) => {
+    if (isNaN(timeInSeconds)) return "0:00";
+    const minutes = Math.floor(timeInSeconds / 60);
+    const seconds = Math.floor(timeInSeconds % 60);
+    return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+};
+
+// Go to Beginning
+goToBeginningBtn.addEventListener('click', () => {
+    audioElement.currentTime = 0;
+    if (!audioElement.paused) {
+        audioElement.pause();
+    }
+});
+
+// Play/Pause Toggle
+playPauseBtn.addEventListener('click', () => {
+    if (audioEngine && audioEngine.audioContext.state === 'suspended') {
+        audioEngine.audioContext.resume();
+    }
+    if (audioElement.paused) {
+        audioElement.play();
+    } else {
+        audioElement.pause();
+    }
+});
+
+// Update UI when audio plays or pauses
+audioElement.addEventListener('play', () => {
+    playIcon.style.display = 'none';
+    pauseIcon.style.display = 'block';
+});
+audioElement.addEventListener('pause', () => {
+    playIcon.style.display = 'block';
+    pauseIcon.style.display = 'none';
+});
+
+// Sync Seek Bar & Time Display
+audioElement.addEventListener('timeupdate', () => {
+    if (audioElement.duration) {
+        seekBar.max = audioElement.duration;
+        seekBar.value = audioElement.currentTime;
+        timeDisplay.innerText = `${formatTime(audioElement.currentTime)} / ${formatTime(audioElement.duration)}`;
+    }
+});
+
+// Handle Metadata Loaded (duration available)
+audioElement.addEventListener('loadedmetadata', () => {
+    seekBar.max = audioElement.duration;
+    timeDisplay.innerText = `0:00 / ${formatTime(audioElement.duration)}`;
+});
+
+// Scrubbing / Seeking
+seekBar.addEventListener('input', () => {
+    audioElement.currentTime = seekBar.value;
+});
+
+// Volume Control
+volumeSlider.addEventListener('input', () => {
+    audioElement.volume = volumeSlider.value;
+});
+
 // Handle local file uploads to preview audio instantly in the browser
 fileInput.addEventListener('change', (e) => {
     const file = e.target.files[0];
@@ -15,6 +88,31 @@ fileInput.addEventListener('change', (e) => {
         
         // Update the audio element to play the user's file
         audioElement.src = blobUrl;
+        
+        // Update File Name Display
+        fileNameDisplay.innerText = file.name;
+        fileNameDisplay.style.color = '#fff';
+        
+        // Reset animation
+        fileNameDisplay.style.animation = 'none';
+        
+        // Allow DOM to update text width, then check for overflow
+        setTimeout(() => {
+            const containerWidth = fileNameDisplay.parentElement.clientWidth;
+            const textWidth = fileNameDisplay.scrollWidth;
+            if (textWidth > containerWidth) {
+                // Add a dynamic CSS animation via JS to handle exact widths
+                const styleSheet = document.createElement('style');
+                styleSheet.innerText = `
+                    @keyframes scrollFileName {
+                        0%, 15% { transform: translateX(0); }
+                        85%, 100% { transform: translateX(-${textWidth - containerWidth + 20}px); }
+                    }
+                `;
+                document.head.appendChild(styleSheet);
+                fileNameDisplay.style.animation = 'scrollFileName 6s linear infinite alternate';
+            }
+        }, 50);
         
         // Inform the user
         console.log(`Loaded local file: ${file.name}`);
@@ -241,8 +339,8 @@ canvas.addEventListener('mousemove', (e) => {
         uiState.hoveredZone = hoveredZone;
         
         // Check if hovering over canvas mode buttons or top band labels
-        const blockWidth = (canvas.width / 5) - 40;
-        const gap = 10;
+        const blockWidth = (canvas.width / 7) - 10;
+        const gap = 8;
         const totalBlocksWidth = (5 * blockWidth) + (4 * gap);
         const startX = canvas.width - 20 - totalBlocksWidth;
         
@@ -298,8 +396,8 @@ canvas.addEventListener('mousedown', (e) => {
 
     // Check if a Canvas Mode Button was clicked
     const PADDING_TOP_PX = 60;
-    const blockWidth = (canvas.width / 5) - 40;
-    const gap = 10;
+    const blockWidth = (canvas.width / 7) - 10;
+    const gap = 8;
     const totalBlocksWidth = (5 * blockWidth) + (4 * gap);
     const startX = canvas.width - 20 - totalBlocksWidth;
     

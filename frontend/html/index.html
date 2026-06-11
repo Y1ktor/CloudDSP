@@ -4,26 +4,51 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CloudDSP - Web Audio EQ</title>
+    <link rel="stylesheet" href="../assets/css/styles.css">
 </head>
 <body>
     <h1>CloudDSP Interactive EQ</h1>
     
-    <div style="margin-bottom: 20px;">
-        <label for="audio-upload" style="font-weight: bold;">Load Audio File:</label>
-        <input type="file" id="audio-upload" accept="audio/*">
-    </div>
+    <!-- Custom Audio Player -->
+    <div id="custom-audio-player">
+        
+        <button id="go-to-beginning-btn" title="Go to Beginning">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+        </button>
 
-    <div>
-        <audio id="audio-source" controls></audio>
+        <button id="play-pause-btn" title="Play/Pause">
+            <svg id="play-icon" viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+            <svg id="pause-icon" viewBox="0 0 24 24" width="28" height="28" fill="currentColor" style="display: none;"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+        </button>
+        
+        <button id="record-btn" title="Record">
+            <div style="width: 14px; height: 14px; background-color: #ff3b3b; border-radius: 50%;"></div>
+        </button>
+        
+        <span id="time-display">0:00 / 0:00</span>
+        
+        <input type="range" id="seek-bar" value="0" step="0.1">
+        
+        <label for="audio-upload" class="upload-btn">Browse...</label>
+        <input type="file" id="audio-upload" accept="audio/*" style="display: none;">
+        
+        <div id="file-name-container">
+            <div id="file-name-display">No file loaded</div>
+        </div>
+
+        <label for="volume-slider" class="vol-label">Vol</label>
+        <input type="range" id="volume-slider" min="0" max="1" value="1" step="0.01">
+        
+        <audio id="audio-source" style="display: none;"></audio>
     </div>
     
-    <div style="margin-top: 20px;">
-        <canvas id="visualizer" width="800" height="400" style="background-color: #222; border-radius: 4px; width: 100%; max-width: 90vw; display: block; margin: 0 auto;"></canvas>
+    <div class="canvas-container">
+        <canvas id="visualizer" width="800" height="400"></canvas>
     </div>
     
-    <div style="margin-top: 20px; display: flex; gap: 20px; flex-wrap: wrap;">
+    <div class="bands-container">
         <!-- Band 0 (Highpass/Lowshelf) -->
-        <div style="background: #eee; padding: 10px; border-radius: 5px;">
+        <div class="band-card">
             <h4>Band 0</h4>
             <label>Freq: <span id="b0-freq-val">20</span> Hz</label><br>
             <input type="range" id="b0-freq" min="20" max="2000" value="20" step="1"><br>
@@ -40,7 +65,7 @@
         </div>
 
         <!-- Band 1 -->
-        <div style="background: #eee; padding: 10px; border-radius: 5px;">
+        <div class="band-card">
             <h4>Band 1 (Bell)</h4>
             <label>Freq: <span id="b1-freq-val">100</span> Hz</label><br>
             <input type="range" id="b1-freq" min="20" max="20000" value="100" step="1"><br>
@@ -53,7 +78,7 @@
         </div>
         
         <!-- Band 2 -->
-        <div style="background: #eee; padding: 10px; border-radius: 5px;">
+        <div class="band-card">
             <h4>Band 2 (Bell)</h4>
             <label>Freq: <span id="b2-freq-val">1000</span> Hz</label><br>
             <input type="range" id="b2-freq" min="20" max="20000" value="1000" step="1"><br>
@@ -66,7 +91,7 @@
         </div>
         
         <!-- Band 3 -->
-        <div style="background: #eee; padding: 10px; border-radius: 5px;">
+        <div class="band-card">
             <h4>Band 3 (Bell)</h4>
             <label>Freq: <span id="b3-freq-val">5000</span> Hz</label><br>
             <input type="range" id="b3-freq" min="20" max="20000" value="5000" step="1"><br>
@@ -79,7 +104,7 @@
         </div>
 
         <!-- Band 4 (Lowpass/Highshelf) -->
-        <div style="background: #eee; padding: 10px; border-radius: 5px;">
+        <div class="band-card">
             <h4>Band 4</h4>
             <label>Freq: <span id="b4-freq-val">20000</span> Hz</label><br>
             <input type="range" id="b4-freq" min="200" max="20000" value="20000" step="1"><br>
