@@ -42,6 +42,29 @@
         <audio id="audio-source" style="display: none;"></audio>
     </div>
     
+    <!-- Custom Automation Bar -->
+    <div id="automation-bar">
+        <span style="font-size: 13px; font-weight: bold; color: #aaa;">Automation:</span>
+        <div id="automation-dropdown" class="custom-select">
+            <div class="select-selected">
+                <div class="select-text-container">
+                    <div class="select-text">New File</div>
+                </div>
+            </div>
+            <ul class="select-items">
+                <li data-value="new">New File</li>
+                <li class="has-submenu" id="import-option">
+                    Import <span style="float: right; font-size: 10px; margin-top: 3px;">▶</span>
+                    <ul class="submenu" id="import-submenu">
+                        <li class="disabled">None</li>
+                    </ul>
+                </li>
+                <li data-value="save">Save</li>
+            </ul>
+        </div>
+        <div style="flex-grow: 1;"></div>
+    </div>
+    
     <div class="canvas-container">
         <canvas id="visualizer" width="800" height="400"></canvas>
     </div>

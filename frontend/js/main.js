@@ -21,6 +21,8 @@ const canvasContainer = document.querySelector('.canvas-container');
 // Recording State Machine
 let recordState = 'idle'; // 'idle', 'preparing', 'recording'
 let countdownInterval = null;
+let recordingInterval = null;
+let automationData = [];
 
 const updateRecordUI = (content) => {
     recordBtn.innerHTML = content;
@@ -46,6 +48,27 @@ recordBtn.addEventListener('click', () => {
                 updateRecordUI(circleIcon);
                 recordBtn.classList.add('is-recording');
                 
+                // Clear previous automation data
+                automationData = [];
+
+                // Start capturing EQ data every 50ms
+                recordingInterval = setInterval(() => {
+                    if (audioEngine) {
+                        const snapshot = {
+                            timestamp: audioElement.currentTime,
+                            globalPower: uiState.globalPower,
+                            bands: audioEngine.filters.map((filter, idx) => ({
+                                state: uiState.bandStates[idx],
+                                type: filter.type,
+                                freq: filter.frequency.value,
+                                q: filter.Q.value,
+                                gain: filter.gain ? filter.gain.value : 0
+                            }))
+                        };
+                        automationData.push(snapshot);
+                    }
+                }, 50);
+
                 // Start playback automatically
                 if (audioEngine && audioEngine.audioContext.state === 'suspended') {
                     audioEngine.audioContext.resume();
@@ -64,11 +87,20 @@ recordBtn.addEventListener('click', () => {
         // Stop recording
         recordState = 'idle';
         recordBtn.classList.remove('is-recording');
+        clearInterval(recordingInterval);
         
         // Pause playback automatically
         audioElement.pause();
         
-        // Future: trigger audio export logic here
+        // Save automation data to browser Session Storage
+        if (automationData.length > 0) {
+            const dataStr = JSON.stringify(automationData);
+            const timestamp = new Date().toISOString().replace(/T/, '_').replace(/\..+/, '').replace(/:/g, '-');
+            const saveKey = `cloudDspAutomation_${timestamp}`;
+            sessionStorage.setItem(saveKey, dataStr);
+            console.log(`Saved automation data (${automationData.length} frames) to sessionStorage.`);
+            if (typeof populateImportMenu === 'function') populateImportMenu();
+        }
     }
 });
 
@@ -135,6 +167,28 @@ volumeSlider.addEventListener('input', () => {
     audioElement.volume = volumeSlider.value;
 });
 
+// Helper to apply marquee animation to overflowing text
+const updateScrollingText = (textElement, newText, animPrefix) => {
+    textElement.innerText = newText;
+    textElement.style.animation = 'none';
+    setTimeout(() => {
+        const containerWidth = textElement.parentElement.clientWidth;
+        const textWidth = textElement.scrollWidth;
+        if (textWidth > containerWidth) {
+            const animName = `${animPrefix}_${new Date().getTime()}`;
+            const styleSheet = document.createElement('style');
+            styleSheet.innerText = `
+                @keyframes ${animName} {
+                    0%, 15% { transform: translateX(0); }
+                    85%, 100% { transform: translateX(-${textWidth - containerWidth + 10}px); }
+                }
+            `;
+            document.head.appendChild(styleSheet);
+            textElement.style.animation = `${animName} 4s linear infinite alternate`;
+        }
+    }, 50);
+};
+
 // Handle local file uploads to preview audio instantly in the browser
 fileInput.addEventListener('change', (e) => {
     const file = e.target.files[0];
@@ -145,30 +199,9 @@ fileInput.addEventListener('change', (e) => {
         // Update the audio element to play the user's file
         audioElement.src = blobUrl;
         
-        // Update File Name Display
-        fileNameDisplay.innerText = file.name;
+        // Update File Name Display with scrolling helper
         fileNameDisplay.style.color = '#fff';
-        
-        // Reset animation
-        fileNameDisplay.style.animation = 'none';
-        
-        // Allow DOM to update text width, then check for overflow
-        setTimeout(() => {
-            const containerWidth = fileNameDisplay.parentElement.clientWidth;
-            const textWidth = fileNameDisplay.scrollWidth;
-            if (textWidth > containerWidth) {
-                // Add a dynamic CSS animation via JS to handle exact widths
-                const styleSheet = document.createElement('style');
-                styleSheet.innerText = `
-                    @keyframes scrollFileName {
-                        0%, 15% { transform: translateX(0); }
-                        85%, 100% { transform: translateX(-${textWidth - containerWidth + 20}px); }
-                    }
-                `;
-                document.head.appendChild(styleSheet);
-                fileNameDisplay.style.animation = 'scrollFileName 6s linear infinite alternate';
-            }
-        }, 50);
+        updateScrollingText(fileNameDisplay, file.name, 'scrollFileName');
         
         // Inform the user
         console.log(`Loaded local file: ${file.name}`);
@@ -633,3 +666,80 @@ audioElement.addEventListener('play', () => {
         audioEngine.audioContext.resume();
     }
 });
+
+// Custom Automation Dropdown Logic
+const autoDropdown = document.getElementById('automation-dropdown');
+const autoSelected = autoDropdown.querySelector('.select-selected');
+const autoSelectedText = autoDropdown.querySelector('.select-text');
+const autoItems = autoDropdown.querySelector('.select-items');
+const importOption = document.getElementById('import-option');
+const importSubmenu = document.getElementById('import-submenu');
+
+autoSelected.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isShowing = autoItems.style.display === 'block';
+    autoItems.style.display = isShowing ? 'none' : 'block';
+    importSubmenu.style.display = 'none'; // Hide submenu when toggling main menu
+});
+
+importOption.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isShowing = importSubmenu.style.display === 'block';
+    importSubmenu.style.display = isShowing ? 'none' : 'block';
+});
+
+document.addEventListener('click', () => {
+    autoItems.style.display = 'none';
+    importSubmenu.style.display = 'none';
+});
+
+autoDropdown.querySelectorAll('.select-items > li').forEach(item => {
+    if (item.id === 'import-option') return;
+    item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const itemName = item.childNodes[0].nodeValue.trim();
+        updateScrollingText(autoSelectedText, itemName, 'scrollAutoName');
+        autoItems.style.display = 'none';
+        importSubmenu.style.display = 'none';
+        
+        if (item.dataset.value === 'new') {
+            automationData = [];
+            console.log("Started new automation file");
+        } else if (item.dataset.value === 'save') {
+            console.log("Manual save triggered");
+        }
+    });
+});
+
+function populateImportMenu() {
+    importSubmenu.innerHTML = '';
+    let found = false;
+    for (let i = 0; i < sessionStorage.length; i++) {
+        const key = sessionStorage.key(i);
+        if (key && key.startsWith('cloudDspAutomation_')) {
+            found = true;
+            const li = document.createElement('li');
+            const displayName = key.replace('cloudDspAutomation_', '');
+            li.innerText = displayName;
+            
+            li.addEventListener('click', (e) => {
+                e.stopPropagation();
+                updateScrollingText(autoSelectedText, displayName, 'scrollAutoName');
+                autoItems.style.display = 'none';
+                importSubmenu.style.display = 'none';
+                // Future: load automation data and apply it
+                console.log(`Loaded ${key} from session storage`);
+            });
+            importSubmenu.appendChild(li);
+        }
+    }
+    if (!found) {
+        const li = document.createElement('li');
+        li.innerText = 'None';
+        li.classList.add('disabled');
+        importSubmenu.appendChild(li);
+    }
+}
+
+// Initialize the import list on load
+populateImportMenu();
