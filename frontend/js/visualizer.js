@@ -495,32 +495,38 @@ function drawPlayhead(ctx, width, usableHeight, currentTime, duration, uiState) 
 function drawAutomationInterval(ctx, width, usableHeight, activeData, duration, automationState) {
     if (!duration || isNaN(duration) || duration <= 0) return;
 
-    let startTime = null;
-    let endTime = null;
-
-    // Determine the interval to draw based on state
-    if (automationState && automationState.recordState === 'recording' && automationState.data.length > 0) {
-        // Draw the red trail dynamically as it records
-        startTime = automationState.data[0].timestamp;
-        endTime = automationState.data[automationState.data.length - 1].timestamp;
-    } else if (activeData && activeData.length > 0) {
-        // Draw the static red line for loaded automation
-        startTime = activeData[0].timestamp;
-        endTime = activeData[activeData.length - 1].timestamp;
-    } else {
-        return; // Nothing to draw
-    }
-
-    const startX = Math.max(4, Math.min(width - 4, (startTime / duration) * width));
-    const endX = Math.max(4, Math.min(width - 4, (endTime / duration) * width));
     const y = PADDING_TOP_PX + usableHeight;
 
-    ctx.beginPath();
-    ctx.moveTo(startX, y);
-    ctx.lineTo(endX, y);
-    ctx.strokeStyle = 'rgba(255, 59, 59, 0.8)'; // Bright Red with slight transparency
-    ctx.lineWidth = 3; // Make it thick enough to be visible over the grid line
-    ctx.stroke();
+    // Draw the static red lines for loaded automation regions
+    if (activeData && activeData.regions) {
+        activeData.regions.forEach(region => {
+            const startX = Math.max(4, Math.min(width - 4, (region.start / duration) * width));
+            const endX = Math.max(4, Math.min(width - 4, (region.end / duration) * width));
+            
+            ctx.beginPath();
+            ctx.moveTo(startX, y);
+            ctx.lineTo(endX, y);
+            ctx.strokeStyle = 'rgba(255, 59, 59, 0.8)'; // Bright Red
+            ctx.lineWidth = 3;
+            ctx.stroke();
+        });
+    }
+
+    // Draw the dynamically expanding red trail while recording
+    if (automationState && automationState.recordState === 'recording' && automationState.data.length > 0) {
+        const startTime = automationState.data[0].timestamp;
+        const endTime = automationState.data[automationState.data.length - 1].timestamp;
+
+        const startX = Math.max(4, Math.min(width - 4, (startTime / duration) * width));
+        const endX = Math.max(4, Math.min(width - 4, (endTime / duration) * width));
+
+        ctx.beginPath();
+        ctx.moveTo(startX, y);
+        ctx.lineTo(endX, y);
+        ctx.strokeStyle = 'rgba(255, 100, 100, 1.0)'; // Slightly brighter/solid for the active recording trail
+        ctx.lineWidth = 3;
+        ctx.stroke();
+    }
 }
 
 /**

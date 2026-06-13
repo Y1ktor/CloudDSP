@@ -61,7 +61,8 @@ const uiState = {
 const automationState = {
     recordState: 'idle', // 'idle', 'preparing', 'recording'
     data: [],
-    activeData: null
+    activeData: null,
+    currentFileKey: null
 };
 
 // Boot up the audio context and routing immediately

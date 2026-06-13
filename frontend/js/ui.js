@@ -110,6 +110,7 @@ export function setupUI(ctx) {
             if (item.dataset.value === 'new') {
                 automationState.data = [];
                 automationState.activeData = null;
+                automationState.currentFileKey = null;
                 console.log("Started new automation file");
             } else if (item.dataset.value === 'save') {
                 console.log("Manual save triggered");
@@ -135,7 +136,17 @@ export function setupUI(ctx) {
                     importSubmenu.style.display = 'none';
                     try {
                         const savedData = sessionStorage.getItem(key);
-                        automationState.activeData = JSON.parse(savedData);
+                        let parsed = JSON.parse(savedData);
+                        if (Array.isArray(parsed)) {
+                            // Upgrade legacy array format
+                            automationState.activeData = {
+                                regions: [{ start: parsed[0].timestamp, end: parsed[parsed.length - 1].timestamp }],
+                                frames: parsed
+                            };
+                        } else {
+                            automationState.activeData = parsed;
+                        }
+                        automationState.currentFileKey = key;
                         console.log(`Loaded ${key} from session storage`);
                     } catch (err) {}
                 });

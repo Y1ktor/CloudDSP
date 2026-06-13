@@ -59,14 +59,63 @@ export function setupAutomation(ctx) {
             audioElement.pause();
             
             if (automationState.data.length > 0) {
-                const dataStr = JSON.stringify(automationState.data);
-                const timestamp = new Date().toISOString().replace(/T/, '_').replace(/\..+/, '').replace(/:/g, '-');
-                const saveKey = `cloudDspAutomation_${timestamp}`;
-                sessionStorage.setItem(saveKey, dataStr);
+                let newStart = automationState.data[0].timestamp;
+                let newEnd = automationState.data[automationState.data.length - 1].timestamp;
                 
-                // If we recorded from a blank slate (New File), auto-apply the new data
-                if (!automationState.activeData || automationState.activeData.length === 0) {
-                    automationState.activeData = [...automationState.data];
+                if (!automationState.activeData || !automationState.activeData.frames) {
+                    automationState.activeData = { regions: [], frames: [] };
+                }
+                
+                let updatedRegions = [];
+                let updatedFrames = [...automationState.activeData.frames];
+                
+                for (let region of automationState.activeData.regions) {
+                    if (newStart >= region.start && newStart <= region.end) {
+                        // Old region is cut off by the new recording start point
+                        updatedRegions.push({ start: region.start, end: newStart });
+                        updatedFrames = updatedFrames.filter(f => !(f.timestamp >= newStart && f.timestamp <= region.end));
+                    } else if (newEnd >= region.start && newStart < region.start) {
+                        // The new recording completely overran this later region, erase it
+                        updatedFrames = updatedFrames.filter(f => !(f.timestamp >= region.start && f.timestamp <= region.end));
+                    } else {
+                        // Untouched region
+                        updatedRegions.push(region);
+                    }
+                }
+                
+                // Add the newly recorded region and frames
+                updatedRegions.push({ start: newStart, end: newEnd });
+                updatedFrames.push(...automationState.data);
+                updatedFrames.sort((a, b) => a.timestamp - b.timestamp);
+                
+                // Clean and merge any touching regions just in case
+                updatedRegions.sort((a, b) => a.start - b.start);
+                let mergedRegions = [];
+                for (let r of updatedRegions) {
+                    if (mergedRegions.length === 0) {
+                        mergedRegions.push({...r});
+                    } else {
+                        let last = mergedRegions[mergedRegions.length - 1];
+                        if (r.start <= last.end) {
+                            last.end = Math.max(last.end, r.end);
+                        } else {
+                            mergedRegions.push({...r});
+                        }
+                    }
+                }
+                
+                automationState.activeData.regions = mergedRegions;
+                automationState.activeData.frames = updatedFrames;
+
+                const dataStr = JSON.stringify(automationState.activeData);
+                
+                let saveKey = automationState.currentFileKey;
+                if (!saveKey) {
+                    // New file, generate timestamp key
+                    const timestamp = new Date().toISOString().replace(/T/, '_').replace(/\..+/, '').replace(/:/g, '-');
+                    saveKey = `cloudDspAutomation_${timestamp}`;
+                    automationState.currentFileKey = saveKey;
+                    
                     const autoSelected = document.querySelector('#automation-dropdown .select-selected');
                     const autoSelectedText = document.querySelector('#automation-dropdown .select-text');
                     if (autoSelected && autoSelectedText && ctx.updateScrollingText) {
@@ -75,8 +124,11 @@ export function setupAutomation(ctx) {
                          autoSelected.innerText = timestamp;
                     }
                     console.log("Automatically applied newly recorded automation data.");
+                } else {
+                    console.log(`Overwrote existing automation data in ${saveKey}.`);
                 }
 
+                sessionStorage.setItem(saveKey, dataStr);
                 if (ctx.populateImportMenu) ctx.populateImportMenu();
             }
         }
@@ -85,13 +137,13 @@ export function setupAutomation(ctx) {
     const automationPlaybackLoop = () => {
         requestAnimationFrame(automationPlaybackLoop);
         
-        if (!audioElement.paused && automationState.recordState !== 'recording' && automationState.activeData && automationState.activeData.length > 0) {
+        if (!audioElement.paused && automationState.recordState !== 'recording' && automationState.activeData && automationState.activeData.frames && automationState.activeData.frames.length > 0) {
             const currentTime = audioElement.currentTime;
-            let closestFrame = automationState.activeData[0];
+            let closestFrame = automationState.activeData.frames[0];
             let minDiff = Infinity;
             
-            for (let i = 0; i < automationState.activeData.length; i++) {
-                const frame = automationState.activeData[i];
+            for (let i = 0; i < automationState.activeData.frames.length; i++) {
+                const frame = automationState.activeData.frames[i];
                 const diff = Math.abs(frame.timestamp - currentTime);
                 if (diff < minDiff) {
                     minDiff = diff;

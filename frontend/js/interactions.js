@@ -99,36 +99,45 @@ export function setupInteractions(ctx) {
             let hoveredNode = -1;
             let hoveredZone = -1;
             
-            audioEngine.filters.forEach((filter, index) => {
-                const nodeX = getLogX(filter.frequency.value, canvas.width);
-                let yValue = (filter.type === 'highpass' || filter.type === 'lowpass') ? filter.Q.value : filter.gain.value;
-                const nodeY = PADDING_TOP_PX + centerY - (yValue * pxPerDb);
-                
-                const dx = mouseX - nodeX;
-                const dy = mouseY - nodeY;
-                if (Math.sqrt(dx * dx + dy * dy) <= 12) {
-                    hoveredNode = index;
-                }
-            });
-            
-            if (hoveredNode === -1) {
-                const ZONE_WIDTH = 40;
+            // Prevent hovering EQ nodes/zones if automation is active and we are not recording
+            const { automationState } = ctx;
+            const isAutomationActiveAndLocked = automationState && 
+                                                automationState.activeData && 
+                                                (automationState.activeData.frames && automationState.activeData.frames.length > 0) &&
+                                                automationState.recordState !== 'recording';
+
+            if (!isAutomationActiveAndLocked) {
                 audioEngine.filters.forEach((filter, index) => {
-                    if (index === 0 || index === 5) return;
-                    
                     const nodeX = getLogX(filter.frequency.value, canvas.width);
-                    const nodeY = PADDING_TOP_PX + centerY - (filter.gain.value * pxPerDb);
-                    const trueCenterY = PADDING_TOP_PX + centerY;
+                    let yValue = (filter.type === 'highpass' || filter.type === 'lowpass') ? filter.Q.value : filter.gain.value;
+                    const nodeY = PADDING_TOP_PX + centerY - (yValue * pxPerDb);
                     
-                    const leftBound = nodeX - (ZONE_WIDTH / 2);
-                    const rightBound = nodeX + (ZONE_WIDTH / 2);
-                    const topBound = Math.min(trueCenterY, nodeY);
-                    const bottomBound = Math.max(trueCenterY, nodeY);
-                    
-                    if (mouseX >= leftBound && mouseX <= rightBound && mouseY >= topBound && mouseY <= bottomBound) {
-                        hoveredZone = index;
+                    const dx = mouseX - nodeX;
+                    const dy = mouseY - nodeY;
+                    if (Math.sqrt(dx * dx + dy * dy) <= 12) {
+                        hoveredNode = index;
                     }
                 });
+                
+                if (hoveredNode === -1) {
+                    const ZONE_WIDTH = 40;
+                    audioEngine.filters.forEach((filter, index) => {
+                        if (index === 0 || index === 5) return;
+                        
+                        const nodeX = getLogX(filter.frequency.value, canvas.width);
+                        const nodeY = PADDING_TOP_PX + centerY - (filter.gain.value * pxPerDb);
+                        const trueCenterY = PADDING_TOP_PX + centerY;
+                        
+                        const leftBound = nodeX - (ZONE_WIDTH / 2);
+                        const rightBound = nodeX + (ZONE_WIDTH / 2);
+                        const topBound = Math.min(trueCenterY, nodeY);
+                        const bottomBound = Math.max(trueCenterY, nodeY);
+                        
+                        if (mouseX >= leftBound && mouseX <= rightBound && mouseY >= topBound && mouseY <= bottomBound) {
+                            hoveredZone = index;
+                        }
+                    });
+                }
             }
             
             uiState.hoveredNode = hoveredNode;
@@ -265,6 +274,17 @@ export function setupInteractions(ctx) {
                 rebuildAudioGraph(audioEngine, uiState.bandStates);
                 return;
             }
+        }
+
+        // Prevent dragging EQ nodes/zones if automation is active and we are not recording
+        const { automationState } = ctx;
+        const isAutomationActiveAndLocked = automationState && 
+                                            automationState.activeData && 
+                                            (automationState.activeData.frames && automationState.activeData.frames.length > 0) &&
+                                            automationState.recordState !== 'recording';
+                                            
+        if (isAutomationActiveAndLocked) {
+            return; // Exit mousedown early, blocking the drag initiation
         }
 
         if (uiState.hoveredNode !== -1) {
