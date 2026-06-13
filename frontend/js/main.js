@@ -262,9 +262,11 @@ const uiState = {
     hoveredTopBand: -1,
     hoveredBadge: -1,
     hoveredPowerBtn: false,
+    hoveredPlayhead: false,
     globalPower: true,
     activeDragBand: -1,
     activeZoneDragBand: -1,
+    isDraggingPlayhead: false,
     dragStartX: 0,
     startQ: 1.0,
     bandStates: [true, true, true, true, true, true],
@@ -295,6 +297,20 @@ canvas.addEventListener('mousemove', (e) => {
     const centerY = usableHeight / 2;
     const maxDeltaY = centerY - 2; 
     const pxPerDb = maxDeltaY / 15;
+
+    // Handle Playhead Dragging Priority
+    if (uiState.isDraggingPlayhead) {
+        let percent = mouseX / canvas.width;
+        if (percent < 0) percent = 0;
+        if (percent > 1) percent = 1;
+        if (audioElement.duration) {
+            audioElement.currentTime = percent * audioElement.duration;
+            // Update the HTML seek bar to stay in sync
+            seekBar.value = audioElement.currentTime;
+            timeDisplay.innerText = `${formatTime(audioElement.currentTime)} / ${formatTime(audioElement.duration)}`;
+        }
+        return; // Skip other hit detection
+    }
 
     if (uiState.activeDragBand !== -1) {
         // We are actively dragging a node in 2D space
@@ -470,10 +486,22 @@ canvas.addEventListener('mousemove', (e) => {
         const distToPower = Math.sqrt(Math.pow(mouseX - powerX, 2) + Math.pow(mouseY - powerY, 2));
         uiState.hoveredPowerBtn = distToPower <= powerRadius + 4;
 
+        // Check if hovering over playhead
+        let hoveredPlayhead = false;
+        if (audioElement.duration) {
+            const playheadX = (audioElement.currentTime / audioElement.duration) * canvas.width;
+            const playheadY = PADDING_TOP_PX + usableHeight;
+            const distToPlayhead = Math.sqrt(Math.pow(mouseX - playheadX, 2) + Math.pow(mouseY - playheadY, 2));
+            if (distToPlayhead <= 12) {
+                hoveredPlayhead = true;
+            }
+        }
+        uiState.hoveredPlayhead = hoveredPlayhead;
+
         // Change cursor to indicate interactability
         if (uiState.hoveredPowerBtn || uiState.hoveredBadge !== -1 || hoveredTopBand !== -1) {
             canvas.style.cursor = 'pointer';
-        } else if (hoveredZone !== -1 && hoveredNode === -1) {
+        } else if ((hoveredZone !== -1 && hoveredNode === -1) || uiState.hoveredPlayhead) {
             canvas.style.cursor = 'ew-resize';
         } else {
             canvas.style.cursor = 'default';
@@ -490,6 +518,12 @@ canvas.addEventListener('mousedown', (e) => {
     const scaleY = canvas.height / rect.height;
     const mouseX = (e.clientX - rect.left) * scaleX;
     const mouseY = (e.clientY - rect.top) * scaleY;
+
+    // Handle Playhead Dragging Priority
+    if (uiState.hoveredPlayhead) {
+        uiState.isDraggingPlayhead = true;
+        return; // Stop further hit detection
+    }
 
     // Check if a Canvas Mode Button was clicked
     const PADDING_TOP_PX = 40;
@@ -606,16 +640,19 @@ canvas.addEventListener('mousedown', (e) => {
 canvas.addEventListener('mouseup', () => {
     uiState.activeDragBand = -1;
     uiState.activeZoneDragBand = -1;
+    uiState.isDraggingPlayhead = false;
 });
 
 canvas.addEventListener('mouseleave', () => {
     uiState.activeDragBand = -1;
     uiState.activeZoneDragBand = -1;
+    uiState.isDraggingPlayhead = false;
     uiState.hoveredNode = -1;
     uiState.hoveredZone = -1;
     uiState.hoveredTopBand = -1;
     uiState.hoveredBadge = -1;
     uiState.hoveredPowerBtn = false;
+    uiState.hoveredPlayhead = false;
     canvas.style.cursor = 'default';
 });
 
@@ -657,7 +694,8 @@ drawVisualizer(
     audioEngine.postDataArray, 
     audioEngine.audioContext, 
     audioEngine.filters,
-    uiState // Pass interaction state to canvas
+    uiState, // Pass interaction state to canvas
+    audioElement // Pass audio element for playhead
 );
 
 // When the user actually plays the audio, resume the suspended context

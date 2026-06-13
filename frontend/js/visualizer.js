@@ -112,6 +112,14 @@ function drawGridAndLabels(ctx, width, usableHeight, centerY) {
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
     ctx.lineWidth = 1;
     ctx.stroke();
+
+    // Draw the Bottom Boundary Line (Separating wavebars from frequency text)
+    ctx.beginPath();
+    ctx.moveTo(0, PADDING_TOP_PX + usableHeight);
+    ctx.lineTo(width, PADDING_TOP_PX + usableHeight);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)'; // Stronger opacity than vertical grids
+    ctx.lineWidth = 1;
+    ctx.stroke();
 }
 
 /**
@@ -424,6 +432,57 @@ function drawControlNodes(ctx, filters, width, centerY, uiState) {
 }
 
 /**
+ * Draws the playhead dot along the bottom boundary line to indicate audio progress.
+ * 
+ * @param {CanvasRenderingContext2D} ctx - The 2D rendering context.
+ * @param {number} width - The total width of the canvas.
+ * @param {number} usableHeight - The height of the canvas excluding bottom text padding.
+ * @param {number} currentTime - The current playback time in seconds.
+ * @param {number} duration - The total duration of the audio in seconds.
+ * @param {Object} uiState - The user interaction state.
+ */
+function drawPlayhead(ctx, width, usableHeight, currentTime, duration, uiState) {
+    let percent = 0;
+    if (duration && !isNaN(duration) && duration > 0) {
+        percent = currentTime / duration;
+    }
+    
+    // Ensure playhead doesn't bleed off the exact edges
+    const x = Math.max(4, Math.min(width - 4, percent * width));
+    const y = PADDING_TOP_PX + usableHeight;
+
+    if (uiState && uiState.isDraggingPlayhead) {
+        // Draw bright vertical line across the entire wavebar area
+        ctx.beginPath();
+        ctx.moveTo(x, PADDING_TOP_PX);
+        ctx.lineTo(x, y);
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+    } else {
+        // Draw dot
+        let radius = 4;
+        let opacity = 0.8;
+        
+        if (uiState && uiState.hoveredPlayhead) {
+            radius = 6;
+            opacity = 1.0;
+            // Draw an outer ring for the hover state (like the EQ nodes)
+            ctx.beginPath();
+            ctx.arc(x, y, radius, 0, 2 * Math.PI);
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, 2 * Math.PI);
+        ctx.fillStyle = `rgba(255, 255, 255, ${opacity})`;
+        ctx.fill();
+    }
+}
+
+/**
  * The main recursive animation loop that orchestrates the drawing of all visualizer layers.
  * 
  * @param {AnalyserNode} preAnalyser - Analyser node for the raw audio.
@@ -433,9 +492,10 @@ function drawControlNodes(ctx, filters, width, centerY, uiState) {
  * @param {AudioContext} audioContext - The main audio context, used here to retrieve the sample rate.
  * @param {Array<BiquadFilterNode>} filters - The array of active Web Audio EQ filters.
  * @param {Object} uiState - State object tracking user mouse interaction.
+ * @param {HTMLAudioElement} audioElement - The HTML audio element for tracking playback progress.
  */
-export function drawVisualizer(preAnalyser, preDataArray, postAnalyser, postDataArray, audioContext, filters, uiState) {
-    requestAnimationFrame(() => drawVisualizer(preAnalyser, preDataArray, postAnalyser, postDataArray, audioContext, filters, uiState));
+export function drawVisualizer(preAnalyser, preDataArray, postAnalyser, postDataArray, audioContext, filters, uiState, audioElement) {
+    requestAnimationFrame(() => drawVisualizer(preAnalyser, preDataArray, postAnalyser, postDataArray, audioContext, filters, uiState, audioElement));
 
     preAnalyser.getByteFrequencyData(preDataArray);
     postAnalyser.getByteFrequencyData(postDataArray);
@@ -456,5 +516,8 @@ export function drawVisualizer(preAnalyser, preDataArray, postAnalyser, postData
     drawEQCurves(canvasCtx, filters, canvas.width, centerY, uiState);
     if (uiState) {
         drawControlNodes(canvasCtx, filters, canvas.width, centerY, uiState);
+    }
+    if (audioElement) {
+        drawPlayhead(canvasCtx, canvas.width, usableHeight, audioElement.currentTime, audioElement.duration, uiState);
     }
 }
