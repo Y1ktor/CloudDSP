@@ -483,6 +483,47 @@ function drawPlayhead(ctx, width, usableHeight, currentTime, duration, uiState) 
 }
 
 /**
+ * Draws a red horizontal line along the bottom boundary representing the active automation interval.
+ * 
+ * @param {CanvasRenderingContext2D} ctx - The 2D rendering context.
+ * @param {number} width - The total width of the canvas.
+ * @param {number} usableHeight - The height of the canvas excluding bottom text padding.
+ * @param {Object} activeData - The currently loaded automation data array.
+ * @param {number} duration - The total duration of the loaded audio file in seconds.
+ * @param {Object} automationState - The global automation state to check for active recording.
+ */
+function drawAutomationInterval(ctx, width, usableHeight, activeData, duration, automationState) {
+    if (!duration || isNaN(duration) || duration <= 0) return;
+
+    let startTime = null;
+    let endTime = null;
+
+    // Determine the interval to draw based on state
+    if (automationState && automationState.recordState === 'recording' && automationState.data.length > 0) {
+        // Draw the red trail dynamically as it records
+        startTime = automationState.data[0].timestamp;
+        endTime = automationState.data[automationState.data.length - 1].timestamp;
+    } else if (activeData && activeData.length > 0) {
+        // Draw the static red line for loaded automation
+        startTime = activeData[0].timestamp;
+        endTime = activeData[activeData.length - 1].timestamp;
+    } else {
+        return; // Nothing to draw
+    }
+
+    const startX = Math.max(4, Math.min(width - 4, (startTime / duration) * width));
+    const endX = Math.max(4, Math.min(width - 4, (endTime / duration) * width));
+    const y = PADDING_TOP_PX + usableHeight;
+
+    ctx.beginPath();
+    ctx.moveTo(startX, y);
+    ctx.lineTo(endX, y);
+    ctx.strokeStyle = 'rgba(255, 59, 59, 0.8)'; // Bright Red with slight transparency
+    ctx.lineWidth = 3; // Make it thick enough to be visible over the grid line
+    ctx.stroke();
+}
+
+/**
  * The main recursive animation loop that orchestrates the drawing of all visualizer layers.
  * 
  * @param {AnalyserNode} preAnalyser - Analyser node for the raw audio.
@@ -493,9 +534,10 @@ function drawPlayhead(ctx, width, usableHeight, currentTime, duration, uiState) 
  * @param {Array<BiquadFilterNode>} filters - The array of active Web Audio EQ filters.
  * @param {Object} uiState - State object tracking user mouse interaction.
  * @param {HTMLAudioElement} audioElement - The HTML audio element for tracking playback progress.
+ * @param {Object} automationState - State object containing automation data.
  */
-export function drawVisualizer(preAnalyser, preDataArray, postAnalyser, postDataArray, audioContext, filters, uiState, audioElement) {
-    requestAnimationFrame(() => drawVisualizer(preAnalyser, preDataArray, postAnalyser, postDataArray, audioContext, filters, uiState, audioElement));
+export function drawVisualizer(preAnalyser, preDataArray, postAnalyser, postDataArray, audioContext, filters, uiState, audioElement, automationState) {
+    requestAnimationFrame(() => drawVisualizer(preAnalyser, preDataArray, postAnalyser, postDataArray, audioContext, filters, uiState, audioElement, automationState));
 
     preAnalyser.getByteFrequencyData(preDataArray);
     postAnalyser.getByteFrequencyData(postDataArray);
@@ -516,6 +558,9 @@ export function drawVisualizer(preAnalyser, preDataArray, postAnalyser, postData
     drawEQCurves(canvasCtx, filters, canvas.width, centerY, uiState);
     if (uiState) {
         drawControlNodes(canvasCtx, filters, canvas.width, centerY, uiState);
+    }
+    if (audioElement && automationState) {
+        drawAutomationInterval(canvasCtx, canvas.width, usableHeight, automationState.activeData, audioElement.duration, automationState);
     }
     if (audioElement) {
         drawPlayhead(canvasCtx, canvas.width, usableHeight, audioElement.currentTime, audioElement.duration, uiState);
