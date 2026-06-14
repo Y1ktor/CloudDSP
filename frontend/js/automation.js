@@ -134,61 +134,56 @@ export function setupAutomation(ctx) {
         }
     });
 
+    const syncAutomationToTime = () => {
+        if (!automationState.activeData || !automationState.activeData.frames || automationState.activeData.frames.length === 0) return;
+        
+        const currentTime = audioElement.currentTime;
+        let closestFrame = automationState.activeData.frames[0];
+        let minDiff = Infinity;
+        
+        for (let i = 0; i < automationState.activeData.frames.length; i++) {
+            const frame = automationState.activeData.frames[i];
+            const diff = Math.abs(frame.timestamp - currentTime);
+            if (diff < minDiff) {
+                minDiff = diff;
+                closestFrame = frame;
+            } else if (diff > minDiff) {
+                break; 
+            }
+        }
+        
+        let routingChanged = false;
+        if (uiState.globalPower !== closestFrame.globalPower) {
+            uiState.globalPower = closestFrame.globalPower;
+            routingChanged = true;
+        }
+        
+        for (let i = 0; i < 6; i++) {
+            if (uiState.bandStates[i] !== closestFrame.bands[i].state) {
+                uiState.bandStates[i] = closestFrame.bands[i].state;
+                routingChanged = true;
+            }
+        }
+        
+        if (routingChanged) rebuildAudioGraph(audioEngine, uiState.bandStates);
+        
+        closestFrame.bands.forEach((bandData, index) => {
+            const filter = audioEngine.filters[index];
+            
+            filter.frequency.value = bandData.freq;
+            filter.Q.value = bandData.q;
+            if (filter.gain) filter.gain.value = bandData.gain;
+        });
+    };
+
+    // Expose sync function to context for scrubbing
+    ctx.forceAutomationSync = syncAutomationToTime;
+
     const automationPlaybackLoop = () => {
         requestAnimationFrame(automationPlaybackLoop);
         
         if (!audioElement.paused && automationState.recordState !== 'recording' && automationState.activeData && automationState.activeData.frames && automationState.activeData.frames.length > 0) {
-            const currentTime = audioElement.currentTime;
-            let closestFrame = automationState.activeData.frames[0];
-            let minDiff = Infinity;
-            
-            for (let i = 0; i < automationState.activeData.frames.length; i++) {
-                const frame = automationState.activeData.frames[i];
-                const diff = Math.abs(frame.timestamp - currentTime);
-                if (diff < minDiff) {
-                    minDiff = diff;
-                    closestFrame = frame;
-                } else if (diff > minDiff) {
-                    break; 
-                }
-            }
-            
-            let routingChanged = false;
-            if (uiState.globalPower !== closestFrame.globalPower) {
-                uiState.globalPower = closestFrame.globalPower;
-                routingChanged = true;
-            }
-            
-            for (let i = 0; i < 6; i++) {
-                if (uiState.bandStates[i] !== closestFrame.bands[i].state) {
-                    uiState.bandStates[i] = closestFrame.bands[i].state;
-                    routingChanged = true;
-                }
-            }
-            
-            if (routingChanged) rebuildAudioGraph(audioEngine, uiState.bandStates);
-            
-            closestFrame.bands.forEach((bandData, index) => {
-                const filter = audioEngine.filters[index];
-                const bandUI = sliders[`b${index}`];
-                
-                filter.frequency.value = bandData.freq;
-                filter.Q.value = bandData.q;
-                if (filter.gain) filter.gain.value = bandData.gain;
-                
-                if (bandUI.freq.value != bandData.freq) {
-                    bandUI.freq.value = bandData.freq;
-                    bandUI.labels.freq.innerText = Math.round(bandData.freq);
-                }
-                if (bandUI.q && bandUI.q.value != bandData.q) {
-                    bandUI.q.value = bandData.q;
-                    bandUI.labels.q.innerText = bandData.q.toFixed(1);
-                }
-                if (bandUI.gain && bandUI.gain.value != bandData.gain) {
-                    bandUI.gain.value = bandData.gain;
-                    bandUI.labels.gain.innerText = bandData.gain.toFixed(1);
-                }
-            });
+            syncAutomationToTime();
         }
     };
     automationPlaybackLoop();

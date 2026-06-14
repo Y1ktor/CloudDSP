@@ -9,31 +9,14 @@ import { setupAutomation } from './automation.js';
 const audioElement = document.getElementById('audio-source');
 const canvas = document.getElementById('visualizer');
 
-const getBandUI = (bandId, hasToggle = false) => {
-    const ui = {
-        freq: document.getElementById(`${bandId}-freq`),
-        q: document.getElementById(`${bandId}-q`),
-        gain: document.getElementById(`${bandId}-gain`), // Always grab it, even if hidden initially
-        labels: {
-            freq: document.getElementById(`${bandId}-freq-val`),
-            q: document.getElementById(`${bandId}-q-val`)
-        }
-    };
-    if (ui.gain) ui.labels.gain = document.getElementById(`${bandId}-gain-val`);
-    if (hasToggle) {
-        ui.gainContainer = document.getElementById(`${bandId}-gain-container`);
-        ui.qContainer = document.getElementById(`${bandId}-q-container`);
-    }
-    return ui;
-};
-
+// Initialize generic slider/state structures without depending on DOM elements
 const sliders = {
-    b0: getBandUI('b0', true),  // Highpass/Lowshelf
-    b1: getBandUI('b1'),        // Bell 1
-    b2: getBandUI('b2'),        // Bell 2
-    b3: getBandUI('b3'),        // Bell 3
-    b4: getBandUI('b4'),        // Bell 4
-    b5: getBandUI('b5', true)   // Lowpass/Highshelf
+    b0: { freq: { value: 20 }, q: { value: 0 }, gain: { value: 0 }, gainContainer: { style: {} }, qContainer: { style: {} }, labels: { freq: {}, q: {}, gain: {} } },
+    b1: { freq: { value: 100 }, q: { value: 1.0 }, gain: { value: 0 }, labels: { freq: {}, q: {}, gain: {} } },
+    b2: { freq: { value: 500 }, q: { value: 1.0 }, gain: { value: 0 }, labels: { freq: {}, q: {}, gain: {} } },
+    b3: { freq: { value: 2000 }, q: { value: 1.0 }, gain: { value: 0 }, labels: { freq: {}, q: {}, gain: {} } },
+    b4: { freq: { value: 5000 }, q: { value: 1.0 }, gain: { value: 0 }, labels: { freq: {}, q: {}, gain: {} } },
+    b5: { freq: { value: 20000 }, q: { value: 0 }, gain: { value: 0 }, gainContainer: { style: {} }, qContainer: { style: {} }, labels: { freq: {}, q: {}, gain: {} } }
 };
 
 const filterModes = {

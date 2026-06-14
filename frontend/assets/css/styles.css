@@ -236,6 +236,7 @@ h1 {
     max-width: 1200px;
     margin-left: auto;
     margin-right: auto;
+    margin-bottom: 40px; /* Add some space at the bottom since the cards are gone */
 }
 
 #visualizer {
@@ -244,64 +245,4 @@ h1 {
     width: 100%;
     display: block;
     box-shadow: 0 8px 16px rgba(0,0,0,0.5);
-}
-
-#record-btn {
-    width: 26px;
-    height: 26px;
-    padding: 0;
-    margin: 0 5px;
-    transition: background-color 0.2s, box-shadow 0.3s;
-}
-
-#record-btn.is-recording {
-    box-shadow: 0 0 0 2px #ff3b3b;
-    border-radius: 4px; /* Make it a square-ish border around the circular button */
-}
-
-.countdown-text {
-    color: white; /* Same color as play button icons */
-    font-weight: bold;
-    font-size: 16px;
-    font-family: monospace;
-}
-
-/* Bottom Band Controls Layout */
-.bands-container {
-    margin-top: 20px;
-    display: flex;
-    gap: 20px;
-    flex-wrap: wrap;
-    justify-content: center;
-}
-
-.band-card {
-    background: #eee;
-    padding: 15px;
-    border-radius: 8px;
-    min-width: 180px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-}
-
-.band-card h4 {
-    margin-top: 0;
-    margin-bottom: 10px;
-    border-bottom: 1px solid #ddd;
-    padding-bottom: 5px;
-    color: #444;
-}
-
-.band-card label {
-    font-size: 14px;
-    font-weight: 500;
-}
-
-.band-card span {
-    font-weight: bold;
-    color: #0066cc;
-}
-
-.band-card input[type="range"] {
-    width: 100%;
-    margin-bottom: 10px;
 }

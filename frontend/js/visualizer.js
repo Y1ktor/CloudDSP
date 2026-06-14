@@ -497,11 +497,35 @@ function drawAutomationInterval(ctx, width, usableHeight, activeData, duration, 
 
     const y = PADDING_TOP_PX + usableHeight;
 
+    let recordingStart = null;
+    let recordingEnd = null;
+
+    if (automationState && automationState.recordState === 'recording' && automationState.data.length > 0) {
+        recordingStart = automationState.data[0].timestamp;
+        recordingEnd = automationState.data[automationState.data.length - 1].timestamp;
+    }
+
     // Draw the static red lines for loaded automation regions
     if (activeData && activeData.regions) {
         activeData.regions.forEach(region => {
-            const startX = Math.max(4, Math.min(width - 4, (region.start / duration) * width));
-            const endX = Math.max(4, Math.min(width - 4, (region.end / duration) * width));
+            let drawStart = region.start;
+            let drawEnd = region.end;
+
+            // Clip visually if currently recording over this region
+            if (recordingStart !== null && recordingEnd !== null) {
+                if (recordingStart >= region.start && recordingStart <= region.end) {
+                    // Old region is cut off by the new recording start point
+                    drawEnd = Math.min(drawEnd, recordingStart);
+                } else if (recordingEnd >= region.start && recordingStart < region.start) {
+                    // The new recording touched or completely overran this later region, erase it
+                    return; // Skip drawing this region entirely
+                }
+            }
+
+            if (drawStart >= drawEnd) return; // Nothing left to draw
+
+            const startX = Math.max(4, Math.min(width - 4, (drawStart / duration) * width));
+            const endX = Math.max(4, Math.min(width - 4, (drawEnd / duration) * width));
             
             ctx.beginPath();
             ctx.moveTo(startX, y);
@@ -513,12 +537,9 @@ function drawAutomationInterval(ctx, width, usableHeight, activeData, duration, 
     }
 
     // Draw the dynamically expanding red trail while recording
-    if (automationState && automationState.recordState === 'recording' && automationState.data.length > 0) {
-        const startTime = automationState.data[0].timestamp;
-        const endTime = automationState.data[automationState.data.length - 1].timestamp;
-
-        const startX = Math.max(4, Math.min(width - 4, (startTime / duration) * width));
-        const endX = Math.max(4, Math.min(width - 4, (endTime / duration) * width));
+    if (recordingStart !== null && recordingEnd !== null) {
+        const startX = Math.max(4, Math.min(width - 4, (recordingStart / duration) * width));
+        const endX = Math.max(4, Math.min(width - 4, (recordingEnd / duration) * width));
 
         ctx.beginPath();
         ctx.moveTo(startX, y);

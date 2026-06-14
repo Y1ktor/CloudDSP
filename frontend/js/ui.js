@@ -25,8 +25,15 @@ export function setupUI(ctx) {
         if (audioEngine && audioEngine.audioContext.state === 'suspended') {
             audioEngine.audioContext.resume();
         }
-        if (audioElement.paused) audioElement.play();
-        else audioElement.pause();
+        if (audioElement.paused) {
+            audioElement.play();
+        } else {
+            audioElement.pause();
+            // Automatically stop recording if paused
+            if (automationState.recordState === 'recording') {
+                document.getElementById('record-btn').click();
+            }
+        }
     });
 
     audioElement.addEventListener('play', () => {
@@ -57,6 +64,11 @@ export function setupUI(ctx) {
 
     seekBar.addEventListener('input', () => {
         audioElement.currentTime = seekBar.value;
+        
+        // Force an immediate automation sync pass while dragging if paused
+        if (audioElement.paused && automationState && automationState.activeData && automationState.activeData.frames && automationState.activeData.frames.length > 0) {
+            if (ctx.forceAutomationSync) ctx.forceAutomationSync();
+        }
     });
 
     volumeSlider.addEventListener('input', () => {
@@ -161,27 +173,4 @@ export function setupUI(ctx) {
         }
     };
     ctx.populateImportMenu();
-
-    [sliders.b0, sliders.b1, sliders.b2, sliders.b3, sliders.b4, sliders.b5].forEach((band, index) => {
-        const filter = audioEngine.filters[index];
-        band.freq.addEventListener('input', (e) => {
-            const val = parseFloat(e.target.value);
-            filter.frequency.value = val;
-            band.labels.freq.innerText = Math.round(val);
-        });
-        if (band.q) {
-            band.q.addEventListener('input', (e) => {
-                const val = parseFloat(e.target.value);
-                filter.Q.value = val;
-                band.labels.q.innerText = val.toFixed(1);
-            });
-        }
-        if (band.gain) {
-            band.gain.addEventListener('input', (e) => {
-                const val = parseFloat(e.target.value);
-                filter.gain.value = val;
-                band.labels.gain.innerText = val.toFixed(1);
-            });
-        }
-    });
 }

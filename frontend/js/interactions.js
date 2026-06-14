@@ -33,6 +33,12 @@ export function setupInteractions(ctx) {
                 audioElement.currentTime = percent * audioElement.duration;
                 seekBar.value = audioElement.currentTime;
                 timeDisplay.innerText = `${formatTime(audioElement.currentTime)} / ${formatTime(audioElement.duration)}`;
+                
+                // Force an immediate automation sync pass while dragging if paused
+                const { automationState } = ctx;
+                if (audioElement.paused && automationState && automationState.activeData && automationState.activeData.frames && automationState.activeData.frames.length > 0) {
+                    if (ctx.forceAutomationSync) ctx.forceAutomationSync();
+                }
             }
             return;
         }
@@ -54,24 +60,12 @@ export function setupInteractions(ctx) {
             const newFreq = getFreqFromX(newX, canvas.width);
             
             filter.frequency.value = newFreq;
-            const bandKey = `b${uiState.activeDragBand}`;
             
             if (filter.type === 'highpass' || filter.type === 'lowpass') {
                 filter.Q.value = newYValue;
-                if (sliders[bandKey].q) {
-                    sliders[bandKey].q.value = newYValue;
-                    sliders[bandKey].labels.q.innerText = newYValue.toFixed(1);
-                }
             } else {
                 filter.gain.value = newYValue;
-                if (sliders[bandKey].gain) {
-                    sliders[bandKey].gain.value = newYValue;
-                    sliders[bandKey].labels.gain.innerText = newYValue.toFixed(1);
-                }
             }
-            
-            sliders[bandKey].freq.value = newFreq;
-            sliders[bandKey].labels.freq.innerText = Math.round(newFreq);
             
         } else if (uiState.activeZoneDragBand !== -1) {
             const deltaX = mouseX - uiState.dragStartX;
@@ -87,12 +81,6 @@ export function setupInteractions(ctx) {
             
             const filter = audioEngine.filters[uiState.activeZoneDragBand];
             filter.Q.value = newQ;
-            const bandKey = `b${uiState.activeZoneDragBand}`;
-            
-            if (sliders[bandKey].q) {
-                sliders[bandKey].q.value = newQ;
-                sliders[bandKey].labels.q.innerText = newQ.toFixed(1);
-            }
             canvas.style.cursor = 'ew-resize';
 
         } else {
@@ -223,19 +211,14 @@ export function setupInteractions(ctx) {
             
             if (mouseX >= badgeX && mouseX <= badgeX + badgeW && mouseY >= badgeY && mouseY <= badgeY + badgeH) {
                 const filter = audioEngine.filters[i];
-                const band = sliders[`b${i}`];
                 if (i === 0) {
                     filterModes.b0 = filterModes.b0 === 'highpass' ? 'lowshelf' : 'highpass';
                     filter.type = filterModes.b0;
-                    band.gainContainer.style.display = filter.type === 'lowshelf' ? 'block' : 'none';
-                    band.qContainer.style.display = filter.type === 'lowshelf' ? 'none' : 'block';
-                    if(filter.type === 'lowshelf') filter.gain.value = parseFloat(band.gain.value);
+                    if(filter.type === 'lowshelf') filter.gain.value = 0; // Default gain for shelf
                 } else if (i === 5) {
                     filterModes.b5 = filterModes.b5 === 'lowpass' ? 'highshelf' : 'lowpass';
                     filter.type = filterModes.b5;
-                    band.gainContainer.style.display = filter.type === 'highshelf' ? 'block' : 'none';
-                    band.qContainer.style.display = filter.type === 'highshelf' ? 'none' : 'block';
-                    if(filter.type === 'highshelf') filter.gain.value = parseFloat(band.gain.value);
+                    if(filter.type === 'highshelf') filter.gain.value = 0; // Default gain for shelf
                 }
                 return; 
             }
