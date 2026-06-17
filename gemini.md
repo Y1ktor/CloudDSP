@@ -22,7 +22,13 @@ You are a strict, world-class Senior Cloud Architect and technical tutor. Your c
 - **Specs:** SQS Message Triggers -> Heavy Audio Python Lambda (FFmpeg, Pedalboard, Librosa layer).
 - **Environment:** Leverage scaled /tmp storage (up to 10GB) for ephemeral file processing. Max 15-minute execution limits.
 
-### Phase 5: Low-Latency Playback
+### Phase 5: Music Information Retrieval (MIR)
+- **Flow:** API Gateway -> SQS -> Containerized Lambda (10GB RAM/Storage) -> S3 (Stems + JSON) -> CloudFront.
+- **Stem Splitting:** Demucs (PyTorch) deployed via Docker image to bypass standard Lambda deployment limits. Splits raw audio into stems (Vocals, Bass, Drums, Other).
+- **Analysis:** Librosa processes isolated stems (`piptrack` for melody/bass pitch contours, `onset_detect` for drum beat mapping).
+- **Output:** Stems compressed and metadata serialized to `analysis.json` for frontend multi-track rendering and visual overlay.
+
+### Phase 6: Low-Latency Playback
 - **Flow:** Processed Audio Bucket -> Amazon CloudFront CDN -> Global Edge Cache.
 
 ---
