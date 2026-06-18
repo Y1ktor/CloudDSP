@@ -4,20 +4,30 @@ import { getFreqFromX, getLogX } from './visualizer.js';
 import { formatTime } from './utils.js';
 import { rebuildAudioGraph } from './audio.js';
 
+/**
+ * Initializes and binds all canvas-based interactive events (mouse movements, clicks, and dragging).
+ * This function translates physical screen pixel coordinates into mathematical Web Audio API values,
+ * updates the EQ visualizer UI state, and syncs the parameters with the underlying audio engine in real-time.
+ * 
+ * @param {Object} ctx - The centralized application context containing references to the canvas, audio engine, and UI state.
+ */
 export function setupInteractions(ctx) {
     const { canvas, audioEngine, uiState, sliders, filterModes, audioElement } = ctx;
     const seekBar = document.getElementById('seek-bar');
     const timeDisplay = document.getElementById('time-display');
 
+    // Canvas Event: Captures continuous mouse movement to handle dragging math and dynamic hover states
     canvas.addEventListener('mousemove', (e) => {
         if (!audioEngine) return;
         
+        // Map physical screen coordinates to internal canvas resolution coordinates
         const rect = canvas.getBoundingClientRect();
         const scaleX = canvas.width / rect.width;
         const scaleY = canvas.height / rect.height;
         const mouseX = (e.clientX - rect.left) * scaleX;
         const mouseY = (e.clientY - rect.top) * scaleY;
 
+        // Visual layout constants
         const PADDING_BOTTOM_PX = 20;
         const PADDING_TOP_PX = 40;
         const usableHeight = canvas.height - PADDING_BOTTOM_PX - PADDING_TOP_PX;
@@ -25,6 +35,7 @@ export function setupInteractions(ctx) {
         const maxDeltaY = centerY - 2; 
         const pxPerDb = maxDeltaY / 15;
 
+        // Logic Block: Handle Horizontal Playhead Scrubbing
         if (uiState.isDraggingPlayhead) {
             let percent = mouseX / canvas.width;
             if (percent < 0) percent = 0;
@@ -40,9 +51,10 @@ export function setupInteractions(ctx) {
                     if (ctx.forceAutomationSync) ctx.forceAutomationSync();
                 }
             }
-            return;
+            return; // Skip other hit detection to prevent dragging EQ nodes simultaneously
         }
 
+        // Logic Block: Handle 2D Dragging of EQ Nodes (Frequency & Gain/Q)
         if (uiState.activeDragBand !== -1) {
             let newY = mouseY - PADDING_TOP_PX;
             let newX = mouseX;
@@ -51,14 +63,17 @@ export function setupInteractions(ctx) {
             const isPassFilter = (filter.type === 'highpass' || filter.type === 'lowpass');
             const yLimit = isPassFilter ? 20 : 15;
             
+            // Clamp dragging within vertical usable limits
             const minY = centerY - (yLimit * pxPerDb);
             const maxY = centerY - (-yLimit * pxPerDb);
             if (newY < minY) newY = minY;
             if (newY > maxY) newY = maxY;
 
+            // Convert physical coordinates back to mathematical audio values
             const newYValue = (centerY - newY) / pxPerDb;
             const newFreq = getFreqFromX(newX, canvas.width);
             
+            // Apply instantly to the Web Audio API filter node
             filter.frequency.value = newFreq;
             
             if (filter.type === 'highpass' || filter.type === 'lowpass') {
@@ -67,10 +82,13 @@ export function setupInteractions(ctx) {
                 filter.gain.value = newYValue;
             }
             
-        } else if (uiState.activeZoneDragBand !== -1) {
+        } 
+        // Logic Block: Handle Horizontal Dragging of Filter Zones (Stretching the Q-Factor)
+        else if (uiState.activeZoneDragBand !== -1) {
             const deltaX = mouseX - uiState.dragStartX;
             let newQ = uiState.startQ - (deltaX * 0.02);
             
+            // Clamp Q-Factor based on filter type specifications
             if (audioEngine.filters[uiState.activeZoneDragBand].type === 'highpass' || audioEngine.filters[uiState.activeZoneDragBand].type === 'lowpass') {
                  if (newQ < -20.0) newQ = -20.0;
                  if (newQ > 20.0) newQ = 20.0;
@@ -83,7 +101,9 @@ export function setupInteractions(ctx) {
             filter.Q.value = newQ;
             canvas.style.cursor = 'ew-resize';
 
-        } else {
+        } 
+        // Logic Block: If nothing is being dragged, calculate hover states for all elements
+        else {
             let hoveredNode = -1;
             let hoveredZone = -1;
             
@@ -95,6 +115,7 @@ export function setupInteractions(ctx) {
                                                 automationState.recordState !== 'recording';
 
             if (!isAutomationActiveAndLocked) {
+                // Priority 1: Check Control Node hitboxes (circles)
                 audioEngine.filters.forEach((filter, index) => {
                     const nodeX = getLogX(filter.frequency.value, canvas.width);
                     let yValue = (filter.type === 'highpass' || filter.type === 'lowpass') ? filter.Q.value : filter.gain.value;
@@ -107,6 +128,7 @@ export function setupInteractions(ctx) {
                     }
                 });
                 
+                // Priority 2: Check Q-Factor Zone hitboxes (rectangles around the curve)
                 if (hoveredNode === -1) {
                     const ZONE_WIDTH = 40;
                     audioEngine.filters.forEach((filter, index) => {
@@ -131,6 +153,7 @@ export function setupInteractions(ctx) {
             uiState.hoveredNode = hoveredNode;
             uiState.hoveredZone = hoveredZone;
             
+            // Check Hitboxes for Top Navigation Bar elements (Labels & Badges)
             const blockWidth = (canvas.width / 8) - 10;
             const gap = 8;
             const totalBlocksWidth = (6 * blockWidth) + (5 * gap);
@@ -158,11 +181,13 @@ export function setupInteractions(ctx) {
             uiState.hoveredTopBand = hoveredTopBand;
             uiState.hoveredBadge = hoveredBadge;
             
+            // Check Hitbox for Global Power Button
             const powerX = 40;
             const powerY = PADDING_TOP_PX / 2;
             const distToPower = Math.sqrt(Math.pow(mouseX - powerX, 2) + Math.pow(mouseY - powerY, 2));
             uiState.hoveredPowerBtn = distToPower <= 16;
 
+            // Check Hitbox for Time Playhead
             let hoveredPlayhead = false;
             if (audioElement.duration) {
                 const playheadX = (audioElement.currentTime / audioElement.duration) * canvas.width;
@@ -173,6 +198,7 @@ export function setupInteractions(ctx) {
             }
             uiState.hoveredPlayhead = hoveredPlayhead;
 
+            // Change browser cursor to visually indicate interactability based on current hover state
             if (uiState.hoveredPowerBtn || uiState.hoveredBadge !== -1 || hoveredTopBand !== -1) {
                 canvas.style.cursor = 'pointer';
             } else if ((hoveredZone !== -1 && hoveredNode === -1) || uiState.hoveredPlayhead) {
@@ -183,6 +209,7 @@ export function setupInteractions(ctx) {
         }
     });
 
+    // Canvas Event: Registers initial clicks to determine what interaction the user is initiating
     canvas.addEventListener('mousedown', (e) => {
         if (!audioEngine) return;
         const rect = canvas.getBoundingClientRect();
@@ -191,9 +218,10 @@ export function setupInteractions(ctx) {
         const mouseX = (e.clientX - rect.left) * scaleX;
         const mouseY = (e.clientY - rect.top) * scaleY;
 
+        // Handle Playhead Dragging Priority
         if (uiState.hoveredPlayhead) {
             uiState.isDraggingPlayhead = true;
-            return; 
+            return; // Stop further hit detection
         }
 
         const PADDING_TOP_PX = 40;
@@ -202,6 +230,7 @@ export function setupInteractions(ctx) {
         const totalBlocksWidth = (6 * blockWidth) + (5 * gap);
         const startX = canvas.width - 20 - totalBlocksWidth;
         
+        // Handle Clicks on Mode Toggles (Bands 0 and 5 Badges)
         for (let i of [0, 5]) {
             const blockX = startX + (i * (blockWidth + gap));
             const badgeW = 24;
@@ -224,6 +253,7 @@ export function setupInteractions(ctx) {
             }
         }
 
+        // Handle Clicks on Global Power Button (with state memory)
         const powerX = 40;
         const powerY = PADDING_TOP_PX / 2;
         if (Math.sqrt(Math.pow(mouseX - powerX, 2) + Math.pow(mouseY - powerY, 2)) <= 16) {
@@ -243,6 +273,7 @@ export function setupInteractions(ctx) {
             return;
         }
 
+        // Handle Clicks on Top Band Labels (Toggling bands ON/OFF)
         for (let i = 0; i < 6; i++) {
             const blockX = startX + (i * (blockWidth + gap));
             if (mouseX >= blockX && mouseX <= blockX + blockWidth && mouseY >= 10 && mouseY <= PADDING_TOP_PX - 10) {
@@ -270,6 +301,7 @@ export function setupInteractions(ctx) {
             return; // Exit mousedown early, blocking the drag initiation
         }
 
+        // Handle Initiation of EQ Node / Zone dragging
         if (uiState.hoveredNode !== -1) {
             uiState.activeDragBand = uiState.hoveredNode;
         } else if (uiState.hoveredZone !== -1) {
@@ -279,12 +311,14 @@ export function setupInteractions(ctx) {
         }
     });
 
+    // Canvas Event: Resets all active dragging states when the user releases the mouse button
     canvas.addEventListener('mouseup', () => {
         uiState.activeDragBand = -1;
         uiState.activeZoneDragBand = -1;
         uiState.isDraggingPlayhead = false;
     });
 
+    // Canvas Event: Safety catch to clear dragging and hover states if the cursor leaves the canvas boundaries
     canvas.addEventListener('mouseleave', () => {
         uiState.activeDragBand = -1;
         uiState.activeZoneDragBand = -1;

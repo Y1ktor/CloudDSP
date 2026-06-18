@@ -16,11 +16,13 @@ export function setupUI(ctx) {
     const volumeSlider = document.getElementById('volume-slider');
     const fileNameDisplay = document.getElementById('file-name-display');
 
+    // Transport Control: Instantly seek playback to the beginning (0:00) and pause
     goToBeginningBtn.addEventListener('click', () => {
         audioElement.currentTime = 0;
         if (!audioElement.paused) audioElement.pause();
     });
 
+    // Transport Control: Toggle Play/Pause state and conditionally stop active recordings
     playPauseBtn.addEventListener('click', () => {
         if (audioEngine && audioEngine.audioContext.state === 'suspended') {
             audioEngine.audioContext.resume();
@@ -36,6 +38,7 @@ export function setupUI(ctx) {
         }
     });
 
+    // Audio Event: Automatically sync play icon to pause icon when audio begins playing
     audioElement.addEventListener('play', () => {
         playIcon.style.display = 'none';
         pauseIcon.style.display = 'block';
@@ -44,11 +47,13 @@ export function setupUI(ctx) {
         }
     });
 
+    // Audio Event: Automatically sync pause icon to play icon when audio halts
     audioElement.addEventListener('pause', () => {
         playIcon.style.display = 'block';
         pauseIcon.style.display = 'none';
     });
 
+    // Audio Event: Fires continuously during playback to sync the HTML seek bar and time text
     audioElement.addEventListener('timeupdate', () => {
         if (audioElement.duration && !uiState.isDraggingPlayhead) {
             seekBar.max = audioElement.duration;
@@ -57,11 +62,13 @@ export function setupUI(ctx) {
         }
     });
 
+    // Audio Event: Fires once when a new file loads to set up maximum duration limits
     audioElement.addEventListener('loadedmetadata', () => {
         seekBar.max = audioElement.duration;
         timeDisplay.innerText = `0:00 / ${formatTime(audioElement.duration)}`;
     });
 
+    // Slider Event: Allows user to scrub through track visually via the HTML range input
     seekBar.addEventListener('input', () => {
         audioElement.currentTime = seekBar.value;
         
@@ -71,10 +78,12 @@ export function setupUI(ctx) {
         }
     });
 
+    // Slider Event: Maps HTML volume slider linearly to native audio output gain
     volumeSlider.addEventListener('input', () => {
         audioElement.volume = volumeSlider.value;
     });
 
+    // Input Event: Handles user selecting a local audio file and mounting it for playback
     fileInput.addEventListener('change', (e) => {
         const file = e.target.files[0];
         if (file) {
@@ -92,6 +101,7 @@ export function setupUI(ctx) {
     const importOption = document.getElementById('import-option');
     const importSubmenu = document.getElementById('import-submenu');
 
+    // Dropdown Event: Toggles the main automation dropdown menu visibility
     autoSelected.addEventListener('click', (e) => {
         e.stopPropagation();
         const isShowing = autoItems.style.display === 'block';
@@ -99,17 +109,20 @@ export function setupUI(ctx) {
         importSubmenu.style.display = 'none';
     });
 
+    // Dropdown Event: Toggles the secondary "Import" submenu visibility
     importOption.addEventListener('click', (e) => {
         e.stopPropagation();
         const isShowing = importSubmenu.style.display === 'block';
         importSubmenu.style.display = isShowing ? 'none' : 'block';
     });
 
+    // Global Event: Closes all dropdown menus if the user clicks anywhere outside of them
     document.addEventListener('click', () => {
         autoItems.style.display = 'none';
         importSubmenu.style.display = 'none';
     });
 
+    // Dropdown Event: Handles clicking standard options (New File, Save) inside the main menu
     autoDropdown.querySelectorAll('.select-items > li').forEach(item => {
         if (item.id === 'import-option') return;
         item.addEventListener('click', (e) => {
@@ -141,6 +154,7 @@ export function setupUI(ctx) {
                 const displayName = key.replace('cloudDspAutomation_', '');
                 li.innerText = displayName;
                 
+                // Dropdown Event: Handles loading a specific automation file from Session Storage
                 li.addEventListener('click', (e) => {
                     e.stopPropagation();
                     updateScrollingText(autoSelectedText, displayName, 'scrollAutoName');
