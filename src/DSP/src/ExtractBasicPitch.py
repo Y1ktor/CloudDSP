@@ -5,10 +5,11 @@ import sys
 
 try:
     from basic_pitch.inference import predict_and_save
+    from basic_pitch import ICASSP_2022_MODEL_PATH
 except ImportError:
-    print("Error: basic-pitch is not installed.")
-    print("Please run: pip install 'basic-pitch[core]'")
-    sys.exit(1)
+    # Fallback or error handling if basic_pitch is not installed
+    ICASSP_2022_MODEL_PATH = None
+
 
 def extract_midi_basic_pitch(input_file: str, output_dir: str):
     """
@@ -34,7 +35,8 @@ def extract_midi_basic_pitch(input_file: str, output_dir: str):
             save_midi=True,
             sonify_midi=False,
             save_model_outputs=False,
-            save_notes=False
+            save_notes=False,
+            model_or_model_path=ICASSP_2022_MODEL_PATH
         )
         print(f"Done! MIDI file saved to {out_dir_path}")
     except Exception as e:

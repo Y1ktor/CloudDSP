@@ -1,0 +1,61 @@
+{
+  "filename": "guitar_chords.wav",
+  "stem_type": "guitar",
+  "notes": [
+    {
+      "time": 0.032,
+      "pitch": [
+        "C",
+        "E",
+        "G"
+      ]
+    },
+    {
+      "time": 1.013,
+      "pitch": [
+        "E",
+        "A"
+      ]
+    },
+    {
+      "time": 2.016,
+      "pitch": [
+        "E"
+      ]
+    },
+    {
+      "time": 3.008,
+      "pitch": [
+        "F"
+      ]
+    },
+    {
+      "time": 4.011,
+      "pitch": [
+        "C#",
+        "F",
+        "G#"
+      ]
+    },
+    {
+      "time": 5.013,
+      "pitch": [
+        "D#",
+        "G#"
+      ]
+    },
+    {
+      "time": 6.016,
+      "pitch": [
+        "D#",
+        "F#"
+      ]
+    },
+    {
+      "time": 7.008,
+      "pitch": [
+        "C#"
+      ]
+    }
+  ]
+}

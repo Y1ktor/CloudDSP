@@ -1,0 +1,79 @@
+{
+  "filename": "piano.wav",
+  "stem_type": "piano",
+  "notes": [
+    {
+      "time": 0.032,
+      "pitch": [
+        "C"
+      ]
+    },
+    {
+      "time": 0.48,
+      "pitch": [
+        "C",
+        "E"
+      ]
+    },
+    {
+      "time": 0.949,
+      "pitch": [
+        "G"
+      ]
+    },
+    {
+      "time": 1.419,
+      "pitch": [
+        "G"
+      ]
+    },
+    {
+      "time": 1.888,
+      "pitch": [
+        "G"
+      ]
+    },
+    {
+      "time": 2.357,
+      "pitch": [
+        "E"
+      ]
+    },
+    {
+      "time": 2.827,
+      "pitch": [
+        "C"
+      ]
+    },
+    {
+      "time": 3.296,
+      "pitch": [
+        "F#"
+      ]
+    },
+    {
+      "time": 3.765,
+      "pitch": [
+        "D#"
+      ]
+    },
+    {
+      "time": 4.235,
+      "pitch": [
+        "A#"
+      ]
+    },
+    {
+      "time": 4.704,
+      "pitch": [
+        "B"
+      ]
+    },
+    {
+      "time": 5.163,
+      "pitch": [
+        "A"
+      ]
+    }
+  ]
+}
