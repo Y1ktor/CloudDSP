@@ -9,6 +9,20 @@ import { updateScrollingText } from './vanilla/utils.js';
 
 import './assets/css/styles.css';
 
+/**
+ * App.jsx
+ * This is the primary orchestrator component for the CloudDSP frontend.
+ * It serves as a bridge between the new React architecture and the legacy Vanilla JS audio engine.
+ * 
+ * Usage:
+ * Instead of rewriting the entire highly-optimized Web Audio and Canvas visualizer engine into React hooks 
+ * (which would be slow and cause unnecessary re-renders), this component creates a shared `ctxRef` object.
+ * This `ctxRef` acts as an "escape hatch" payload containing the raw audio context, element, and state buffers,
+ * allowing the vanilla scripts to run at 60fps outside of React's jurisdiction, while still letting 
+ * React child components (`<AudioPlayerBar>`, `<AutomationBar>`) read and write to it.
+ *
+ * @returns {JSX.Element} The rendered layout combining the React toolbars and the Vanilla canvas.
+ */
 export default function App() {
     const [isReady, setIsReady] = useState(false);
     

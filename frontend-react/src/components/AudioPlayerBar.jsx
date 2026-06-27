@@ -1,6 +1,20 @@
 import React, { useEffect, useState } from 'react';
 import { formatTime } from '../vanilla/utils.js';
 
+/**
+ * AudioPlayerBar.jsx
+ * This component replaces the old vanilla HTML audio player UI.
+ * 
+ * Usage:
+ * It manages the low-speed HTML controls (Play/Pause, Seek Bar, Volume, File Upload, Record).
+ * Instead of manually mutating DOM elements via `document.getElementById`, it uses React `useState` 
+ * to handle UI changes cleanly (e.g., toggling the play/pause icon, showing the countdown timer).
+ * It listens to callbacks fired by the Vanilla `automation.js` backend to stay visually synchronized
+ * without directly interacting with the high-speed physics loop.
+ * 
+ * @param {Object} props.ctxRef - The global state payload containing the AudioElement and Automation logic.
+ * @returns {JSX.Element} The bottom player bar UI.
+ */
 export default function AudioPlayerBar({ ctxRef }) {
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
@@ -14,6 +28,9 @@ export default function AudioPlayerBar({ ctxRef }) {
     
     // Listen for events from the Vanilla audio element and Vanilla automation state
     useEffect(() => {
+        // These callbacks are injected into ctxRef so the Vanilla engine can trigger React state updates.
+        // For example, when interactions.js scrubs the playhead, it calls ctx.onPlayheadScrub(),
+        // which instantly updates the React `currentTime` state here.
         ctxRef.current.onPlayheadScrub = (time) => setCurrentTime(time);
         
         ctxRef.current.onRecordCountdown = (count) => {
@@ -27,8 +44,14 @@ export default function AudioPlayerBar({ ctxRef }) {
             setRecordState('idle');
         };
 
+        // This function is triggered natively by the HTML5 <audio> element as the song plays.
         const handleTimeUpdate = () => {
+            // `uiState` is a shared object (defined in App.jsx) that tracks the Canvas mouse interactions.
+            // If the user is currently physically dragging the playhead on the canvas, we temporarily ignore 
+            // the audio time updates so the React slider doesn't fight against the user's mouse position.
             if (!uiState.isDraggingPlayhead) {
+                // `audioElement` is the raw HTML5 <audio> DOM node created in App.jsx.
+                // .currentTime and .duration are its standard native built-in properties.
                 setCurrentTime(audioElement.currentTime);
                 setDuration(audioElement.duration || 0);
             }

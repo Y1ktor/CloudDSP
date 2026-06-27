@@ -1,5 +1,19 @@
 import React, { useState, useEffect } from 'react';
 
+/**
+ * AutomationBar.jsx
+ * This component handles the custom dropdown menu for managing EQ automation files.
+ * 
+ * Usage:
+ * It reads from `sessionStorage` to populate a list of previously recorded automation takes.
+ * When the user selects a file, it parses the JSON data and loads it into the `ctxRef.automationState`,
+ * which the Vanilla background loop instantly detects and begins applying to the audio graph.
+ * It also exposes React callbacks (`onNewAutomationFile`, `onAutomationSaved`) so the Vanilla 
+ * recorder can tell the UI when a new file has been created.
+ * 
+ * @param {Object} props.ctxRef - The global state payload used to inject loaded automation data.
+ * @returns {JSX.Element} The top automation menu UI.
+ */
 export default function AutomationBar({ ctxRef }) {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [isImportOpen, setIsImportOpen] = useState(false);

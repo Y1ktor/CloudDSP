@@ -1,1 +1,7 @@
-
+/**
+ * index.css
+ * This file is traditionally used for base, app-wide styles (like resetting margins or setting fonts)
+ * that shouldn't change as you navigate around. 
+ * 
+ * We cleared it out to prevent Vite's default starter styles from clashing with your custom Vanilla CSS.
+ */

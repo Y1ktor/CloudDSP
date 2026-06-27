@@ -2,6 +2,21 @@ import React, { useEffect, useRef } from 'react';
 import { drawVisualizer, initVisualizer } from '../vanilla/visualizer.js';
 import { setupInteractions } from '../vanilla/interactions.js';
 
+/**
+ * EqCanvas.jsx
+ * This component acts as the rendering surface for the Vanilla JS visualizer engine.
+ * 
+ * Usage:
+ * It creates a standard HTML `<canvas>` element and passes its DOM reference back into 
+ * the shared `ctxRef`. It then kickstarts the high-speed `requestAnimationFrame` drawing 
+ * loop and attaches the custom mouse interaction physics (dragging nodes, hovering).
+ * 
+ * By using a Ref for the canvas, React never attempts to update the DOM inside the canvas 
+ * itself, allowing the WebGL/Canvas API to run entirely independently at maximum performance.
+ * 
+ * @param {Object} props.ctxRef - The global state payload containing the AudioEngine and UI state.
+ * @returns {JSX.Element} A div containing the raw canvas DOM node.
+ */
 export default function EqCanvas({ ctxRef }) {
     const canvasRef = useRef(null);
 

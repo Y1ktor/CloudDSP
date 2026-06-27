@@ -1,1 +1,7 @@
-
+/**
+ * App.css
+ * In standard React templates, this file contains styles specific only to the <App /> component.
+ * 
+ * In our architecture, we opted to import your centralized `styles.css` directly in `App.jsx`,
+ * so this file is currently empty, but remains available if you decide to migrate styles to be component-specific later.
+ */
