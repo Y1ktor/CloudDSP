@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { drawVisualizer, initVisualizer } from '../vanilla/visualizer.js';
+import { drawVisualizer, initVisualizer, stopVisualizer } from '../vanilla/visualizer.js';
 import { setupInteractions } from '../vanilla/interactions.js';
 
 /**
@@ -45,6 +45,12 @@ export default function EqCanvas({ ctxRef }) {
             audioElement, 
             automationState 
         );
+        
+        // Clean up the Vanilla engine loops when navigating away to another page
+        return () => {
+            stopVisualizer();
+            initVisualizer(null);
+        };
     }, [ctxRef]);
 
     return (

@@ -23,10 +23,22 @@ const BAND_COLORS = [
 
 let canvas = null;
 let canvasCtx = null;
+let animationFrameId = null;
 
 export function initVisualizer(canvasElement) {
     canvas = canvasElement;
-    canvasCtx = canvas.getContext('2d');
+    if (canvasElement) {
+        canvasCtx = canvas.getContext('2d');
+    } else {
+        canvasCtx = null;
+    }
+}
+
+export function stopVisualizer() {
+    if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+    }
 }
 
 /**
@@ -569,7 +581,9 @@ function drawAutomationInterval(ctx, width, usableHeight, activeData, duration, 
  * @param {Object} automationState - State object containing automation data.
  */
 export function drawVisualizer(preAnalyser, preDataArray, postAnalyser, postDataArray, audioContext, filters, uiState, audioElement, automationState) {
-    requestAnimationFrame(() => drawVisualizer(preAnalyser, preDataArray, postAnalyser, postDataArray, audioContext, filters, uiState, audioElement, automationState));
+    if (!canvas || !canvasCtx) return; // Stop drawing if unmounted
+    
+    animationFrameId = requestAnimationFrame(() => drawVisualizer(preAnalyser, preDataArray, postAnalyser, postDataArray, audioContext, filters, uiState, audioElement, automationState));
 
     preAnalyser.getByteFrequencyData(preDataArray);
     postAnalyser.getByteFrequencyData(postDataArray);
