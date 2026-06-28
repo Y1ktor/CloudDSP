@@ -7,10 +7,10 @@ FROM tensorflow/tensorflow:2.12.0
 WORKDIR /app
 
 # Install OS-level dependencies
-# Basic Pitch relies on the `soundfile` python library to read audio, 
-# which requires `libsndfile1` at the OS level.
+# - libsndfile1: Required by the `soundfile` python library (default for uncompressed audio)
+# - ffmpeg: Required by librosa (via audioread) to decode compressed formats like MP3/M4A
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends libsndfile1 && \
+    apt-get install -y --no-install-recommends libsndfile1 ffmpeg && \
     rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies

@@ -1,0 +1,46 @@
+# Use the official AWS Lambda Python 3.10 base image
+# This image is extremely lightweight and specifically optimized for Lambda runtime
+FROM public.ecr.aws/lambda/python:3.10
+
+# Install OS-level dependencies
+# Amazon Linux 2 (Lambda's OS) uses yum instead of apt-get
+RUN yum update -y && \
+    yum install -y tar xz libsndfile \
+    yum clean all
+
+# Amazon Linux does not have FFmpeg in its default repositories.
+# We download and install a static build of FFmpeg manually so librosa can process MP3s.
+RUN curl -O https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz && \
+    tar xvf ffmpeg-release-amd64-static.tar.xz && \
+    mv ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/ && \
+    mv ffmpeg-*-amd64-static/ffprobe /usr/local/bin/ && \
+    rm -rf ffmpeg-*
+
+# Install Python Dependencies carefully
+# 1. We install basic-pitch WITHOUT its dependencies (--no-deps). 
+#    This explicitly prevents pip from downloading the massive 1.5GB TensorFlow library.
+RUN pip install --no-cache-dir --no-deps basic-pitch
+
+# 2. We manually install the required audio libraries and `tflite-runtime`.
+#    tflite-runtime is only ~50MB (compared to TensorFlow's 1.5GB) and is perfect for Lambda.
+RUN pip install --no-cache-dir \
+    boto3 \
+    librosa \
+    pretty_midi \
+    scipy \
+    "numpy<2.0.0" \
+    "soxr==0.3.7" \
+    tflite-runtime \
+    scikit-learn \
+    mir-eval \
+    resampy \
+    soundfile \
+    typing_extensions
+
+# Copy the Lambda-compatible Python wrapper script
+# NOTE: You will need a slightly modified version of CloudExtractBasicPitch.py 
+# that exposes a `lambda_handler` function for AWS Lambda to trigger.
+COPY src/Cloud/LambdaExtractBasicPitch.py ${LAMBDA_TASK_ROOT}/BasicPitch.py
+
+# Tell Lambda exactly which function to execute when an event arrives
+CMD ["BasicPitch.lambda_handler"]
