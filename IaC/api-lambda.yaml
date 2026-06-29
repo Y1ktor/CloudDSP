@@ -1,6 +1,11 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: 'CloudDSP: Pre-signed URL Generator Lambda and Execution Role'
 
+Parameters:
+  IncomingS3BucketName:
+    Type: String
+    Description: "The exact name of the S3 bucket where incoming audio will be uploaded (e.g., clouddsp-incoming-audio-...)"
+
 Resources:
   # 1. The IAM Execution Role
   IngestionLambdaRole:
@@ -25,7 +30,7 @@ Resources:
                 Action:
                   - s3:PutObject
                 # Restrict to the specific incoming bucket (Needs /* at the end for PutObject)
-                Resource: !Sub "arn:aws:s3:::clouddsp-incoming-audio-${AWS::AccountId}-${AWS::Region}/*"
+                Resource: !Sub "arn:aws:s3:::${IncomingS3BucketName}/*"
 
   # ==========================================
   # 2. COMPUTE LAYER (The Pre-signed URL Lambda)
@@ -58,6 +63,8 @@ Resources:
               query_params = event.get('queryStringParameters', {}) or {}
               file_name = query_params.get('filename')
               file_type = query_params.get('filetype') # e.g., audio/wav, audio/mpeg
+              connection_id = query_params.get('connectionId', 'unknown')
+              stem_mode = query_params.get('stemMode', '6-stems')
           
               try:
           
@@ -74,7 +81,11 @@ Resources:
                       Params={
                           'Bucket': BUCKET_NAME, # Using the Environment Variable
                           'Key': file_key,
-                          'ContentType': content_type
+                          'ContentType': content_type,
+                          'Metadata': {
+                              'connection-id': connection_id,
+                              'stem-mode': stem_mode
+                          }
                       },
                       ExpiresIn=300 # URL expires in 5 minutes
                   )
@@ -107,7 +118,7 @@ Resources:
       Environment:
         Variables:
           # Passing the exact bucket name to the Lambda environment
-          INCOMING_BUCKET_NAME: !Sub "clouddsp-incoming-audio-${AWS::AccountId}-${AWS::Region}"
+          INCOMING_BUCKET_NAME: !Ref IncomingS3BucketName
 
   # ==========================================
   # 3. INGESTION API (API Gateway V2)

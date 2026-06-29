@@ -15,6 +15,8 @@ def lambda_handler(event, context):
     query_params = event.get('queryStringParameters', {}) or {}
     file_name = query_params.get('filename')
     file_type = query_params.get('filetype') # e.g., audio/wav, audio/mpeg
+    connection_id = query_params.get('connectionId', 'unknown')
+    stem_mode = query_params.get('stemMode', '6-stems')
 
     try:
 
@@ -31,7 +33,11 @@ def lambda_handler(event, context):
             Params={
                 'Bucket': BUCKET_NAME, # Using the Environment Variable
                 'Key': file_key,
-                'ContentType': content_type
+                'ContentType': content_type,
+                'Metadata': {
+                    'connection-id': connection_id,
+                    'stem-mode': stem_mode
+                }
             },
             ExpiresIn=300 # URL expires in 5 minutes
         )

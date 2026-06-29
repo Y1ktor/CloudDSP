@@ -27,14 +27,36 @@ import React from 'react';
  * @param {Function} props.setErrorMsg - State setter for errors
  * @param {Function} props.setStemUrls - State setter for the stem URLs
  * @param {Function} props.executeStemSplit - The master function in App.jsx that opens the WebSocket and triggers the S3 upload
+ * @param {Function} props.connectWebSocket - Function to initiate the background WebSocket connection
+ * @param {Function} props.closeWebSocket - Function to explicitly close the connection
  */
 export default function StemSplitter({
     file, setFile,
     fileName, setFileName,
     splitMode, setSplitMode,
     isSplitting, statusMessage, stemUrls, errorMsg, setErrorMsg, setStemUrls,
-    executeStemSplit
+    executeStemSplit, connectWebSocket, closeWebSocket
 }) {
+
+    // We use a ref to track the LATEST isSplitting value so our unmount cleanup function 
+    // can correctly determine if a job is actively running in the background.
+    const isSplittingRef = React.useRef(isSplitting);
+    React.useEffect(() => {
+        isSplittingRef.current = isSplitting;
+    }, [isSplitting]);
+
+    // Instantly connect to the WebSocket in the background the moment this page loads
+    React.useEffect(() => {
+        connectWebSocket();
+        
+        // This cleanup function runs exactly when the user clicks away from the page
+        return () => {
+            if (!isSplittingRef.current) {
+                // User navigated away without starting a job. Save money!
+                closeWebSocket();
+            }
+        };
+    }, [connectWebSocket, closeWebSocket]);
 
     const handleFileUpload = (e) => {
         const uploadedFile = e.target.files[0];

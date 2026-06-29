@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-do
 import EqPage from './EqPage';
 import StemSplitter from './components/StemSplitter';
 
-const WEBSOCKET_URL = "wss://placeholder-api-id.execute-api.us-east-1.amazonaws.com/dev";
+const WEBSOCKET_URL = "wss://placeholder-websocket-api.execute-api.us-east-1.amazonaws.com/dev";
 
 // A simple top-level navigation component
 function NavBar() {
@@ -55,6 +55,9 @@ export default function App() {
     const [stemUrls, setStemUrls] = useState(null);
     const [errorMsg, setErrorMsg] = useState("");
     
+    // NEW: Store the Connection ID instantly so we don't wait for it later
+    const [awsConnectionId, setAwsConnectionId] = useState(null);
+    
     const socketRef = useRef(null);
 
     // Global cleanup just in case App ever unmounts entirely
@@ -64,18 +67,14 @@ export default function App() {
         };
     }, []);
 
-    const executeStemSplit = () => {
-        if (!stemFile) {
-            setErrorMsg("Please select a file first.");
+    // NEW: We trigger this silently in the background when the user opens the Stem Splitter page
+    const connectWebSocket = React.useCallback(() => {
+        // Don't reconnect if we are already connected or connecting
+        if (socketRef.current && (socketRef.current.readyState === WebSocket.OPEN || socketRef.current.readyState === WebSocket.CONNECTING)) {
             return;
         }
         
-        setIsSplitting(true);
-        setErrorMsg("");
-        setStatusMessage("Connecting to AWS...");
-        setStemUrls(null);
-        
-        // 1. Initialize WebSocket globally in App.jsx
+        console.log("Initiating background WebSocket connection...");
         socketRef.current = new WebSocket(WEBSOCKET_URL);
         
         socketRef.current.onopen = () => {
@@ -87,29 +86,21 @@ export default function App() {
         socketRef.current.onerror = (err) => {
             console.error("WebSocket Error:", err);
             setErrorMsg("Failed to connect to cloud WebSocket server.");
-            setIsSplitting(false);
         };
 
         socketRef.current.onclose = () => {
             console.log("WebSocket connection gracefully closed by App.jsx.");
+            setAwsConnectionId(null);
         };
 
         socketRef.current.onmessage = async (event) => {
             try {
                 const data = JSON.parse(event.data);
                 
-                // Phase 2: Connected & ID Received
+                // Phase 1: Silent Background Connection ID Echo
                 if (data.type === "connected") {
-                    const connectionId = data.connectionId;
-                    setStatusMessage("Uploading audio to S3...");
-                    console.log(`Connected globally! ID: ${connectionId}`);
-                    
-                    // ==========================================
-                    // S3 UPLOAD MOCKUP
-                    // ==========================================
-                    setTimeout(() => {
-                        setStatusMessage("Processing Stems on AWS Batch GPUs...");
-                    }, 1500);
+                    setAwsConnectionId(data.connectionId);
+                    console.log(`Connected globally in background! ID: ${data.connectionId}`);
                 }
                 
                 // Phase 3: Stems Finished Processing
@@ -131,6 +122,73 @@ export default function App() {
                 console.error("Failed to parse websocket message:", err);
             }
         };
+    }, []); // Use useCallback to stabilize the reference
+
+    const closeWebSocket = React.useCallback(() => {
+        if (socketRef.current) {
+            console.log("Closing WebSocket to save idle AWS connection costs...");
+            socketRef.current.close();
+        }
+    }, []);
+
+
+    const executeStemSplit = async () => {
+        if (!stemFile) {
+            setErrorMsg("Please select a file first.");
+            return;
+        }
+        
+        if (!awsConnectionId) {
+            setErrorMsg("Still establishing secure connection to AWS... please try again in a few seconds.");
+            connectWebSocket();
+            return;
+        }
+        
+        setIsSplitting(true);
+        setErrorMsg("");
+        setStatusMessage("Generating secure S3 upload link...");
+        setStemUrls(null);
+        
+        try {
+            // ==========================================
+            // 1. ACTUAL S3 PRESIGNED URL FETCH
+            // ==========================================
+            const fileType = stemFile.type || 'application/octet-stream';
+            const res = await fetch(`https://placeholder-http-api.execute-api.us-east-1.amazonaws.com/upload-url?filename=${encodeURIComponent(stemFileName)}&filetype=${encodeURIComponent(fileType)}&connectionId=${encodeURIComponent(awsConnectionId)}&stemMode=${encodeURIComponent(splitMode)}`);
+            const data = await res.json();
+            
+            if (data.error) {
+                throw new Error(data.error);
+            }
+            
+            const uploadUrl = data.uploadUrl;
+            
+            setStatusMessage("Uploading audio to S3...");
+            
+            // ==========================================
+            // 2. ACTUAL S3 UPLOAD LOGIC
+            // ==========================================
+            const uploadRes = await fetch(uploadUrl, {
+                method: 'PUT',
+                body: stemFile,
+                headers: { 
+                    'Content-Type': fileType,
+                    'x-amz-meta-connection-id': awsConnectionId,
+                    'x-amz-meta-stem-mode': splitMode
+                }
+            });
+            
+            if (!uploadRes.ok) {
+                throw new Error("Failed to upload to S3. Check your CORS configuration.");
+            }
+            
+            setStatusMessage("Processing Stems on AWS Batch GPUs...");
+
+        } catch (err) {
+            console.error("Upload error:", err);
+            setErrorMsg("Failed to upload audio to cloud.");
+            setIsSplitting(false);
+        }
     };
 
     // Bundle the state to pass down as props to the StemSplitter component
@@ -139,7 +197,7 @@ export default function App() {
         fileName: stemFileName, setFileName: setStemFileName,
         splitMode, setSplitMode,
         isSplitting, statusMessage, stemUrls, errorMsg, setErrorMsg, setStemUrls,
-        executeStemSplit
+        executeStemSplit, connectWebSocket, closeWebSocket
     };
 
     return (

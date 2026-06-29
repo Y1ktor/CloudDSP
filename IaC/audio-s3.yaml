@@ -11,6 +11,16 @@ Resources:
         BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - "*"
+            AllowedMethods:
+              - PUT
+              - OPTIONS
+            AllowedOrigins:
+              - "*"
+            MaxAge: 3000
 
   ProcessedBucket:
     Type: AWS::S3::Bucket
@@ -21,6 +31,16 @@ Resources:
         BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - "*"
+            AllowedMethods:
+              - GET
+              - OPTIONS
+            AllowedOrigins:
+              - "*"
+            MaxAge: 3000
 
 Outputs:
   IncomingBucketName:
