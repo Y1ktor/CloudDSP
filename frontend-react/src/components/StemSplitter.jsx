@@ -1,13 +1,49 @@
-import React, { useState } from 'react';
+import React from 'react';
 
-export default function StemSplitter() {
-    const [fileName, setFileName] = useState("No file loaded");
-    const [splitMode, setSplitMode] = useState("6-stems");
-    const [isSplitting, setIsSplitting] = useState(false);
+/**
+ * StemSplitter Component
+ * 
+ * This UI component is responsible for handling the frontend interactions for uploading
+ * audio files and rendering the resulting separated stems.
+ * 
+ * ARCHITECTURE NOTE:
+ * This component is "stateless" regarding the heavy AWS WebSocket logic. All of its
+ * state (isSplitting, stemUrls, statusMessage) is actually managed globally in `App.jsx`.
+ * These values are passed down as props. This architectural choice ("State Hoisting") 
+ * allows the user to start a 3-minute stem split, navigate away from this page (e.g., 
+ * to the EQ Canvas), and not lose their WebSocket connection or data!
+ * 
+ * @param {Object} props - The hoisted state props provided by App.jsx
+ * @param {File} props.file - The currently selected audio file
+ * @param {Function} props.setFile - State setter for the file
+ * @param {string} props.fileName - Display name of the file
+ * @param {Function} props.setFileName - State setter for the filename
+ * @param {string} props.splitMode - The selected Demucs mode (2, 4, or 6 stems)
+ * @param {Function} props.setSplitMode - State setter for the mode
+ * @param {boolean} props.isSplitting - Tracks if AWS Batch is currently processing
+ * @param {string} props.statusMessage - The dynamic loading text (Connecting, Uploading, etc.)
+ * @param {Object} props.stemUrls - Dictionary of pre-signed S3 URLs returned by the server
+ * @param {string} props.errorMsg - Any error messages to display
+ * @param {Function} props.setErrorMsg - State setter for errors
+ * @param {Function} props.setStemUrls - State setter for the stem URLs
+ * @param {Function} props.executeStemSplit - The master function in App.jsx that opens the WebSocket and triggers the S3 upload
+ */
+export default function StemSplitter({
+    file, setFile,
+    fileName, setFileName,
+    splitMode, setSplitMode,
+    isSplitting, statusMessage, stemUrls, errorMsg, setErrorMsg, setStemUrls,
+    executeStemSplit
+}) {
 
     const handleFileUpload = (e) => {
-        const file = e.target.files[0];
-        if (file) setFileName(file.name);
+        const uploadedFile = e.target.files[0];
+        if (uploadedFile) {
+            setFile(uploadedFile);
+            setFileName(uploadedFile.name);
+            setStemUrls(null);
+            setErrorMsg("");
+        }
     };
 
     return (
@@ -29,10 +65,10 @@ export default function StemSplitter() {
                 Stem Splitting & Audio-to-MIDI
             </h2>
             
-            {/* Top Control Bar (Styled like AudioPlayerBar) */}
+            {/* Top Control Bar */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' }}>
-                <label htmlFor="stem-upload" className="upload-btn" style={{ margin: 0 }}>Browse...</label>
-                <input type="file" id="stem-upload" accept="audio/*" style={{ display: 'none' }} onChange={handleFileUpload} />
+                <label htmlFor="stem-upload" className="upload-btn" style={{ margin: 0, cursor: isSplitting ? 'not-allowed' : 'pointer', opacity: isSplitting ? 0.5 : 1 }}>Browse...</label>
+                <input type="file" id="stem-upload" accept="audio/*" style={{ display: 'none' }} onChange={handleFileUpload} disabled={isSplitting} />
                 
                 <div id="file-name-container" style={{ flexGrow: 1, margin: 0 }}>
                     <div id="file-name-display" style={{ color: fileName === "No file loaded" ? '#aaa' : '#fff' }}>{fileName}</div>
@@ -42,17 +78,19 @@ export default function StemSplitter() {
                     <select 
                         value={splitMode} 
                         onChange={(e) => setSplitMode(e.target.value)}
+                        disabled={isSplitting}
                         style={{
                             background: '#222',
                             color: '#fff',
                             border: '1px solid #444',
                             padding: '8px 10px',
                             borderRadius: '4px',
-                            cursor: 'pointer',
+                            cursor: isSplitting ? 'not-allowed' : 'pointer',
                             outline: 'none',
                             width: '100%',
                             fontSize: '13px',
-                            fontFamily: 'inherit'
+                            fontFamily: 'inherit',
+                            opacity: isSplitting ? 0.5 : 1
                         }}
                     >
                         <option value="6-stems">6 Stems (Vocals / Drums / Bass / Piano / Guitar / Other)</option>
@@ -62,48 +100,79 @@ export default function StemSplitter() {
                 </div>
 
                 <button 
-                    onClick={() => setIsSplitting(!isSplitting)}
+                    onClick={executeStemSplit}
+                    disabled={isSplitting || !file}
                     style={{
-                        background: isSplitting ? '#555' : '#4CAF50',
+                        background: isSplitting ? '#555' : (!file ? '#555' : '#4CAF50'),
                         color: 'white',
                         border: 'none',
                         padding: '8px 16px',
                         borderRadius: '4px',
-                        cursor: 'pointer',
+                        cursor: isSplitting || !file ? 'not-allowed' : 'pointer',
                         fontWeight: 'bold',
                         transition: 'background-color 0.2s',
                         fontSize: '13px'
                     }}
                 >
-                    {isSplitting ? 'Processing...' : 'Execute'}
+                    {isSplitting ? 'Processing...' : 'Upload & Split'}
                 </button>
             </div>
+            
+            {/* Error Message */}
+            {errorMsg && (
+                <div style={{ color: '#ff6b6b', background: '#3b2222', padding: '10px', borderRadius: '4px', border: '1px solid #ff4444' }}>
+                    {errorMsg}
+                </div>
+            )}
 
-            {/* Results / Track Area Mockup */}
+            {/* Dynamic Results Area */}
             <div style={{
                 background: '#222',
                 borderRadius: '4px',
                 padding: '20px',
-                minHeight: '150px',
+                minHeight: '200px',
                 display: 'flex',
                 flexDirection: 'column',
-                justifyContent: 'center',
-                alignItems: 'center',
+                justifyContent: stemUrls ? 'flex-start' : 'center',
+                alignItems: stemUrls ? 'stretch' : 'center',
                 color: '#777',
-                border: '1px dashed #444'
+                border: '1px dashed #444',
+                gap: '15px'
             }}>
                 {isSplitting ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '15px' }}>
                         <div style={{ 
                             width: '40px', height: '40px', 
                             border: '4px solid #444', borderTop: '4px solid #4CAF50', 
                             borderRadius: '50%', animation: 'spin 1s linear infinite' 
                         }} />
-                        <div>Running ML Inference... (UI Mockup)</div>
+                        <div style={{ color: '#fff', fontWeight: 'bold' }}>{statusMessage}</div>
+                        <div style={{ fontSize: '12px' }}>You can safely navigate to the EQ Canvas while this runs in the background.</div>
                         <style>{`
                             @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
                         `}</style>
                     </div>
+                ) : stemUrls ? (
+                    <>
+                        <h3 style={{ color: '#fff', margin: '0 0 10px 0', fontSize: '16px' }}>Generated Stems</h3>
+                        {Object.entries(stemUrls).map(([trackName, url]) => (
+                            <div key={trackName} style={{ 
+                                display: 'flex', alignItems: 'center', justifyContent: 'space-between', 
+                                background: '#333', padding: '10px 15px', borderRadius: '4px' 
+                            }}>
+                                <div style={{ color: '#fff', fontWeight: 'bold', textTransform: 'capitalize', width: '120px' }}>
+                                    {trackName}
+                                </div>
+                                <audio controls src={url} style={{ height: '30px', flexGrow: 1, margin: '0 20px' }} />
+                                <button style={{
+                                    background: '#2196F3', color: 'white', border: 'none', 
+                                    padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px'
+                                }}>
+                                    Convert to MIDI
+                                </button>
+                            </div>
+                        ))}
+                    </>
                 ) : (
                     <div>Stem extraction and MIDI results will appear here as downloadable multitracks</div>
                 )}
