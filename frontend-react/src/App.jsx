@@ -3,8 +3,13 @@ import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-do
 import EqPage from './EqPage';
 import StemSplitter from './components/StemSplitter';
 
-const WEBSOCKET_URL = "wss://placeholder-websocket-api.execute-api.us-east-1.amazonaws.com/dev";
+const WEBSOCKET_URL = "wss://grreq325rk.execute-api.us-east-1.amazonaws.com/dev";
+const API_URL = "https://6ec8xwsshl.execute-api.us-east-1.amazonaws.com/upload-url";
 
+// ==========================================
+// DEV MOCK PAYLOAD: Paste your presigned URLs here!
+// ==========================================
+const MOCK_PAYLOAD = {"vocals": "https://clouddsp-processed-audio-512383926199-us-east-1.s3.amazonaws.com/stems/96ae96a0-0e89-452e-87b6-5b0138b34273-Yosemite/vocals.wav?AWSAccessKeyId=ASIAXOTDWH63Z5RFSDG4&Signature=vjB7nv9Wrhb2eQ5bMF8yv%2BheALY%3D&x-amz-security-token=IQoJb3JpZ2luX2VjEAoaCXVzLWVhc3QtMSJHMEUCIQDhxdh7WPoku46I%2Bf4M%2BgQwIr8w28ICluOVcFoBECOCkwIgPj1pprcp4%2F3X4NXb4Pm%2Fd9DKZtaJTqX2CokHnfl8io8qmQQI0%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FARAAGgw1MTIzODM5MjYxOTkiDCxnB1i6Dzs2xHf2XSrtA0rgHJQcZWH1%2FhtxeRBZ1LU1wBRRqh37NYpoNTnOcrF0C%2Fy3lnNKvhQatGF4RtKZ7qJdUGX5XczrbAb%2FHMJDyIMoOTLYH8l7th2JRwRlx4foQjNryxc7ZEZzuFlfIBxEkFzo1Jl%2Bs9n3g4HmROSo9p7kBLVZLnKt3yL2zhw%2FNeTWbbU75P9qDLTQgV40jhr9jx3o8H1EIUgudoRpOwClGHhRkVww64%2FES1dtp8TT4SgXWjw6FF%2BNo6gtBp%2F6pQuqnikDI9ymZdxcEdVJQgV6oBmjMQ%2Frui%2Bz5V7pTH8G5dEFHctK4lgm135PY2RJte9OaHJEnVgTCNjQg%2ByBhX1TF5r6h69Bv45ND2gJMOBIZoeOPymyQMmXS5v3Bjx6sY1tqWSmVdQRuQQwY%2Flha5Vr%2B0kEJ2l4%2FHp7acgmq78%2B6CwEVzxWIxi2tWJxDFT4etACDcwESpGsKw9PmWQzAPeQFks%2FTnIs6Bz1ak33w5f5nsZ9A5sDfo5tWdtjofENWUsiPd8vp%2FNlpCKmJGPDPD2TC86Uf%2BWxJFTKFo7DOCrErLB8y%2FW5SzvQhVh4ZjbbcmOhRaFcDXwo%2F0fNO91cYYF0R1iQw9jNtQKkab5Sw3IaVydkN921CM51vOyx8vkFTr4vO1EsqOcXhC5ZmuOygy0w6t2R0gY6ogEGfUIdCb3aUuFlK4T3PWJt9CEodoRBUpyZS6XGzvI%2BXeLuluGKTl%2BTh061Xzjmn1PA2VTaEXf1ti4Yj56wATByJYqcmwd41R%2BtNWlp3sqXH1aySE5oNkcsIZ%2Bv5LMDOUmbqgkdOozMt9YsDikxHLT0NgDj6pBgH06%2F9yIWWNLphieVOGyunW%2B%2FLSQ7VjOnwKZJj5Qrv%2F8V0XiqBe3lNjkmKac%3D&Expires=1782873341", "drums": "https://clouddsp-processed-audio-512383926199-us-east-1.s3.amazonaws.com/stems/96ae96a0-0e89-452e-87b6-5b0138b34273-Yosemite/drums.wav?AWSAccessKeyId=ASIAXOTDWH63Z5RFSDG4&Signature=TVxxyl934QaVBFZ9KkItbbk%2BCNg%3D&x-amz-security-token=IQoJb3JpZ2luX2VjEAoaCXVzLWVhc3QtMSJHMEUCIQDhxdh7WPoku46I%2Bf4M%2BgQwIr8w28ICluOVcFoBECOCkwIgPj1pprcp4%2F3X4NXb4Pm%2Fd9DKZtaJTqX2CokHnfl8io8qmQQI0%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FARAAGgw1MTIzODM5MjYxOTkiDCxnB1i6Dzs2xHf2XSrtA0rgHJQcZWH1%2FhtxeRBZ1LU1wBRRqh37NYpoNTnOcrF0C%2Fy3lnNKvhQatGF4RtKZ7qJdUGX5XczrbAb%2FHMJDyIMoOTLYH8l7th2JRwRlx4foQjNryxc7ZEZzuFlfIBxEkFzo1Jl%2Bs9n3g4HmROSo9p7kBLVZLnKt3yL2zhw%2FNeTWbbU75P9qDLTQgV40jhr9jx3o8H1EIUgudoRpOwClGHhRkVww64%2FES1dtp8TT4SgXWjw6FF%2BNo6gtBp%2F6pQuqnikDI9ymZdxcEdVJQgV6oBmjMQ%2Frui%2Bz5V7pTH8G5dEFHctK4lgm135PY2RJte9OaHJEnVgTCNjQg%2ByBhX1TF5r6h69Bv45ND2gJMOBIZoeOPymyQMmXS5v3Bjx6sY1tqWSmVdQRuQQwY%2Flha5Vr%2B0kEJ2l4%2FHp7acgmq78%2B6CwEVzxWIxi2tWJxDFT4etACDcwESpGsKw9PmWQzAPeQFks%2FTnIs6Bz1ak33w5f5nsZ9A5sDfo5tWdtjofENWUsiPd8vp%2FNlpCKmJGPDPD2TC86Uf%2BWxJFTKFo7DOCrErLB8y%2FW5SzvQhVh4ZjbbcmOhRaFcDXwo%2F0fNO91cYYF0R1iQw9jNtQKkab5Sw3IaVydkN921CM51vOyx8vkFTr4vO1EsqOcXhC5ZmuOygy0w6t2R0gY6ogEGfUIdCb3aUuFlK4T3PWJt9CEodoRBUpyZS6XGzvI%2BXeLuluGKTl%2BTh061Xzjmn1PA2VTaEXf1ti4Yj56wATByJYqcmwd41R%2BtNWlp3sqXH1aySE5oNkcsIZ%2Bv5LMDOUmbqgkdOozMt9YsDikxHLT0NgDj6pBgH06%2F9yIWWNLphieVOGyunW%2B%2FLSQ7VjOnwKZJj5Qrv%2F8V0XiqBe3lNjkmKac%3D&Expires=1782873341", "bass": "https://clouddsp-processed-audio-512383926199-us-east-1.s3.amazonaws.com/stems/96ae96a0-0e89-452e-87b6-5b0138b34273-Yosemite/bass.wav?AWSAccessKeyId=ASIAXOTDWH63Z5RFSDG4&Signature=zp%2BXZ8m1yomRKoq7aP60BbHy%2BlA%3D&x-amz-security-token=IQoJb3JpZ2luX2VjEAoaCXVzLWVhc3QtMSJHMEUCIQDhxdh7WPoku46I%2Bf4M%2BgQwIr8w28ICluOVcFoBECOCkwIgPj1pprcp4%2F3X4NXb4Pm%2Fd9DKZtaJTqX2CokHnfl8io8qmQQI0%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FARAAGgw1MTIzODM5MjYxOTkiDCxnB1i6Dzs2xHf2XSrtA0rgHJQcZWH1%2FhtxeRBZ1LU1wBRRqh37NYpoNTnOcrF0C%2Fy3lnNKvhQatGF4RtKZ7qJdUGX5XczrbAb%2FHMJDyIMoOTLYH8l7th2JRwRlx4foQjNryxc7ZEZzuFlfIBxEkFzo1Jl%2Bs9n3g4HmROSo9p7kBLVZLnKt3yL2zhw%2FNeTWbbU75P9qDLTQgV40jhr9jx3o8H1EIUgudoRpOwClGHhRkVww64%2FES1dtp8TT4SgXWjw6FF%2BNo6gtBp%2F6pQuqnikDI9ymZdxcEdVJQgV6oBmjMQ%2Frui%2Bz5V7pTH8G5dEFHctK4lgm135PY2RJte9OaHJEnVgTCNjQg%2ByBhX1TF5r6h69Bv45ND2gJMOBIZoeOPymyQMmXS5v3Bjx6sY1tqWSmVdQRuQQwY%2Flha5Vr%2B0kEJ2l4%2FHp7acgmq78%2B6CwEVzxWIxi2tWJxDFT4etACDcwESpGsKw9PmWQzAPeQFks%2FTnIs6Bz1ak33w5f5nsZ9A5sDfo5tWdtjofENWUsiPd8vp%2FNlpCKmJGPDPD2TC86Uf%2BWxJFTKFo7DOCrErLB8y%2FW5SzvQhVh4ZjbbcmOhRaFcDXwo%2F0fNO91cYYF0R1iQw9jNtQKkab5Sw3IaVydkN921CM51vOyx8vkFTr4vO1EsqOcXhC5ZmuOygy0w6t2R0gY6ogEGfUIdCb3aUuFlK4T3PWJt9CEodoRBUpyZS6XGzvI%2BXeLuluGKTl%2BTh061Xzjmn1PA2VTaEXf1ti4Yj56wATByJYqcmwd41R%2BtNWlp3sqXH1aySE5oNkcsIZ%2Bv5LMDOUmbqgkdOozMt9YsDikxHLT0NgDj6pBgH06%2F9yIWWNLphieVOGyunW%2B%2FLSQ7VjOnwKZJj5Qrv%2F8V0XiqBe3lNjkmKac%3D&Expires=1782873341", "other": "https://clouddsp-processed-audio-512383926199-us-east-1.s3.amazonaws.com/stems/96ae96a0-0e89-452e-87b6-5b0138b34273-Yosemite/other.wav?AWSAccessKeyId=ASIAXOTDWH63Z5RFSDG4&Signature=%2FaBlIt2v82q%2BUVbbEdXVKA%2BjuLo%3D&x-amz-security-token=IQoJb3JpZ2luX2VjEAoaCXVzLWVhc3QtMSJHMEUCIQDhxdh7WPoku46I%2Bf4M%2BgQwIr8w28ICluOVcFoBECOCkwIgPj1pprcp4%2F3X4NXb4Pm%2Fd9DKZtaJTqX2CokHnfl8io8qmQQI0%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FARAAGgw1MTIzODM5MjYxOTkiDCxnB1i6Dzs2xHf2XSrtA0rgHJQcZWH1%2FhtxeRBZ1LU1wBRRqh37NYpoNTnOcrF0C%2Fy3lnNKvhQatGF4RtKZ7qJdUGX5XczrbAb%2FHMJDyIMoOTLYH8l7th2JRwRlx4foQjNryxc7ZEZzuFlfIBxEkFzo1Jl%2Bs9n3g4HmROSo9p7kBLVZLnKt3yL2zhw%2FNeTWbbU75P9qDLTQgV40jhr9jx3o8H1EIUgudoRpOwClGHhRkVww64%2FES1dtp8TT4SgXWjw6FF%2BNo6gtBp%2F6pQuqnikDI9ymZdxcEdVJQgV6oBmjMQ%2Frui%2Bz5V7pTH8G5dEFHctK4lgm135PY2RJte9OaHJEnVgTCNjQg%2ByBhX1TF5r6h69Bv45ND2gJMOBIZoeOPymyQMmXS5v3Bjx6sY1tqWSmVdQRuQQwY%2Flha5Vr%2B0kEJ2l4%2FHp7acgmq78%2B6CwEVzxWIxi2tWJxDFT4etACDcwESpGsKw9PmWQzAPeQFks%2FTnIs6Bz1ak33w5f5nsZ9A5sDfo5tWdtjofENWUsiPd8vp%2FNlpCKmJGPDPD2TC86Uf%2BWxJFTKFo7DOCrErLB8y%2FW5SzvQhVh4ZjbbcmOhRaFcDXwo%2F0fNO91cYYF0R1iQw9jNtQKkab5Sw3IaVydkN921CM51vOyx8vkFTr4vO1EsqOcXhC5ZmuOygy0w6t2R0gY6ogEGfUIdCb3aUuFlK4T3PWJt9CEodoRBUpyZS6XGzvI%2BXeLuluGKTl%2BTh061Xzjmn1PA2VTaEXf1ti4Yj56wATByJYqcmwd41R%2BtNWlp3sqXH1aySE5oNkcsIZ%2Bv5LMDOUmbqgkdOozMt9YsDikxHLT0NgDj6pBgH06%2F9yIWWNLphieVOGyunW%2B%2FLSQ7VjOnwKZJj5Qrv%2F8V0XiqBe3lNjkmKac%3D&Expires=1782873341"};
 // A simple top-level navigation component
 function NavBar() {
     const location = useLocation();
@@ -52,7 +57,8 @@ export default function App() {
     
     const [isSplitting, setIsSplitting] = useState(false);
     const [statusMessage, setStatusMessage] = useState("");
-    const [stemUrls, setStemUrls] = useState(null);
+    // Set to MOCK_PAYLOAD for immediate UI testing. Change back to null for production!
+    const [stemUrls, setStemUrls] = useState(MOCK_PAYLOAD);
     const [errorMsg, setErrorMsg] = useState("");
     
     // NEW: Store the Connection ID instantly so we don't wait for it later
@@ -104,9 +110,9 @@ export default function App() {
                 }
                 
                 // Phase 3: Stems Finished Processing
-                else if (data.type === "stems_ready") {
-                    console.log("Stems received globally from AWS Batch:", data.urls);
-                    setStemUrls(data.urls);
+                else if (data.type === "processing_complete") {
+                    console.log("Stems received globally from AWS Batch:", data.stems);
+                    setStemUrls(data.stems);
                     setIsSplitting(false);
                     setStatusMessage("Complete!");
                     socketRef.current.close();
@@ -154,7 +160,7 @@ export default function App() {
             // 1. ACTUAL S3 PRESIGNED URL FETCH
             // ==========================================
             const fileType = stemFile.type || 'application/octet-stream';
-            const res = await fetch(`https://placeholder-http-api.execute-api.us-east-1.amazonaws.com/upload-url?filename=${encodeURIComponent(stemFileName)}&filetype=${encodeURIComponent(fileType)}&connectionId=${encodeURIComponent(awsConnectionId)}&stemMode=${encodeURIComponent(splitMode)}`);
+            const res = await fetch(`${API_URL}?filename=${encodeURIComponent(stemFileName)}&filetype=${encodeURIComponent(fileType)}&connectionId=${encodeURIComponent(awsConnectionId)}&stemMode=${encodeURIComponent(splitMode)}`);
             const data = await res.json();
             
             if (data.error) {

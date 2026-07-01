@@ -17,7 +17,6 @@ Resources:
               - "*"
             AllowedMethods:
               - PUT
-              - OPTIONS
             AllowedOrigins:
               - "*"
             MaxAge: 3000
@@ -37,7 +36,6 @@ Resources:
               - "*"
             AllowedMethods:
               - GET
-              - OPTIONS
             AllowedOrigins:
               - "*"
             MaxAge: 3000

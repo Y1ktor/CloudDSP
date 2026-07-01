@@ -45,6 +45,110 @@ export default function StemSplitter({
         isSplittingRef.current = isSplitting;
     }, [isSplitting]);
 
+    // ==== MULTITRACK PLAYER STATE ====
+    const audioRefs = React.useRef({});
+    const [isPlaying, setIsPlaying] = React.useState(false);
+    const [progress, setProgress] = React.useState(0);
+    const [duration, setDuration] = React.useState(0);
+    const [mutedTracks, setMutedTracks] = React.useState({});
+    const [soloedTracks, setSoloedTracks] = React.useState({});
+    
+    // Reset player state when new stems arrive
+    React.useEffect(() => {
+        if (stemUrls) {
+            setIsPlaying(false);
+            setProgress(0);
+            setDuration(0);
+            setMutedTracks({});
+            setSoloedTracks({});
+        }
+    }, [stemUrls]);
+
+    const togglePlay = () => {
+        if (!stemUrls) return;
+        const nextState = !isPlaying;
+        setIsPlaying(nextState);
+        Object.values(audioRefs.current).forEach(audio => {
+            if (audio) {
+                if (nextState) audio.play();
+                else audio.pause();
+            }
+        });
+    };
+
+    const handleGoToBeginning = () => {
+        setProgress(0);
+        Object.values(audioRefs.current).forEach(audio => {
+            if (audio) audio.currentTime = 0;
+        });
+    };
+
+    const handleSeek = (e) => {
+        const time = Number(e.target.value);
+        setProgress(time);
+        Object.values(audioRefs.current).forEach(audio => {
+            if (audio) {
+                audio.currentTime = time;
+            }
+        });
+    };
+
+    const toggleMute = (trackName) => {
+        setMutedTracks(prev => ({ ...prev, [trackName]: !prev[trackName] }));
+    };
+
+    const toggleSolo = (trackName) => {
+        setSoloedTracks(prev => ({ ...prev, [trackName]: !prev[trackName] }));
+    };
+
+    // Automatically apply mute/solo logic to the raw HTML audio elements
+    React.useEffect(() => {
+        if (!stemUrls) return;
+        const isAnySoloed = Object.values(soloedTracks).some(isSoloed => isSoloed);
+        
+        Object.keys(stemUrls).forEach(trackName => {
+            const audio = audioRefs.current[trackName];
+            if (audio) {
+                if (isAnySoloed) {
+                    // If any track is soloed, this track is audible ONLY if it is also soloed
+                    audio.muted = !soloedTracks[trackName];
+                } else {
+                    // Otherwise, just use the track's normal mute state
+                    audio.muted = !!mutedTracks[trackName];
+                }
+            }
+        });
+    }, [mutedTracks, soloedTracks, stemUrls]);
+
+    React.useEffect(() => {
+        let interval;
+        if (isPlaying && stemUrls) {
+            const firstTrack = Object.keys(stemUrls)[0];
+            const masterAudio = audioRefs.current[firstTrack];
+            
+            interval = setInterval(() => {
+                if (masterAudio) {
+                    setProgress(masterAudio.currentTime);
+                    if (masterAudio.duration && masterAudio.duration !== duration) {
+                        setDuration(masterAudio.duration);
+                    }
+                    if (masterAudio.ended) {
+                        setIsPlaying(false);
+                        setProgress(0);
+                    }
+                }
+            }, 50);
+        }
+        return () => clearInterval(interval);
+    }, [isPlaying, stemUrls, duration]);
+
+    const formatTime = (seconds) => {
+        if (!seconds || isNaN(seconds)) return "0:00";
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    };
+
     // Instantly connect to the WebSocket in the background the moment this page loads
     React.useEffect(() => {
         connectWebSocket();
@@ -175,26 +279,103 @@ export default function StemSplitter({
                         `}</style>
                     </div>
                 ) : stemUrls ? (
-                    <>
-                        <h3 style={{ color: '#fff', margin: '0 0 10px 0', fontSize: '16px' }}>Generated Stems</h3>
+                    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                        {/* Central Master Audio Control */}
+                        <div style={{ 
+                            background: '#333', padding: '15px 20px', borderRadius: '4px', 
+                            display: 'flex', alignItems: 'center', gap: '20px'
+                        }}>
+                            <button title="Go to Beginning" onClick={handleGoToBeginning} style={{
+                                background: 'transparent', color: 'white', border: 'none',
+                                cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '0', opacity: 0.8
+                            }}>
+                                <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+                            </button>
+
+                            <button title="Play/Pause" onClick={togglePlay} style={{
+                                background: 'transparent', color: 'white', border: 'none',
+                                cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '0', opacity: 0.8
+                            }}>
+                                {isPlaying ? (
+                                    <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                                ) : (
+                                    <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                                )}
+                            </button>
+                            
+                            <input 
+                                type="range" 
+                                min={0} 
+                                max={duration || 100} 
+                                value={progress} 
+                                onChange={handleSeek} 
+                                style={{ flexGrow: 1, cursor: 'pointer' }} 
+                            />
+                            
+                            <div style={{ color: '#fff', fontSize: '14px', minWidth: '80px', textAlign: 'right', fontFamily: 'monospace' }}>
+                                {formatTime(progress)} / {formatTime(duration)}
+                            </div>
+                        </div>
+
+                        {/* Stems List */}
                         {Object.entries(stemUrls).map(([trackName, url]) => (
                             <div key={trackName} style={{ 
                                 display: 'flex', alignItems: 'center', justifyContent: 'space-between', 
                                 background: '#333', padding: '10px 15px', borderRadius: '4px' 
                             }}>
-                                <div style={{ color: '#fff', fontWeight: 'bold', textTransform: 'capitalize', width: '120px' }}>
-                                    {trackName}
+                                {/* Hidden audio element tied to the master control */}
+                                <audio 
+                                    ref={el => audioRefs.current[trackName] = el}
+                                    src={url}
+                                    preload="auto"
+                                    onLoadedMetadata={(e) => {
+                                        // Capture duration if not yet set
+                                        if (duration === 0) setDuration(e.target.duration);
+                                    }}
+                                />
+                                
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                    <div style={{ color: '#fff', fontWeight: 'bold', textTransform: 'capitalize', width: '80px' }}>
+                                        {trackName}
+                                    </div>
+                                    
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        <button onClick={() => toggleMute(trackName)} style={{
+                                            width: '24px', height: '24px',
+                                            background: mutedTracks[trackName] ? '#e53935' : '#555',
+                                            color: 'white', border: 'none', borderRadius: '4px', 
+                                            cursor: 'pointer', fontSize: '11px', fontWeight: 'bold',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            transition: 'background-color 0.2s'
+                                        }} title="Mute">
+                                            M
+                                        </button>
+                                        <button onClick={() => toggleSolo(trackName)} style={{
+                                            width: '24px', height: '24px',
+                                            background: soloedTracks[trackName] ? '#e0a800' : '#555',
+                                            color: soloedTracks[trackName] ? '#fff' : 'white', 
+                                            border: 'none', borderRadius: '4px', 
+                                            cursor: 'pointer', fontSize: '11px', fontWeight: 'bold',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            transition: 'background-color 0.2s'
+                                        }} title="Solo">
+                                            S
+                                        </button>
+                                    </div>
                                 </div>
-                                <audio controls src={url} style={{ height: '30px', flexGrow: 1, margin: '0 20px' }} />
+
+                                <div style={{ flexGrow: 1 }} /> {/* Spacer */}
+
                                 <button style={{
                                     background: '#2196F3', color: 'white', border: 'none', 
-                                    padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px'
+                                    padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px',
+                                    fontWeight: 'bold'
                                 }}>
                                     Convert to MIDI
                                 </button>
                             </div>
                         ))}
-                    </>
+                    </div>
                 ) : (
                     <div>Stem extraction and MIDI results will appear here as downloadable multitracks</div>
                 )}

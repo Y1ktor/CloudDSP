@@ -1,7 +1,7 @@
 # Base Image: We use the official PyTorch image. 
 # It comes pre-loaded with Python, PyTorch, and NVIDIA CUDA drivers.
-# This ensures Demucs can leverage AWS EC2 GPUs (like g4dn instances) out of the box.
-FROM pytorch/pytorch:2.1.0-cuda11.8-cudnn8-runtime
+# We use 2.4.0-cuda12.1-cudnn9 to natively support torchcodec and utilize the latest ECS GPU drivers.
+FROM pytorch/pytorch:2.4.0-cuda12.1-cudnn9-runtime
 
 # Set the working directory inside the container
 WORKDIR /app
@@ -15,7 +15,8 @@ RUN apt-get update && \
 # Install Python dependencies
 # - demucs: The core stem splitting ML library
 # - boto3: The AWS SDK to download/upload from S3
-RUN pip install --no-cache-dir demucs boto3
+# - torchcodec & soundfile: Required by newer versions of torchaudio/demucs for reading/writing audio
+RUN pip install --no-cache-dir demucs boto3 torchcodec soundfile
 
 # ==========================================
 # COLD START PREVENTION (Model Weight Caching)
