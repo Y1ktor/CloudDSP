@@ -1,4 +1,5 @@
 import React from 'react';
+import { useAudioMultiTrackPlayer } from '../hooks/AudioMultiTrackPlayer';
 
 /**
  * StemSplitter Component
@@ -45,109 +46,32 @@ export default function StemSplitter({
         isSplittingRef.current = isSplitting;
     }, [isSplitting]);
 
-    // ==== MULTITRACK PLAYER STATE ====
-    const audioRefs = React.useRef({});
-    const [isPlaying, setIsPlaying] = React.useState(false);
-    const [progress, setProgress] = React.useState(0);
-    const [duration, setDuration] = React.useState(0);
-    const [mutedTracks, setMutedTracks] = React.useState({});
-    const [soloedTracks, setSoloedTracks] = React.useState({});
-    
-    // Reset player state when new stems arrive
-    React.useEffect(() => {
-        if (stemUrls) {
-            setIsPlaying(false);
-            setProgress(0);
-            setDuration(0);
-            setMutedTracks({});
-            setSoloedTracks({});
-        }
-    }, [stemUrls]);
+    // UI state for dropdown menus
+    const [showSigMenu, setShowSigMenu] = React.useState(false);
 
-    const togglePlay = () => {
-        if (!stemUrls) return;
-        const nextState = !isPlaying;
-        setIsPlaying(nextState);
-        Object.values(audioRefs.current).forEach(audio => {
-            if (audio) {
-                if (nextState) audio.play();
-                else audio.pause();
-            }
-        });
-    };
-
-    const handleGoToBeginning = () => {
-        setProgress(0);
-        Object.values(audioRefs.current).forEach(audio => {
-            if (audio) audio.currentTime = 0;
-        });
-    };
-
-    const handleSeek = (e) => {
-        const time = Number(e.target.value);
-        setProgress(time);
-        Object.values(audioRefs.current).forEach(audio => {
-            if (audio) {
-                audio.currentTime = time;
-            }
-        });
-    };
-
-    const toggleMute = (trackName) => {
-        setMutedTracks(prev => ({ ...prev, [trackName]: !prev[trackName] }));
-    };
-
-    const toggleSolo = (trackName) => {
-        setSoloedTracks(prev => ({ ...prev, [trackName]: !prev[trackName] }));
-    };
-
-    // Automatically apply mute/solo logic to the raw HTML audio elements
-    React.useEffect(() => {
-        if (!stemUrls) return;
-        const isAnySoloed = Object.values(soloedTracks).some(isSoloed => isSoloed);
-        
-        Object.keys(stemUrls).forEach(trackName => {
-            const audio = audioRefs.current[trackName];
-            if (audio) {
-                if (isAnySoloed) {
-                    // If any track is soloed, this track is audible ONLY if it is also soloed
-                    audio.muted = !soloedTracks[trackName];
-                } else {
-                    // Otherwise, just use the track's normal mute state
-                    audio.muted = !!mutedTracks[trackName];
-                }
-            }
-        });
-    }, [mutedTracks, soloedTracks, stemUrls]);
-
-    React.useEffect(() => {
-        let interval;
-        if (isPlaying && stemUrls) {
-            const firstTrack = Object.keys(stemUrls)[0];
-            const masterAudio = audioRefs.current[firstTrack];
-            
-            interval = setInterval(() => {
-                if (masterAudio) {
-                    setProgress(masterAudio.currentTime);
-                    if (masterAudio.duration && masterAudio.duration !== duration) {
-                        setDuration(masterAudio.duration);
-                    }
-                    if (masterAudio.ended) {
-                        setIsPlaying(false);
-                        setProgress(0);
-                    }
-                }
-            }, 50);
-        }
-        return () => clearInterval(interval);
-    }, [isPlaying, stemUrls, duration]);
-
-    const formatTime = (seconds) => {
-        if (!seconds || isNaN(seconds)) return "0:00";
-        const mins = Math.floor(seconds / 60);
-        const secs = Math.floor(seconds % 60);
-        return `${mins}:${secs.toString().padStart(2, '0')}`;
-    };
+    // ==== MULTITRACK PLAYER STATE (Refactored to Hook) ====
+    const {
+        audioRefs,
+        originalUrl,
+        isPlaying,
+        progress,
+        duration,
+        mutedTracks,
+        soloedTracks,
+        isCycling,
+        setIsCycling,
+        bpm,
+        timeSignature,
+        setTimeSignature,
+        setDuration,
+        togglePlay,
+        handleGoToBeginning,
+        handleSeek,
+        toggleMute,
+        toggleSolo,
+        handleBpmMouseDown,
+        formatTime
+    } = useAudioMultiTrackPlayer(stemUrls, file);
 
     // Instantly connect to the WebSocket in the background the moment this page loads
     React.useEffect(() => {
@@ -178,8 +102,8 @@ export default function StemSplitter({
             color: 'white',
             padding: '20px',
             borderRadius: '5px',
-            width: '90vw',
-            maxWidth: '1200px',
+            width: '95vw',
+            maxWidth: '1400px',
             margin: '0 auto 40px auto',
             boxSizing: 'border-box',
             boxShadow: '0 8px 16px rgba(0,0,0,0.5)',
@@ -279,7 +203,7 @@ export default function StemSplitter({
                         `}</style>
                     </div>
                 ) : stemUrls ? (
-                    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '25px' }}>
                         {/* Central Master Audio Control */}
                         <div style={{ 
                             background: '#333', padding: '15px 20px', borderRadius: '4px', 
@@ -302,79 +226,190 @@ export default function StemSplitter({
                                     <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
                                 )}
                             </button>
+
+                            <button title="Toggle Cycle" onClick={() => setIsCycling(!isCycling)} style={{
+                                background: isCycling ? '#8B6508' : 'transparent', 
+                                color: isCycling ? '#fff' : 'white', 
+                                border: 'none', borderRadius: '4px',
+                                cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px', 
+                                opacity: 0.8,
+                                transition: 'background-color 0.2s'
+                            }}>
+                                <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>
+                            </button>
                             
-                            <input 
-                                type="range" 
-                                min={0} 
-                                max={duration || 100} 
-                                value={progress} 
-                                onChange={handleSeek} 
-                                style={{ flexGrow: 1, cursor: 'pointer' }} 
-                            />
-                            
-                            <div style={{ color: '#fff', fontSize: '14px', minWidth: '80px', textAlign: 'right', fontFamily: 'monospace' }}>
+                            <div className="time-display" style={{ color: '#fff', fontSize: '14px', fontFamily: 'monospace', marginLeft: '10px', whiteSpace: 'nowrap' }}>
                                 {formatTime(progress)} / {formatTime(duration)}
                             </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '30px' }}>
+                                <span className="bpm-label" style={{ color: '#fff', fontSize: '14px', fontWeight: 'bold' }}>BPM:</span>
+                                <div style={{ 
+                                    background: 'linear-gradient(180deg, #2A3644 0%, #1B232D 100%)',
+                                    color: '#e2e8f0', 
+                                    fontSize: '14px', fontFamily: 'monospace', fontWeight: 'bold',
+                                    padding: '4px 8px', borderRadius: '4px', width: '55px', textAlign: 'center',
+                                    border: '1px solid #0a0d12',
+                                    borderTop: '1px solid #485c70',
+                                    boxShadow: 'inset 0 2px 5px rgba(0,0,0,0.6), 0 1px 1px rgba(255,255,255,0.05)',
+                                    textShadow: '0 0 6px rgba(226, 232, 240, 0.4)',
+                                    display: 'flex', justifyContent: 'center', userSelect: 'none'
+                                }}>
+                                    <span 
+                                        onMouseDown={(e) => handleBpmMouseDown(e, 'int')}
+                                        style={{ cursor: 'ns-resize', flexGrow: 1, textAlign: 'right' }}
+                                    >{Math.floor(bpm)}</span>
+                                    <span style={{ cursor: 'default' }}>.</span>
+                                    <span 
+                                        onMouseDown={(e) => handleBpmMouseDown(e, 'dec')}
+                                        style={{ cursor: 'ns-resize', flexGrow: 1, textAlign: 'left' }}
+                                    >{Math.round((bpm - Math.floor(bpm)) * 10)}</span>
+                                </div>
+                            </div>
+                            
+                            <div style={{ flexGrow: 0.15, minWidth: '15px', maxWidth: '60px' }} className="dynamic-spacer-1" />
+                            
+                            {/* Time Signature Box */}
+                            <div className="time-signature" style={{ position: 'relative' }}>
+                                <div 
+                                    onClick={() => setShowSigMenu(!showSigMenu)}
+                                    style={{ 
+                                        background: 'linear-gradient(180deg, #2A3644 0%, #1B232D 100%)',
+                                        color: '#e2e8f0', 
+                                        fontSize: '14px', fontFamily: 'monospace', fontWeight: 'bold',
+                                        padding: '4px 8px', borderRadius: '4px', minWidth: '35px', textAlign: 'center',
+                                        border: '1px solid #0a0d12',
+                                        borderTop: '1px solid #485c70',
+                                        boxShadow: 'inset 0 2px 5px rgba(0,0,0,0.6), 0 1px 1px rgba(255,255,255,0.05)',
+                                        textShadow: '0 0 6px rgba(226, 232, 240, 0.4)',
+                                        cursor: 'pointer',
+                                        userSelect: 'none'
+                                    }}
+                                >
+                                    {timeSignature}
+                                </div>
+
+                                {showSigMenu && (
+                                    <>
+                                        <div 
+                                            style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 99 }} 
+                                            onClick={() => setShowSigMenu(false)}
+                                        />
+                                        <div style={{ 
+                                            position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)', 
+                                            marginTop: '5px', background: '#1B232D', border: '1px solid #485c70', 
+                                            borderRadius: '4px', zIndex: 100, display: 'flex', flexDirection: 'column',
+                                            boxShadow: '0 4px 12px rgba(0,0,0,0.5)', overflow: 'hidden'
+                                        }}>
+                                            {['3/4', '4/4', '5/4', '6/8', '7/8'].map(sig => (
+                                                <div 
+                                                    key={sig}
+                                                    onClick={() => { setTimeSignature(sig); setShowSigMenu(false); }}
+                                                    onMouseEnter={(e) => e.target.style.background = '#2A3644'}
+                                                    onMouseLeave={(e) => e.target.style.background = 'transparent'}
+                                                    style={{ 
+                                                        padding: '6px 12px', color: '#fff', fontSize: '14px', fontFamily: 'monospace',
+                                                        cursor: 'pointer', textAlign: 'center', transition: 'background 0.1s'
+                                                    }}
+                                                >
+                                                    {sig}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+
+                            <div style={{ flexGrow: 1 }} /> {/* Pushes download button to the right */}
+
+                            <button style={{
+                                background: '#444', color: '#ccc', border: '1px solid #555', 
+                                padding: '6px 14px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px',
+                                fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px',
+                                boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                            }}>
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                                    <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
+                                </svg>
+                                <span className="download-text">Download</span>
+                            </button>
+                            <style>{`
+                                @media (max-width: 800px) {
+                                    .time-display { display: none !important; }
+                                    .time-signature { display: none !important; }
+                                    .download-text { display: none !important; }
+                                }
+                                @media (max-width: 600px) {
+                                    .bpm-label { display: none !important; }
+                                    
+                                }
+                            `}</style>
                         </div>
 
                         {/* Stems List */}
-                        {Object.entries(stemUrls).map(([trackName, url]) => (
-                            <div key={trackName} style={{ 
-                                display: 'flex', alignItems: 'center', justifyContent: 'space-between', 
-                                background: '#333', padding: '10px 15px', borderRadius: '4px' 
-                            }}>
-                                {/* Hidden audio element tied to the master control */}
-                                <audio 
-                                    ref={el => audioRefs.current[trackName] = el}
-                                    src={url}
-                                    preload="auto"
-                                    onLoadedMetadata={(e) => {
-                                        // Capture duration if not yet set
-                                        if (duration === 0) setDuration(e.target.duration);
-                                    }}
-                                />
-                                
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                                    <div style={{ color: '#fff', fontWeight: 'bold', textTransform: 'capitalize', width: '80px' }}>
-                                        {trackName}
-                                    </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                            {(() => {
+                                const tracksToRender = {};
+                            if (file && originalUrl) {
+                                tracksToRender['Original'] = originalUrl;
+                            } else if (!file && stemUrls) {
+                                // Fallback for MOCK_PAYLOAD UI testing
+                                tracksToRender['Original'] = stemUrls[Object.keys(stemUrls)[0]];
+                            }
+                            Object.assign(tracksToRender, stemUrls);
+                            
+                            return Object.entries(tracksToRender).map(([trackName, url]) => (
+                                <div key={trackName} style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
                                     
-                                    <div style={{ display: 'flex', gap: '8px' }}>
-                                        <button onClick={() => toggleMute(trackName)} style={{
-                                            width: '24px', height: '24px',
-                                            background: mutedTracks[trackName] ? '#e53935' : '#555',
-                                            color: 'white', border: 'none', borderRadius: '4px', 
-                                            cursor: 'pointer', fontSize: '11px', fontWeight: 'bold',
-                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                            transition: 'background-color 0.2s'
-                                        }} title="Mute">
-                                            M
-                                        </button>
-                                        <button onClick={() => toggleSolo(trackName)} style={{
-                                            width: '24px', height: '24px',
-                                            background: soloedTracks[trackName] ? '#e0a800' : '#555',
-                                            color: soloedTracks[trackName] ? '#fff' : 'white', 
-                                            border: 'none', borderRadius: '4px', 
-                                            cursor: 'pointer', fontSize: '11px', fontWeight: 'bold',
-                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                            transition: 'background-color 0.2s'
-                                        }} title="Solo">
-                                            S
-                                        </button>
+                                    {/* Track Header Console */}
+                                    <div style={{ 
+                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', 
+                                        background: '#333', padding: '10px 15px', borderRadius: '4px',
+                                        width: '180px', flexShrink: 0
+                                    }}>
+                                        {/* Hidden audio element tied to the master control */}
+                                        <audio 
+                                            ref={el => audioRefs.current[trackName] = el}
+                                            src={url}
+                                            preload="auto"
+                                            onLoadedMetadata={(e) => {
+                                                // Capture duration if not yet set
+                                                if (duration === 0) setDuration(e.target.duration);
+                                            }}
+                                        />
+                                        
+                                        <div style={{ color: '#fff', fontWeight: 'bold', textTransform: 'capitalize', width: '80px' }}>
+                                            {trackName}
+                                        </div>
+                                        
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                            <button onClick={() => toggleMute(trackName)} style={{
+                                                width: '24px', height: '24px',
+                                                background: mutedTracks[trackName] ? '#e53935' : '#555',
+                                                color: 'white', border: 'none', borderRadius: '4px', 
+                                                cursor: 'pointer', fontSize: '11px', fontWeight: 'bold',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                transition: 'background-color 0.2s'
+                                            }} title="Mute">
+                                                M
+                                            </button>
+                                            <button onClick={() => toggleSolo(trackName)} style={{
+                                                width: '24px', height: '24px',
+                                                background: soloedTracks[trackName] ? '#e0a800' : '#555',
+                                                color: soloedTracks[trackName] ? '#fff' : 'white', 
+                                                border: 'none', borderRadius: '4px', 
+                                                cursor: 'pointer', fontSize: '11px', fontWeight: 'bold',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                transition: 'background-color 0.2s'
+                                            }} title="Solo">
+                                                S
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
-
-                                <div style={{ flexGrow: 1 }} /> {/* Spacer */}
-
-                                <button style={{
-                                    background: '#2196F3', color: 'white', border: 'none', 
-                                    padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px',
-                                    fontWeight: 'bold'
-                                }}>
-                                    Convert to MIDI
-                                </button>
-                            </div>
-                        ))}
+                            ));
+                        })()}
+                        </div>
                     </div>
                 ) : (
                     <div>Stem extraction and MIDI results will appear here as downloadable multitracks</div>
