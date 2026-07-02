@@ -203,7 +203,7 @@ export default function StemSplitter({
                         `}</style>
                     </div>
                 ) : stemUrls ? (
-                    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '25px' }}>
+                    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '3px' }}>
                         {/* Central Master Audio Control */}
                         <div style={{ 
                             background: '#333', padding: '15px 20px', borderRadius: '4px', 
@@ -334,16 +334,36 @@ export default function StemSplitter({
                                 <span className="download-text">Download</span>
                             </button>
                             <style>{`
-                                @media (max-width: 800px) {
+                                @media (max-width: 850px) {
                                     .time-display { display: none !important; }
-                                    .time-signature { display: none !important; }
                                     .download-text { display: none !important; }
+                                }
+                                @media (max-width: 750px){
+                                    .time-signature { display: none !important; }
                                 }
                                 @media (max-width: 600px) {
                                     .bpm-label { display: none !important; }
                                     
                                 }
                             `}</style>
+                        </div>
+
+                        {/* Timeline Header (Time Bar) */}
+                        <div style={{ 
+                            width: '100%', height: '30px', 
+                            display: 'flex', gap: '3px'
+                        }}>
+                            {/* Left Section (Aligns with Track Headers) */}
+                            <div style={{ 
+                                width: '210px', flexShrink: 0, 
+                                background: '#333', borderRadius: '4px' 
+                            }}></div>
+                            
+                            {/* Right Section (Timeline Canvas) */}
+                            <div style={{ 
+                                flexGrow: 1, 
+                                background: '#333', borderRadius: '4px' 
+                            }}></div>
                         </div>
 
                         {/* Stems List */}
