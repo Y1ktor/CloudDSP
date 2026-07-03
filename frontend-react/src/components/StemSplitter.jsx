@@ -373,26 +373,46 @@ export default function StemSplitter({
                                 
                                 {/* Music Bars Overlay */}
                                 <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none' }}>
-                                    {Array.from({ length: 100 }).map((_, i) => (
-                                        <div key={i} style={{ 
-                                            position: 'absolute', 
-                                            left: `${i * 100}px`, // Fixed 100px per bar for visual prototyping
-                                            top: 0, bottom: 0, 
-                                            width: '1px', 
-                                            background: 'rgba(255,255,255,0.08)' // Faint vertical line
-                                        }}>
-                                            <div style={{ 
-                                                position: 'absolute', 
-                                                top: '2px', left: '4px', 
-                                                color: 'rgba(255,255,255,0.4)', 
-                                                fontSize: '10px', 
-                                                fontFamily: 'monospace',
-                                                lineHeight: '1'
-                                            }}>
-                                                {i + 1}
-                                            </div>
-                                        </div>
-                                    ))}
+                                    {Array.from({ length: 100 }).map((_, i) => {
+                                        const beatsPerBar = parseInt(timeSignature.split('/')[0], 10) || 4;
+                                        const pixelsPerBar = 100;
+                                        const beatSpacing = pixelsPerBar / beatsPerBar;
+                                        
+                                        return (
+                                            <React.Fragment key={i}>
+                                                {/* Main Bar Line (Stronger Opacity, spans full height) */}
+                                                <div style={{ 
+                                                    position: 'absolute', 
+                                                    left: `${i * pixelsPerBar}px`, 
+                                                    top: 0, bottom: 0, 
+                                                    width: '1px', 
+                                                    background: 'rgba(255,255,255,0.18)' 
+                                                }}>
+                                                    <div style={{ 
+                                                        position: 'absolute', 
+                                                        top: '2px', left: '4px', 
+                                                        color: 'rgba(255,255,255,0.4)', 
+                                                        fontSize: '10px', 
+                                                        fontFamily: 'monospace',
+                                                        lineHeight: '1'
+                                                    }}>
+                                                        {i + 1}
+                                                    </div>
+                                                </div>
+                                                
+                                                {/* Ruler Measure Lines (Fainter Opacity, bottom half only) */}
+                                                {Array.from({ length: beatsPerBar - 1 }).map((_, beatIndex) => (
+                                                    <div key={`beat-${i}-${beatIndex}`} style={{ 
+                                                        position: 'absolute', 
+                                                        left: `${i * pixelsPerBar + (beatIndex + 1) * beatSpacing}px`, 
+                                                        top: '50%', bottom: 0, 
+                                                        width: '1px', 
+                                                        background: 'rgba(255,255,255,0.06)' 
+                                                    }}></div>
+                                                ))}
+                                            </React.Fragment>
+                                        );
+                                    })}
                                 </div>
                             </div>
                         </div>
