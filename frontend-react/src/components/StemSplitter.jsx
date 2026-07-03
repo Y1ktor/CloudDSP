@@ -96,6 +96,16 @@ export default function StemSplitter({
         }
     };
 
+    const tracksToRender = React.useMemo(() => {
+        const tr = {};
+        if (file && originalUrl) tr['Original'] = originalUrl;
+        else if (!file && stemUrls && Object.keys(stemUrls).length > 0) tr['Original'] = stemUrls[Object.keys(stemUrls)[0]];
+        if (stemUrls) Object.assign(tr, stemUrls);
+        return tr;
+    }, [file, originalUrl, stemUrls]);
+
+    const [pixelsPerBar, setPixelsPerBar] = React.useState(100);
+
     return (
         <div style={{
             background: '#333',
@@ -348,103 +358,38 @@ export default function StemSplitter({
                             `}</style>
                         </div>
 
-                        {/* Timeline Header (Time Bar) */}
-                        <div style={{ 
-                            width: '100%', height: '30px', 
-                            display: 'flex', gap: '3px'
-                        }}>
-                            {/* Left Section (Aligns with Track Headers) */}
-                            <div style={{ 
-                                width: '210px', flexShrink: 0, 
-                                background: '#333', borderRadius: '4px' 
-                            }}></div>
+                        {/* Split Workspace: Fixed Left Column + Scrollable Right Column */}
+                        <div style={{ width: '100%', display: 'flex', gap: '3px', paddingBottom: '10px' }}>
                             
-                            {/* Right Section (Timeline Canvas) */}
-                            <div style={{ 
-                                flexGrow: 1, 
-                                borderRadius: '4px',
-                                overflow: 'hidden',
-                                position: 'relative'
-                            }}>
-                                <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%' }}>
-                                    <div style={{ flexGrow: 1, background: '#2a2a2a' }}></div>
-                                    <div style={{ flexGrow: 1, background: '#333' }}></div>
+                            {/* LEFT COLUMN: Track Consoles (Fixed) */}
+                            <div style={{ width: '210px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                                {/* Timeline Header Left Spacer (Zoom Control) */}
+                                <div style={{ 
+                                    height: '30px', background: '#333', borderRadius: '4px',
+                                    display: 'flex', alignItems: 'center', padding: '0 10px', gap: '8px'
+                                }}>
+                                    <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px', fontWeight: 'bold', fontFamily: 'monospace' }}>{'<>'}</span>
+                                    <input 
+                                        type="range" 
+                                        min="30" max="300" 
+                                        value={pixelsPerBar} 
+                                        onChange={(e) => setPixelsPerBar(Number(e.target.value))}
+                                        style={{ flexGrow: 1, cursor: 'pointer', height: '2px', accentColor: '#4f94d4' }}
+                                    />
                                 </div>
                                 
-                                {/* Music Bars Overlay */}
-                                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none' }}>
-                                    {Array.from({ length: 100 }).map((_, i) => {
-                                        const beatsPerBar = parseInt(timeSignature.split('/')[0], 10) || 4;
-                                        const pixelsPerBar = 100;
-                                        const beatSpacing = pixelsPerBar / beatsPerBar;
-                                        
-                                        return (
-                                            <React.Fragment key={i}>
-                                                {/* Main Bar Line (Stronger Opacity, spans full height) */}
-                                                <div style={{ 
-                                                    position: 'absolute', 
-                                                    left: `${i * pixelsPerBar}px`, 
-                                                    top: 0, bottom: 0, 
-                                                    width: '1px', 
-                                                    background: 'rgba(255,255,255,0.18)' 
-                                                }}>
-                                                    <div style={{ 
-                                                        position: 'absolute', 
-                                                        top: '2px', left: '4px', 
-                                                        color: 'rgba(255,255,255,0.4)', 
-                                                        fontSize: '10px', 
-                                                        fontFamily: 'monospace',
-                                                        lineHeight: '1'
-                                                    }}>
-                                                        {i + 1}
-                                                    </div>
-                                                </div>
-                                                
-                                                {/* Ruler Measure Lines (Fainter Opacity, bottom half only) */}
-                                                {Array.from({ length: beatsPerBar - 1 }).map((_, beatIndex) => (
-                                                    <div key={`beat-${i}-${beatIndex}`} style={{ 
-                                                        position: 'absolute', 
-                                                        left: `${i * pixelsPerBar + (beatIndex + 1) * beatSpacing}px`, 
-                                                        top: '50%', bottom: 0, 
-                                                        width: '1px', 
-                                                        background: 'rgba(255,255,255,0.06)' 
-                                                    }}></div>
-                                                ))}
-                                            </React.Fragment>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Stems List */}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                            {(() => {
-                                const tracksToRender = {};
-                            if (file && originalUrl) {
-                                tracksToRender['Original'] = originalUrl;
-                            } else if (!file && stemUrls) {
-                                // Fallback for MOCK_PAYLOAD UI testing
-                                tracksToRender['Original'] = stemUrls[Object.keys(stemUrls)[0]];
-                            }
-                            Object.assign(tracksToRender, stemUrls);
-                            
-                            return Object.entries(tracksToRender).map(([trackName, url]) => (
-                                <div key={trackName} style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
-                                    
-                                    {/* Track Header Console */}
-                                    <div style={{ 
+                                {/* Track Consoles */}
+                                {Object.entries(tracksToRender).map(([trackName, url]) => (
+                                    <div key={trackName} style={{ 
                                         display: 'flex', alignItems: 'center', justifyContent: 'space-between', 
-                                        background: '#333', padding: '10px 15px', borderRadius: '4px',
-                                        width: '180px', flexShrink: 0
+                                        background: '#333', padding: '0 15px', borderRadius: '4px',
+                                        height: '60px', boxSizing: 'border-box'
                                     }}>
-                                        {/* Hidden audio element tied to the master control */}
                                         <audio 
                                             ref={el => audioRefs.current[trackName] = el}
                                             src={url}
                                             preload="auto"
                                             onLoadedMetadata={(e) => {
-                                                // Capture duration if not yet set
                                                 if (duration === 0) setDuration(e.target.duration);
                                             }}
                                         />
@@ -477,11 +422,76 @@ export default function StemSplitter({
                                             </button>
                                         </div>
                                     </div>
+                                ))}
+                            </div>
+                            
+                            {/* RIGHT COLUMN: Timeline Canvas (Scrollable) */}
+                            <div style={{ flexGrow: 1, overflowX: 'auto', paddingBottom: '10px' }}>
+                                <div style={{ minWidth: `${pixelsPerBar * 20}px`, display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                                    
+                                    {/* Timeline Header Right (Time Bar) */}
+                                    <div style={{ height: '30px', borderRadius: '4px', overflow: 'hidden', position: 'relative' }}>
+                                        <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%' }}>
+                                            <div style={{ flexGrow: 1, background: '#2a2a2a' }}></div>
+                                            <div style={{ flexGrow: 1, background: '#333' }}></div>
+                                        </div>
+                                        
+                                        {/* Music Bars Overlay */}
+                                        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none' }}>
+                                            {Array.from({ length: 20 }).map((_, i) => {
+                                                const beatsPerBar = parseInt(timeSignature.split('/')[0], 10) || 4;
+                                                const beatSpacing = pixelsPerBar / beatsPerBar;
+                                                
+                                                return (
+                                                    <React.Fragment key={i}>
+                                                        {/* Main Bar Line (Stronger Opacity, spans full height) */}
+                                                        <div style={{ 
+                                                            position: 'absolute', 
+                                                            left: `${i * pixelsPerBar}px`, 
+                                                            top: 0, bottom: 0, 
+                                                            width: '1px', 
+                                                            background: 'rgba(255,255,255,0.18)' 
+                                                        }}>
+                                                            <div style={{ 
+                                                                position: 'absolute', 
+                                                                top: '2px', left: '4px', 
+                                                                color: 'rgba(255,255,255,0.4)', 
+                                                                fontSize: '10px', 
+                                                                fontFamily: 'monospace',
+                                                                lineHeight: '1'
+                                                            }}>
+                                                                {i + 1}
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        {/* Ruler Measure Lines (Fainter Opacity, bottom half only) */}
+                                                        {Array.from({ length: beatsPerBar - 1 }).map((_, beatIndex) => (
+                                                            <div key={`beat-${i}-${beatIndex}`} style={{ 
+                                                                position: 'absolute', 
+                                                                left: `${i * pixelsPerBar + (beatIndex + 1) * beatSpacing}px`, 
+                                                                top: '50%', bottom: 0, 
+                                                                width: '1px', 
+                                                                background: 'rgba(255,255,255,0.06)' 
+                                                            }}></div>
+                                                        ))}
+                                                    </React.Fragment>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                    
+                                    {/* Track Contents */}
+                                    {Object.keys(tracksToRender).map((trackName) => (
+                                        <div key={trackName} style={{ 
+                                            height: '60px', 
+                                            position: 'relative', overflow: 'hidden', boxSizing: 'border-box'
+                                        }}>
+                                        </div>
+                                    ))}
                                 </div>
-                            ));
-                        })()}
+                            </div>
                         </div>
-                    </div>
+                </div>
                 ) : (
                     <div>Stem extraction and MIDI results will appear here as downloadable multitracks</div>
                 )}
