@@ -68,9 +68,8 @@ def extract_midi_cloud(input_bucket: str, output_bucket: str, file_key: str):
             sys.exit(1)
         midi_file_path = midi_files[0]
         
-    # 4. Extract BPM using Librosa
+    # 4. Extract BPM using Librosa and inject into MIDI
     print("Extracting BPM using librosa...")
-    bpm_file_path = None
     try:
         # Load the audio into librosa
         y, sr = librosa.load(str(local_input_path))
@@ -81,31 +80,31 @@ def extract_midi_cloud(input_bucket: str, output_bucket: str, file_key: str):
         bpm = float(tempo[0]) if hasattr(tempo, "__iter__") else float(tempo)
         print(f"Estimated BPM: {bpm:.2f}")
         
-        # Save BPM to a json file
-        bpm_data = {"bpm": bpm}
-        bpm_file_path = local_output_dir / f"{local_input_path.stem}_bpm.json"
-        with open(bpm_file_path, "w") as f:
-            json.dump(bpm_data, f)
-    except Exception as e:
-        print(f"Warning: Failed to extract BPM: {e}")
+        # Inject BPM into MIDI file using mido
+        import mido
+        mid = mido.MidiFile(midi_file_path)
+        mido_tempo = mido.bpm2tempo(bpm)
         
-    # 5. Upload the resulting MIDI and BPM JSON files back to S3
+        if len(mid.tracks) > 0:
+            mid.tracks[0].insert(0, mido.MetaMessage('set_tempo', tempo=mido_tempo, time=0))
+        
+        mid.save(midi_file_path)
+        print("BPM successfully injected into MIDI file.")
+        
+    except Exception as e:
+        print(f"Warning: Failed to extract or inject BPM: {e}")
+        
+    # 5. Upload the resulting MIDI file back to S3
     # If the input was `stems/1234-uuid-mysong/piano.wav`, we save it to `midi/1234-uuid-mysong/piano.mid`
     parts = Path(file_key).parts
     if len(parts) >= 3 and parts[0] == "stems":
-        # parts = ('stems', '1234-uuid-mysong', 'piano.wav')
         uuid_folder = parts[1]
         s3_output_key = f"midi/{uuid_folder}/{local_input_path.stem}.mid"
-        s3_bpm_key = f"midi/{uuid_folder}/{local_input_path.stem}_bpm.json"
     else:
         # Fallback if structure is different
         s3_output_key = f"midi/{local_input_path.stem}.mid"
-        s3_bpm_key = f"midi/{local_input_path.stem}_bpm.json"
         
     upload_file_to_s3(s3_client, midi_file_path, output_bucket, s3_output_key)
-    
-    if bpm_file_path and bpm_file_path.exists():
-        upload_file_to_s3(s3_client, bpm_file_path, output_bucket, s3_bpm_key)
     
     print("\nCloud Basic Pitch job completed successfully.")
 

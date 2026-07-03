@@ -362,8 +362,39 @@ export default function StemSplitter({
                             {/* Right Section (Timeline Canvas) */}
                             <div style={{ 
                                 flexGrow: 1, 
-                                background: '#333', borderRadius: '4px' 
-                            }}></div>
+                                borderRadius: '4px',
+                                overflow: 'hidden',
+                                position: 'relative'
+                            }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%' }}>
+                                    <div style={{ flexGrow: 1, background: '#2a2a2a' }}></div>
+                                    <div style={{ flexGrow: 1, background: '#333' }}></div>
+                                </div>
+                                
+                                {/* Music Bars Overlay */}
+                                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none' }}>
+                                    {Array.from({ length: 100 }).map((_, i) => (
+                                        <div key={i} style={{ 
+                                            position: 'absolute', 
+                                            left: `${i * 100}px`, // Fixed 100px per bar for visual prototyping
+                                            top: 0, bottom: 0, 
+                                            width: '1px', 
+                                            background: 'rgba(255,255,255,0.08)' // Faint vertical line
+                                        }}>
+                                            <div style={{ 
+                                                position: 'absolute', 
+                                                top: '2px', left: '4px', 
+                                                color: 'rgba(255,255,255,0.4)', 
+                                                fontSize: '10px', 
+                                                fontFamily: 'monospace',
+                                                lineHeight: '1'
+                                            }}>
+                                                {i + 1}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
                         </div>
 
                         {/* Stems List */}
