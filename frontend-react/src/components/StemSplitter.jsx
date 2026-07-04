@@ -1,5 +1,6 @@
 import React from 'react';
 import { useAudioMultiTrackPlayer } from '../hooks/AudioMultiTrackPlayer';
+import { parseMidiFile, determineMasterBpm } from '../utils/MidiParser';
 
 /**
  * StemSplitter Component
@@ -70,8 +71,60 @@ export default function StemSplitter({
         toggleMute,
         toggleSolo,
         handleBpmMouseDown,
-        formatTime
+        formatTime,
+        setBpm
     } = useAudioMultiTrackPlayer(stemUrls, file);
+
+    const [parsedMidiStems, setParsedMidiStems] = React.useState({});
+    const [isMidiLoading, setIsMidiLoading] = React.useState(true);
+    const hasFetchedMidi = React.useRef(false);
+
+    // MOCK: Fetch local MIDI files to test MIDI processing and smart BPM voting
+    React.useEffect(() => {
+        if (!stemUrls || hasFetchedMidi.current) return;
+        
+        const fetchAndParse = async () => {
+            setIsMidiLoading(true);
+            
+            // MOCK DELAY: wait 3 seconds to simulate AWS Basic Pitch cold start/processing
+            await new Promise(resolve => setTimeout(resolve, 3000));
+            
+            const mockMidiFiles = {
+                'bass': '/mock-midi/yosemite-bass-midi.mid',
+                'drums': '/mock-midi/yosemite-drums-midi.mid',
+                'guitar': '/mock-midi/yosemite-guitar-midi.mid',
+                'other': '/mock-midi/yosemite-other-midi.mid',
+                'piano': '/mock-midi/yosemite-piano-midi.mid',
+                'vocals': '/mock-midi/yosemite-vocals-midi.mid'
+            };
+            
+            try {
+                const parsed = {};
+                for (const [track, url] of Object.entries(mockMidiFiles)) {
+                    // Provide the active timeSignature so bars calculate correctly
+                    const data = await parseMidiFile(url, timeSignature);
+                    parsed[track] = data;
+                }
+                
+                setParsedMidiStems(parsed);
+                
+                // Invoke our new hierarchy logic to find the best master BPM!
+                const bestBpm = determineMasterBpm(parsed);
+                
+                // Update the hook state, causing the canvas to instantly recalculate!
+                setBpm(bestBpm);
+                setIsMidiLoading(false);
+                hasFetchedMidi.current = true;
+                
+                console.log("Mock MIDI loaded. Smart BPM chosen:", bestBpm);
+            } catch (err) {
+                console.error("Mock MIDI fetch failed:", err);
+                setIsMidiLoading(false);
+            }
+        };
+
+        fetchAndParse();
+    }, [stemUrls, timeSignature, setBpm]);
 
     // Instantly connect to the WebSocket in the background the moment this page loads
     React.useEffect(() => {
@@ -105,6 +158,9 @@ export default function StemSplitter({
     }, [file, originalUrl, stemUrls]);
 
     const [pixelsPerBar, setPixelsPerBar] = React.useState(100);
+    const parsedBeatsPerBar = parseInt(timeSignature.split('/')[0], 10) || 4;
+    // Calculate canvas size based on Master Audio duration. (Default to 20 bars if no audio loaded)
+    const totalBars = duration > 0 ? Math.ceil((duration * (bpm / 60)) / parsedBeatsPerBar) : 20;
 
     return (
         <div style={{
@@ -249,31 +305,37 @@ export default function StemSplitter({
                             </button>
                             
                             <div className="time-display" style={{ color: '#fff', fontSize: '14px', fontFamily: 'monospace', marginLeft: '10px', whiteSpace: 'nowrap' }}>
-                                {formatTime(progress)} / {formatTime(duration)}
+                                {isMidiLoading ? `${formatTime(progress)} / ${formatTime(duration)}` : formatTime(progress)}
                             </div>
 
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '30px' }}>
                                 <span className="bpm-label" style={{ color: '#fff', fontSize: '14px', fontWeight: 'bold' }}>BPM:</span>
                                 <div style={{ 
                                     background: 'linear-gradient(180deg, #2A3644 0%, #1B232D 100%)',
-                                    color: '#e2e8f0', 
+                                    color: isMidiLoading ? '#444' : '#e2e8f0', 
                                     fontSize: '14px', fontFamily: 'monospace', fontWeight: 'bold',
                                     padding: '4px 8px', borderRadius: '4px', width: '55px', textAlign: 'center',
                                     border: '1px solid #0a0d12',
                                     borderTop: '1px solid #485c70',
                                     boxShadow: 'inset 0 2px 5px rgba(0,0,0,0.6), 0 1px 1px rgba(255,255,255,0.05)',
-                                    textShadow: '0 0 6px rgba(226, 232, 240, 0.4)',
+                                    textShadow: isMidiLoading ? 'none' : '0 0 6px rgba(226, 232, 240, 0.4)',
                                     display: 'flex', justifyContent: 'center', userSelect: 'none'
                                 }}>
-                                    <span 
-                                        onMouseDown={(e) => handleBpmMouseDown(e, 'int')}
-                                        style={{ cursor: 'ns-resize', flexGrow: 1, textAlign: 'right' }}
-                                    >{Math.floor(bpm)}</span>
-                                    <span style={{ cursor: 'default' }}>.</span>
-                                    <span 
-                                        onMouseDown={(e) => handleBpmMouseDown(e, 'dec')}
-                                        style={{ cursor: 'ns-resize', flexGrow: 1, textAlign: 'left' }}
-                                    >{Math.round((bpm - Math.floor(bpm)) * 10)}</span>
+                                    {isMidiLoading ? (
+                                        <span style={{ cursor: 'default' }}>---</span>
+                                    ) : (
+                                        <>
+                                            <span 
+                                                onMouseDown={(e) => handleBpmMouseDown(e, 'int')}
+                                                style={{ cursor: 'ns-resize', flexGrow: 1, textAlign: 'right' }}
+                                            >{Math.floor(bpm)}</span>
+                                            <span style={{ cursor: 'default' }}>.</span>
+                                            <span 
+                                                onMouseDown={(e) => handleBpmMouseDown(e, 'dec')}
+                                                style={{ cursor: 'ns-resize', flexGrow: 1, textAlign: 'left' }}
+                                            >{Math.round((bpm - Math.floor(bpm)) * 10)}</span>
+                                        </>
+                                    )}
                                 </div>
                             </div>
                             
@@ -427,7 +489,7 @@ export default function StemSplitter({
                             
                             {/* RIGHT COLUMN: Timeline Canvas (Scrollable) */}
                             <div style={{ flexGrow: 1, overflowX: 'auto', paddingBottom: '10px' }}>
-                                <div style={{ minWidth: `${pixelsPerBar * 20}px`, display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                                <div style={{ minWidth: `${pixelsPerBar * totalBars}px`, display: 'flex', flexDirection: 'column', gap: '3px' }}>
                                     
                                     {/* Timeline Header Right (Time Bar) */}
                                     <div style={{ height: '30px', borderRadius: '4px', overflow: 'hidden', position: 'relative' }}>
@@ -438,7 +500,7 @@ export default function StemSplitter({
                                         
                                         {/* Music Bars Overlay */}
                                         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none' }}>
-                                            {Array.from({ length: 20 }).map((_, i) => {
+                                            {Array.from({ length: totalBars }).map((_, i) => {
                                                 const beatsPerBar = parseInt(timeSignature.split('/')[0], 10) || 4;
                                                 const beatSpacing = pixelsPerBar / beatsPerBar;
                                                 

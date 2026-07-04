@@ -204,6 +204,7 @@ export function useAudioMultiTrackPlayer(stemUrls, file) {
         toggleMute,
         toggleSolo,
         handleBpmMouseDown,
-        formatTime
+        formatTime,
+        setBpm
     };
 }
