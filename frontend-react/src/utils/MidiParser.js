@@ -1,6 +1,15 @@
 import { Midi } from '@tonejs/midi';
 
 /**
+ * MidiParser.js
+ * 
+ * Utility functions for parsing raw MIDI files utilizing Tone.js (@tonejs/midi).
+ * This module transforms raw ArrayBuffers directly from S3 into structural JSON blocks 
+ * suitable for rendering onto a React Canvas. It also implements a Smart BPM Hierarchy 
+ * strategy to safely calculate the true master tempo from a diverse collection of stems.
+ */
+
+/**
  * Parses a MIDI file and calculates project metadata like total bars.
  * 
  * @param {ArrayBuffer | string} midiInput - The MIDI file as an ArrayBuffer, or a URL to a local MIDI file.

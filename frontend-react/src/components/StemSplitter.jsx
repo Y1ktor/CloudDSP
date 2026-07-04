@@ -72,7 +72,9 @@ export default function StemSplitter({
         toggleSolo,
         handleBpmMouseDown,
         formatTime,
-        setBpm
+        setBpm,
+        originalBpm,
+        setOriginalBpm
     } = useAudioMultiTrackPlayer(stemUrls, file);
 
     const [parsedMidiStems, setParsedMidiStems] = React.useState({});
@@ -112,6 +114,7 @@ export default function StemSplitter({
                 const bestBpm = determineMasterBpm(parsed);
                 
                 // Update the hook state, causing the canvas to instantly recalculate!
+                setOriginalBpm(bestBpm);
                 setBpm(bestBpm);
                 setIsMidiLoading(false);
                 hasFetchedMidi.current = true;
@@ -161,6 +164,10 @@ export default function StemSplitter({
     const parsedBeatsPerBar = parseInt(timeSignature.split('/')[0], 10) || 4;
     // Calculate canvas size based on Master Audio duration. (Default to 20 bars if no audio loaded)
     const totalBars = duration > 0 ? Math.ceil((duration * (bpm / 60)) / parsedBeatsPerBar) : 20;
+
+    // Calculate dynamic physical track length in seconds (adjusts when user changes BPM)
+    const dynamicDuration = originalBpm && duration ? duration * (originalBpm / bpm) : duration;
+    const dynamicProgress = originalBpm && progress ? progress * (originalBpm / bpm) : progress;
 
     return (
         <div style={{
@@ -305,7 +312,10 @@ export default function StemSplitter({
                             </button>
                             
                             <div className="time-display" style={{ color: '#fff', fontSize: '14px', fontFamily: 'monospace', marginLeft: '10px', whiteSpace: 'nowrap' }}>
-                                {isMidiLoading ? `${formatTime(progress)} / ${formatTime(duration)}` : formatTime(progress)}
+                                {isMidiLoading ? 
+                                    `${formatTime(progress)} / ${formatTime(duration)}` : 
+                                    `${formatTime(dynamicProgress)} / ${formatTime(dynamicDuration)}`
+                                }
                             </div>
 
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '30px' }}>
@@ -451,6 +461,7 @@ export default function StemSplitter({
                                             ref={el => audioRefs.current[trackName] = el}
                                             src={url}
                                             preload="auto"
+                                            crossOrigin="anonymous"
                                             onLoadedMetadata={(e) => {
                                                 if (duration === 0) setDuration(e.target.duration);
                                             }}
