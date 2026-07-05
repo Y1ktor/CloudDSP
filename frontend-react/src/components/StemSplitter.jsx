@@ -74,7 +74,9 @@ export default function StemSplitter({
         formatTime,
         setBpm,
         originalBpm,
-        setOriginalBpm
+        setOriginalBpm,
+        cycleRegion,
+        setCycleRegion
     } = useAudioMultiTrackPlayer(stemUrls, file);
 
     const [parsedMidiStems, setParsedMidiStems] = React.useState({});
@@ -162,12 +164,99 @@ export default function StemSplitter({
 
     const [pixelsPerBar, setPixelsPerBar] = React.useState(100);
     const parsedBeatsPerBar = parseInt(timeSignature.split('/')[0], 10) || 4;
+    
+    // We must calculate grid spacing using the track's original BPM, so the grid remains 
+    // static and stable even when the user adjusts the playback speed (BPM slider).
+    const activeBpm = originalBpm || bpm;
+    
     // Calculate canvas size based on Master Audio duration. (Default to 20 bars if no audio loaded)
-    const totalBars = duration > 0 ? Math.ceil((duration * (bpm / 60)) / parsedBeatsPerBar) : 20;
+    const totalBars = duration > 0 ? Math.ceil((duration * (activeBpm / 60)) / parsedBeatsPerBar) : 20;
 
     // Calculate dynamic physical track length in seconds (adjusts when user changes BPM)
     const dynamicDuration = originalBpm && duration ? duration * (originalBpm / bpm) : duration;
     const dynamicProgress = originalBpm && progress ? progress * (originalBpm / bpm) : progress;
+    
+    const playheadX = (progress * (activeBpm / 60) / parsedBeatsPerBar) * pixelsPerBar;
+
+    // Cycle Loop Region Logic is now managed globally by useAudioMultiTrackPlayer
+
+    // Playhead Drag Logic
+    const [isPlayheadHovered, setIsPlayheadHovered] = React.useState(false);
+    const playheadDragRef = React.useRef({ isDragging: false });
+    const cycleDragRef = React.useRef({ isDragging: false, mode: 'move', initialX: 0, initialStart: 0, initialEnd: 0 });
+    const timelineRef = React.useRef(null);
+
+    React.useEffect(() => {
+        const handleMouseMove = (e) => {
+            if (playheadDragRef.current.isDragging && timelineRef.current) {
+                const rect = timelineRef.current.getBoundingClientRect();
+                const xOffset = e.clientX - rect.left;
+                
+                let newBar = xOffset / pixelsPerBar;
+                newBar = Math.max(0, Math.min(newBar, totalBars));
+                
+                const newProgress = (newBar * parsedBeatsPerBar) / (activeBpm / 60);
+                handleSeek({ target: { value: newProgress } });
+            } else if (cycleDragRef.current.isDragging) {
+                const mode = cycleDragRef.current.mode;
+                const deltaX = e.clientX - cycleDragRef.current.initialX;
+                const deltaBars = deltaX / pixelsPerBar;
+                // Snap delta to beats
+                const snappedDeltaBars = Math.round(deltaBars * parsedBeatsPerBar) / parsedBeatsPerBar;
+                
+                if (mode === 'move') {
+                    let newStart = cycleDragRef.current.initialStart + snappedDeltaBars;
+                    let newEnd = cycleDragRef.current.initialEnd + snappedDeltaBars;
+                    const span = cycleDragRef.current.initialEnd - cycleDragRef.current.initialStart;
+                    
+                    if (newStart < 0) {
+                        newStart = 0;
+                        newEnd = span;
+                    } else if (newEnd > totalBars) {
+                        newEnd = totalBars;
+                        newStart = totalBars - span;
+                    }
+                    
+                    setCycleRegion({ startBar: newStart, endBar: newEnd });
+                } else if (mode === 'resize-left') {
+                    let newStart = cycleDragRef.current.initialStart + snappedDeltaBars;
+                    const minimumSpan = 1 / parsedBeatsPerBar;
+                    if (newStart < 0) newStart = 0;
+                    if (newStart > cycleDragRef.current.initialEnd - minimumSpan) {
+                        newStart = cycleDragRef.current.initialEnd - minimumSpan;
+                    }
+                    setCycleRegion({ startBar: newStart, endBar: cycleDragRef.current.initialEnd });
+                } else if (mode === 'resize-right') {
+                    let newEnd = cycleDragRef.current.initialEnd + snappedDeltaBars;
+                    const minimumSpan = 1 / parsedBeatsPerBar;
+                    if (newEnd > totalBars) newEnd = totalBars;
+                    if (newEnd < cycleDragRef.current.initialStart + minimumSpan) {
+                        newEnd = cycleDragRef.current.initialStart + minimumSpan;
+                    }
+                    setCycleRegion({ startBar: cycleDragRef.current.initialStart, endBar: newEnd });
+                }
+            }
+        };
+
+        const handleMouseUp = () => {
+            if (playheadDragRef.current.isDragging) {
+                playheadDragRef.current.isDragging = false;
+                document.body.style.cursor = '';
+                setIsPlayheadHovered(false);
+            }
+            if (cycleDragRef.current.isDragging) {
+                cycleDragRef.current.isDragging = false;
+                document.body.style.cursor = '';
+            }
+        };
+
+        window.addEventListener('mousemove', handleMouseMove);
+        window.addEventListener('mouseup', handleMouseUp);
+        return () => {
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+        };
+    }, [activeBpm, pixelsPerBar, totalBars, parsedBeatsPerBar, handleSeek]);
 
     return (
         <div style={{
@@ -500,17 +589,111 @@ export default function StemSplitter({
                             
                             {/* RIGHT COLUMN: Timeline Canvas (Scrollable) */}
                             <div style={{ flexGrow: 1, overflowX: 'auto', paddingBottom: '10px' }}>
-                                <div style={{ minWidth: `${pixelsPerBar * totalBars}px`, display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                                <div ref={timelineRef} style={{ minWidth: `${pixelsPerBar * totalBars}px`, display: 'flex', flexDirection: 'column', gap: '3px', position: 'relative' }}>
                                     
+                                    {/* Time Indicator (Playhead) */}
+                                    {duration > 0 && (
+                                        <div style={{
+                                            position: 'absolute',
+                                            left: `${playheadX}px`,
+                                            transform: 'translateX(-50%)',
+                                            top: '15px',
+                                            bottom: 0,
+                                            width: '1px',
+                                            backgroundColor: '#fff',
+                                            zIndex: 10,
+                                            pointerEvents: 'none',
+                                            boxShadow: '0 0 4px rgba(255, 255, 255, 0.5)'
+                                        }} />
+                                    )}
+
                                     {/* Timeline Header Right (Time Bar) */}
                                     <div style={{ height: '30px', borderRadius: '4px', overflow: 'hidden', position: 'relative' }}>
                                         <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%' }}>
                                             <div style={{ flexGrow: 1, background: '#2a2a2a' }}></div>
                                             <div style={{ flexGrow: 1, background: '#333' }}></div>
                                         </div>
+
+                                        {/* Cycle Region Header Bar */}
+                                        {duration > 0 && (
+                                            <div 
+                                                onMouseDown={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    cycleDragRef.current = {
+                                                        isDragging: true,
+                                                        mode: 'move',
+                                                        initialX: e.clientX,
+                                                        initialStart: cycleRegion.startBar,
+                                                        initialEnd: cycleRegion.endBar
+                                                    };
+                                                    document.body.style.cursor = 'grab';
+                                                }}
+                                                style={{
+                                                    position: 'absolute',
+                                                    left: `${cycleRegion.startBar * pixelsPerBar}px`,
+                                                    width: `${(cycleRegion.endBar - cycleRegion.startBar) * pixelsPerBar}px`,
+                                                    top: 0,
+                                                    bottom: '50%',
+                                                    backgroundColor: isCycling ? '#8B6508' : 'rgba(255, 255, 255, 0.15)',
+                                                    cursor: 'grab',
+                                                    zIndex: 25
+                                                }}
+                                            >
+                                                {/* Left Edge Resize Handle */}
+                                                <div 
+                                                    onMouseDown={(e) => {
+                                                        e.preventDefault();
+                                                        e.stopPropagation();
+                                                        cycleDragRef.current = {
+                                                            isDragging: true,
+                                                            mode: 'resize-left',
+                                                            initialX: e.clientX,
+                                                            initialStart: cycleRegion.startBar,
+                                                            initialEnd: cycleRegion.endBar
+                                                        };
+                                                        document.body.style.cursor = 'ew-resize';
+                                                    }}
+                                                    style={{
+                                                        position: 'absolute',
+                                                        left: 0,
+                                                        top: 0,
+                                                        bottom: 0,
+                                                        width: '8px',
+                                                        cursor: 'ew-resize',
+                                                        zIndex: 26
+                                                    }}
+                                                />
+
+                                                {/* Right Edge Resize Handle */}
+                                                <div 
+                                                    onMouseDown={(e) => {
+                                                        e.preventDefault();
+                                                        e.stopPropagation();
+                                                        cycleDragRef.current = {
+                                                            isDragging: true,
+                                                            mode: 'resize-right',
+                                                            initialX: e.clientX,
+                                                            initialStart: cycleRegion.startBar,
+                                                            initialEnd: cycleRegion.endBar
+                                                        };
+                                                        document.body.style.cursor = 'ew-resize';
+                                                    }}
+                                                    style={{
+                                                        position: 'absolute',
+                                                        right: 0,
+                                                        top: 0,
+                                                        bottom: 0,
+                                                        width: '8px',
+                                                        cursor: 'ew-resize',
+                                                        zIndex: 26
+                                                    }}
+                                                />
+                                            </div>
+                                        )}
                                         
                                         {/* Music Bars Overlay */}
-                                        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none' }}>
+                                        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none', zIndex: 30 }}>
                                             {Array.from({ length: totalBars }).map((_, i) => {
                                                 const beatsPerBar = parseInt(timeSignature.split('/')[0], 10) || 4;
                                                 const beatSpacing = pixelsPerBar / beatsPerBar;
@@ -551,6 +734,63 @@ export default function StemSplitter({
                                                 );
                                             })}
                                         </div>
+
+                                        {/* Global Playhead Scrub Zone (Bottom Ruler) */}
+                                        {duration > 0 && (
+                                            <div 
+                                                onMouseEnter={() => setIsPlayheadHovered(true)}
+                                                onMouseLeave={() => !playheadDragRef.current.isDragging && setIsPlayheadHovered(false)}
+                                                onMouseDown={(e) => {
+                                                    e.preventDefault();
+                                                    playheadDragRef.current.isDragging = true;
+                                                    document.body.style.cursor = 'ew-resize';
+                                                    
+                                                    // Instantly jump playhead to the clicked location
+                                                    const rect = timelineRef.current.getBoundingClientRect();
+                                                    const xOffset = e.clientX - rect.left;
+                                                    let newBar = xOffset / pixelsPerBar;
+                                                    newBar = Math.max(0, Math.min(newBar, totalBars));
+                                                    const newProgress = (newBar * parsedBeatsPerBar) / (activeBpm / 60);
+                                                    handleSeek({ target: { value: newProgress } });
+                                                }}
+                                                style={{
+                                                    position: 'absolute',
+                                                    left: 0,
+                                                    right: 0,
+                                                    top: '15px',
+                                                    height: '15px',
+                                                    cursor: 'ew-resize',
+                                                    zIndex: 20
+                                                }}
+                                            />
+                                        )}
+
+                                        {/* Static Playhead Triangle (Visual Only) */}
+                                        {duration > 0 && (
+                                            <div style={{
+                                                position: 'absolute',
+                                                left: `${playheadX}px`,
+                                                transform: 'translateX(-50%)',
+                                                top: 0,
+                                                width: '20px',
+                                                height: '30px',
+                                                zIndex: 15,
+                                                display: 'flex',
+                                                justifyContent: 'center',
+                                                alignItems: 'flex-start',
+                                                pointerEvents: 'none'
+                                            }}>
+                                                <div style={{
+                                                    width: 0, 
+                                                    height: 0, 
+                                                    borderLeft: '4px solid transparent',
+                                                    borderRight: '4px solid transparent',
+                                                    borderTop: `6px solid rgba(255, 255, 255, ${(isPlayheadHovered || playheadDragRef.current.isDragging) ? 1 : 0.7})`,
+                                                    transition: 'border-top-color 0.15s',
+                                                    marginTop: '15px'
+                                                }} />
+                                            </div>
+                                        )}
                                     </div>
                                     
                                     {/* Track Contents */}

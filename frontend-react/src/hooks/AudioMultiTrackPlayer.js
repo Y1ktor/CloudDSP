@@ -27,6 +27,7 @@ export function useAudioMultiTrackPlayer(stemUrls, file) {
     const [mutedTracks, setMutedTracks] = useState({});
     const [soloedTracks, setSoloedTracks] = useState({});
     const [isCycling, setIsCycling] = useState(false);
+    const [cycleRegion, setCycleRegion] = useState({ startBar: 0, endBar: 2 });
     
     // BPM & Time Signature State
     const [bpm, setBpm] = useState(120.0);
@@ -244,11 +245,25 @@ export function useAudioMultiTrackPlayer(stemUrls, file) {
             
             const updateVisualProgress = () => {
                 if (masterAudio) {
-                    setProgress(masterAudio.currentTime);
+                    const currentSec = masterAudio.currentTime;
+                    setProgress(currentSec);
                     if (masterAudio.duration && masterAudio.duration !== duration) {
                         setDuration(masterAudio.duration);
                     }
-                    if (masterAudio.ended) {
+                    
+                    if (isCycling) {
+                        const activeBpm = originalBpm || bpm;
+                        const parsedBeatsPerBar = parseInt(timeSignature.split('/')[0], 10) || 4;
+                        const cycleEndTime = (cycleRegion.endBar * parsedBeatsPerBar) / (activeBpm / 60);
+                        const cycleStartTime = (cycleRegion.startBar * parsedBeatsPerBar) / (activeBpm / 60);
+                        
+                        if (currentSec >= cycleEndTime) {
+                            Object.values(audioRefs.current).forEach(audio => {
+                                if (audio) audio.currentTime = cycleStartTime;
+                            });
+                            setProgress(cycleStartTime);
+                        }
+                    } else if (masterAudio.ended) {
                         setIsPlaying(false);
                         setProgress(0);
                     }
@@ -258,7 +273,7 @@ export function useAudioMultiTrackPlayer(stemUrls, file) {
             animationFrameId = requestAnimationFrame(updateVisualProgress);
         }
         return () => cancelAnimationFrame(animationFrameId);
-    }, [isPlaying, duration]);
+    }, [isPlaying, duration, isCycling, cycleRegion, bpm, originalBpm, timeSignature]);
 
     // Page Visibility API - Suspend process when hidden and not playing
     useEffect(() => {
@@ -308,6 +323,8 @@ export function useAudioMultiTrackPlayer(stemUrls, file) {
         formatTime,
         setBpm,
         originalBpm,
-        setOriginalBpm
+        setOriginalBpm,
+        cycleRegion,
+        setCycleRegion
     };
 }
