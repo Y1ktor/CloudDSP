@@ -23,7 +23,8 @@ export default function TrackGrid({
     activeBpm,
     parsedBeatsPerBar,
     selectedTrack,
-    setSelectedTrack
+    setSelectedTrack,
+    onDoubleClickTrack
 }) {
     // Helper function to render the notes for a specific track
     const renderMidiNotes = (trackName) => {
@@ -94,13 +95,15 @@ export default function TrackGrid({
             {Object.keys(tracksToRender).map((trackName) => (
                 <div 
                     key={trackName} 
-                    onClick={() => setSelectedTrack(trackName)}
+                    onClick={() => setSelectedTrack(selectedTrack === trackName ? null : trackName)}
+                    onDoubleClick={() => onDoubleClickTrack(trackName)}
                     style={{ 
                         height: '60px', 
                         position: 'relative', overflow: 'hidden', boxSizing: 'border-box',
                         borderBottom: '1px solid rgba(255,255,255,0.05)',
                         backgroundColor: selectedTrack === trackName ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
                         cursor: 'pointer',
+                        userSelect: 'none',
                         transition: 'background-color 0.2s'
                     }}
                 >

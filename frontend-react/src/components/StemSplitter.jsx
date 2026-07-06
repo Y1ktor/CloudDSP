@@ -5,6 +5,7 @@ import ControlBar from './ControlBar';
 import TimelineRuler from './TimelineRuler';
 import TrackList from './TrackList';
 import TrackGrid from './TrackGrid';
+import MidiEditorPopup from './MidiEditorPopup';
 
 /**
  * StemSplitter Component
@@ -56,6 +57,9 @@ export default function StemSplitter({
 
     // Track selection state
     const [selectedTrack, setSelectedTrack] = React.useState(null);
+
+    // MIDI Editor popup state
+    const [editorOpenTrack, setEditorOpenTrack] = React.useState(null);
 
     // ==== MULTITRACK PLAYER STATE (Refactored to Hook) ====
     const {
@@ -494,6 +498,7 @@ export default function StemSplitter({
                                 soloedTracks={soloedTracks}
                                 selectedTrack={selectedTrack}
                                 setSelectedTrack={setSelectedTrack}
+                                onDoubleClickTrack={(trackName) => setEditorOpenTrack(trackName)}
                             />
                             
                             {/* RIGHT COLUMN: Timeline Canvas (Scrollable) */}
@@ -544,6 +549,7 @@ export default function StemSplitter({
                                         parsedBeatsPerBar={parsedBeatsPerBar}
                                         selectedTrack={selectedTrack}
                                         setSelectedTrack={setSelectedTrack}
+                                        onDoubleClickTrack={(trackName) => setEditorOpenTrack(trackName)}
                                     />
                                 </div>
                             </div>
@@ -553,6 +559,27 @@ export default function StemSplitter({
                     <div>Stem extraction and MIDI results will appear here as downloadable multitracks</div>
                 )}
             </div>
+
+            {/* MIDI Editor Pop-up Window */}
+            <MidiEditorPopup 
+                trackName={editorOpenTrack} 
+                onClose={() => setEditorOpenTrack(null)} 
+                duration={duration}
+                pixelsPerBar={pixelsPerBar}
+                totalBars={totalBars}
+                playheadX={playheadX}
+                cycleDragRef={cycleDragRef}
+                cycleRegion={cycleRegion}
+                isCycling={isCycling}
+                timeSignature={timeSignature}
+                playheadDragRef={playheadDragRef}
+                setIsPlayheadHovered={setIsPlayheadHovered}
+                isPlayheadHovered={isPlayheadHovered}
+                activeBpm={activeBpm}
+                parsedBeatsPerBar={parsedBeatsPerBar}
+                handleSeek={handleSeek}
+                parsedMidiStems={parsedMidiStems}
+            />
         </div>
     );
 }

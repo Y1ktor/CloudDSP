@@ -33,7 +33,8 @@ export default function TrackList({
     toggleSolo,
     soloedTracks,
     selectedTrack,
-    setSelectedTrack
+    setSelectedTrack,
+    onDoubleClickTrack
 }) {
     return (
         <div style={{ width: '210px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '3px' }}>
@@ -56,13 +57,15 @@ export default function TrackList({
             {Object.entries(tracksToRender).map(([trackName, url]) => (
                 <div 
                     key={trackName} 
-                    onClick={() => setSelectedTrack(trackName)}
+                    onClick={() => setSelectedTrack(selectedTrack === trackName ? null : trackName)}
+                    onDoubleClick={() => onDoubleClickTrack(trackName)}
                     style={{ 
                         display: 'flex', alignItems: 'center', justifyContent: 'space-between', 
                         background: selectedTrack === trackName ? '#444' : '#333', 
                         padding: '0 15px', borderRadius: '4px',
                         height: '60px', boxSizing: 'border-box',
                         cursor: 'pointer',
+                        userSelect: 'none',
                         transition: 'background-color 0.2s'
                     }}
                 >
