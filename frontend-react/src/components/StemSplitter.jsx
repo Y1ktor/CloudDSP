@@ -1,6 +1,10 @@
 import React from 'react';
 import { useAudioMultiTrackPlayer } from '../hooks/AudioMultiTrackPlayer';
 import { parseMidiFile, determineMasterBpm } from '../utils/MidiParser';
+import ControlBar from './ControlBar';
+import TimelineRuler from './TimelineRuler';
+import TrackList from './TrackList';
+import TrackGrid from './TrackGrid';
 
 /**
  * StemSplitter Component
@@ -277,65 +281,16 @@ export default function StemSplitter({
                 Stem Splitting & Audio-to-MIDI
             </h2>
             
-            {/* Top Control Bar */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' }}>
-                <label htmlFor="stem-upload" className="upload-btn" style={{ margin: 0, cursor: isSplitting ? 'not-allowed' : 'pointer', opacity: isSplitting ? 0.5 : 1 }}>Browse...</label>
-                <input type="file" id="stem-upload" accept="audio/*" style={{ display: 'none' }} onChange={handleFileUpload} disabled={isSplitting} />
-                
-                <div id="file-name-container" style={{ flexGrow: 1, margin: 0 }}>
-                    <div id="file-name-display" style={{ color: fileName === "No file loaded" ? '#aaa' : '#fff' }}>{fileName}</div>
-                </div>
-
-                <div style={{ width: 'auto', minWidth: '150px' }}>
-                    <select 
-                        value={splitMode} 
-                        onChange={(e) => setSplitMode(e.target.value)}
-                        disabled={isSplitting}
-                        style={{
-                            background: '#222',
-                            color: '#fff',
-                            border: '1px solid #444',
-                            padding: '8px 10px',
-                            borderRadius: '4px',
-                            cursor: isSplitting ? 'not-allowed' : 'pointer',
-                            outline: 'none',
-                            width: '100%',
-                            fontSize: '13px',
-                            fontFamily: 'inherit',
-                            opacity: isSplitting ? 0.5 : 1
-                        }}
-                    >
-                        <option value="6-stems">6 Stems (Vocals / Drums / Bass / Piano / Guitar / Other)</option>
-                        <option value="4-stems">4 Stems (Vocals / Drums / Bass / Other)</option>
-                        <option value="2-stems">2 Stems (Vocals / Instrumental)</option>
-                    </select>
-                </div>
-
-                <button 
-                    onClick={executeStemSplit}
-                    disabled={isSplitting || !file}
-                    style={{
-                        background: isSplitting ? '#555' : (!file ? '#555' : '#4CAF50'),
-                        color: 'white',
-                        border: 'none',
-                        padding: '8px 16px',
-                        borderRadius: '4px',
-                        cursor: isSplitting || !file ? 'not-allowed' : 'pointer',
-                        fontWeight: 'bold',
-                        transition: 'background-color 0.2s',
-                        fontSize: '13px'
-                    }}
-                >
-                    {isSplitting ? 'Processing...' : 'Upload & Split'}
-                </button>
-            </div>
-            
-            {/* Error Message */}
-            {errorMsg && (
-                <div style={{ color: '#ff6b6b', background: '#3b2222', padding: '10px', borderRadius: '4px', border: '1px solid #ff4444' }}>
-                    {errorMsg}
-                </div>
-            )}
+            <ControlBar 
+                isSplitting={isSplitting}
+                handleFileUpload={handleFileUpload}
+                fileName={fileName}
+                splitMode={splitMode}
+                setSplitMode={setSplitMode}
+                executeStemSplit={executeStemSplit}
+                file={file}
+                errorMsg={errorMsg}
+            />
 
             {/* Dynamic Results Area */}
             <div style={{
@@ -523,69 +478,18 @@ export default function StemSplitter({
                         <div style={{ width: '100%', display: 'flex', gap: '3px', paddingBottom: '10px' }}>
                             
                             {/* LEFT COLUMN: Track Consoles (Fixed) */}
-                            <div style={{ width: '210px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                                {/* Timeline Header Left Spacer (Zoom Control) */}
-                                <div style={{ 
-                                    height: '30px', background: '#333', borderRadius: '4px',
-                                    display: 'flex', alignItems: 'center', padding: '0 10px', gap: '8px'
-                                }}>
-                                    <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px', fontWeight: 'bold', fontFamily: 'monospace' }}>{'<>'}</span>
-                                    <input 
-                                        type="range" 
-                                        min="30" max="300" 
-                                        value={pixelsPerBar} 
-                                        onChange={(e) => setPixelsPerBar(Number(e.target.value))}
-                                        style={{ flexGrow: 1, cursor: 'pointer', height: '2px', accentColor: '#4f94d4' }}
-                                    />
-                                </div>
-                                
-                                {/* Track Consoles */}
-                                {Object.entries(tracksToRender).map(([trackName, url]) => (
-                                    <div key={trackName} style={{ 
-                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', 
-                                        background: '#333', padding: '0 15px', borderRadius: '4px',
-                                        height: '60px', boxSizing: 'border-box'
-                                    }}>
-                                        <audio 
-                                            ref={el => audioRefs.current[trackName] = el}
-                                            src={url}
-                                            preload="auto"
-                                            crossOrigin="anonymous"
-                                            onLoadedMetadata={(e) => {
-                                                if (duration === 0) setDuration(e.target.duration);
-                                            }}
-                                        />
-                                        
-                                        <div style={{ color: '#fff', fontWeight: 'bold', textTransform: 'capitalize', width: '80px' }}>
-                                            {trackName}
-                                        </div>
-                                        
-                                        <div style={{ display: 'flex', gap: '8px' }}>
-                                            <button onClick={() => toggleMute(trackName)} style={{
-                                                width: '24px', height: '24px',
-                                                background: mutedTracks[trackName] ? '#e53935' : '#555',
-                                                color: 'white', border: 'none', borderRadius: '4px', 
-                                                cursor: 'pointer', fontSize: '11px', fontWeight: 'bold',
-                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                transition: 'background-color 0.2s'
-                                            }} title="Mute">
-                                                M
-                                            </button>
-                                            <button onClick={() => toggleSolo(trackName)} style={{
-                                                width: '24px', height: '24px',
-                                                background: soloedTracks[trackName] ? '#e0a800' : '#555',
-                                                color: soloedTracks[trackName] ? '#fff' : 'white', 
-                                                border: 'none', borderRadius: '4px', 
-                                                cursor: 'pointer', fontSize: '11px', fontWeight: 'bold',
-                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                transition: 'background-color 0.2s'
-                                            }} title="Solo">
-                                                S
-                                            </button>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
+                            <TrackList 
+                                pixelsPerBar={pixelsPerBar}
+                                setPixelsPerBar={setPixelsPerBar}
+                                tracksToRender={tracksToRender}
+                                audioRefs={audioRefs}
+                                duration={duration}
+                                setDuration={setDuration}
+                                toggleMute={toggleMute}
+                                mutedTracks={mutedTracks}
+                                toggleSolo={toggleSolo}
+                                soloedTracks={soloedTracks}
+                            />
                             
                             {/* RIGHT COLUMN: Timeline Canvas (Scrollable) */}
                             <div style={{ flexGrow: 1, overflowX: 'auto', paddingBottom: '10px' }}>
@@ -608,199 +512,32 @@ export default function StemSplitter({
                                     )}
 
                                     {/* Timeline Header Right (Time Bar) */}
-                                    <div style={{ height: '30px', borderRadius: '4px', overflow: 'hidden', position: 'relative' }}>
-                                        <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%' }}>
-                                            <div style={{ flexGrow: 1, background: '#2a2a2a' }}></div>
-                                            <div style={{ flexGrow: 1, background: '#333' }}></div>
-                                        </div>
-
-                                        {/* Cycle Region Header Bar */}
-                                        {duration > 0 && (
-                                            <div 
-                                                onMouseDown={(e) => {
-                                                    e.preventDefault();
-                                                    e.stopPropagation();
-                                                    cycleDragRef.current = {
-                                                        isDragging: true,
-                                                        mode: 'move',
-                                                        initialX: e.clientX,
-                                                        initialStart: cycleRegion.startBar,
-                                                        initialEnd: cycleRegion.endBar
-                                                    };
-                                                    document.body.style.cursor = 'grab';
-                                                }}
-                                                style={{
-                                                    position: 'absolute',
-                                                    left: `${cycleRegion.startBar * pixelsPerBar}px`,
-                                                    width: `${(cycleRegion.endBar - cycleRegion.startBar) * pixelsPerBar}px`,
-                                                    top: 0,
-                                                    bottom: '50%',
-                                                    backgroundColor: isCycling ? '#8B6508' : 'rgba(255, 255, 255, 0.15)',
-                                                    cursor: 'grab',
-                                                    zIndex: 25
-                                                }}
-                                            >
-                                                {/* Left Edge Resize Handle */}
-                                                <div 
-                                                    onMouseDown={(e) => {
-                                                        e.preventDefault();
-                                                        e.stopPropagation();
-                                                        cycleDragRef.current = {
-                                                            isDragging: true,
-                                                            mode: 'resize-left',
-                                                            initialX: e.clientX,
-                                                            initialStart: cycleRegion.startBar,
-                                                            initialEnd: cycleRegion.endBar
-                                                        };
-                                                        document.body.style.cursor = 'ew-resize';
-                                                    }}
-                                                    style={{
-                                                        position: 'absolute',
-                                                        left: 0,
-                                                        top: 0,
-                                                        bottom: 0,
-                                                        width: '8px',
-                                                        cursor: 'ew-resize',
-                                                        zIndex: 26
-                                                    }}
-                                                />
-
-                                                {/* Right Edge Resize Handle */}
-                                                <div 
-                                                    onMouseDown={(e) => {
-                                                        e.preventDefault();
-                                                        e.stopPropagation();
-                                                        cycleDragRef.current = {
-                                                            isDragging: true,
-                                                            mode: 'resize-right',
-                                                            initialX: e.clientX,
-                                                            initialStart: cycleRegion.startBar,
-                                                            initialEnd: cycleRegion.endBar
-                                                        };
-                                                        document.body.style.cursor = 'ew-resize';
-                                                    }}
-                                                    style={{
-                                                        position: 'absolute',
-                                                        right: 0,
-                                                        top: 0,
-                                                        bottom: 0,
-                                                        width: '8px',
-                                                        cursor: 'ew-resize',
-                                                        zIndex: 26
-                                                    }}
-                                                />
-                                            </div>
-                                        )}
-                                        
-                                        {/* Music Bars Overlay */}
-                                        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none', zIndex: 30 }}>
-                                            {Array.from({ length: totalBars }).map((_, i) => {
-                                                const beatsPerBar = parseInt(timeSignature.split('/')[0], 10) || 4;
-                                                const beatSpacing = pixelsPerBar / beatsPerBar;
-                                                
-                                                return (
-                                                    <React.Fragment key={i}>
-                                                        {/* Main Bar Line (Stronger Opacity, spans full height) */}
-                                                        <div style={{ 
-                                                            position: 'absolute', 
-                                                            left: `${i * pixelsPerBar}px`, 
-                                                            top: 0, bottom: 0, 
-                                                            width: '1px', 
-                                                            background: 'rgba(255,255,255,0.18)' 
-                                                        }}>
-                                                            <div style={{ 
-                                                                position: 'absolute', 
-                                                                top: '2px', left: '4px', 
-                                                                color: 'rgba(255,255,255,0.4)', 
-                                                                fontSize: '10px', 
-                                                                fontFamily: 'monospace',
-                                                                lineHeight: '1'
-                                                            }}>
-                                                                {i + 1}
-                                                            </div>
-                                                        </div>
-                                                        
-                                                        {/* Ruler Measure Lines (Fainter Opacity, bottom half only) */}
-                                                        {Array.from({ length: beatsPerBar - 1 }).map((_, beatIndex) => (
-                                                            <div key={`beat-${i}-${beatIndex}`} style={{ 
-                                                                position: 'absolute', 
-                                                                left: `${i * pixelsPerBar + (beatIndex + 1) * beatSpacing}px`, 
-                                                                top: '50%', bottom: 0, 
-                                                                width: '1px', 
-                                                                background: 'rgba(255,255,255,0.06)' 
-                                                            }}></div>
-                                                        ))}
-                                                    </React.Fragment>
-                                                );
-                                            })}
-                                        </div>
-
-                                        {/* Global Playhead Scrub Zone (Bottom Ruler) */}
-                                        {duration > 0 && (
-                                            <div 
-                                                onMouseEnter={() => setIsPlayheadHovered(true)}
-                                                onMouseLeave={() => !playheadDragRef.current.isDragging && setIsPlayheadHovered(false)}
-                                                onMouseDown={(e) => {
-                                                    e.preventDefault();
-                                                    playheadDragRef.current.isDragging = true;
-                                                    document.body.style.cursor = 'ew-resize';
-                                                    
-                                                    // Instantly jump playhead to the clicked location
-                                                    const rect = timelineRef.current.getBoundingClientRect();
-                                                    const xOffset = e.clientX - rect.left;
-                                                    let newBar = xOffset / pixelsPerBar;
-                                                    newBar = Math.max(0, Math.min(newBar, totalBars));
-                                                    const newProgress = (newBar * parsedBeatsPerBar) / (activeBpm / 60);
-                                                    handleSeek({ target: { value: newProgress } });
-                                                }}
-                                                style={{
-                                                    position: 'absolute',
-                                                    left: 0,
-                                                    right: 0,
-                                                    top: '15px',
-                                                    height: '15px',
-                                                    cursor: 'ew-resize',
-                                                    zIndex: 20
-                                                }}
-                                            />
-                                        )}
-
-                                        {/* Static Playhead Triangle (Visual Only) */}
-                                        {duration > 0 && (
-                                            <div style={{
-                                                position: 'absolute',
-                                                left: `${playheadX}px`,
-                                                transform: 'translateX(-50%)',
-                                                top: 0,
-                                                width: '20px',
-                                                height: '30px',
-                                                zIndex: 15,
-                                                display: 'flex',
-                                                justifyContent: 'center',
-                                                alignItems: 'flex-start',
-                                                pointerEvents: 'none'
-                                            }}>
-                                                <div style={{
-                                                    width: 0, 
-                                                    height: 0, 
-                                                    borderLeft: '4px solid transparent',
-                                                    borderRight: '4px solid transparent',
-                                                    borderTop: `6px solid rgba(255, 255, 255, ${(isPlayheadHovered || playheadDragRef.current.isDragging) ? 1 : 0.7})`,
-                                                    transition: 'border-top-color 0.15s',
-                                                    marginTop: '15px'
-                                                }} />
-                                            </div>
-                                        )}
-                                    </div>
+                                    <TimelineRuler 
+                                        duration={duration}
+                                        pixelsPerBar={pixelsPerBar}
+                                        cycleDragRef={cycleDragRef}
+                                        cycleRegion={cycleRegion}
+                                        isCycling={isCycling}
+                                        totalBars={totalBars}
+                                        timeSignature={timeSignature}
+                                        timelineRef={timelineRef}
+                                        playheadDragRef={playheadDragRef}
+                                        setIsPlayheadHovered={setIsPlayheadHovered}
+                                        isPlayheadHovered={isPlayheadHovered}
+                                        playheadX={playheadX}
+                                        activeBpm={activeBpm}
+                                        parsedBeatsPerBar={parsedBeatsPerBar}
+                                        handleSeek={handleSeek}
+                                    />
                                     
                                     {/* Track Contents */}
-                                    {Object.keys(tracksToRender).map((trackName) => (
-                                        <div key={trackName} style={{ 
-                                            height: '60px', 
-                                            position: 'relative', overflow: 'hidden', boxSizing: 'border-box'
-                                        }}>
-                                        </div>
-                                    ))}
+                                    <TrackGrid 
+                                        tracksToRender={tracksToRender}
+                                        parsedMidiStems={parsedMidiStems}
+                                        pixelsPerBar={pixelsPerBar}
+                                        activeBpm={activeBpm}
+                                        parsedBeatsPerBar={parsedBeatsPerBar}
+                                    />
                                 </div>
                             </div>
                         </div>
