@@ -54,6 +54,9 @@ export default function StemSplitter({
     // UI state for dropdown menus
     const [showSigMenu, setShowSigMenu] = React.useState(false);
 
+    // Track selection state
+    const [selectedTrack, setSelectedTrack] = React.useState(null);
+
     // ==== MULTITRACK PLAYER STATE (Refactored to Hook) ====
     const {
         audioRefs,
@@ -489,6 +492,8 @@ export default function StemSplitter({
                                 mutedTracks={mutedTracks}
                                 toggleSolo={toggleSolo}
                                 soloedTracks={soloedTracks}
+                                selectedTrack={selectedTrack}
+                                setSelectedTrack={setSelectedTrack}
                             />
                             
                             {/* RIGHT COLUMN: Timeline Canvas (Scrollable) */}
@@ -537,6 +542,8 @@ export default function StemSplitter({
                                         pixelsPerBar={pixelsPerBar}
                                         activeBpm={activeBpm}
                                         parsedBeatsPerBar={parsedBeatsPerBar}
+                                        selectedTrack={selectedTrack}
+                                        setSelectedTrack={setSelectedTrack}
                                     />
                                 </div>
                             </div>

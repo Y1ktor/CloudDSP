@@ -21,7 +21,9 @@ export default function TrackGrid({
     parsedMidiStems,
     pixelsPerBar,
     activeBpm,
-    parsedBeatsPerBar
+    parsedBeatsPerBar,
+    selectedTrack,
+    setSelectedTrack
 }) {
     // Helper function to render the notes for a specific track
     const renderMidiNotes = (trackName) => {
@@ -63,6 +65,9 @@ export default function TrackGrid({
             
             // Note height defaults to 4px
             const noteHeight = 4;
+            
+            // Map velocity (0-1) to opacity. Set a minimum of 0.25 so very quiet notes don't disappear completely.
+            const noteOpacity = Math.max(0.25, note.velocity || 0.8);
 
             return (
                 <div 
@@ -75,11 +80,10 @@ export default function TrackGrid({
                         height: `${noteHeight}px`,
                         backgroundColor: '#4CAF50',
                         borderRadius: '2px',
-                        opacity: 0.8,
+                        opacity: noteOpacity,
                         boxShadow: '0 0 2px rgba(0,0,0,0.5)',
                         pointerEvents: 'none' // Don't block interactions
                     }}
-                    title={`Pitch: ${note.name} (${note.midi})`}
                 />
             );
         });
@@ -88,11 +92,18 @@ export default function TrackGrid({
     return (
         <>
             {Object.keys(tracksToRender).map((trackName) => (
-                <div key={trackName} style={{ 
-                    height: '60px', 
-                    position: 'relative', overflow: 'hidden', boxSizing: 'border-box',
-                    borderBottom: '1px solid rgba(255,255,255,0.05)'
-                }}>
+                <div 
+                    key={trackName} 
+                    onClick={() => setSelectedTrack(trackName)}
+                    style={{ 
+                        height: '60px', 
+                        position: 'relative', overflow: 'hidden', boxSizing: 'border-box',
+                        borderBottom: '1px solid rgba(255,255,255,0.05)',
+                        backgroundColor: selectedTrack === trackName ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+                        cursor: 'pointer',
+                        transition: 'background-color 0.2s'
+                    }}
+                >
                     {renderMidiNotes(trackName)}
                 </div>
             ))}
