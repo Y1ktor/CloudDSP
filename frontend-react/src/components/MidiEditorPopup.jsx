@@ -27,6 +27,28 @@ export default function MidiEditorPopup({
 }) {
     const popupTimelineRef = useRef(null);
     const pianoScrollRef = useRef(null);
+    const gridScrollRef = useRef(null);
+    
+    // Local zoom states for the popup (independent of the main app)
+    const [popupPixelsPerBar, setPopupPixelsPerBar] = React.useState(pixelsPerBar || 100);
+    const [popupRowHeight, setPopupRowHeight] = React.useState(8); // Default to 8 (lowest)
+
+    // Center scroll on C4 (MIDI 60) when opened
+    React.useEffect(() => {
+        if (trackName && gridScrollRef.current) {
+            // C4 is 67 rows down from the top (127 - 60)
+            const c4TopPx = 67 * popupRowHeight;
+            const containerHeight = gridScrollRef.current.clientHeight;
+            
+            // Calculate scroll position to center C4
+            const targetScrollTop = Math.max(0, c4TopPx - (containerHeight / 2) + (popupRowHeight / 2));
+            
+            gridScrollRef.current.scrollTop = targetScrollTop;
+            if (pianoScrollRef.current) {
+                pianoScrollRef.current.scrollTop = targetScrollTop;
+            }
+        }
+    }, [trackName]); // Only run when popup opens (trackName changes)
 
     if (!trackName) return null;
 
@@ -50,7 +72,7 @@ export default function MidiEditorPopup({
                 keys.push(
                     <div key={`key-${i}`} style={{
                         position: 'relative',
-                        height: '16px',
+                        height: `${popupRowHeight}px`,
                         width: '100%',
                         boxSizing: 'border-box',
                         backgroundColor: '#ddd', // White key background for the right side
@@ -91,7 +113,7 @@ export default function MidiEditorPopup({
                 
                 keys.push(
                     <div key={`key-${i}`} style={{
-                        height: '16px',
+                        height: `${popupRowHeight}px`,
                         width: '100%',
                         boxSizing: 'border-box',
                         backgroundColor: '#ddd',
@@ -131,14 +153,14 @@ export default function MidiEditorPopup({
         return notes.map((note, index) => {
             const noteStartBeats = note.time * (activeBpm / 60);
             const noteStartBars = noteStartBeats / parsedBeatsPerBar;
-            const leftPx = noteStartBars * pixelsPerBar;
+            const leftPx = noteStartBars * popupPixelsPerBar;
 
             const noteDurationBeats = note.duration * (activeBpm / 60);
             const noteDurationBars = noteDurationBeats / parsedBeatsPerBar;
-            const widthPx = Math.max(2, noteDurationBars * pixelsPerBar);
+            const widthPx = Math.max(2, noteDurationBars * popupPixelsPerBar);
 
             // Midi pitch 0-127. 127 is top (0px), 0 is bottom
-            const topPx = (127 - note.midi) * rowHeight;
+            const topPx = (127 - note.midi) * popupRowHeight;
 
             // Map velocity (0-1) continuously across an HSL color spectrum (Muted / Greyish Heatmap)
             const v = note.velocity || 0.8;
@@ -162,7 +184,7 @@ export default function MidiEditorPopup({
                         left: `${leftPx}px`,
                         width: `${widthPx}px`,
                         top: `${topPx}px`,
-                        height: `${rowHeight}px`,
+                        height: `${popupRowHeight}px`,
                         backgroundColor: noteColor,
                         borderRadius: '2px',
                         boxShadow: '0 0 2px rgba(0,0,0,0.5)',
@@ -175,8 +197,11 @@ export default function MidiEditorPopup({
         });
     };
 
-    // 128 rows * 16px = 2048px total height
-    const gridHeight = 128 * 16;
+    // 128 rows * popupRowHeight total height
+    const gridHeight = 128 * popupRowHeight;
+    
+    // Scale the playhead position to match the popup's local zoom level
+    const popupPlayheadX = (playheadX / pixelsPerBar) * popupPixelsPerBar;
 
     return (
         <div style={{
@@ -204,6 +229,44 @@ export default function MidiEditorPopup({
                 </button>
             </div>
             
+            {/* Control Bar */}
+            <div style={{
+                display: 'flex', alignItems: 'center', gap: '30px', 
+                backgroundColor: '#1a1a1a', padding: '10px 15px', 
+                borderRadius: '8px', marginBottom: '15px', border: '1px solid #333'
+            }}>
+                {/* Spacer to push sliders to the right */}
+                <div style={{ flexGrow: 1 }}></div>
+
+                {/* Zoom Controls */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} title="Horizontal Zoom">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="#aaa">
+                            <path d="M22 12l-4-4v3H6V8l-4 4 4 4v-3h12v3z"/>
+                        </svg>
+                        <input 
+                            type="range" 
+                            min="20" max="400" 
+                            value={popupPixelsPerBar}
+                            onChange={(e) => setPopupPixelsPerBar(Number(e.target.value))}
+                            style={{ width: '80px', cursor: 'pointer' }}
+                        />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} title="Vertical Zoom">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="#aaa">
+                            <path d="M12 2L8 6h3v12H8l4 4 4-4h-3V6h3z"/>
+                        </svg>
+                        <input 
+                            type="range" 
+                            min="8" max="32" 
+                            value={popupRowHeight}
+                            onChange={(e) => setPopupRowHeight(Number(e.target.value))}
+                            style={{ width: '80px', cursor: 'pointer' }}
+                        />
+                    </div>
+                </div>
+            </div>
+
             {/* Split Canvas Area */}
             <div style={{ 
                 flexGrow: 1, 
@@ -229,22 +292,23 @@ export default function MidiEditorPopup({
 
                 {/* Right Column: Scrollable Grid */}
                 <div 
+                    ref={gridScrollRef}
                     style={{ flexGrow: 1, overflow: 'auto', position: 'relative' }}
                     onScroll={handleGridScroll}
                 >
-                <div 
-                    ref={popupTimelineRef} 
-                    style={{ 
-                        minWidth: `${pixelsPerBar * totalBars}px`, 
-                        minHeight: `${gridHeight + 30}px`, // 30px for ruler
-                        position: 'relative' 
-                    }}
-                >
-                    {/* Time Indicator (Playhead) */}
+                    <div 
+                        ref={popupTimelineRef} 
+                        style={{ 
+                            minWidth: `${popupPixelsPerBar * totalBars}px`, 
+                            minHeight: `${gridHeight + 30}px`, // 30px for ruler
+                            position: 'relative' 
+                        }}
+                    >
+                        {/* Time Indicator (Playhead) */}
                     {duration > 0 && (
                         <div style={{
                             position: 'absolute',
-                            left: `${playheadX}px`,
+                            left: `${popupPlayheadX}px`,
                             transform: 'translateX(-50%)',
                             top: '15px',
                             bottom: 0,
@@ -257,23 +321,25 @@ export default function MidiEditorPopup({
                     )}
 
                     {/* Ruler */}
-                    <TimelineRuler 
-                        duration={duration}
-                        pixelsPerBar={pixelsPerBar}
-                        cycleDragRef={cycleDragRef}
-                        cycleRegion={cycleRegion}
-                        isCycling={isCycling}
-                        totalBars={totalBars}
-                        timeSignature={timeSignature}
-                        timelineRef={popupTimelineRef} // Use local ref!
-                        playheadDragRef={playheadDragRef}
-                        setIsPlayheadHovered={setIsPlayheadHovered}
-                        isPlayheadHovered={isPlayheadHovered}
-                        playheadX={playheadX}
-                        activeBpm={activeBpm}
-                        parsedBeatsPerBar={parsedBeatsPerBar}
-                        handleSeek={handleSeek}
-                    />
+                    <div style={{ position: 'sticky', top: 0, zIndex: 20 }}>
+                        <TimelineRuler 
+                            duration={duration}
+                            pixelsPerBar={popupPixelsPerBar}
+                            cycleDragRef={cycleDragRef}
+                            cycleRegion={cycleRegion}
+                            isCycling={isCycling}
+                            totalBars={totalBars}
+                            timeSignature={timeSignature}
+                            timelineRef={popupTimelineRef} // Use local ref!
+                            playheadDragRef={playheadDragRef}
+                            setIsPlayheadHovered={setIsPlayheadHovered}
+                            isPlayheadHovered={isPlayheadHovered}
+                            playheadX={popupPlayheadX}
+                            activeBpm={activeBpm}
+                            parsedBeatsPerBar={parsedBeatsPerBar}
+                            handleSeek={handleSeek}
+                        />
+                    </div>
 
                     {/* MIDI Grid */}
                     <div style={{
@@ -281,8 +347,8 @@ export default function MidiEditorPopup({
                         width: '100%',
                         height: `${gridHeight}px`,
                         marginTop: '0px',
-                        backgroundSize: `100% 16px`,
-                        backgroundImage: `linear-gradient(to bottom, transparent 15px, rgba(255,255,255,0.05) 16px)`
+                        backgroundSize: `100% ${popupRowHeight}px`,
+                        backgroundImage: `linear-gradient(to bottom, transparent ${popupRowHeight - 1}px, rgba(255,255,255,0.05) ${popupRowHeight}px)`
                     }}>
                         {renderFullMidiNotes()}
                     </div>
