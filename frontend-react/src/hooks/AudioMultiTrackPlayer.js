@@ -15,7 +15,7 @@ import React, { useState, useEffect, useRef } from 'react';
  * @param {File} file - The original user-uploaded File object.
  * @returns {Object} An object containing all playback state, refs, and controller functions.
  */
-export function useAudioMultiTrackPlayer(stemUrls, file) {
+export function useAudioMultiTrackPlayer(stemUrls, file, isMidiMode, editorOpenTrack) {
     const audioRefs = useRef({});
     const audioCtxRef = useRef(null);
     const sourceNodesRef = useRef({});
@@ -156,21 +156,24 @@ export function useAudioMultiTrackPlayer(stemUrls, file) {
         setSoloedTracks(prev => ({ ...prev, [trackName]: !prev[trackName] }));
     };
 
-    // Apply mute/solo logic to HTML audio elements
+    // Mute/Solo Logic
     useEffect(() => {
-        const isAnySoloed = Object.values(soloedTracks).some(isSoloed => isSoloed);
+        const activeSolos = Object.keys(soloedTracks).filter(k => soloedTracks[k]);
+        const hasSolos = activeSolos.length > 0;
         
-        Object.keys(audioRefs.current).forEach(trackName => {
-            const audio = audioRefs.current[trackName];
+        Object.entries(audioRefs.current).forEach(([trackName, audio]) => {
             if (audio) {
-                if (isAnySoloed) {
+                if (isMidiMode && trackName === editorOpenTrack) {
+                    // Force mute the original audio track if we are actively playing its MIDI synth
+                    audio.muted = true;
+                } else if (hasSolos) {
                     audio.muted = !soloedTracks[trackName];
                 } else {
                     audio.muted = !!mutedTracks[trackName];
                 }
             }
         });
-    }, [mutedTracks, soloedTracks]);
+    }, [mutedTracks, soloedTracks, isMidiMode, editorOpenTrack]);
 
     /**
      * Initiates the BPM dragging interaction.
@@ -301,6 +304,7 @@ export function useAudioMultiTrackPlayer(stemUrls, file) {
     };
 
     return {
+        audioCtxRef,
         audioRefs,
         originalUrl,
         isPlaying,

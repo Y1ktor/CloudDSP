@@ -1,4 +1,5 @@
 import React from 'react';
+import { SplendidGrandPiano } from 'smplr';
 import { useAudioMultiTrackPlayer } from '../hooks/AudioMultiTrackPlayer';
 import { parseMidiFile, determineMasterBpm } from '../utils/MidiParser';
 import ControlBar from './ControlBar';
@@ -60,9 +61,21 @@ export default function StemSplitter({
 
     // MIDI Editor popup state
     const [editorOpenTrack, setEditorOpenTrack] = React.useState(null);
+    const [isMidiMode, setIsMidiMode] = React.useState(false);
+
+    const handleOpenEditor = (trackName) => {
+        setEditorOpenTrack(trackName);
+        setIsMidiMode(true);
+    };
+
+    const handleCloseEditor = () => {
+        setEditorOpenTrack(null);
+        setIsMidiMode(false);
+    };
 
     // ==== MULTITRACK PLAYER STATE (Refactored to Hook) ====
     const {
+        audioCtxRef,
         audioRefs,
         originalUrl,
         isPlaying,
@@ -88,11 +101,12 @@ export default function StemSplitter({
         setOriginalBpm,
         cycleRegion,
         setCycleRegion
-    } = useAudioMultiTrackPlayer(stemUrls, file);
+    } = useAudioMultiTrackPlayer(stemUrls, file, isMidiMode, editorOpenTrack);
 
     const [parsedMidiStems, setParsedMidiStems] = React.useState({});
     const [isMidiLoading, setIsMidiLoading] = React.useState(true);
     const hasFetchedMidi = React.useRef(false);
+    const globalSynthRef = React.useRef(null);
 
     // MOCK: Fetch local MIDI files to test MIDI processing and smart BPM voting
     React.useEffect(() => {
@@ -101,6 +115,15 @@ export default function StemSplitter({
         const fetchAndParse = async () => {
             setIsMidiLoading(true);
             
+            // Initialize AudioContext early so we can start downloading samples in the background!
+            if (!audioCtxRef.current) {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                audioCtxRef.current = new AudioContext();
+            }
+            if (!globalSynthRef.current) {
+                globalSynthRef.current = new SplendidGrandPiano(audioCtxRef.current);
+            }
+
             // MOCK DELAY: wait 3 seconds to simulate AWS Basic Pitch cold start/processing
             await new Promise(resolve => setTimeout(resolve, 3000));
             
@@ -152,6 +175,10 @@ export default function StemSplitter({
                 // User navigated away without starting a job. Save money!
                 closeWebSocket();
             }
+            if (globalSynthRef.current) {
+                globalSynthRef.current.stop();
+                globalSynthRef.current = null;
+            }
         };
     }, [connectWebSocket, closeWebSocket]);
 
@@ -199,19 +226,25 @@ export default function StemSplitter({
 
     React.useEffect(() => {
         const handleMouseMove = (e) => {
-            if (playheadDragRef.current.isDragging && timelineRef.current) {
-                const rect = timelineRef.current.getBoundingClientRect();
-                const xOffset = e.clientX - rect.left;
+            if (playheadDragRef.current.isDragging) {
+                const activeTimeline = playheadDragRef.current.timelineRef?.current || timelineRef.current;
+                const activePixels = playheadDragRef.current.pixelsPerBar || pixelsPerBar;
                 
-                let newBar = xOffset / pixelsPerBar;
-                newBar = Math.max(0, Math.min(newBar, totalBars));
-                
-                const newProgress = (newBar * parsedBeatsPerBar) / (activeBpm / 60);
-                handleSeek({ target: { value: newProgress } });
+                if (activeTimeline) {
+                    const rect = activeTimeline.getBoundingClientRect();
+                    const xOffset = e.clientX - rect.left;
+                    
+                    let newBar = xOffset / activePixels;
+                    newBar = Math.max(0, Math.min(newBar, totalBars));
+                    
+                    const newProgress = (newBar * parsedBeatsPerBar) / (activeBpm / 60);
+                    handleSeek({ target: { value: newProgress } });
+                }
             } else if (cycleDragRef.current.isDragging) {
                 const mode = cycleDragRef.current.mode;
+                const activePixels = cycleDragRef.current.pixelsPerBar || pixelsPerBar;
                 const deltaX = e.clientX - cycleDragRef.current.initialX;
-                const deltaBars = deltaX / pixelsPerBar;
+                const deltaBars = deltaX / activePixels;
                 // Snap delta to beats
                 const snappedDeltaBars = Math.round(deltaBars * parsedBeatsPerBar) / parsedBeatsPerBar;
                 
@@ -498,7 +531,7 @@ export default function StemSplitter({
                                 soloedTracks={soloedTracks}
                                 selectedTrack={selectedTrack}
                                 setSelectedTrack={setSelectedTrack}
-                                onDoubleClickTrack={(trackName) => setEditorOpenTrack(trackName)}
+                                onDoubleClickTrack={handleOpenEditor}
                             />
                             
                             {/* RIGHT COLUMN: Timeline Canvas (Scrollable) */}
@@ -549,7 +582,7 @@ export default function StemSplitter({
                                         parsedBeatsPerBar={parsedBeatsPerBar}
                                         selectedTrack={selectedTrack}
                                         setSelectedTrack={setSelectedTrack}
-                                        onDoubleClickTrack={(trackName) => setEditorOpenTrack(trackName)}
+                                        onDoubleClickTrack={handleOpenEditor}
                                     />
                                 </div>
                             </div>
@@ -563,7 +596,7 @@ export default function StemSplitter({
             {/* MIDI Editor Pop-up Window */}
             <MidiEditorPopup 
                 trackName={editorOpenTrack} 
-                onClose={() => setEditorOpenTrack(null)} 
+                onClose={handleCloseEditor} 
                 duration={duration}
                 pixelsPerBar={pixelsPerBar}
                 totalBars={totalBars}
@@ -575,10 +608,24 @@ export default function StemSplitter({
                 playheadDragRef={playheadDragRef}
                 setIsPlayheadHovered={setIsPlayheadHovered}
                 isPlayheadHovered={isPlayheadHovered}
+                handleGoToBeginning={handleGoToBeginning}
+                isPlaying={isPlaying}
+                togglePlay={togglePlay}
+                toggleCycling={() => setIsCycling(!isCycling)}
+                mutedTracks={mutedTracks}
+                soloedTracks={soloedTracks}
+                toggleMute={toggleMute}
+                toggleSolo={toggleSolo}
                 activeBpm={activeBpm}
                 parsedBeatsPerBar={parsedBeatsPerBar}
                 handleSeek={handleSeek}
                 parsedMidiStems={parsedMidiStems}
+                setParsedMidiStems={setParsedMidiStems}
+                audioCtxRef={audioCtxRef}
+                progress={progress}
+                globalSynthRef={globalSynthRef}
+                isMidiMode={isMidiMode}
+                setIsMidiMode={setIsMidiMode}
             />
         </div>
     );

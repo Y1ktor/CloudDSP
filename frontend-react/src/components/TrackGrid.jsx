@@ -68,7 +68,8 @@ export default function TrackGrid({
             const noteHeight = 4;
             
             // Map velocity (0-1) to opacity. Set a minimum of 0.25 so very quiet notes don't disappear completely.
-            const noteOpacity = Math.max(0.25, note.velocity || 0.8);
+            const v = note.velocity !== undefined ? Math.max(0.01, note.velocity) : 0.8;
+            const noteOpacity = Math.max(0.25, v);
 
             return (
                 <div 

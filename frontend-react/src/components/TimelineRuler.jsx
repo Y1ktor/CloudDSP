@@ -69,7 +69,8 @@ export default function TimelineRuler({
                         mode: 'move',
                         initialX: e.clientX,
                         initialStart: cycleRegion.startBar,
-                        initialEnd: cycleRegion.endBar
+                        initialEnd: cycleRegion.endBar,
+                        pixelsPerBar: pixelsPerBar
                     };
                     document.body.style.cursor = 'grab';
                 }}
@@ -94,7 +95,8 @@ export default function TimelineRuler({
                             mode: 'resize-left',
                             initialX: e.clientX,
                             initialStart: cycleRegion.startBar,
-                            initialEnd: cycleRegion.endBar
+                            initialEnd: cycleRegion.endBar,
+                            pixelsPerBar: pixelsPerBar
                         };
                         document.body.style.cursor = 'ew-resize';
                     }}
@@ -119,7 +121,8 @@ export default function TimelineRuler({
                             mode: 'resize-right',
                             initialX: e.clientX,
                             initialStart: cycleRegion.startBar,
-                            initialEnd: cycleRegion.endBar
+                            initialEnd: cycleRegion.endBar,
+                            pixelsPerBar: pixelsPerBar
                         };
                         document.body.style.cursor = 'ew-resize';
                     }}
@@ -184,7 +187,11 @@ export default function TimelineRuler({
                 onMouseLeave={() => !playheadDragRef.current.isDragging && setIsPlayheadHovered(false)}
                 onMouseDown={(e) => {
                     e.preventDefault();
-                    playheadDragRef.current.isDragging = true;
+                    playheadDragRef.current = {
+                        isDragging: true,
+                        timelineRef: timelineRef,
+                        pixelsPerBar: pixelsPerBar
+                    };
                     document.body.style.cursor = 'ew-resize';
                     
                     // Instantly jump playhead to the clicked location

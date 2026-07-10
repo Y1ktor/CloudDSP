@@ -1,5 +1,6 @@
 import React, { useRef } from 'react';
 import TimelineRuler from './TimelineRuler';
+import { useMidiSynth } from '../hooks/useMidiSynth';
 
 /**
  * MidiEditorPopup
@@ -20,18 +21,52 @@ export default function MidiEditorPopup({
     playheadDragRef,
     isPlayheadHovered,
     setIsPlayheadHovered,
+    handleGoToBeginning,
+    isPlaying,
+    togglePlay,
+    toggleCycling,
+    mutedTracks,
+    soloedTracks,
+    toggleMute,
+    toggleSolo,
     activeBpm,
     parsedBeatsPerBar,
     handleSeek,
-    parsedMidiStems
+    parsedMidiStems,
+    setParsedMidiStems,
+    audioCtxRef,
+    progress,
+    globalSynthRef,
+    isMidiMode,
+    setIsMidiMode
 }) {
     const popupTimelineRef = useRef(null);
     const pianoScrollRef = useRef(null);
     const gridScrollRef = useRef(null);
+
+    // Track drag state
+
+
+    // MIDI Play Mode hook
+    const { auditionNote } = useMidiSynth(
+        audioCtxRef,
+        progress,
+        isPlaying,
+        parsedMidiStems,
+        trackName,
+        activeBpm,
+        globalSynthRef,
+        isMidiMode
+    );
     
     // Local zoom states for the popup (independent of the main app)
     const [popupPixelsPerBar, setPopupPixelsPerBar] = React.useState(pixelsPerBar || 100);
     const [popupRowHeight, setPopupRowHeight] = React.useState(8); // Default to 8 (lowest)
+    
+    // Selection state for MIDI notes (single selection)
+    const [selectedNoteIndex, setSelectedNoteIndex] = React.useState(null);
+    
+
 
     // Center scroll on C4 (MIDI 60) when opened
     React.useEffect(() => {
@@ -137,6 +172,31 @@ export default function MidiEditorPopup({
         return keys;
     };
 
+    // Velocity Control Logic
+    let commonVelocity = 0.8;
+    if (selectedNoteIndex !== null && parsedMidiStems && parsedMidiStems[trackName] && parsedMidiStems[trackName].midiData.tracks[0].notes.length > 0) {
+        const note = parsedMidiStems[trackName].midiData.tracks[0].notes[selectedNoteIndex];
+        if (note) {
+            commonVelocity = note.velocity !== undefined ? Math.max(0.01, note.velocity) : 0.8;
+        }
+    }
+
+    const handleVelocityChange = (e) => {
+        const newVelocity = parseFloat(e.target.value);
+        if (selectedNoteIndex === null || !parsedMidiStems) return;
+
+        // CRITICAL: We must directly mutate the @tonejs/midi Note instance.
+        // If we use spread operators like { ...note }, we strip away all of Tone.js's 
+        // internal prototype getters (like .time, .duration) and the note disappears!
+        const note = parsedMidiStems[trackName].midiData.tracks[0].notes[selectedNoteIndex];
+        if (note) {
+            note.velocity = newVelocity;
+        }
+
+        // Trigger a React re-render by shallow cloning the top-level dictionary
+        setParsedMidiStems({ ...parsedMidiStems });
+    };
+
     // Helper to render full 128 key space notes
     const renderFullMidiNotes = () => {
         if (!parsedMidiStems) return null;
@@ -148,7 +208,19 @@ export default function MidiEditorPopup({
         const notes = stemData.midiData.tracks[0].notes;
         if (notes.length === 0) return null;
 
-        const rowHeight = 16; // 16px per piano key
+        const toggleNoteSelection = (index, e) => {
+            e.stopPropagation();
+            if (selectedNoteIndex === index) {
+                setSelectedNoteIndex(null);
+            } else {
+                setSelectedNoteIndex(index);
+                // Audition the note immediately!
+                const note = parsedMidiStems[trackName].midiData.tracks[0].notes[index];
+                if (note) {
+                    auditionNote(note);
+                }
+            }
+        };
 
         return notes.map((note, index) => {
             const noteStartBeats = note.time * (activeBpm / 60);
@@ -163,7 +235,7 @@ export default function MidiEditorPopup({
             const topPx = (127 - note.midi) * popupRowHeight;
 
             // Map velocity (0-1) continuously across an HSL color spectrum (Muted / Greyish Heatmap)
-            const v = note.velocity || 0.8;
+            const v = note.velocity !== undefined ? Math.max(0.01, note.velocity) : 0.8;
             
             // Hue: Blue(200) -> Green -> Orange -> Red(15)
             const hue = 200 - (v * 185); 
@@ -176,9 +248,12 @@ export default function MidiEditorPopup({
             
             const noteColor = `hsl(${Math.round(hue)}, ${saturation}%, ${lightness}%)`;
 
+            const isSelected = selectedNoteIndex === index;
+
             return (
                 <div 
                     key={`popup-note-${index}`}
+                    onClick={(e) => toggleNoteSelection(index, e)}
                     style={{
                         position: 'absolute',
                         left: `${leftPx}px`,
@@ -187,9 +262,11 @@ export default function MidiEditorPopup({
                         height: `${popupRowHeight}px`,
                         backgroundColor: noteColor,
                         borderRadius: '2px',
-                        boxShadow: '0 0 2px rgba(0,0,0,0.5)',
-                        border: '1px solid rgba(255,255,255,0.2)',
-                        boxSizing: 'border-box'
+                        boxShadow: isSelected ? '0 0 0 1px rgba(255,255,255,0.6), 0 0 4px rgba(255,255,255,0.4)' : '0 0 2px rgba(0,0,0,0.5)',
+                        border: isSelected ? '1px solid rgba(255,255,255,0.6)' : '1px solid rgba(255,255,255,0.2)',
+                        boxSizing: 'border-box',
+                        cursor: 'pointer',
+                        zIndex: isSelected ? 10 : 1
                     }}
                     title={`Pitch: ${note.name} (${note.midi}) | Velocity: ${Math.round((note.velocity || 0) * 100)}%`}
                 />
@@ -235,8 +312,100 @@ export default function MidiEditorPopup({
                 backgroundColor: '#1a1a1a', padding: '10px 15px', 
                 borderRadius: '8px', marginBottom: '15px', border: '1px solid #333'
             }}>
+                {/* Transport Controls */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+                    <button title="Go to Beginning" onClick={handleGoToBeginning} style={{
+                        background: 'transparent', color: 'white', border: 'none',
+                        cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '0', opacity: 0.8
+                    }}>
+                        <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+                    </button>
+
+                    <button title="Play/Pause" onClick={togglePlay} style={{
+                        background: 'transparent', color: 'white', border: 'none',
+                        cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '0', opacity: 0.8
+                    }}>
+                        {isPlaying ? (
+                            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                        ) : (
+                            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                        )}
+                    </button>
+
+                    <button title="Toggle Cycle" onClick={toggleCycling} style={{
+                        background: isCycling ? '#8B6508' : 'transparent', 
+                        color: isCycling ? '#fff' : 'white', 
+                        border: 'none', borderRadius: '4px',
+                        cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px', 
+                        opacity: 0.8,
+                        transition: 'background-color 0.2s'
+                    }}>
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>
+                    </button>
+                </div>
+
+                <div style={{ width: '1px', height: '24px', backgroundColor: '#333' }}></div>
+
+                {/* Mute and Solo Controls */}
+                <div style={{ display: 'flex', gap: '8px' }}>
+                    <button onClick={() => toggleMute(trackName)} style={{
+                        width: '24px', height: '24px',
+                        background: mutedTracks[trackName] ? '#e53935' : '#555',
+                        color: 'white', border: 'none', borderRadius: '4px', 
+                        cursor: 'pointer', fontSize: '11px', fontWeight: 'bold',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        transition: 'background-color 0.2s'
+                    }} title="Mute Track">
+                        M
+                    </button>
+                    <button onClick={() => toggleSolo(trackName)} style={{
+                        width: '24px', height: '24px',
+                        background: soloedTracks[trackName] ? '#e0a800' : '#555',
+                        color: soloedTracks[trackName] ? '#fff' : 'white', 
+                        border: 'none', borderRadius: '4px', 
+                        cursor: 'pointer', fontSize: '11px', fontWeight: 'bold',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        transition: 'background-color 0.2s'
+                    }} title="Solo Track">
+                        S
+                    </button>
+                </div>
+
+                <div style={{ width: '1px', height: '24px', backgroundColor: '#333', marginLeft: '10px', marginRight: '10px' }}></div>
+
+                {/* MIDI Play Mode Toggle */}
+                <button onClick={() => setIsMidiMode(!isMidiMode)} style={{
+                    height: '24px', padding: '0 10px',
+                    background: 'transparent',
+                    color: isMidiMode ? '#4CAF50' : '#aaa', 
+                    border: `1px solid ${isMidiMode ? '#4CAF50' : '#555'}`, 
+                    boxShadow: isMidiMode ? '0 0 8px rgba(76, 175, 80, 0.5)' : 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer', fontSize: '12px', fontWeight: 'bold',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    transition: 'all 0.2s'
+                }} title="Toggle MIDI Synthesis Playback">
+                    MIDI
+                </button>
+
                 {/* Spacer to push sliders to the right */}
                 <div style={{ flexGrow: 1 }}></div>
+
+                {/* Velocity Control */}
+                {selectedNoteIndex !== null && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginRight: '20px', borderRight: '1px solid #333', paddingRight: '20px' }}>
+                        <span style={{ color: '#aaa', fontSize: '12px', fontWeight: 'bold' }}>
+                            Velocity: {Math.round(commonVelocity * 100)}
+                        </span>
+                        <input 
+                            type="range" 
+                            min="0.01" max="1" step="0.01"
+                            value={commonVelocity}
+                            onChange={handleVelocityChange}
+                            style={{ width: '80px', cursor: 'pointer', accentColor: '#aaa' }}
+                        />
+                    </div>
+                )}
 
                 {/* Zoom Controls */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
@@ -342,7 +511,9 @@ export default function MidiEditorPopup({
                     </div>
 
                     {/* MIDI Grid */}
-                    <div style={{
+                    <div 
+                        onClick={() => setSelectedNoteIndex(null)}
+                        style={{
                         position: 'relative',
                         width: '100%',
                         height: `${gridHeight}px`,
