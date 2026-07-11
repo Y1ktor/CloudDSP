@@ -7,6 +7,12 @@ import TimelineRuler from './TimelineRuler';
 import TrackList from './TrackList';
 import TrackGrid from './TrackGrid';
 import MidiEditorPopup from './MidiEditorPopup';
+import { useMidiSynth } from '../hooks/useMidiSynth';
+
+function MidiScheduler({ trackName, activeBpm, originalBpm, progress, isPlaying, parsedMidiStems, audioCtxRef, globalSynthRef, isMidiMode }) {
+    useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, trackName, activeBpm, originalBpm, globalSynthRef, isMidiMode);
+    return null;
+}
 
 /**
  * StemSplitter Component
@@ -61,16 +67,28 @@ export default function StemSplitter({
 
     // MIDI Editor popup state
     const [editorOpenTrack, setEditorOpenTrack] = React.useState(null);
-    const [isMidiMode, setIsMidiMode] = React.useState(false);
+    const [activeMidiTracks, setActiveMidiTracks] = React.useState({});
+    const [midiStateBeforeEditor, setMidiStateBeforeEditor] = React.useState({});
 
     const handleOpenEditor = (trackName) => {
+        setMidiStateBeforeEditor(prev => ({ ...prev, [trackName]: !!activeMidiTracks[trackName] }));
         setEditorOpenTrack(trackName);
-        setIsMidiMode(true);
+        if (!activeMidiTracks[trackName]) {
+            setActiveMidiTracks(prev => ({ ...prev, [trackName]: true }));
+        }
     };
 
     const handleCloseEditor = () => {
+        if (editorOpenTrack) {
+            if (!midiStateBeforeEditor[editorOpenTrack]) {
+                setActiveMidiTracks(prev => ({ ...prev, [editorOpenTrack]: false }));
+            }
+        }
         setEditorOpenTrack(null);
-        setIsMidiMode(false);
+    };
+
+    const toggleMidiMode = (trackName) => {
+        setActiveMidiTracks(prev => ({ ...prev, [trackName]: !prev[trackName] }));
     };
 
     // ==== MULTITRACK PLAYER STATE (Refactored to Hook) ====
@@ -101,7 +119,7 @@ export default function StemSplitter({
         setOriginalBpm,
         cycleRegion,
         setCycleRegion
-    } = useAudioMultiTrackPlayer(stemUrls, file, isMidiMode, editorOpenTrack);
+    } = useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks);
 
     const [parsedMidiStems, setParsedMidiStems] = React.useState({});
     const [isMidiLoading, setIsMidiLoading] = React.useState(true);
@@ -532,6 +550,8 @@ export default function StemSplitter({
                                 selectedTrack={selectedTrack}
                                 setSelectedTrack={setSelectedTrack}
                                 onDoubleClickTrack={handleOpenEditor}
+                                activeMidiTracks={activeMidiTracks}
+                                toggleMidiMode={toggleMidiMode}
                             />
                             
                             {/* RIGHT COLUMN: Timeline Canvas (Scrollable) */}
@@ -593,6 +613,22 @@ export default function StemSplitter({
                 )}
             </div>
 
+            {/* Background MIDI Schedulers */}
+            {Object.keys(parsedMidiStems).map(trackName => (
+                <MidiScheduler
+                    key={`midi-synth-${trackName}`}
+                    trackName={trackName}
+                    activeBpm={activeBpm}
+                    originalBpm={originalBpm}
+                    progress={progress}
+                    isPlaying={isPlaying}
+                    parsedMidiStems={parsedMidiStems}
+                    audioCtxRef={audioCtxRef}
+                    globalSynthRef={globalSynthRef}
+                    isMidiMode={!!activeMidiTracks[trackName]}
+                />
+            ))}
+
             {/* MIDI Editor Pop-up Window */}
             <MidiEditorPopup 
                 trackName={editorOpenTrack} 
@@ -617,6 +653,7 @@ export default function StemSplitter({
                 toggleMute={toggleMute}
                 toggleSolo={toggleSolo}
                 activeBpm={activeBpm}
+                originalBpm={originalBpm}
                 parsedBeatsPerBar={parsedBeatsPerBar}
                 handleSeek={handleSeek}
                 parsedMidiStems={parsedMidiStems}
@@ -624,8 +661,8 @@ export default function StemSplitter({
                 audioCtxRef={audioCtxRef}
                 progress={progress}
                 globalSynthRef={globalSynthRef}
-                isMidiMode={isMidiMode}
-                setIsMidiMode={setIsMidiMode}
+                isMidiMode={!!activeMidiTracks[editorOpenTrack]}
+                setIsMidiMode={() => toggleMidiMode(editorOpenTrack)}
             />
         </div>
     );

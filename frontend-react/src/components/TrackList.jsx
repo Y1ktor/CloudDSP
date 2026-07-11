@@ -34,7 +34,9 @@ export default function TrackList({
     soloedTracks,
     selectedTrack,
     setSelectedTrack,
-    onDoubleClickTrack
+    onDoubleClickTrack,
+    activeMidiTracks = {},
+    toggleMidiMode
 }) {
     return (
         <div style={{ width: '210px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '3px' }}>
@@ -84,7 +86,20 @@ export default function TrackList({
                     </div>
                     
                     <div style={{ display: 'flex', gap: '8px' }}>
-                        <button onClick={() => toggleMute(trackName)} style={{
+                        <button onClick={(e) => { e.stopPropagation(); if(toggleMidiMode) toggleMidiMode(trackName); }} style={{
+                            height: '24px', padding: '0 8px',
+                            background: 'transparent',
+                            color: activeMidiTracks[trackName] ? '#4CAF50' : '#aaa', 
+                            border: `1px solid ${activeMidiTracks[trackName] ? '#4CAF50' : '#555'}`, 
+                            boxShadow: activeMidiTracks[trackName] ? '0 0 8px rgba(76, 175, 80, 0.5)' : 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer', fontSize: '11px', fontWeight: 'bold',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            transition: 'all 0.2s'
+                        }} title="Toggle MIDI Synthesis Playback">
+                            MIDI
+                        </button>
+                        <button onClick={(e) => { e.stopPropagation(); toggleMute(trackName); }} style={{
                             width: '24px', height: '24px',
                             background: mutedTracks[trackName] ? '#e53935' : '#555',
                             color: 'white', border: 'none', borderRadius: '4px', 
@@ -94,7 +109,7 @@ export default function TrackList({
                         }} title="Mute">
                             M
                         </button>
-                        <button onClick={() => toggleSolo(trackName)} style={{
+                        <button onClick={(e) => { e.stopPropagation(); toggleSolo(trackName); }} style={{
                             width: '24px', height: '24px',
                             background: soloedTracks[trackName] ? '#e0a800' : '#555',
                             color: soloedTracks[trackName] ? '#fff' : 'white', 

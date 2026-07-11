@@ -1,6 +1,5 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import TimelineRuler from './TimelineRuler';
-import { useMidiSynth } from '../hooks/useMidiSynth';
 
 /**
  * MidiEditorPopup
@@ -30,6 +29,7 @@ export default function MidiEditorPopup({
     toggleMute,
     toggleSolo,
     activeBpm,
+    originalBpm,
     parsedBeatsPerBar,
     handleSeek,
     parsedMidiStems,
@@ -47,17 +47,17 @@ export default function MidiEditorPopup({
     // Track drag state
 
 
-    // MIDI Play Mode hook
-    const { auditionNote } = useMidiSynth(
-        audioCtxRef,
-        progress,
-        isPlaying,
-        parsedMidiStems,
-        trackName,
-        activeBpm,
-        globalSynthRef,
-        isMidiMode
-    );
+    // Local audition logic for piano keys/notes
+    const auditionNote = (note) => {
+        if (isMidiMode && globalSynthRef.current && audioCtxRef.current) {
+            globalSynthRef.current.start({
+                note: note.midi,
+                velocity: Math.round((note.velocity !== undefined ? note.velocity : 0.8) * 127),
+                time: audioCtxRef.current.currentTime,
+                duration: 0.5 // Short audition
+            });
+        }
+    };
     
     // Local zoom states for the popup (independent of the main app)
     const [popupPixelsPerBar, setPopupPixelsPerBar] = React.useState(pixelsPerBar || 100);

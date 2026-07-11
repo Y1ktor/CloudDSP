@@ -15,7 +15,7 @@ import React, { useState, useEffect, useRef } from 'react';
  * @param {File} file - The original user-uploaded File object.
  * @returns {Object} An object containing all playback state, refs, and controller functions.
  */
-export function useAudioMultiTrackPlayer(stemUrls, file, isMidiMode, editorOpenTrack) {
+export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}) {
     const audioRefs = useRef({});
     const audioCtxRef = useRef(null);
     const sourceNodesRef = useRef({});
@@ -163,7 +163,7 @@ export function useAudioMultiTrackPlayer(stemUrls, file, isMidiMode, editorOpenT
         
         Object.entries(audioRefs.current).forEach(([trackName, audio]) => {
             if (audio) {
-                if (isMidiMode && trackName === editorOpenTrack) {
+                if (activeMidiTracks[trackName]) {
                     // Force mute the original audio track if we are actively playing its MIDI synth
                     audio.muted = true;
                 } else if (hasSolos) {
@@ -173,7 +173,7 @@ export function useAudioMultiTrackPlayer(stemUrls, file, isMidiMode, editorOpenT
                 }
             }
         });
-    }, [mutedTracks, soloedTracks, isMidiMode, editorOpenTrack]);
+    }, [mutedTracks, soloedTracks, activeMidiTracks]);
 
     /**
      * Initiates the BPM dragging interaction.

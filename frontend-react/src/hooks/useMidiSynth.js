@@ -12,12 +12,12 @@ import { SplendidGrandPiano } from 'smplr';
  * @param {boolean} isPlaying - Whether the master transport is currently playing.
  * @param {Object} parsedMidiStems - Dictionary containing parsed `@tonejs/midi` data for all tracks.
  * @param {string} trackName - The name of the specific track this synth is bound to (e.g. 'piano', 'bass').
- * @param {number} activeBpm - The current BPM of the master timeline (used for time-stretching).
+ * @param {number} activeBpm - The current user-adjusted BPM of the master timeline.
+ * @param {number} originalBpm - The master original BPM determined by the project, used to calculate playbackRate.
  * @param {React.MutableRefObject<Object>} globalSynthRef - Global reference to the initialized smplr instrument.
  * @param {boolean} isMidiMode - Whether MIDI synthesis is currently active for this track.
- * @returns {Object} An object containing an `auditionNote` trigger function.
  */
-export function useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, trackName, activeBpm, globalSynthRef, isMidiMode) {
+export function useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, trackName, activeBpm, originalBpm, globalSynthRef, isMidiMode) {
     const scheduledNotesRef = useRef(new Set());
 
     // 1. Initialize instrument when MIDI mode is enabled (now just ensures it exists)
@@ -52,35 +52,42 @@ export function useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, 
 
     // 2. Playback Scheduler Loop
     useEffect(() => {
-        if (!isMidiMode || !isPlaying || !globalSynthRef.current || !parsedMidiStems || !parsedMidiStems[trackName]) return;
+        if (!isMidiMode || !isPlaying || !globalSynthRef.current || !parsedMidiStems || !parsedMidiStems[trackName] || !originalBpm) return;
         
         const trackData = parsedMidiStems[trackName];
-        const originalBpm = trackData.bpm || 120;
-        const notes = trackData.midiData.tracks[0].notes;
         
-        // 100ms look-ahead window
-        const lookaheadWindow = 0.1; 
-        const playbackRate = activeBpm / originalBpm;
+        // The master timeline's time-stretching playback rate (e.g., 65 / 130 = 0.5x speed)
+        const playbackRate = activeBpm / originalBpm; 
+
+        // We look ahead a fixed amount in real-world time (500ms)
+        const realWorldLookahead = 0.5;
+        // Which corresponds to this much unstretched audio time:
+        const unstretchedLookahead = realWorldLookahead * playbackRate;
         
-        notes.forEach((note, index) => {
-            // Calculate real-world time this note should play
-            const scaledTime = note.time / playbackRate;
-            
-            // If the note falls within our tiny lookahead window and hasn't been scheduled yet
-            if (scaledTime >= progress && scaledTime < progress + lookaheadWindow) {
+        trackData.midiData.tracks[0].notes.forEach((note, index) => {
+            // note.time and progress are both in absolute, UNSTRETCHED seconds
+            if (note.time >= progress && note.time < progress + unstretchedLookahead) {
                 if (!scheduledNotesRef.current.has(index)) {
-                    const scheduleDelay = scaledTime - progress;
+                    // How much unstretched time until the note occurs?
+                    const unstretchedDelay = note.time - progress;
+                    
+                    // Convert that delay into real-world time factoring in the playback rate
+                    const realWorldDelay = unstretchedDelay / playbackRate;
+                    
+                    // Convert the note's original duration into real-world duration
+                    const realWorldDuration = note.duration / playbackRate;
+
                     globalSynthRef.current.start({
                         note: note.midi,
                         velocity: Math.round((note.velocity !== undefined ? note.velocity : 0.8) * 127),
-                        time: audioCtxRef.current.currentTime + scheduleDelay,
-                        duration: note.duration / playbackRate
+                        time: audioCtxRef.current.currentTime + realWorldDelay,
+                        duration: realWorldDuration
                     });
                     scheduledNotesRef.current.add(index);
                 }
             }
         });
-    }, [progress, isPlaying, isMidiMode, activeBpm, parsedMidiStems, trackName, audioCtxRef]);
+    }, [progress, isPlaying, isMidiMode, activeBpm, originalBpm, parsedMidiStems, trackName, audioCtxRef]);
 
     // 3. Clear scheduled notes if we seek, pause, or switch tracks
     useEffect(() => {
@@ -89,25 +96,4 @@ export function useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, 
             globalSynthRef.current.stop(); // Stop immediately on pause
         }
     }, [progress < 0.1, isPlaying, trackName]); // Clear when seeking back to 0 or pausing
-
-    /**
-     * Instantly triggers a short 0.5s playback of a specific note.
-     * Useful for auditioning notes when clicked in the UI.
-     * 
-     * @param {Object} note - The Tone.js Midi note object to audition
-     */
-    const auditionNote = (note) => {
-        if (isMidiMode && globalSynthRef.current && audioCtxRef.current) {
-            globalSynthRef.current.start({
-                note: note.midi,
-                velocity: Math.round((note.velocity !== undefined ? note.velocity : 0.8) * 127),
-                time: audioCtxRef.current.currentTime,
-                duration: 0.5 // Short audition
-            });
-        }
-    };
-
-    return {
-        auditionNote
-    };
 }
