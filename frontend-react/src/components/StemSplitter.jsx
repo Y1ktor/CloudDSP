@@ -91,6 +91,22 @@ export default function StemSplitter({
         setActiveMidiTracks(prev => ({ ...prev, [trackName]: !prev[trackName] }));
     };
 
+    const handleRevertMidi = (trackName) => {
+        if (!originalMidiStems[trackName]) return;
+        
+        // Re-clone the original by serializing it back to binary and re-parsing
+        const binaryBuffer = originalMidiStems[trackName].midiData.toArray();
+        const restoredData = {
+            ...originalMidiStems[trackName],
+            midiData: new (originalMidiStems[trackName].midiData.constructor)(binaryBuffer) 
+        };
+        
+        setParsedMidiStems(prev => ({
+            ...prev,
+            [trackName]: restoredData
+        }));
+    };
+
     // ==== MULTITRACK PLAYER STATE (Refactored to Hook) ====
     const {
         audioCtxRef,
@@ -122,6 +138,7 @@ export default function StemSplitter({
     } = useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks);
 
     const [parsedMidiStems, setParsedMidiStems] = React.useState({});
+    const [originalMidiStems, setOriginalMidiStems] = React.useState({});
     const [isMidiLoading, setIsMidiLoading] = React.useState(true);
     const hasFetchedMidi = React.useRef(false);
     const globalSynthRef = React.useRef(null);
@@ -156,13 +173,21 @@ export default function StemSplitter({
             
             try {
                 const parsed = {};
+                const parsedBackup = {};
                 for (const [track, url] of Object.entries(mockMidiFiles)) {
-                    // Provide the active timeSignature so bars calculate correctly
-                    const data = await parseMidiFile(url, timeSignature);
+                    const response = await fetch(url);
+                    const arrayBuffer = await response.arrayBuffer();
+                    
+                    // Option 2: Double parse from the same binary source
+                    const data = await parseMidiFile(arrayBuffer.slice(0), timeSignature);
+                    const backupData = await parseMidiFile(arrayBuffer.slice(0), timeSignature);
+                    
                     parsed[track] = data;
+                    parsedBackup[track] = backupData;
                 }
                 
                 setParsedMidiStems(parsed);
+                setOriginalMidiStems(parsedBackup);
                 
                 // Invoke our new hierarchy logic to find the best master BPM!
                 const bestBpm = determineMasterBpm(parsed);
@@ -663,6 +688,7 @@ export default function StemSplitter({
                 globalSynthRef={globalSynthRef}
                 isMidiMode={!!activeMidiTracks[editorOpenTrack]}
                 setIsMidiMode={() => toggleMidiMode(editorOpenTrack)}
+                handleRevertMidi={() => handleRevertMidi(editorOpenTrack)}
             />
         </div>
     );

@@ -38,7 +38,8 @@ export default function MidiEditorPopup({
     progress,
     globalSynthRef,
     isMidiMode,
-    setIsMidiMode
+    setIsMidiMode,
+    handleRevertMidi
 }) {
     const popupTimelineRef = useRef(null);
     const pianoScrollRef = useRef(null);
@@ -63,8 +64,14 @@ export default function MidiEditorPopup({
     const [popupPixelsPerBar, setPopupPixelsPerBar] = React.useState(pixelsPerBar || 100);
     const [popupRowHeight, setPopupRowHeight] = React.useState(8); // Default to 8 (lowest)
     
-    // Selection state for MIDI notes (single selection)
-    const [selectedNoteIndex, setSelectedNoteIndex] = React.useState(null);
+    // Selection state for MIDI notes (multi selection)
+    const [selectedNoteIndices, setSelectedNoteIndices] = React.useState(new Set());
+    
+    // Drag selection state
+    const [isDraggingSelection, setIsDraggingSelection] = React.useState(false);
+    const [selectionStart, setSelectionStart] = React.useState({ x: 0, y: 0 });
+    const [selectionRect, setSelectionRect] = React.useState(null); // {x, y, w, h}
+    const [preDragSelection, setPreDragSelection] = React.useState(new Set());
     
 
 
@@ -174,8 +181,9 @@ export default function MidiEditorPopup({
 
     // Velocity Control Logic
     let commonVelocity = 0.8;
-    if (selectedNoteIndex !== null && parsedMidiStems && parsedMidiStems[trackName] && parsedMidiStems[trackName].midiData.tracks[0].notes.length > 0) {
-        const note = parsedMidiStems[trackName].midiData.tracks[0].notes[selectedNoteIndex];
+    if (selectedNoteIndices.size === 1 && parsedMidiStems && parsedMidiStems[trackName] && parsedMidiStems[trackName].midiData.tracks[0].notes.length > 0) {
+        const selectedIndex = Array.from(selectedNoteIndices)[0];
+        const note = parsedMidiStems[trackName].midiData.tracks[0].notes[selectedIndex];
         if (note) {
             commonVelocity = note.velocity !== undefined ? Math.max(0.01, note.velocity) : 0.8;
         }
@@ -183,18 +191,86 @@ export default function MidiEditorPopup({
 
     const handleVelocityChange = (e) => {
         const newVelocity = parseFloat(e.target.value);
-        if (selectedNoteIndex === null || !parsedMidiStems) return;
+        if (selectedNoteIndices.size !== 1 || !parsedMidiStems) return;
 
         // CRITICAL: We must directly mutate the @tonejs/midi Note instance.
-        // If we use spread operators like { ...note }, we strip away all of Tone.js's 
-        // internal prototype getters (like .time, .duration) and the note disappears!
-        const note = parsedMidiStems[trackName].midiData.tracks[0].notes[selectedNoteIndex];
+        const selectedIndex = Array.from(selectedNoteIndices)[0];
+        const note = parsedMidiStems[trackName].midiData.tracks[0].notes[selectedIndex];
         if (note) {
             note.velocity = newVelocity;
         }
 
         // Trigger a React re-render by shallow cloning the top-level dictionary
         setParsedMidiStems({ ...parsedMidiStems });
+    };
+
+    const getNoteLayout = (note, index) => {
+        const noteStartBeats = note.time * (activeBpm / 60);
+        const noteStartBars = noteStartBeats / parsedBeatsPerBar;
+        const leftPx = noteStartBars * popupPixelsPerBar;
+
+        const noteDurationBeats = note.duration * (activeBpm / 60);
+        const noteDurationBars = noteDurationBeats / parsedBeatsPerBar;
+        const widthPx = Math.max(2, noteDurationBars * popupPixelsPerBar);
+
+        const topPx = (127 - note.midi) * popupRowHeight;
+        
+        return { index, left: leftPx, top: topPx, right: leftPx + widthPx, bottom: topPx + popupRowHeight };
+    };
+
+    const handleGridMouseDown = (e) => {
+        if (e.target !== e.currentTarget) return; 
+        
+        const rect = e.currentTarget.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        
+        setIsDraggingSelection(true);
+        setSelectionStart({ x, y });
+        setSelectionRect({ x, y, w: 0, h: 0 });
+        
+        if (e.shiftKey) {
+            setPreDragSelection(new Set(selectedNoteIndices));
+        } else {
+            setPreDragSelection(new Set());
+            setSelectedNoteIndices(new Set());
+        }
+    };
+
+    const handleGridMouseMove = (e) => {
+        if (!isDraggingSelection) return;
+        const rect = e.currentTarget.getBoundingClientRect();
+        const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+        const y = Math.max(0, Math.min(e.clientY - rect.top, rect.height));
+        
+        const sx = Math.min(selectionStart.x, x);
+        const sy = Math.min(selectionStart.y, y);
+        const sw = Math.abs(x - selectionStart.x);
+        const sh = Math.abs(y - selectionStart.y);
+        
+        setSelectionRect({ x: sx, y: sy, w: sw, h: sh });
+        
+        if (!parsedMidiStems || !parsedMidiStems[trackName]) return;
+        const notes = parsedMidiStems[trackName].midiData.tracks[0].notes;
+        
+        const newSelection = new Set(preDragSelection);
+        notes.forEach((note, index) => {
+            const layout = getNoteLayout(note, index);
+            const overlapsX = layout.left < sx + sw && layout.right > sx;
+            const overlapsY = layout.top < sy + sh && layout.bottom > sy;
+            if (overlapsX && overlapsY) {
+                newSelection.add(index);
+            }
+        });
+        
+        setSelectedNoteIndices(newSelection);
+    };
+
+    const handleGridMouseUp = () => {
+        if (isDraggingSelection) {
+            setIsDraggingSelection(false);
+            setSelectionRect(null);
+        }
     };
 
     // Helper to render full 128 key space notes
@@ -210,16 +286,31 @@ export default function MidiEditorPopup({
 
         const toggleNoteSelection = (index, e) => {
             e.stopPropagation();
-            if (selectedNoteIndex === index) {
-                setSelectedNoteIndex(null);
+            const newSelection = new Set(selectedNoteIndices);
+            
+            if (newSelection.has(index)) {
+                if (e.shiftKey) {
+                    newSelection.delete(index);
+                } else {
+                    if (newSelection.size === 1) {
+                        newSelection.clear();
+                    } else {
+                        newSelection.clear();
+                        newSelection.add(index);
+                    }
+                }
             } else {
-                setSelectedNoteIndex(index);
+                if (!e.shiftKey) {
+                    newSelection.clear();
+                }
+                newSelection.add(index);
                 // Audition the note immediately!
                 const note = parsedMidiStems[trackName].midiData.tracks[0].notes[index];
                 if (note) {
                     auditionNote(note);
                 }
             }
+            setSelectedNoteIndices(newSelection);
         };
 
         return notes.map((note, index) => {
@@ -248,7 +339,7 @@ export default function MidiEditorPopup({
             
             const noteColor = `hsl(${Math.round(hue)}, ${saturation}%, ${lightness}%)`;
 
-            const isSelected = selectedNoteIndex === index;
+            const isSelected = selectedNoteIndices.has(index);
 
             return (
                 <div 
@@ -388,11 +479,30 @@ export default function MidiEditorPopup({
                     MIDI
                 </button>
 
+                {/* Revert MIDI Button */}
+                <button onClick={() => {
+                    if (window.confirm('Are you sure you want to revert all MIDI edits for this track to their original state?')) {
+                        if (handleRevertMidi) handleRevertMidi();
+                    }
+                }} style={{
+                    height: '24px', padding: '0 10px',
+                    background: 'transparent',
+                    color: '#e53935', 
+                    border: '1px solid #e53935', 
+                    borderRadius: '4px',
+                    cursor: 'pointer', fontSize: '12px', fontWeight: 'bold',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    transition: 'all 0.2s',
+                    marginLeft: '10px'
+                }} title="Revert to Original MIDI">
+                    Revert
+                </button>
+
                 {/* Spacer to push sliders to the right */}
                 <div style={{ flexGrow: 1 }}></div>
 
                 {/* Velocity Control */}
-                {selectedNoteIndex !== null && (
+                {selectedNoteIndices.size === 1 && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginRight: '20px', borderRight: '1px solid #333', paddingRight: '20px' }}>
                         <span style={{ color: '#aaa', fontSize: '12px', fontWeight: 'bold' }}>
                             Velocity: {Math.round(commonVelocity * 100)}
@@ -512,7 +622,10 @@ export default function MidiEditorPopup({
 
                     {/* MIDI Grid */}
                     <div 
-                        onClick={() => setSelectedNoteIndex(null)}
+                        onMouseDown={handleGridMouseDown}
+                        onMouseMove={handleGridMouseMove}
+                        onMouseUp={handleGridMouseUp}
+                        onMouseLeave={handleGridMouseUp}
                         style={{
                         position: 'relative',
                         width: '100%',
@@ -522,6 +635,21 @@ export default function MidiEditorPopup({
                         backgroundImage: `linear-gradient(to bottom, transparent ${popupRowHeight - 1}px, rgba(255,255,255,0.05) ${popupRowHeight}px)`
                     }}>
                         {renderFullMidiNotes()}
+                        
+                        {/* Drag Selection Rectangle */}
+                        {isDraggingSelection && selectionRect && (
+                            <div style={{
+                                position: 'absolute',
+                                left: `${selectionRect.x}px`,
+                                top: `${selectionRect.y}px`,
+                                width: `${selectionRect.w}px`,
+                                height: `${selectionRect.h}px`,
+                                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                                border: '1px solid rgba(255, 255, 255, 0.3)',
+                                pointerEvents: 'none',
+                                zIndex: 100
+                            }} />
+                        )}
                     </div>
                 </div>
             </div>
