@@ -2,9 +2,57 @@ import React, { useRef, useState, useEffect } from 'react';
 import TimelineRuler from './TimelineRuler';
 
 /**
- * MidiEditorPopup
+ * MidiEditorPopup Component
+ * 
+ * This UI component provides a full-screen, modal piano roll editor for interacting with
+ * and modifying parsed MIDI data for a specific track. It features multi-note drag selection, 
+ * velocity editing, and real-time auditioning through the Web Audio API.
+ * 
+ * ARCHITECTURE NOTE:
+ * This component utilizes a "State Hoisting" / "Dumb Component" architecture. It holds very little 
+ * global state of its own. Global playback state (duration, playheadX, timeSignature), mute/solo 
+ * status, and the underlying MIDI data dictionary are managed in `StemSplitter.jsx` and passed down. 
+ * Local viewport logic (like horizontal zoom `popupPixelsPerBar`, vertical zoom `popupRowHeight`, 
+ * and drag `selectedNoteIndices`) are isolated internally. To mutate MIDI, it mutates the 
+ * underlying @tonejs/midi instance directly and forces a top-level React re-render.
  * 
  * @param {Object} props - Component props
+ * @param {string} props.trackName - The name of the track currently being edited (e.g., 'piano')
+ * @param {Function} props.onClose - Callback fired to close the modal
+ * @param {number} props.duration - Total duration of the audio in seconds
+ * @param {number} props.pixelsPerBar - The master timeline's horizontal zoom scale
+ * @param {number} props.totalBars - Total number of bars calculated from the audio duration
+ * @param {number} props.playheadX - The master timeline's playhead position in pixels
+ * @param {React.MutableRefObject} props.cycleDragRef - Ref for the master timeline cycle drag interaction
+ * @param {Object} props.cycleRegion - The {start, end} points of the master cycle loop in pixels
+ * @param {boolean} props.isCycling - Whether master looping is currently active
+ * @param {Array<number>} props.timeSignature - Global time signature (e.g., [4, 4])
+ * @param {React.MutableRefObject} props.playheadDragRef - Ref for the master timeline playhead drag interaction
+ * @param {boolean} props.isPlayheadHovered - Master timeline state indicating playhead hover
+ * @param {Function} props.setIsPlayheadHovered - State setter for master playhead hover
+ * @param {Function} props.handleGoToBeginning - Callback to seek playback to 0
+ * @param {boolean} props.isPlaying - Global playback state
+ * @param {Function} props.togglePlay - Callback to toggle global playback
+ * @param {Function} props.toggleCycling - Callback to toggle global loop cycling
+ * @param {Object} props.mutedTracks - Dictionary of muted track states
+ * @param {Object} props.soloedTracks - Dictionary of soloed track states
+ * @param {Function} props.toggleMute - Callback to toggle mute for a specific track
+ * @param {Function} props.toggleSolo - Callback to toggle solo for a specific track
+ * @param {number} props.activeBpm - The current user-adjusted master BPM
+ * @param {number} props.originalBpm - The detected original master BPM of the song
+ * @param {number} props.parsedBeatsPerBar - Derived variable representing number of beats in a bar
+ * @param {Function} props.handleSeek - Callback to seek playback to a specific percentage (0-1)
+ * @param {Object} props.parsedMidiStems - The master dictionary containing parsed `@tonejs/midi` class instances
+ * @param {Function} props.setParsedMidiStems - State setter for the master MIDI dictionary, used to trigger re-renders
+ * @param {React.MutableRefObject} props.audioCtxRef - Reference to the global Web Audio context
+ * @param {number} props.progress - The current playback time in seconds
+ * @param {React.MutableRefObject} props.synthRef - Reference to the `smplr` instrument for the current track to use for auditioning
+ * @param {boolean} props.isMidiMode - Whether MIDI synthesis playback is active for this track
+ * @param {Function} props.setIsMidiMode - Callback to toggle MIDI synthesis mode for this track
+ * @param {Function} props.handleRevertMidi - Callback to restore the original un-edited MIDI data
+ * @param {Function} props.handleUndoMidi - Callback to revert the last MIDI edit from the undo stack
+ * @param {Function} props.pushUndoState - Callback to snapshot the current MIDI state onto the undo stack before editing
+ * @param {number} props.undoStackLength - The number of snapshots currently in the undo stack for this track
  */
 export default function MidiEditorPopup({ 
     trackName, 

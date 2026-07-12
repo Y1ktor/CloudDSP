@@ -1,13 +1,16 @@
 import React from 'react';
-import { SplendidGrandPiano, Soundfont } from 'smplr';
-import { useAudioMultiTrackPlayer } from '../hooks/AudioMultiTrackPlayer';
-import { parseMidiFile, determineMasterBpm } from '../utils/MidiParser';
 import ControlBar from './ControlBar';
 import TimelineRuler from './TimelineRuler';
 import TrackList from './TrackList';
 import TrackGrid from './TrackGrid';
 import MidiEditorPopup from './MidiEditorPopup';
-import { useMidiSynth } from '../hooks/useMidiSynth';
+
+import { useAudioMultiTrackPlayer } from '../../hooks/AudioMultiTrackPlayer';
+import { useMidiSynth } from '../../hooks/useMidiSynth';
+import { useInstruments } from '../../hooks/useInstruments';
+import { useMidiManager } from '../../hooks/useMidiManager';
+import { useGlobalShortcuts } from '../../hooks/useGlobalShortcuts';
+import { useUndoHistory } from '../../hooks/useUndoHistory';
 
 function MidiScheduler({ trackName, activeBpm, originalBpm, progress, isPlaying, parsedMidiStems, audioCtxRef, synthRef, isMidiMode }) {
     useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, trackName, activeBpm, originalBpm, synthRef, isMidiMode);
@@ -15,17 +18,17 @@ function MidiScheduler({ trackName, activeBpm, originalBpm, progress, isPlaying,
 }
 
 /**
- * StemSplitter Component
+ * StemSplitter Component (Orchestrator)
  * 
- * This UI component is responsible for handling the frontend interactions for uploading
- * audio files and rendering the resulting separated stems.
+ * This UI component is the central orchestrator of the Stem Splitter workspace. It bridges 
+ * the gap between the AWS backend connection (handled upstream in App.jsx), the audio transport 
+ * (handled by `useAudioMultiTrackPlayer`), the MIDI conversion layer (`useMidiManager`), and the 
+ * visual UI components.
  * 
  * ARCHITECTURE NOTE:
- * This component is "stateless" regarding the heavy AWS WebSocket logic. All of its
- * state (isSplitting, stemUrls, statusMessage) is actually managed globally in `App.jsx`.
- * These values are passed down as props. This architectural choice ("State Hoisting") 
- * allows the user to start a 3-minute stem split, navigate away from this page (e.g., 
- * to the EQ Canvas), and not lose their WebSocket connection or data!
+ * Following a strict "Smart/Dumb" pattern, this component has been refactored to contain almost 
+ * zero business logic itself. All state management has been extracted into custom hooks. This 
+ * file serves purely to assemble the layout and route data between the hooks and the UI components.
  * 
  * @param {Object} props - The hoisted state props provided by App.jsx
  * @param {File} props.file - The currently selected audio file
@@ -35,13 +38,13 @@ function MidiScheduler({ trackName, activeBpm, originalBpm, progress, isPlaying,
  * @param {string} props.splitMode - The selected Demucs mode (2, 4, or 6 stems)
  * @param {Function} props.setSplitMode - State setter for the mode
  * @param {boolean} props.isSplitting - Tracks if AWS Batch is currently processing
- * @param {string} props.statusMessage - The dynamic loading text (Connecting, Uploading, etc.)
+ * @param {string} props.statusMessage - The dynamic loading text
  * @param {Object} props.stemUrls - Dictionary of pre-signed S3 URLs returned by the server
  * @param {string} props.errorMsg - Any error messages to display
  * @param {Function} props.setErrorMsg - State setter for errors
  * @param {Function} props.setStemUrls - State setter for the stem URLs
- * @param {Function} props.executeStemSplit - The master function in App.jsx that opens the WebSocket and triggers the S3 upload
- * @param {Function} props.connectWebSocket - Function to initiate the background WebSocket connection
+ * @param {Function} props.executeStemSplit - Master function in App.jsx to trigger AWS upload
+ * @param {Function} props.connectWebSocket - Function to initiate the background WebSocket
  * @param {Function} props.closeWebSocket - Function to explicitly close the connection
  */
 export default function StemSplitter({
@@ -51,21 +54,13 @@ export default function StemSplitter({
     isSplitting, statusMessage, stemUrls, errorMsg, setErrorMsg, setStemUrls,
     executeStemSplit, connectWebSocket, closeWebSocket
 }) {
-
-    // We use a ref to track the LATEST isSplitting value so our unmount cleanup function 
-    // can correctly determine if a job is actively running in the background.
     const isSplittingRef = React.useRef(isSplitting);
     React.useEffect(() => {
         isSplittingRef.current = isSplitting;
     }, [isSplitting]);
 
-    // UI state for dropdown menus
     const [showSigMenu, setShowSigMenu] = React.useState(false);
-
-    // Track selection state
     const [selectedTrack, setSelectedTrack] = React.useState(null);
-
-    // MIDI Editor popup state
     const [editorOpenTrack, setEditorOpenTrack] = React.useState(null);
     const [activeMidiTracks, setActiveMidiTracks] = React.useState({});
     const [midiStateBeforeEditor, setMidiStateBeforeEditor] = React.useState({});
@@ -91,232 +86,43 @@ export default function StemSplitter({
         setActiveMidiTracks(prev => ({ ...prev, [trackName]: !prev[trackName] }));
     };
 
-    const [undoStacks, setUndoStacks] = React.useState({});
-    const MAX_UNDO_STEPS = 20;
+    // 1. Instruments
+    const { globalSynthRef, guitarSynthRef, bassSynthRef } = useInstruments();
 
-    const pushUndoState = (trackName) => {
-        if (!parsedMidiStems[trackName]) return;
-        const binarySnapshot = parsedMidiStems[trackName].midiData.toArray();
-        setUndoStacks(prev => {
-            const trackStack = prev[trackName] ? [...prev[trackName]] : [];
-            if (trackStack.length >= MAX_UNDO_STEPS) {
-                trackStack.shift();
-            }
-            trackStack.push(binarySnapshot);
-            return { ...prev, [trackName]: trackStack };
-        });
-    };
+    // 2. Audio Player
+    const audioEngine = useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks);
 
-    const handleUndoMidi = (trackName) => {
-        setUndoStacks(prev => {
-            const trackStack = prev[trackName] ? [...prev[trackName]] : [];
-            if (trackStack.length === 0) return prev; // nothing to undo
-            
-            const lastSnapshot = trackStack.pop();
-            
-            const restoredData = {
-                ...originalMidiStems[trackName],
-                midiData: new (originalMidiStems[trackName].midiData.constructor)(lastSnapshot)
-            };
-            
-            setParsedMidiStems(prevStems => ({
-                ...prevStems,
-                [trackName]: restoredData
-            }));
-            
-            return { ...prev, [trackName]: trackStack };
-        });
-    };
+    // 3. MIDI Manager
+    const { parsedMidiStems, setParsedMidiStems, originalMidiStems, isMidiLoading } = useMidiManager(
+        stemUrls, audioEngine.timeSignature, audioEngine.setBpm, audioEngine.setOriginalBpm, audioEngine.audioCtxRef, globalSynthRef, guitarSynthRef, bassSynthRef
+    );
 
-    const handleRevertMidi = (trackName) => {
-        if (!originalMidiStems[trackName]) return;
-        
-        pushUndoState(trackName);
-        
-        // Re-clone the original by serializing it back to binary and re-parsing
-        const binaryBuffer = originalMidiStems[trackName].midiData.toArray();
-        const restoredData = {
-            ...originalMidiStems[trackName],
-            midiData: new (originalMidiStems[trackName].midiData.constructor)(binaryBuffer) 
-        };
-        
-        setParsedMidiStems(prev => ({
-            ...prev,
-            [trackName]: restoredData
-        }));
-    };
+    // 4. Undo History
+    const { undoStacks, pushUndoState, handleUndoMidi, handleRevertMidi } = useUndoHistory(
+        parsedMidiStems, setParsedMidiStems, originalMidiStems
+    );
 
-    // ==== MULTITRACK PLAYER STATE (Refactored to Hook) ====
-    const {
-        audioCtxRef,
-        audioRefs,
-        originalUrl,
-        isPlaying,
-        progress,
-        duration,
-        mutedTracks,
-        soloedTracks,
-        isCycling,
-        setIsCycling,
-        bpm,
-        timeSignature,
-        setTimeSignature,
-        setDuration,
-        togglePlay,
-        handleGoToBeginning,
-        handleSeek,
-        toggleMute,
-        toggleSolo,
-        handleBpmMouseDown,
-        formatTime,
-        setBpm,
-        originalBpm,
-        setOriginalBpm,
-        cycleRegion,
-        setCycleRegion
-    } = useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks);
+    // 5. Global Shortcuts
+    useGlobalShortcuts({
+        togglePlay: audioEngine.togglePlay,
+        handleGoToBeginning: audioEngine.handleGoToBeginning,
+        setIsCycling: audioEngine.setIsCycling,
+        toggleSolo: audioEngine.toggleSolo,
+        toggleMute: audioEngine.toggleMute,
+        editorOpenTrack,
+        selectedTrack,
+        handleUndoMidi
+    });
 
-    const [parsedMidiStems, setParsedMidiStems] = React.useState({});
-    const [originalMidiStems, setOriginalMidiStems] = React.useState({});
-    const [isMidiLoading, setIsMidiLoading] = React.useState(true);
-    const hasFetchedMidi = React.useRef(false);
-    const globalSynthRef = React.useRef(null);
-    const guitarSynthRef = React.useRef(null);
-    const bassSynthRef = React.useRef(null);
-
-    React.useEffect(() => {
-        const handleKeyDown = (e) => {
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
-                return;
-            }
-
-            const targetTrack = editorOpenTrack || selectedTrack;
-
-            switch (e.key.toLowerCase()) {
-                case ' ':
-                    e.preventDefault();
-                    togglePlay();
-                    break;
-                case 'enter':
-                    e.preventDefault();
-                    handleGoToBeginning();
-                    break;
-                case 'c':
-                    e.preventDefault();
-                    setIsCycling(prev => !prev);
-                    break;
-                case 's':
-                    if (targetTrack) {
-                        e.preventDefault();
-                        toggleSolo(targetTrack);
-                    }
-                    break;
-                case 'm':
-                    if (targetTrack) {
-                        e.preventDefault();
-                        toggleMute(targetTrack);
-                    }
-                    break;
-                case 'z':
-                    if ((e.metaKey || e.ctrlKey) && editorOpenTrack) {
-                        e.preventDefault();
-                        handleUndoMidi(editorOpenTrack);
-                    }
-                    break;
-            }
-        };
-
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [togglePlay, handleGoToBeginning, setIsCycling, toggleSolo, toggleMute, editorOpenTrack, selectedTrack]);
-
-    // MOCK: Fetch local MIDI files to test MIDI processing and smart BPM voting
-    React.useEffect(() => {
-        if (!stemUrls || hasFetchedMidi.current) return;
-        
-        const fetchAndParse = async () => {
-            setIsMidiLoading(true);
-            
-            // Initialize AudioContext early so we can start downloading samples in the background!
-            if (!audioCtxRef.current) {
-                const AudioContext = window.AudioContext || window.webkitAudioContext;
-                audioCtxRef.current = new AudioContext();
-            }
-            if (!globalSynthRef.current) {
-                globalSynthRef.current = new SplendidGrandPiano(audioCtxRef.current);
-            }
-            if (!guitarSynthRef.current) {
-                guitarSynthRef.current = new Soundfont(audioCtxRef.current, { instrument: 'acoustic_guitar_nylon' });
-            }
-            if (!bassSynthRef.current) {
-                bassSynthRef.current = new Soundfont(audioCtxRef.current, { instrument: 'acoustic_bass' });
-            }
-
-            // MOCK DELAY: wait 3 seconds to simulate AWS Basic Pitch cold start/processing
-            await new Promise(resolve => setTimeout(resolve, 3000));
-            
-            const mockMidiFiles = {
-                'bass': '/mock-midi/yosemite-bass-midi.mid',
-                'drums': '/mock-midi/yosemite-drums-midi.mid',
-                'guitar': '/mock-midi/yosemite-guitar-midi.mid',
-                'other': '/mock-midi/yosemite-other-midi.mid',
-                'piano': '/mock-midi/yosemite-piano-midi.mid',
-                'vocals': '/mock-midi/yosemite-vocals-midi.mid'
-            };
-            
-            try {
-                const parsed = {};
-                const parsedBackup = {};
-                for (const [track, url] of Object.entries(mockMidiFiles)) {
-                    const response = await fetch(url);
-                    const arrayBuffer = await response.arrayBuffer();
-                    
-                    // Option 2: Double parse from the same binary source
-                    const data = await parseMidiFile(arrayBuffer.slice(0), timeSignature);
-                    const backupData = await parseMidiFile(arrayBuffer.slice(0), timeSignature);
-                    
-                    parsed[track] = data;
-                    parsedBackup[track] = backupData;
-                }
-                
-                setParsedMidiStems(parsed);
-                setOriginalMidiStems(parsedBackup);
-                
-                // Invoke our new hierarchy logic to find the best master BPM!
-                const bestBpm = determineMasterBpm(parsed);
-                
-                // Update the hook state, causing the canvas to instantly recalculate!
-                setOriginalBpm(bestBpm);
-                setBpm(bestBpm);
-                setIsMidiLoading(false);
-                hasFetchedMidi.current = true;
-                
-                console.log("Mock MIDI loaded. Smart BPM chosen:", bestBpm);
-            } catch (err) {
-                console.error("Mock MIDI fetch failed:", err);
-                setIsMidiLoading(false);
-            }
-        };
-
-        fetchAndParse();
-    }, [stemUrls, timeSignature, setBpm]);
-
-    // Instantly connect to the WebSocket in the background the moment this page loads
     React.useEffect(() => {
         connectWebSocket();
-        
-        // This cleanup function runs exactly when the user clicks away from the page
         return () => {
-            if (!isSplittingRef.current) {
-                // User navigated away without starting a job. Save money!
-                closeWebSocket();
-            }
+            if (!isSplittingRef.current) closeWebSocket();
             if (globalSynthRef.current) {
-                globalSynthRef.current.stop();
-                globalSynthRef.current = null;
+                try { globalSynthRef.current.stop(); } catch (e) { }
             }
         };
-    }, [connectWebSocket, closeWebSocket]);
+    }, [connectWebSocket, closeWebSocket, globalSynthRef]);
 
     const handleFileUpload = (e) => {
         const uploadedFile = e.target.files[0];
@@ -330,31 +136,21 @@ export default function StemSplitter({
 
     const tracksToRender = React.useMemo(() => {
         const tr = {};
-        if (file && originalUrl) tr['Original'] = originalUrl;
+        if (file && audioEngine.originalUrl) tr['Original'] = audioEngine.originalUrl;
         else if (!file && stemUrls && Object.keys(stemUrls).length > 0) tr['Original'] = stemUrls[Object.keys(stemUrls)[0]];
         if (stemUrls) Object.assign(tr, stemUrls);
         return tr;
-    }, [file, originalUrl, stemUrls]);
+    }, [file, audioEngine.originalUrl, stemUrls]);
 
     const [pixelsPerBar, setPixelsPerBar] = React.useState(100);
-    const parsedBeatsPerBar = parseInt(timeSignature.split('/')[0], 10) || 4;
-    
-    // We must calculate grid spacing using the track's original BPM, so the grid remains 
-    // static and stable even when the user adjusts the playback speed (BPM slider).
-    const activeBpm = originalBpm || bpm;
-    
-    // Calculate canvas size based on Master Audio duration. (Default to 20 bars if no audio loaded)
-    const totalBars = duration > 0 ? Math.ceil((duration * (activeBpm / 60)) / parsedBeatsPerBar) : 20;
+    const parsedBeatsPerBar = parseInt(audioEngine.timeSignature.split('/')[0], 10) || 4;
+    const activeBpm = audioEngine.originalBpm || audioEngine.bpm;
+    const totalBars = audioEngine.duration > 0 ? Math.ceil((audioEngine.duration * (activeBpm / 60)) / parsedBeatsPerBar) : 20;
 
-    // Calculate dynamic physical track length in seconds (adjusts when user changes BPM)
-    const dynamicDuration = originalBpm && duration ? duration * (originalBpm / bpm) : duration;
-    const dynamicProgress = originalBpm && progress ? progress * (originalBpm / bpm) : progress;
-    
-    const playheadX = (progress * (activeBpm / 60) / parsedBeatsPerBar) * pixelsPerBar;
+    const dynamicDuration = audioEngine.originalBpm && audioEngine.duration ? audioEngine.duration * (audioEngine.originalBpm / audioEngine.bpm) : audioEngine.duration;
+    const dynamicProgress = audioEngine.originalBpm && audioEngine.progress ? audioEngine.progress * (audioEngine.originalBpm / audioEngine.bpm) : audioEngine.progress;
+    const playheadX = (audioEngine.progress * (activeBpm / 60) / parsedBeatsPerBar) * pixelsPerBar;
 
-    // Cycle Loop Region Logic is now managed globally by useAudioMultiTrackPlayer
-
-    // Playhead Drag Logic
     const [isPlayheadHovered, setIsPlayheadHovered] = React.useState(false);
     const playheadDragRef = React.useRef({ isDragging: false });
     const cycleDragRef = React.useRef({ isDragging: false, mode: 'move', initialX: 0, initialStart: 0, initialEnd: 0 });
@@ -374,14 +170,13 @@ export default function StemSplitter({
                     newBar = Math.max(0, Math.min(newBar, totalBars));
                     
                     const newProgress = (newBar * parsedBeatsPerBar) / (activeBpm / 60);
-                    handleSeek({ target: { value: newProgress } });
+                    audioEngine.handleSeek({ target: { value: newProgress } });
                 }
             } else if (cycleDragRef.current.isDragging) {
                 const mode = cycleDragRef.current.mode;
                 const activePixels = cycleDragRef.current.pixelsPerBar || pixelsPerBar;
                 const deltaX = e.clientX - cycleDragRef.current.initialX;
                 const deltaBars = deltaX / activePixels;
-                // Snap delta to beats
                 const snappedDeltaBars = Math.round(deltaBars * parsedBeatsPerBar) / parsedBeatsPerBar;
                 
                 if (mode === 'move') {
@@ -396,8 +191,7 @@ export default function StemSplitter({
                         newEnd = totalBars;
                         newStart = totalBars - span;
                     }
-                    
-                    setCycleRegion({ startBar: newStart, endBar: newEnd });
+                    audioEngine.setCycleRegion({ startBar: newStart, endBar: newEnd });
                 } else if (mode === 'resize-left') {
                     let newStart = cycleDragRef.current.initialStart + snappedDeltaBars;
                     const minimumSpan = 1 / parsedBeatsPerBar;
@@ -405,7 +199,7 @@ export default function StemSplitter({
                     if (newStart > cycleDragRef.current.initialEnd - minimumSpan) {
                         newStart = cycleDragRef.current.initialEnd - minimumSpan;
                     }
-                    setCycleRegion({ startBar: newStart, endBar: cycleDragRef.current.initialEnd });
+                    audioEngine.setCycleRegion({ startBar: newStart, endBar: cycleDragRef.current.initialEnd });
                 } else if (mode === 'resize-right') {
                     let newEnd = cycleDragRef.current.initialEnd + snappedDeltaBars;
                     const minimumSpan = 1 / parsedBeatsPerBar;
@@ -413,7 +207,7 @@ export default function StemSplitter({
                     if (newEnd < cycleDragRef.current.initialStart + minimumSpan) {
                         newEnd = cycleDragRef.current.initialStart + minimumSpan;
                     }
-                    setCycleRegion({ startBar: cycleDragRef.current.initialStart, endBar: newEnd });
+                    audioEngine.setCycleRegion({ startBar: cycleDragRef.current.initialStart, endBar: newEnd });
                 }
             }
         };
@@ -436,7 +230,7 @@ export default function StemSplitter({
             window.removeEventListener('mousemove', handleMouseMove);
             window.removeEventListener('mouseup', handleMouseUp);
         };
-    }, [activeBpm, pixelsPerBar, totalBars, parsedBeatsPerBar, handleSeek]);
+    }, [activeBpm, pixelsPerBar, totalBars, parsedBeatsPerBar, audioEngine.handleSeek, audioEngine.setCycleRegion]);
 
     return (
         <div style={{
@@ -502,27 +296,27 @@ export default function StemSplitter({
                             background: '#333', padding: '15px 20px', borderRadius: '4px', 
                             display: 'flex', alignItems: 'center', gap: '20px'
                         }}>
-                            <button title="Go to Beginning" onClick={handleGoToBeginning} style={{
+                            <button title="Go to Beginning" onClick={audioEngine.handleGoToBeginning} style={{
                                 background: 'transparent', color: 'white', border: 'none',
                                 cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '0', opacity: 0.8
                             }}>
                                 <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
                             </button>
 
-                            <button title="Play/Pause" onClick={togglePlay} style={{
+                            <button title="Play/Pause" onClick={audioEngine.togglePlay} style={{
                                 background: 'transparent', color: 'white', border: 'none',
                                 cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '0', opacity: 0.8
                             }}>
-                                {isPlaying ? (
+                                {audioEngine.isPlaying ? (
                                     <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
                                 ) : (
                                     <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
                                 )}
                             </button>
 
-                            <button title="Toggle Cycle" onClick={() => setIsCycling(!isCycling)} style={{
-                                background: isCycling ? '#8B6508' : 'transparent', 
-                                color: isCycling ? '#fff' : 'white', 
+                            <button title="Toggle Cycle" onClick={() => audioEngine.setIsCycling(!audioEngine.isCycling)} style={{
+                                background: audioEngine.isCycling ? '#8B6508' : 'transparent', 
+                                color: audioEngine.isCycling ? '#fff' : 'white', 
                                 border: 'none', borderRadius: '4px',
                                 cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px', 
                                 opacity: 0.8,
@@ -533,8 +327,8 @@ export default function StemSplitter({
                             
                             <div className="time-display" style={{ color: '#fff', fontSize: '14px', fontFamily: 'monospace', marginLeft: '10px', whiteSpace: 'nowrap' }}>
                                 {isMidiLoading ? 
-                                    `${formatTime(progress)} / ${formatTime(duration)}` : 
-                                    `${formatTime(dynamicProgress)} / ${formatTime(dynamicDuration)}`
+                                    `${audioEngine.formatTime(audioEngine.progress)} / ${audioEngine.formatTime(audioEngine.duration)}` : 
+                                    `${audioEngine.formatTime(dynamicProgress)} / ${audioEngine.formatTime(dynamicDuration)}`
                                 }
                             </div>
 
@@ -556,14 +350,14 @@ export default function StemSplitter({
                                     ) : (
                                         <>
                                             <span 
-                                                onMouseDown={(e) => handleBpmMouseDown(e, 'int')}
+                                                onMouseDown={(e) => audioEngine.handleBpmMouseDown(e, 'int')}
                                                 style={{ cursor: 'ns-resize', flexGrow: 1, textAlign: 'right' }}
-                                            >{Math.floor(bpm)}</span>
+                                            >{Math.floor(audioEngine.bpm)}</span>
                                             <span style={{ cursor: 'default' }}>.</span>
                                             <span 
-                                                onMouseDown={(e) => handleBpmMouseDown(e, 'dec')}
+                                                onMouseDown={(e) => audioEngine.handleBpmMouseDown(e, 'dec')}
                                                 style={{ cursor: 'ns-resize', flexGrow: 1, textAlign: 'left' }}
-                                            >{Math.round((bpm - Math.floor(bpm)) * 10)}</span>
+                                            >{Math.round((audioEngine.bpm - Math.floor(audioEngine.bpm)) * 10)}</span>
                                         </>
                                     )}
                                 </div>
@@ -588,7 +382,7 @@ export default function StemSplitter({
                                         userSelect: 'none'
                                     }}
                                 >
-                                    {timeSignature}
+                                    {audioEngine.timeSignature}
                                 </div>
 
                                 {showSigMenu && (
@@ -606,7 +400,7 @@ export default function StemSplitter({
                                             {['3/4', '4/4', '5/4', '6/8', '7/8'].map(sig => (
                                                 <div 
                                                     key={sig}
-                                                    onClick={() => { setTimeSignature(sig); setShowSigMenu(false); }}
+                                                    onClick={() => { audioEngine.setTimeSignature(sig); setShowSigMenu(false); }}
                                                     onMouseEnter={(e) => e.target.style.background = '#2A3644'}
                                                     onMouseLeave={(e) => e.target.style.background = 'transparent'}
                                                     style={{ 
@@ -658,13 +452,13 @@ export default function StemSplitter({
                                 pixelsPerBar={pixelsPerBar}
                                 setPixelsPerBar={setPixelsPerBar}
                                 tracksToRender={tracksToRender}
-                                audioRefs={audioRefs}
-                                duration={duration}
-                                setDuration={setDuration}
-                                toggleMute={toggleMute}
-                                mutedTracks={mutedTracks}
-                                toggleSolo={toggleSolo}
-                                soloedTracks={soloedTracks}
+                                audioRefs={audioEngine.audioRefs}
+                                duration={audioEngine.duration}
+                                setDuration={audioEngine.setDuration}
+                                toggleMute={audioEngine.toggleMute}
+                                mutedTracks={audioEngine.mutedTracks}
+                                toggleSolo={audioEngine.toggleSolo}
+                                soloedTracks={audioEngine.soloedTracks}
                                 selectedTrack={selectedTrack}
                                 setSelectedTrack={setSelectedTrack}
                                 onDoubleClickTrack={handleOpenEditor}
@@ -677,7 +471,7 @@ export default function StemSplitter({
                                 <div ref={timelineRef} style={{ minWidth: `${pixelsPerBar * totalBars}px`, display: 'flex', flexDirection: 'column', gap: '3px', position: 'relative' }}>
                                     
                                     {/* Time Indicator (Playhead) */}
-                                    {duration > 0 && (
+                                    {audioEngine.duration > 0 && (
                                         <div style={{
                                             position: 'absolute',
                                             left: `${playheadX}px`,
@@ -694,13 +488,13 @@ export default function StemSplitter({
 
                                     {/* Timeline Header Right (Time Bar) */}
                                     <TimelineRuler 
-                                        duration={duration}
+                                        duration={audioEngine.duration}
                                         pixelsPerBar={pixelsPerBar}
                                         cycleDragRef={cycleDragRef}
-                                        cycleRegion={cycleRegion}
-                                        isCycling={isCycling}
+                                        cycleRegion={audioEngine.cycleRegion}
+                                        isCycling={audioEngine.isCycling}
                                         totalBars={totalBars}
-                                        timeSignature={timeSignature}
+                                        timeSignature={audioEngine.timeSignature}
                                         timelineRef={timelineRef}
                                         playheadDragRef={playheadDragRef}
                                         setIsPlayheadHovered={setIsPlayheadHovered}
@@ -708,7 +502,7 @@ export default function StemSplitter({
                                         playheadX={playheadX}
                                         activeBpm={activeBpm}
                                         parsedBeatsPerBar={parsedBeatsPerBar}
-                                        handleSeek={handleSeek}
+                                        handleSeek={audioEngine.handleSeek}
                                     />
                                     
                                     {/* Track Contents */}
@@ -742,11 +536,11 @@ export default function StemSplitter({
                         key={`midi-synth-${trackName}`}
                         trackName={trackName}
                         activeBpm={activeBpm}
-                        originalBpm={originalBpm}
-                        progress={progress}
-                        isPlaying={isPlaying}
+                        originalBpm={audioEngine.originalBpm}
+                        progress={audioEngine.progress}
+                        isPlaying={audioEngine.isPlaying}
                         parsedMidiStems={parsedMidiStems}
-                        audioCtxRef={audioCtxRef}
+                        audioCtxRef={audioEngine.audioCtxRef}
                         synthRef={synthRefToUse}
                         isMidiMode={!!activeMidiTracks[trackName]}
                     />
@@ -757,33 +551,33 @@ export default function StemSplitter({
             <MidiEditorPopup 
                 trackName={editorOpenTrack} 
                 onClose={handleCloseEditor} 
-                duration={duration}
+                duration={audioEngine.duration}
                 pixelsPerBar={pixelsPerBar}
                 totalBars={totalBars}
                 playheadX={playheadX}
                 cycleDragRef={cycleDragRef}
-                cycleRegion={cycleRegion}
-                isCycling={isCycling}
-                timeSignature={timeSignature}
+                cycleRegion={audioEngine.cycleRegion}
+                isCycling={audioEngine.isCycling}
+                timeSignature={audioEngine.timeSignature}
                 playheadDragRef={playheadDragRef}
                 setIsPlayheadHovered={setIsPlayheadHovered}
                 isPlayheadHovered={isPlayheadHovered}
-                handleGoToBeginning={handleGoToBeginning}
-                isPlaying={isPlaying}
-                togglePlay={togglePlay}
-                toggleCycling={() => setIsCycling(!isCycling)}
-                mutedTracks={mutedTracks}
-                soloedTracks={soloedTracks}
-                toggleMute={toggleMute}
-                toggleSolo={toggleSolo}
+                handleGoToBeginning={audioEngine.handleGoToBeginning}
+                isPlaying={audioEngine.isPlaying}
+                togglePlay={audioEngine.togglePlay}
+                toggleCycling={() => audioEngine.setIsCycling(!audioEngine.isCycling)}
+                mutedTracks={audioEngine.mutedTracks}
+                soloedTracks={audioEngine.soloedTracks}
+                toggleMute={audioEngine.toggleMute}
+                toggleSolo={audioEngine.toggleSolo}
                 activeBpm={activeBpm}
-                originalBpm={originalBpm}
+                originalBpm={audioEngine.originalBpm}
                 parsedBeatsPerBar={parsedBeatsPerBar}
-                handleSeek={handleSeek}
+                handleSeek={audioEngine.handleSeek}
                 parsedMidiStems={parsedMidiStems}
                 setParsedMidiStems={setParsedMidiStems}
-                audioCtxRef={audioCtxRef}
-                progress={progress}
+                audioCtxRef={audioEngine.audioCtxRef}
+                progress={audioEngine.progress}
                 synthRef={
                     editorOpenTrack === 'guitar' ? guitarSynthRef :
                     editorOpenTrack === 'bass' ? bassSynthRef :

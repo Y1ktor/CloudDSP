@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
 import EqPage from './EqPage';
-import StemSplitter from './components/StemSplitter';
+import StemSplitter from './components/StemSplitter/StemSplitter';
 
 const WEBSOCKET_URL = "wss://grreq325rk.execute-api.us-east-1.amazonaws.com/dev";
 const API_URL = "https://6ec8xwsshl.execute-api.us-east-1.amazonaws.com/upload-url";
