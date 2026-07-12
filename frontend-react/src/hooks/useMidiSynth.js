@@ -16,8 +16,10 @@ import { SplendidGrandPiano } from 'smplr';
  * @param {number} originalBpm - The master original BPM determined by the project, used to calculate playbackRate.
  * @param {React.MutableRefObject<Object>} synthRef - Global reference to the initialized smplr instrument.
  * @param {boolean} isMidiMode - Whether MIDI synthesis is currently active for this track.
+ * @param {Object} mutedTracks - Dictionary of muted tracks.
+ * @param {Object} soloedTracks - Dictionary of soloed tracks.
  */
-export function useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, trackName, activeBpm, originalBpm, synthRef, isMidiMode) {
+export function useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, trackName, activeBpm, originalBpm, synthRef, isMidiMode, mutedTracks = {}, soloedTracks = {}) {
     const scheduledNotesRef = useRef(new Set());
 
     // 1. Initialize instrument when MIDI mode is enabled (now just ensures it exists)
@@ -54,6 +56,15 @@ export function useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, 
     useEffect(() => {
         if (!isMidiMode || !isPlaying || !synthRef.current || !parsedMidiStems || !parsedMidiStems[trackName] || !originalBpm) return;
         
+        const hasSolos = Object.values(soloedTracks).some(val => val);
+        const shouldBeMuted = hasSolos ? !soloedTracks[trackName] : !!mutedTracks[trackName];
+
+        if (shouldBeMuted) {
+            // Stop any currently playing notes if we just got muted/unsoloed while playing
+            synthRef.current.stop();
+            return;
+        }
+
         const trackData = parsedMidiStems[trackName];
         
         // The master timeline's time-stretching playback rate (e.g., 65 / 130 = 0.5x speed)
@@ -87,7 +98,7 @@ export function useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, 
                 }
             }
         });
-    }, [progress, isPlaying, isMidiMode, activeBpm, originalBpm, parsedMidiStems, trackName, audioCtxRef]);
+    }, [progress, isPlaying, isMidiMode, activeBpm, originalBpm, parsedMidiStems, trackName, audioCtxRef, mutedTracks, soloedTracks]);
 
     // 3. Clear scheduled notes if we seek, pause, or switch tracks
     useEffect(() => {

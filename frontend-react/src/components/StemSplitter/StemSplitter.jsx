@@ -12,8 +12,8 @@ import { useMidiManager } from '../../hooks/useMidiManager';
 import { useGlobalShortcuts } from '../../hooks/useGlobalShortcuts';
 import { useUndoHistory } from '../../hooks/useUndoHistory';
 
-function MidiScheduler({ trackName, activeBpm, originalBpm, progress, isPlaying, parsedMidiStems, audioCtxRef, synthRef, isMidiMode }) {
-    useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, trackName, activeBpm, originalBpm, synthRef, isMidiMode);
+function MidiScheduler({ trackName, activeBpm, originalBpm, progress, isPlaying, parsedMidiStems, audioCtxRef, synthRef, isMidiMode, mutedTracks, soloedTracks }) {
+    useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, trackName, activeBpm, originalBpm, synthRef, isMidiMode, mutedTracks, soloedTracks);
     return null;
 }
 
@@ -543,6 +543,8 @@ export default function StemSplitter({
                         audioCtxRef={audioEngine.audioCtxRef}
                         synthRef={synthRefToUse}
                         isMidiMode={!!activeMidiTracks[trackName]}
+                        mutedTracks={audioEngine.mutedTracks}
+                        soloedTracks={audioEngine.soloedTracks}
                     />
                 );
             })}
