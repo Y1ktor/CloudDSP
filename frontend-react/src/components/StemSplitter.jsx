@@ -91,8 +91,47 @@ export default function StemSplitter({
         setActiveMidiTracks(prev => ({ ...prev, [trackName]: !prev[trackName] }));
     };
 
+    const [undoStacks, setUndoStacks] = React.useState({});
+    const MAX_UNDO_STEPS = 20;
+
+    const pushUndoState = (trackName) => {
+        if (!parsedMidiStems[trackName]) return;
+        const binarySnapshot = parsedMidiStems[trackName].midiData.toArray();
+        setUndoStacks(prev => {
+            const trackStack = prev[trackName] ? [...prev[trackName]] : [];
+            if (trackStack.length >= MAX_UNDO_STEPS) {
+                trackStack.shift();
+            }
+            trackStack.push(binarySnapshot);
+            return { ...prev, [trackName]: trackStack };
+        });
+    };
+
+    const handleUndoMidi = (trackName) => {
+        setUndoStacks(prev => {
+            const trackStack = prev[trackName] ? [...prev[trackName]] : [];
+            if (trackStack.length === 0) return prev; // nothing to undo
+            
+            const lastSnapshot = trackStack.pop();
+            
+            const restoredData = {
+                ...originalMidiStems[trackName],
+                midiData: new (originalMidiStems[trackName].midiData.constructor)(lastSnapshot)
+            };
+            
+            setParsedMidiStems(prevStems => ({
+                ...prevStems,
+                [trackName]: restoredData
+            }));
+            
+            return { ...prev, [trackName]: trackStack };
+        });
+    };
+
     const handleRevertMidi = (trackName) => {
         if (!originalMidiStems[trackName]) return;
+        
+        pushUndoState(trackName);
         
         // Re-clone the original by serializing it back to binary and re-parsing
         const binaryBuffer = originalMidiStems[trackName].midiData.toArray();
@@ -689,6 +728,9 @@ export default function StemSplitter({
                 isMidiMode={!!activeMidiTracks[editorOpenTrack]}
                 setIsMidiMode={() => toggleMidiMode(editorOpenTrack)}
                 handleRevertMidi={() => handleRevertMidi(editorOpenTrack)}
+                handleUndoMidi={() => handleUndoMidi(editorOpenTrack)}
+                pushUndoState={() => pushUndoState(editorOpenTrack)}
+                undoStackLength={undoStacks[editorOpenTrack] ? undoStacks[editorOpenTrack].length : 0}
             />
         </div>
     );

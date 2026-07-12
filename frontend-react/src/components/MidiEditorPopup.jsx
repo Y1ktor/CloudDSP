@@ -39,7 +39,10 @@ export default function MidiEditorPopup({
     globalSynthRef,
     isMidiMode,
     setIsMidiMode,
-    handleRevertMidi
+    handleRevertMidi,
+    handleUndoMidi,
+    pushUndoState,
+    undoStackLength
 }) {
     const popupTimelineRef = useRef(null);
     const pianoScrollRef = useRef(null);
@@ -479,21 +482,38 @@ export default function MidiEditorPopup({
                     MIDI
                 </button>
 
-                {/* Revert MIDI Button */}
+                {/* Undo MIDI Button */}
                 <button onClick={() => {
-                    if (window.confirm('Are you sure you want to revert all MIDI edits for this track to their original state?')) {
-                        if (handleRevertMidi) handleRevertMidi();
-                    }
+                    if (handleUndoMidi && undoStackLength > 0) handleUndoMidi();
                 }} style={{
                     height: '24px', padding: '0 10px',
                     background: 'transparent',
-                    color: '#e53935', 
-                    border: '1px solid #e53935', 
+                    color: undoStackLength > 0 ? 'white' : '#555', 
+                    border: `1px solid ${undoStackLength > 0 ? 'white' : '#555'}`, 
+                    borderRadius: '4px',
+                    cursor: undoStackLength > 0 ? 'pointer' : 'default', fontSize: '12px', fontWeight: 'bold',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    transition: 'all 0.2s',
+                    marginLeft: '10px',
+                    opacity: undoStackLength > 0 ? 0.8 : 0.5
+                }} title="Undo last edit" disabled={undoStackLength === 0}>
+                    Undo
+                </button>
+
+                {/* Revert MIDI Button */}
+                <button onClick={() => {
+                    if (handleRevertMidi) handleRevertMidi();
+                }} style={{
+                    height: '24px', padding: '0 10px',
+                    background: 'transparent',
+                    color: 'white', 
+                    border: '1px solid white', 
                     borderRadius: '4px',
                     cursor: 'pointer', fontSize: '12px', fontWeight: 'bold',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     transition: 'all 0.2s',
-                    marginLeft: '10px'
+                    marginLeft: '10px',
+                    opacity: 0.8
                 }} title="Revert to Original MIDI">
                     Revert
                 </button>
@@ -512,6 +532,7 @@ export default function MidiEditorPopup({
                             min="0.01" max="1" step="0.01"
                             value={commonVelocity}
                             onChange={handleVelocityChange}
+                            onPointerDown={pushUndoState}
                             style={{ width: '80px', cursor: 'pointer', accentColor: '#aaa' }}
                         />
                     </div>
@@ -631,8 +652,11 @@ export default function MidiEditorPopup({
                         width: '100%',
                         height: `${gridHeight}px`,
                         marginTop: '0px',
-                        backgroundSize: `100% ${popupRowHeight}px`,
-                        backgroundImage: `linear-gradient(to bottom, transparent ${popupRowHeight - 1}px, rgba(255,255,255,0.05) ${popupRowHeight}px)`
+                        backgroundSize: `${popupPixelsPerBar}px 100%, 100% ${popupRowHeight}px`,
+                        backgroundImage: `
+                            linear-gradient(to right, transparent ${popupPixelsPerBar - 1}px, rgba(255,255,255,0.05) ${popupPixelsPerBar}px),
+                            linear-gradient(to bottom, transparent ${popupRowHeight - 1}px, rgba(255,255,255,0.05) ${popupRowHeight}px)
+                        `
                     }}>
                         {renderFullMidiNotes()}
                         
