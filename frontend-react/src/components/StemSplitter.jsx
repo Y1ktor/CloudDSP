@@ -1,5 +1,5 @@
 import React from 'react';
-import { SplendidGrandPiano } from 'smplr';
+import { SplendidGrandPiano, Soundfont } from 'smplr';
 import { useAudioMultiTrackPlayer } from '../hooks/AudioMultiTrackPlayer';
 import { parseMidiFile, determineMasterBpm } from '../utils/MidiParser';
 import ControlBar from './ControlBar';
@@ -9,8 +9,8 @@ import TrackGrid from './TrackGrid';
 import MidiEditorPopup from './MidiEditorPopup';
 import { useMidiSynth } from '../hooks/useMidiSynth';
 
-function MidiScheduler({ trackName, activeBpm, originalBpm, progress, isPlaying, parsedMidiStems, audioCtxRef, globalSynthRef, isMidiMode }) {
-    useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, trackName, activeBpm, originalBpm, globalSynthRef, isMidiMode);
+function MidiScheduler({ trackName, activeBpm, originalBpm, progress, isPlaying, parsedMidiStems, audioCtxRef, synthRef, isMidiMode }) {
+    useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, trackName, activeBpm, originalBpm, synthRef, isMidiMode);
     return null;
 }
 
@@ -181,6 +181,54 @@ export default function StemSplitter({
     const [isMidiLoading, setIsMidiLoading] = React.useState(true);
     const hasFetchedMidi = React.useRef(false);
     const globalSynthRef = React.useRef(null);
+    const guitarSynthRef = React.useRef(null);
+    const bassSynthRef = React.useRef(null);
+
+    React.useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+                return;
+            }
+
+            const targetTrack = editorOpenTrack || selectedTrack;
+
+            switch (e.key.toLowerCase()) {
+                case ' ':
+                    e.preventDefault();
+                    togglePlay();
+                    break;
+                case 'enter':
+                    e.preventDefault();
+                    handleGoToBeginning();
+                    break;
+                case 'c':
+                    e.preventDefault();
+                    setIsCycling(prev => !prev);
+                    break;
+                case 's':
+                    if (targetTrack) {
+                        e.preventDefault();
+                        toggleSolo(targetTrack);
+                    }
+                    break;
+                case 'm':
+                    if (targetTrack) {
+                        e.preventDefault();
+                        toggleMute(targetTrack);
+                    }
+                    break;
+                case 'z':
+                    if ((e.metaKey || e.ctrlKey) && editorOpenTrack) {
+                        e.preventDefault();
+                        handleUndoMidi(editorOpenTrack);
+                    }
+                    break;
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [togglePlay, handleGoToBeginning, setIsCycling, toggleSolo, toggleMute, editorOpenTrack, selectedTrack]);
 
     // MOCK: Fetch local MIDI files to test MIDI processing and smart BPM voting
     React.useEffect(() => {
@@ -196,6 +244,12 @@ export default function StemSplitter({
             }
             if (!globalSynthRef.current) {
                 globalSynthRef.current = new SplendidGrandPiano(audioCtxRef.current);
+            }
+            if (!guitarSynthRef.current) {
+                guitarSynthRef.current = new Soundfont(audioCtxRef.current, { instrument: 'acoustic_guitar_nylon' });
+            }
+            if (!bassSynthRef.current) {
+                bassSynthRef.current = new Soundfont(audioCtxRef.current, { instrument: 'acoustic_bass' });
             }
 
             // MOCK DELAY: wait 3 seconds to simulate AWS Basic Pitch cold start/processing
@@ -678,20 +732,26 @@ export default function StemSplitter({
             </div>
 
             {/* Background MIDI Schedulers */}
-            {Object.keys(parsedMidiStems).map(trackName => (
-                <MidiScheduler
-                    key={`midi-synth-${trackName}`}
-                    trackName={trackName}
-                    activeBpm={activeBpm}
-                    originalBpm={originalBpm}
-                    progress={progress}
-                    isPlaying={isPlaying}
-                    parsedMidiStems={parsedMidiStems}
-                    audioCtxRef={audioCtxRef}
-                    globalSynthRef={globalSynthRef}
-                    isMidiMode={!!activeMidiTracks[trackName]}
-                />
-            ))}
+            {Object.keys(parsedMidiStems).map(trackName => {
+                let synthRefToUse = globalSynthRef;
+                if (trackName === 'guitar') synthRefToUse = guitarSynthRef;
+                if (trackName === 'bass') synthRefToUse = bassSynthRef;
+
+                return (
+                    <MidiScheduler
+                        key={`midi-synth-${trackName}`}
+                        trackName={trackName}
+                        activeBpm={activeBpm}
+                        originalBpm={originalBpm}
+                        progress={progress}
+                        isPlaying={isPlaying}
+                        parsedMidiStems={parsedMidiStems}
+                        audioCtxRef={audioCtxRef}
+                        synthRef={synthRefToUse}
+                        isMidiMode={!!activeMidiTracks[trackName]}
+                    />
+                );
+            })}
 
             {/* MIDI Editor Pop-up Window */}
             <MidiEditorPopup 
@@ -724,7 +784,11 @@ export default function StemSplitter({
                 setParsedMidiStems={setParsedMidiStems}
                 audioCtxRef={audioCtxRef}
                 progress={progress}
-                globalSynthRef={globalSynthRef}
+                synthRef={
+                    editorOpenTrack === 'guitar' ? guitarSynthRef :
+                    editorOpenTrack === 'bass' ? bassSynthRef :
+                    globalSynthRef
+                }
                 isMidiMode={!!activeMidiTracks[editorOpenTrack]}
                 setIsMidiMode={() => toggleMidiMode(editorOpenTrack)}
                 handleRevertMidi={() => handleRevertMidi(editorOpenTrack)}

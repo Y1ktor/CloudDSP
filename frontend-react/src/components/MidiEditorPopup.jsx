@@ -36,7 +36,7 @@ export default function MidiEditorPopup({
     setParsedMidiStems,
     audioCtxRef,
     progress,
-    globalSynthRef,
+    synthRef,
     isMidiMode,
     setIsMidiMode,
     handleRevertMidi,
@@ -53,8 +53,8 @@ export default function MidiEditorPopup({
 
     // Local audition logic for piano keys/notes
     const auditionNote = (note) => {
-        if (isMidiMode && globalSynthRef.current && audioCtxRef.current) {
-            globalSynthRef.current.start({
+        if (isMidiMode && synthRef && synthRef.current && audioCtxRef.current) {
+            synthRef.current.start({
                 note: note.midi,
                 velocity: Math.round((note.velocity !== undefined ? note.velocity : 0.8) * 127),
                 time: audioCtxRef.current.currentTime,

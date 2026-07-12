@@ -14,10 +14,10 @@ import { SplendidGrandPiano } from 'smplr';
  * @param {string} trackName - The name of the specific track this synth is bound to (e.g. 'piano', 'bass').
  * @param {number} activeBpm - The current user-adjusted BPM of the master timeline.
  * @param {number} originalBpm - The master original BPM determined by the project, used to calculate playbackRate.
- * @param {React.MutableRefObject<Object>} globalSynthRef - Global reference to the initialized smplr instrument.
+ * @param {React.MutableRefObject<Object>} synthRef - Global reference to the initialized smplr instrument.
  * @param {boolean} isMidiMode - Whether MIDI synthesis is currently active for this track.
  */
-export function useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, trackName, activeBpm, originalBpm, globalSynthRef, isMidiMode) {
+export function useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, trackName, activeBpm, originalBpm, synthRef, isMidiMode) {
     const scheduledNotesRef = useRef(new Set());
 
     // 1. Initialize instrument when MIDI mode is enabled (now just ensures it exists)
@@ -29,30 +29,30 @@ export function useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, 
                 const AudioContext = window.AudioContext || window.webkitAudioContext;
                 audioCtxRef.current = new AudioContext();
             }
-            if (!globalSynthRef.current) {
-                globalSynthRef.current = new SplendidGrandPiano(audioCtxRef.current);
+            if (!synthRef.current) {
+                synthRef.current = new SplendidGrandPiano(audioCtxRef.current);
             }
         } else {
-            if (globalSynthRef.current) {
-                globalSynthRef.current.stop(); // Stop all ringing notes but keep the instance alive!
+            if (synthRef.current) {
+                synthRef.current.stop(); // Stop all ringing notes but keep the instance alive!
             }
         }
-    }, [isMidiMode, audioCtxRef, globalSynthRef]);
+    }, [isMidiMode, audioCtxRef, synthRef]);
 
     // Cleanup memory when the editor is completely closed (component unmounts)
     useEffect(() => {
         return () => {
-            if (globalSynthRef.current) {
-                globalSynthRef.current.stop();
+            if (synthRef.current) {
+                synthRef.current.stop();
                 // We NO LONGER set it to null here, because it's a global ref owned by StemSplitter
                 // which allows it to instantly load when other tracks are opened.
             }
         };
-    }, []);
+    }, [synthRef]);
 
     // 2. Playback Scheduler Loop
     useEffect(() => {
-        if (!isMidiMode || !isPlaying || !globalSynthRef.current || !parsedMidiStems || !parsedMidiStems[trackName] || !originalBpm) return;
+        if (!isMidiMode || !isPlaying || !synthRef.current || !parsedMidiStems || !parsedMidiStems[trackName] || !originalBpm) return;
         
         const trackData = parsedMidiStems[trackName];
         
@@ -77,7 +77,7 @@ export function useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, 
                     // Convert the note's original duration into real-world duration
                     const realWorldDuration = note.duration / playbackRate;
 
-                    globalSynthRef.current.start({
+                    synthRef.current.start({
                         note: note.midi,
                         velocity: Math.round((note.velocity !== undefined ? note.velocity : 0.8) * 127),
                         time: audioCtxRef.current.currentTime + realWorldDelay,
@@ -92,8 +92,8 @@ export function useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, 
     // 3. Clear scheduled notes if we seek, pause, or switch tracks
     useEffect(() => {
         scheduledNotesRef.current.clear();
-        if (globalSynthRef.current && !isPlaying) {
-            globalSynthRef.current.stop(); // Stop immediately on pause
+        if (synthRef.current && !isPlaying) {
+            synthRef.current.stop(); // Stop immediately on pause
         }
-    }, [progress < 0.1, isPlaying, trackName]); // Clear when seeking back to 0 or pausing
+    }, [progress < 0.1, isPlaying, trackName, synthRef]); // Clear when seeking back to 0 or pausing
 }
