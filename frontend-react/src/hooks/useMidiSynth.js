@@ -78,6 +78,9 @@ export function useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, 
         trackData.midiData.tracks[0].notes.forEach((note, index) => {
             // note.time and progress are both in absolute, UNSTRETCHED seconds
             if (note.time >= progress && note.time < progress + unstretchedLookahead) {
+                // If velocity is <= 0.015, it acts as our custom "disabled" flag. Skip playing it.
+                if (note.velocity !== undefined && note.velocity <= 0.015) return;
+
                 if (!scheduledNotesRef.current.has(index)) {
                     // How much unstretched time until the note occurs?
                     const unstretchedDelay = note.time - progress;
