@@ -123,6 +123,7 @@ export default function MidiEditorPopup({
     const [selectionStart, setSelectionStart] = React.useState({ x: 0, y: 0 });
     const [selectionRect, setSelectionRect] = React.useState(null); // {x, y, w, h}
     const [preDragSelection, setPreDragSelection] = React.useState(new Set());
+    const [noteDragState, setNoteDragState] = React.useState(null);
     
 
 
@@ -142,6 +143,30 @@ export default function MidiEditorPopup({
             }
         }
     }, [trackName]); // Only run when popup opens (trackName changes)
+
+    // Handle note deletion via Backspace/Delete
+    React.useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            if (e.key === 'Backspace' || e.key === 'Delete') {
+                if (selectedNoteIndices.size > 0 && parsedMidiStems && parsedMidiStems[trackName]) {
+                    e.preventDefault();
+                    if (pushUndoState) pushUndoState();
+                    const notes = parsedMidiStems[trackName].midiData.tracks[0].notes;
+                    
+                    const indicesToRemove = Array.from(selectedNoteIndices).sort((a, b) => b - a);
+                    indicesToRemove.forEach(idx => notes.splice(idx, 1));
+                    
+                    setSelectedNoteIndices(new Set());
+                    setParsedMidiStems({ ...parsedMidiStems });
+                }
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [selectedNoteIndices, parsedMidiStems, trackName, pushUndoState, setParsedMidiStems]);
+
 
     if (!trackName) return null;
 
@@ -289,6 +314,81 @@ export default function MidiEditorPopup({
     };
 
     const handleGridMouseMove = (e) => {
+        if (noteDragState) {
+            const deltaX = e.clientX - noteDragState.startX;
+            const deltaY = e.clientY - noteDragState.startY;
+
+            if (!noteDragState.hasMoved && (Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2)) {
+                if (pushUndoState) pushUndoState();
+                setNoteDragState(prev => ({ ...prev, hasMoved: true }));
+            }
+
+            if (!parsedMidiStems || !parsedMidiStems[trackName]) return;
+            const notes = parsedMidiStems[trackName].midiData.tracks[0].notes;
+
+            // Convert deltaX (pixels) to time (seconds)
+            const deltaBars = deltaX / popupPixelsPerBar;
+            const deltaBeats = deltaBars * parsedBeatsPerBar;
+            let deltaTime = deltaBeats / (activeBpm / 60);
+
+            // Convert deltaY (pixels) to pitch
+            const deltaPitch = -Math.round(deltaY / popupRowHeight);
+
+            // Snapping Logic
+            const snapThresholdPx = 6; // Reduced to 6 pixels of magnetic resistance
+            const snapThresholdTime = (snapThresholdPx / popupPixelsPerBar) * parsedBeatsPerBar / (activeBpm / 60);
+            
+            const clickedOriginal = noteDragState.originalNotes.find(n => n.index === noteDragState.clickedNoteIndex);
+            if (clickedOriginal) {
+                const targetPitch = clickedOriginal.originalMidi + deltaPitch;
+                const rawNewTime = clickedOriginal.originalTime + deltaTime;
+                const noteDuration = notes[clickedOriginal.index].duration;
+
+                let closestSnapDeltaTime = null;
+                let minDistanceTime = Infinity;
+
+                notes.forEach((neighborNote, neighborIdx) => {
+                    const isDragged = noteDragState.originalNotes.some(n => n.index === neighborIdx);
+                    if (isDragged) return;
+                    
+                    if (neighborNote.midi === targetPitch) {
+                        const neighborStart = neighborNote.time;
+                        const neighborEnd = neighborNote.time + neighborNote.duration;
+
+                        // 1. Snap Right Edge to neighbor's Left Edge
+                        const distRightToLeft = Math.abs((rawNewTime + noteDuration) - neighborStart);
+                        if (distRightToLeft < minDistanceTime && distRightToLeft < snapThresholdTime) {
+                            minDistanceTime = distRightToLeft;
+                            closestSnapDeltaTime = neighborStart - noteDuration - clickedOriginal.originalTime;
+                        }
+
+                        // 2. Snap Left Edge to neighbor's Right Edge
+                        const distLeftToRight = Math.abs(rawNewTime - neighborEnd);
+                        if (distLeftToRight < minDistanceTime && distLeftToRight < snapThresholdTime) {
+                            minDistanceTime = distLeftToRight;
+                            closestSnapDeltaTime = neighborEnd - clickedOriginal.originalTime;
+                        }
+                    }
+                });
+
+                if (closestSnapDeltaTime !== null) {
+                    deltaTime = closestSnapDeltaTime;
+                }
+            }
+
+            noteDragState.originalNotes.forEach(orig => {
+                const note = notes[orig.index];
+                if (note) {
+                    note.time = Math.max(0, orig.originalTime + deltaTime);
+                    note.midi = Math.max(0, Math.min(127, orig.originalMidi + deltaPitch));
+                }
+            });
+
+            // Trigger re-render
+            setParsedMidiStems({ ...parsedMidiStems });
+            return;
+        }
+
         if (!isDraggingSelection) return;
         const rect = e.currentTarget.getBoundingClientRect();
         const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
@@ -318,6 +418,9 @@ export default function MidiEditorPopup({
     };
 
     const handleGridMouseUp = () => {
+        if (noteDragState) {
+            setNoteDragState(null);
+        }
         if (isDraggingSelection) {
             setIsDraggingSelection(false);
             setSelectionRect(null);
@@ -335,33 +438,45 @@ export default function MidiEditorPopup({
         const notes = stemData.midiData.tracks[0].notes;
         if (notes.length === 0) return null;
 
-        const toggleNoteSelection = (index, e) => {
+        const handleNoteMouseDown = (index, e) => {
             e.stopPropagation();
-            const newSelection = new Set(selectedNoteIndices);
+            let newSelection = new Set(selectedNoteIndices);
             
-            if (newSelection.has(index)) {
-                if (e.shiftKey) {
-                    newSelection.delete(index);
-                } else {
-                    if (newSelection.size === 1) {
-                        newSelection.clear();
-                    } else {
-                        newSelection.clear();
-                        newSelection.add(index);
-                    }
-                }
-            } else {
+            if (!newSelection.has(index)) {
                 if (!e.shiftKey) {
                     newSelection.clear();
                 }
                 newSelection.add(index);
-                // Audition the note immediately!
-                const note = parsedMidiStems[trackName].midiData.tracks[0].notes[index];
+                setSelectedNoteIndices(newSelection);
+                
+                const note = stemData.midiData.tracks[0].notes[index];
                 if (note) {
                     auditionNote(note);
                 }
+            } else {
+                if (e.shiftKey) {
+                    newSelection.delete(index);
+                    setSelectedNoteIndices(newSelection);
+                    return; // Don't initiate drag if just deselecting
+                }
             }
-            setSelectedNoteIndices(newSelection);
+            
+            // Initiate note dragging
+            const notes = stemData.midiData.tracks[0].notes;
+            const originalNotes = Array.from(newSelection).map(idx => ({
+                index: idx,
+                originalTime: notes[idx].time,
+                originalMidi: notes[idx].midi
+            }));
+            
+            setNoteDragState({
+                isDragging: true,
+                hasMoved: false,
+                startX: e.clientX,
+                startY: e.clientY,
+                originalNotes,
+                clickedNoteIndex: index
+            });
         };
 
         return notes.map((note, index) => {
@@ -395,7 +510,7 @@ export default function MidiEditorPopup({
             return (
                 <div 
                     key={`popup-note-${index}`}
-                    onClick={(e) => toggleNoteSelection(index, e)}
+                    onMouseDown={(e) => handleNoteMouseDown(index, e)}
                     style={{
                         position: 'absolute',
                         left: `${leftPx}px`,
@@ -530,6 +645,8 @@ export default function MidiEditorPopup({
                     MIDI
                 </button>
 
+
+
                 {/* Undo MIDI Button */}
                 <button onClick={() => {
                     if (handleUndoMidi && undoStackLength > 0) handleUndoMidi();
@@ -585,6 +702,75 @@ export default function MidiEditorPopup({
                         />
                     </div>
                 )}
+
+                {/* Join Notes Button */}
+                {(() => {
+                    const canJoinSelectedNotes = () => {
+                        if (!parsedMidiStems || !parsedMidiStems[trackName]) return false;
+                        if (selectedNoteIndices.size < 2) return false;
+
+                        const notes = parsedMidiStems[trackName].midiData.tracks[0].notes;
+                        const selected = Array.from(selectedNoteIndices).map(idx => {
+                            const note = notes[idx];
+                            return { ...note, time: note.time, duration: note.duration, index: idx };
+                        });
+                        selected.sort((a, b) => a.time - b.time);
+                        
+                        const firstMidi = selected[0].midi;
+                        if (!selected.every(n => n.midi === firstMidi)) return false;
+                        
+                        for (let i = 0; i < selected.length - 1; i++) {
+                            const currentEnd = selected[i].time + selected[i].duration;
+                            if (currentEnd < selected[i+1].time - 0.05) {
+                                return false; // Gap detected
+                            }
+                        }
+                        return true;
+                    };
+
+                    const handleJoinNotes = () => {
+                        if (pushUndoState) pushUndoState();
+                        const notes = parsedMidiStems[trackName].midiData.tracks[0].notes;
+                        const selected = Array.from(selectedNoteIndices).map(idx => {
+                            const note = notes[idx];
+                            return { ...note, time: note.time, duration: note.duration, index: idx };
+                        });
+                        selected.sort((a, b) => a.time - b.time);
+                        
+                        const firstNote = selected[0];
+                        const lastNote = selected[selected.length - 1];
+                        
+                        const noteToKeep = notes[firstNote.index];
+                        noteToKeep.duration = (lastNote.time + lastNote.duration) - firstNote.time;
+                        noteToKeep.velocity = Math.max(...selected.map(n => n.velocity !== undefined ? n.velocity : 0.8));
+                        
+                        const indicesToRemove = selected.slice(1).map(n => n.index).sort((a, b) => b - a);
+                        indicesToRemove.forEach(idx => notes.splice(idx, 1));
+                        
+                        setSelectedNoteIndices(new Set([notes.indexOf(noteToKeep)]));
+                        setParsedMidiStems({ ...parsedMidiStems });
+                    };
+
+                    const canJoin = canJoinSelectedNotes();
+
+                    return canJoin ? (
+                        <div style={{ marginRight: '20px', borderRight: '1px solid #333', paddingRight: '20px' }}>
+                            <button onClick={handleJoinNotes} style={{
+                                height: '24px', padding: '0 10px',
+                                background: 'transparent',
+                                color: 'white', 
+                                border: '1px solid white', 
+                                borderRadius: '4px',
+                                cursor: 'pointer', fontSize: '12px', fontWeight: 'bold',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                transition: 'all 0.2s',
+                                opacity: 0.8
+                            }} title="Join Selected Notes">
+                                Join
+                            </button>
+                        </div>
+                    ) : null;
+                })()}
 
                 {/* Zoom Controls */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
@@ -706,6 +892,29 @@ export default function MidiEditorPopup({
                             linear-gradient(to bottom, transparent ${popupRowHeight - 1}px, rgba(255,255,255,0.05) ${popupRowHeight}px)
                         `
                     }}>
+                        {/* Drag Highlight Row */}
+                        {noteDragState && noteDragState.hasMoved && parsedMidiStems && parsedMidiStems[trackName] && (
+                            (() => {
+                                const notes = parsedMidiStems[trackName].midiData.tracks[0].notes;
+                                const clickedNote = notes[noteDragState.clickedNoteIndex];
+                                if (!clickedNote) return null;
+                                
+                                const topPx = (127 - clickedNote.midi) * popupRowHeight;
+                                return (
+                                    <div style={{
+                                        position: 'absolute',
+                                        left: 0,
+                                        right: 0,
+                                        top: `${topPx}px`,
+                                        height: `${popupRowHeight}px`,
+                                        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                                        pointerEvents: 'none',
+                                        zIndex: 0
+                                    }} />
+                                );
+                            })()
+                        )}
+
                         {renderFullMidiNotes()}
                         
                         {/* Drag Selection Rectangle */}
