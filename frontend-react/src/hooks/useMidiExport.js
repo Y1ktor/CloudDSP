@@ -7,14 +7,48 @@ export function useMidiExport({
     fileName, 
     cycleRegion, 
     pixelsPerBar, 
-    totalBars, 
-    duration 
+    totalBars,
+    duration,
+    activeBpm
 }) {
     const handleExportMidi = useCallback(() => {
         const stemData = parsedMidiStems[trackName];
         if (!stemData || !stemData.midiData) return;
         
-        const midiArray = stemData.midiData.toArray();
+        const exportedMidi = new Midi(stemData.midiData.toArray());
+        
+        // Cache original absolute times before changing tempo map
+        const originalTimes = new Map();
+        exportedMidi.tracks.forEach(track => {
+            track.notes.forEach(note => {
+                originalTimes.set(note, { time: note.time, duration: note.duration });
+            });
+            for (const ccNumber in track.controlChanges) {
+                track.controlChanges[ccNumber].forEach(cc => {
+                    originalTimes.set(cc, { time: cc.time });
+                });
+            }
+        });
+
+        exportedMidi.header.tempos = [{ ticks: 0, bpm: activeBpm }];
+        exportedMidi.header.timeSignatures = [{ ticks: 0, timeSignature: [4, 4] }];
+        exportedMidi.header.update();
+
+        // Re-assign absolute times so @tonejs/midi recalculates the ticks for the new BPM
+        exportedMidi.tracks.forEach(track => {
+            track.notes.forEach(note => {
+                const cached = originalTimes.get(note);
+                note.time = cached.time;
+                note.duration = cached.duration;
+            });
+            for (const ccNumber in track.controlChanges) {
+                track.controlChanges[ccNumber].forEach(cc => {
+                    cc.time = originalTimes.get(cc).time;
+                });
+            }
+        });
+
+        const midiArray = exportedMidi.toArray();
         const blob = new Blob([midiArray], { type: 'audio/midi' });
         const url = URL.createObjectURL(blob);
         
@@ -28,7 +62,7 @@ export function useMidiExport({
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-    }, [parsedMidiStems, trackName, fileName]);
+    }, [parsedMidiStems, trackName, fileName, activeBpm]);
 
     const handleExportCycleRange = useCallback(() => {
         const stemData = parsedMidiStems[trackName];
@@ -38,29 +72,14 @@ export function useMidiExport({
         const cycleEndSeconds = (cycleRegion.endBar / totalBars) * duration;
         
         const originalMidi = stemData.midiData;
-        const startTick = originalMidi.header.secondsToTicks(cycleStartSeconds);
-        const endTick = originalMidi.header.secondsToTicks(cycleEndSeconds);
         
         const slicedMidi = new Midi();
-        slicedMidi.header.tempos = [];
-        slicedMidi.header.timeSignatures = [];
+        const json = slicedMidi.toJSON();
+        json.header.ppq = originalMidi.header.ppq;
+        slicedMidi.fromJSON(json);
         
-        // Find the active tempo and time signature
-        const temposCopy = [...originalMidi.header.tempos];
-        const timeSigsCopy = [...originalMidi.header.timeSignatures];
-        const activeTempo = temposCopy.reverse().find(t => t.ticks <= startTick) || { bpm: 120 };
-        const activeTimeSig = timeSigsCopy.reverse().find(t => t.ticks <= startTick) || { timeSignature: [4, 4] };
-        
-        slicedMidi.header.tempos.push({ ticks: 0, bpm: activeTempo.bpm });
-        slicedMidi.header.timeSignatures.push({ ticks: 0, timeSignature: activeTimeSig.timeSignature });
-
-        originalMidi.header.tempos.forEach(t => {
-            if (t.ticks > startTick && t.ticks < endTick) {
-                slicedMidi.header.tempos.push({ ticks: t.ticks - startTick, bpm: t.bpm });
-            }
-        });
-
-        // CRITICAL: Must update header after mutating tempos/timeSignatures to prevent infinite loops
+        slicedMidi.header.tempos = [{ ticks: 0, bpm: activeBpm }];
+        slicedMidi.header.timeSignatures = [{ ticks: 0, timeSignature: [4, 4] }];
         slicedMidi.header.update();
 
         originalMidi.tracks.forEach((originalTrack) => {
@@ -68,19 +87,19 @@ export function useMidiExport({
             newTrack.name = originalTrack.name;
 
             originalTrack.notes.forEach((note) => {
-                const noteEndTick = note.ticks + note.durationTicks;
-                const isInsideRange = (note.ticks < endTick) && (noteEndTick > startTick);
+                const noteEndSeconds = note.time + note.duration;
+                const isInsideRange = (note.time < cycleEndSeconds) && (noteEndSeconds > cycleStartSeconds);
 
                 if (isInsideRange) {
-                    const adjustedStartTick = Math.max(0, note.ticks - startTick);
-                    const adjustedEndTick = Math.min(endTick - startTick, noteEndTick - startTick);
-                    const adjustedDurationTicks = adjustedEndTick - adjustedStartTick;
+                    const adjustedStartSeconds = Math.max(0, note.time - cycleStartSeconds);
+                    const adjustedEndSeconds = Math.min(cycleEndSeconds - cycleStartSeconds, noteEndSeconds - cycleStartSeconds);
+                    const adjustedDurationSeconds = adjustedEndSeconds - adjustedStartSeconds;
 
-                    if (adjustedDurationTicks > 0) {
+                    if (adjustedDurationSeconds > 0) {
                         newTrack.addNote({
                             midi: note.midi,
-                            ticks: adjustedStartTick,
-                            durationTicks: adjustedDurationTicks,
+                            time: adjustedStartSeconds,
+                            duration: adjustedDurationSeconds,
                             velocity: note.velocity !== undefined ? note.velocity : 0.8
                         });
                     }
@@ -89,11 +108,11 @@ export function useMidiExport({
 
             for (const ccNumber in originalTrack.controlChanges) {
                 originalTrack.controlChanges[ccNumber].forEach(cc => {
-                    if (cc.ticks >= startTick && cc.ticks <= endTick) {
+                    if (cc.time >= cycleStartSeconds && cc.time <= cycleEndSeconds) {
                         newTrack.addCC({
                             number: cc.number,
                             value: cc.value,
-                            ticks: cc.ticks - startTick
+                            time: cc.time - cycleStartSeconds
                         });
                     }
                 });
@@ -116,7 +135,7 @@ export function useMidiExport({
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-    }, [parsedMidiStems, trackName, fileName, cycleRegion, pixelsPerBar, totalBars, duration]);
+    }, [parsedMidiStems, trackName, fileName, cycleRegion, pixelsPerBar, totalBars, duration, activeBpm]);
 
     return { handleExportMidi, handleExportCycleRange };
 }

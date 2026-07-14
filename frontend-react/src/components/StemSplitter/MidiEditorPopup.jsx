@@ -184,7 +184,8 @@ export default function MidiEditorPopup({
         cycleRegion,
         pixelsPerBar,
         totalBars,
-        duration
+        duration,
+        activeBpm
     });
 
     if (!trackName) return null;
