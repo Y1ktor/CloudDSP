@@ -21,27 +21,31 @@ export function useMidiEditorOperations({
     const [noteDragState, setNoteDragState] = useState(null);
 
     // Note Deletion via Backspace/Delete
+    const handleDeleteNotes = React.useCallback(() => {
+        if (selectedNoteIndices.size > 0 && parsedMidiStems && parsedMidiStems[trackName]) {
+            if (pushUndoState) pushUndoState();
+            const notes = parsedMidiStems[trackName].midiData.tracks[0].notes;
+            
+            const indicesToRemove = Array.from(selectedNoteIndices).sort((a, b) => b - a);
+            indicesToRemove.forEach(idx => notes.splice(idx, 1));
+            
+            setSelectedNoteIndices(new Set());
+            setParsedMidiStems({ ...parsedMidiStems });
+        }
+    }, [selectedNoteIndices, parsedMidiStems, trackName, pushUndoState, setParsedMidiStems, setSelectedNoteIndices]);
+
     useEffect(() => {
         const handleKeyDown = (e) => {
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
             if (e.key === 'Backspace' || e.key === 'Delete') {
-                if (selectedNoteIndices.size > 0 && parsedMidiStems && parsedMidiStems[trackName]) {
-                    e.preventDefault();
-                    if (pushUndoState) pushUndoState();
-                    const notes = parsedMidiStems[trackName].midiData.tracks[0].notes;
-                    
-                    const indicesToRemove = Array.from(selectedNoteIndices).sort((a, b) => b - a);
-                    indicesToRemove.forEach(idx => notes.splice(idx, 1));
-                    
-                    setSelectedNoteIndices(new Set());
-                    setParsedMidiStems({ ...parsedMidiStems });
-                }
+                e.preventDefault();
+                handleDeleteNotes();
             }
         };
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [selectedNoteIndices, parsedMidiStems, trackName, pushUndoState, setParsedMidiStems, setSelectedNoteIndices]);
+    }, [handleDeleteNotes]);
 
     // Velocity Control Logic
     let commonVelocity = 0.8;
@@ -148,6 +152,7 @@ export function useMidiEditorOperations({
     };
 
     const handleGridMouseDown = (e) => {
+        if (e.button !== 0) return; // Only allow left clicks
         if (e.target !== e.currentTarget) return; 
         
         const rect = e.currentTarget.getBoundingClientRect();
@@ -275,6 +280,7 @@ export function useMidiEditorOperations({
     };
 
     const handleNoteMouseDown = (index, e) => {
+        if (e.button !== 0) return; // Only allow left clicks
         e.stopPropagation();
         let newSelection = new Set(selectedNoteIndices);
         
@@ -329,6 +335,7 @@ export function useMidiEditorOperations({
         handleVelocityChange,
         handleToggleDisable,
         handleJoinNotes,
+        handleDeleteNotes,
         handleGridMouseDown,
         handleGridMouseMove,
         handleGridMouseUp,

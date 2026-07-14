@@ -119,6 +119,15 @@ export default function MidiEditorPopup({
     // Selection state for MIDI notes (multi selection)
     const [selectedNoteIndices, setSelectedNoteIndices] = React.useState(new Set());
     
+    // Context menu state
+    const [contextMenu, setContextMenu] = React.useState(null);
+    const closeContextMenu = () => { if (contextMenu) setContextMenu(null); };
+    React.useEffect(() => {
+        const handleClick = () => closeContextMenu();
+        window.addEventListener('click', handleClick);
+        return () => window.removeEventListener('click', handleClick);
+    }, [contextMenu]);
+    
     // Center scroll on C4 (MIDI 60) when opened
     React.useEffect(() => {
         if (trackName && gridScrollRef.current) {
@@ -147,6 +156,7 @@ export default function MidiEditorPopup({
         handleVelocityChange,
         handleToggleDisable,
         handleJoinNotes,
+        handleDeleteNotes,
         handleGridMouseDown,
         handleGridMouseMove,
         handleGridMouseUp,
@@ -267,6 +277,14 @@ export default function MidiEditorPopup({
                 <div 
                     key={`popup-note-${index}`}
                     onMouseDown={(e) => handleNoteMouseDown(index, e)}
+                    onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (!selectedNoteIndices.has(index)) {
+                            setSelectedNoteIndices(new Set([index]));
+                        }
+                        setContextMenu({ x: e.clientX, y: e.clientY, isNoteSelected: true });
+                    }}
                     style={{
                         position: 'absolute',
                         left: `${leftPx}px`,
@@ -607,6 +625,10 @@ export default function MidiEditorPopup({
                         onMouseMove={handleGridMouseMove}
                         onMouseUp={handleGridMouseUp}
                         onMouseLeave={handleGridMouseUp}
+                        onContextMenu={(e) => {
+                            e.preventDefault();
+                            setContextMenu({ x: e.clientX, y: e.clientY, isNoteSelected: false });
+                        }}
                         style={{
                         position: 'relative',
                         width: '100%',
@@ -660,6 +682,94 @@ export default function MidiEditorPopup({
                     </div>
                 </div>
             </div>
+
+            {/* Context Menu */}
+            {contextMenu && (
+                <div 
+                    style={{
+                        position: 'fixed',
+                        left: `${contextMenu.x}px`,
+                        top: `${contextMenu.y}px`,
+                        backgroundColor: '#222',
+                        border: '1px solid #444',
+                        borderRadius: '4px',
+                        padding: '4px 0',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+                        zIndex: 10000,
+                        color: '#fff',
+                        minWidth: '150px',
+                        fontSize: '13px'
+                    }}
+                    onContextMenu={(e) => e.preventDefault()}
+                >
+                    <div 
+                        style={{
+                            padding: '8px 16px',
+                            cursor: undoStackLength > 0 ? 'pointer' : 'default',
+                            opacity: undoStackLength > 0 ? 1 : 0.4,
+                            color: undoStackLength > 0 ? '#fff' : '#aaa',
+                            borderBottom: '1px solid #333'
+                        }}
+                        onClick={() => {
+                            if (undoStackLength > 0 && handleUndoMidi) handleUndoMidi();
+                            closeContextMenu();
+                        }}
+                        onMouseEnter={(e) => { if (undoStackLength > 0) e.target.style.backgroundColor = '#333' }}
+                        onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
+                    >
+                        Undo
+                    </div>
+                    
+                    {selectedNoteIndices.size > 0 && (
+                        <>
+                            <div 
+                                style={{ padding: '8px 16px', cursor: 'pointer' }}
+                                onClick={() => { handleToggleDisable(); closeContextMenu(); }}
+                                onMouseEnter={(e) => e.target.style.backgroundColor = '#333'}
+                                onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
+                            >
+                                {allDisabled ? "Restore" : "Disable"}
+                            </div>
+                            <div 
+                                style={{ padding: '8px 16px', cursor: 'pointer', color: '#e53935' }}
+                                onClick={() => { handleDeleteNotes(); closeContextMenu(); }}
+                                onMouseEnter={(e) => e.target.style.backgroundColor = '#333'}
+                                onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
+                            >
+                                Delete
+                            </div>
+                            {canJoin && (
+                                <div 
+                                    style={{ padding: '8px 16px', cursor: 'pointer' }}
+                                    onClick={() => { handleJoinNotes(); closeContextMenu(); }}
+                                    onMouseEnter={(e) => e.target.style.backgroundColor = '#333'}
+                                    onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
+                                >
+                                    Join
+                                </div>
+                            )}
+                            <div style={{ height: '1px', backgroundColor: '#333', margin: '4px 0' }} />
+                        </>
+                    )}
+
+                    <div 
+                        style={{ padding: '8px 16px', cursor: 'pointer' }}
+                        onClick={() => { /* Export MIDI implementation */ closeContextMenu(); }}
+                        onMouseEnter={(e) => e.target.style.backgroundColor = '#333'}
+                        onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
+                    >
+                        Export MIDI
+                    </div>
+                    <div 
+                        style={{ padding: '8px 16px', cursor: 'pointer' }}
+                        onClick={() => { /* Export Cycle Range implementation */ closeContextMenu(); }}
+                        onMouseEnter={(e) => e.target.style.backgroundColor = '#333'}
+                        onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
+                    >
+                        Export Cycle Range
+                    </div>
+                </div>
+            )}
         </div>
         </div>
     );
