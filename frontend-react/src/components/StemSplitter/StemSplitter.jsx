@@ -580,6 +580,7 @@ export default function StemSplitter({
                 setParsedMidiStems={setParsedMidiStems}
                 audioCtxRef={audioEngine.audioCtxRef}
                 progress={audioEngine.progress}
+                fileName={fileName}
                 synthRef={
                     editorOpenTrack === 'guitar' ? guitarSynthRef :
                     editorOpenTrack === 'bass' ? bassSynthRef :

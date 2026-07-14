@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import TimelineRuler from './TimelineRuler';
 import { useMidiEditorOperations } from '../../hooks/useMidiEditorOperations';
+import { useMidiExport } from '../../hooks/useMidiExport';
 
 /**
  * MidiEditorPopup Component
@@ -91,7 +92,8 @@ export default function MidiEditorPopup({
     handleRevertMidi,
     handleUndoMidi,
     pushUndoState,
-    undoStackLength
+    undoStackLength,
+    fileName
 }) {
     const popupTimelineRef = useRef(null);
     const pianoScrollRef = useRef(null);
@@ -173,6 +175,16 @@ export default function MidiEditorPopup({
         popupPixelsPerBar,
         popupRowHeight,
         auditionNote
+    });
+
+    const { handleExportMidi, handleExportCycleRange } = useMidiExport({
+        parsedMidiStems,
+        trackName,
+        fileName,
+        cycleRegion,
+        pixelsPerBar,
+        totalBars,
+        duration
     });
 
     if (!trackName) return null;
@@ -754,7 +766,7 @@ export default function MidiEditorPopup({
 
                     <div 
                         style={{ padding: '8px 16px', cursor: 'pointer' }}
-                        onClick={() => { /* Export MIDI implementation */ closeContextMenu(); }}
+                        onClick={() => { handleExportMidi(); closeContextMenu(); }}
                         onMouseEnter={(e) => e.target.style.backgroundColor = '#333'}
                         onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
                     >
@@ -762,7 +774,7 @@ export default function MidiEditorPopup({
                     </div>
                     <div 
                         style={{ padding: '8px 16px', cursor: 'pointer' }}
-                        onClick={() => { /* Export Cycle Range implementation */ closeContextMenu(); }}
+                        onClick={() => { handleExportCycleRange(); closeContextMenu(); }}
                         onMouseEnter={(e) => e.target.style.backgroundColor = '#333'}
                         onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
                     >
