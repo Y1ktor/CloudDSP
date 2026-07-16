@@ -289,6 +289,8 @@ export default function MidiEditorPopup({
             return (
                 <div 
                     key={`popup-note-${index}`}
+                    draggable={false}
+                    onDragStart={(e) => e.preventDefault()}
                     onMouseDown={(e) => handleNoteMouseDown(index, e, 'move')}
                     onContextMenu={(e) => {
                         e.preventDefault();
@@ -309,6 +311,7 @@ export default function MidiEditorPopup({
                         boxShadow: isSelected ? '0 0 0 1px rgba(255,255,255,0.6), 0 0 4px rgba(255,255,255,0.4)' : '0 0 2px rgba(0,0,0,0.5)',
                         border: isSelected ? '1px solid rgba(255,255,255,0.6)' : '1px solid rgba(255,255,255,0.2)',
                         boxSizing: 'border-box',
+                        userSelect: 'none',
                         cursor: noteDragState && noteDragState.action !== 'move' ? 'ew-resize' : 'move',
                         opacity: isDisabled && !isSelected ? 0.5 : 1,
                         zIndex: isSelected ? 10 : 1
@@ -668,9 +671,10 @@ export default function MidiEditorPopup({
                         width: '100%',
                         height: `${gridHeight}px`,
                         marginTop: '0px',
-                        backgroundSize: `${popupPixelsPerBar}px 100%, 100% ${popupRowHeight}px`,
+                        backgroundSize: `${popupPixelsPerBar}px 100%, ${popupPixelsPerBar / parsedBeatsPerBar}px 100%, 100% ${popupRowHeight}px`,
                         backgroundImage: `
-                            linear-gradient(to right, transparent ${popupPixelsPerBar - 1}px, rgba(255,255,255,0.05) ${popupPixelsPerBar}px),
+                            linear-gradient(to right, transparent ${popupPixelsPerBar - 1}px, rgba(255,255,255,0.1) ${popupPixelsPerBar}px),
+                            linear-gradient(to right, transparent ${(popupPixelsPerBar / parsedBeatsPerBar) - 1}px, rgba(255,255,255,0.03) ${popupPixelsPerBar / parsedBeatsPerBar}px),
                             linear-gradient(to bottom, transparent ${popupRowHeight - 1}px, rgba(255,255,255,0.05) ${popupRowHeight}px)
                         `
                     }}>

@@ -207,6 +207,18 @@ export function useMidiEditorOperations({
                     let closestSnapDeltaTime = null;
                     let minDistanceTime = Infinity;
 
+                    // 1. Check snap to grid lines (beats)
+                    const beatDuration = 60 / activeBpm;
+                    const nearestBeatIdx = Math.round(rawNewTime / beatDuration);
+                    const nearestBeatTime = nearestBeatIdx * beatDuration;
+                    
+                    const distToGrid = Math.abs(rawNewTime - nearestBeatTime);
+                    if (distToGrid < minDistanceTime && distToGrid < snapThresholdTime) {
+                        minDistanceTime = distToGrid;
+                        closestSnapDeltaTime = nearestBeatTime - clickedOriginal.originalTime;
+                    }
+
+                    // 2. Check snap to adjacent notes
                     notes.forEach((neighborNote, neighborIdx) => {
                         const isDragged = noteDragState.originalNotes.some(n => n.index === neighborIdx);
                         if (isDragged) return;
@@ -250,13 +262,13 @@ export function useMidiEditorOperations({
                         const rawNewEnd = orig.originalTime + rawNewDuration;
                         let snappedEnd = rawNewEnd;
 
-                        const barDuration = parsedBeatsPerBar * (60 / activeBpm);
-                        const nearestBarIdx = Math.round(rawNewEnd / barDuration);
-                        const nearestBarTime = nearestBarIdx * barDuration;
+                        const beatDuration = 60 / activeBpm;
+                        const nearestBeatIdx = Math.round(rawNewEnd / beatDuration);
+                        const nearestBeatTime = nearestBeatIdx * beatDuration;
 
-                        // Apply small magnetic force to bar separation line
-                        if (Math.abs(rawNewEnd - nearestBarTime) < snapThresholdTime) {
-                            snappedEnd = nearestBarTime;
+                        // Apply small magnetic force to beat separation line
+                        if (Math.abs(rawNewEnd - nearestBeatTime) < snapThresholdTime) {
+                            snappedEnd = nearestBeatTime;
                         }
 
                         const newDuration = Math.max(minDurationTime, snappedEnd - orig.originalTime);
@@ -271,13 +283,13 @@ export function useMidiEditorOperations({
                         const originalEndTime = orig.originalTime + orig.originalDuration;
                         let rawNewTime = orig.originalTime + deltaTime;
 
-                        const barDuration = parsedBeatsPerBar * (60 / activeBpm);
-                        const nearestBarIdx = Math.round(rawNewTime / barDuration);
-                        const nearestBarTime = nearestBarIdx * barDuration;
+                        const beatDuration = 60 / activeBpm;
+                        const nearestBeatIdx = Math.round(rawNewTime / beatDuration);
+                        const nearestBeatTime = nearestBeatIdx * beatDuration;
 
-                        // Apply small magnetic force to bar separation line
-                        if (Math.abs(rawNewTime - nearestBarTime) < snapThresholdTime) {
-                            rawNewTime = nearestBarTime;
+                        // Apply small magnetic force to beat separation line
+                        if (Math.abs(rawNewTime - nearestBeatTime) < snapThresholdTime) {
+                            rawNewTime = nearestBeatTime;
                         }
 
                         let newTime = Math.max(0, rawNewTime);
