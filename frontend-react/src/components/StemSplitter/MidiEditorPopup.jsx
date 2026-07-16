@@ -289,7 +289,7 @@ export default function MidiEditorPopup({
             return (
                 <div 
                     key={`popup-note-${index}`}
-                    onMouseDown={(e) => handleNoteMouseDown(index, e)}
+                    onMouseDown={(e) => handleNoteMouseDown(index, e, 'move')}
                     onContextMenu={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
@@ -309,12 +309,33 @@ export default function MidiEditorPopup({
                         boxShadow: isSelected ? '0 0 0 1px rgba(255,255,255,0.6), 0 0 4px rgba(255,255,255,0.4)' : '0 0 2px rgba(0,0,0,0.5)',
                         border: isSelected ? '1px solid rgba(255,255,255,0.6)' : '1px solid rgba(255,255,255,0.2)',
                         boxSizing: 'border-box',
-                        cursor: 'pointer',
+                        cursor: noteDragState && noteDragState.action !== 'move' ? 'ew-resize' : 'move',
                         opacity: isDisabled && !isSelected ? 0.5 : 1,
                         zIndex: isSelected ? 10 : 1
                     }}
                     title={`Pitch: ${note.name} (${note.midi}) | Velocity: ${Math.round((note.velocity || 0) * 100)}%`}
-                />
+                >
+                    {/* Left Resize Handle */}
+                    <div
+                        onMouseDown={(e) => { e.stopPropagation(); handleNoteMouseDown(index, e, 'resize-left'); }}
+                        style={{
+                            position: 'absolute',
+                            top: 0, bottom: 0, left: '-4px', width: '8px',
+                            cursor: 'ew-resize',
+                            zIndex: 10
+                        }}
+                    />
+                    {/* Right Resize Handle */}
+                    <div
+                        onMouseDown={(e) => { e.stopPropagation(); handleNoteMouseDown(index, e, 'resize-right'); }}
+                        style={{
+                            position: 'absolute',
+                            top: 0, bottom: 0, right: '-4px', width: '8px',
+                            cursor: 'ew-resize',
+                            zIndex: 10
+                        }}
+                    />
+                </div>
             );
         });
     };

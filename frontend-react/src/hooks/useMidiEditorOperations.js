@@ -193,49 +193,106 @@ export function useMidiEditorOperations({
             const snapThresholdPx = 6;
             const snapThresholdTime = (snapThresholdPx / popupPixelsPerBar) * parsedBeatsPerBar / (activeBpm / 60);
             
-            const clickedOriginal = noteDragState.originalNotes.find(n => n.index === noteDragState.clickedNoteIndex);
-            if (clickedOriginal) {
-                const targetPitch = clickedOriginal.originalMidi + deltaPitch;
-                const rawNewTime = clickedOriginal.originalTime + deltaTime;
-                const noteDuration = notes[clickedOriginal.index].duration;
+            const minDurationTime = 0.05; // 50ms minimum duration
 
-                let closestSnapDeltaTime = null;
-                let minDistanceTime = Infinity;
+            const action = noteDragState.action || 'move';
 
-                notes.forEach((neighborNote, neighborIdx) => {
-                    const isDragged = noteDragState.originalNotes.some(n => n.index === neighborIdx);
-                    if (isDragged) return;
-                    
-                    if (neighborNote.midi === targetPitch) {
-                        const neighborStart = neighborNote.time;
-                        const neighborEnd = neighborNote.time + neighborNote.duration;
+            if (action === 'move') {
+                const clickedOriginal = noteDragState.originalNotes.find(n => n.index === noteDragState.clickedNoteIndex);
+                if (clickedOriginal) {
+                    const targetPitch = clickedOriginal.originalMidi + deltaPitch;
+                    const rawNewTime = clickedOriginal.originalTime + deltaTime;
+                    const noteDuration = notes[clickedOriginal.index].duration;
 
-                        const distRightToLeft = Math.abs((rawNewTime + noteDuration) - neighborStart);
-                        if (distRightToLeft < minDistanceTime && distRightToLeft < snapThresholdTime) {
-                            minDistanceTime = distRightToLeft;
-                            closestSnapDeltaTime = neighborStart - noteDuration - clickedOriginal.originalTime;
+                    let closestSnapDeltaTime = null;
+                    let minDistanceTime = Infinity;
+
+                    notes.forEach((neighborNote, neighborIdx) => {
+                        const isDragged = noteDragState.originalNotes.some(n => n.index === neighborIdx);
+                        if (isDragged) return;
+                        
+                        if (neighborNote.midi === targetPitch) {
+                            const neighborStart = neighborNote.time;
+                            const neighborEnd = neighborNote.time + neighborNote.duration;
+
+                            const distRightToLeft = Math.abs((rawNewTime + noteDuration) - neighborStart);
+                            if (distRightToLeft < minDistanceTime && distRightToLeft < snapThresholdTime) {
+                                minDistanceTime = distRightToLeft;
+                                closestSnapDeltaTime = neighborStart - noteDuration - clickedOriginal.originalTime;
+                            }
+
+                            const distLeftToRight = Math.abs(rawNewTime - neighborEnd);
+                            if (distLeftToRight < minDistanceTime && distLeftToRight < snapThresholdTime) {
+                                minDistanceTime = distLeftToRight;
+                                closestSnapDeltaTime = neighborEnd - clickedOriginal.originalTime;
+                            }
                         }
+                    });
 
-                        const distLeftToRight = Math.abs(rawNewTime - neighborEnd);
-                        if (distLeftToRight < minDistanceTime && distLeftToRight < snapThresholdTime) {
-                            minDistanceTime = distLeftToRight;
-                            closestSnapDeltaTime = neighborEnd - clickedOriginal.originalTime;
-                        }
+                    if (closestSnapDeltaTime !== null) {
+                        deltaTime = closestSnapDeltaTime;
+                    }
+                }
+
+                noteDragState.originalNotes.forEach(orig => {
+                    const note = notes[orig.index];
+                    if (note) {
+                        note.time = Math.max(0, orig.originalTime + deltaTime);
+                        note.midi = Math.max(0, Math.min(127, orig.originalMidi + deltaPitch));
                     }
                 });
+            } else if (action === 'resize-right') {
+                noteDragState.originalNotes.forEach(orig => {
+                    const note = notes[orig.index];
+                    if (note) {
+                        // For resize-right, start time is fixed, only duration changes
+                        const rawNewDuration = orig.originalDuration + deltaTime;
+                        const rawNewEnd = orig.originalTime + rawNewDuration;
+                        let snappedEnd = rawNewEnd;
 
-                if (closestSnapDeltaTime !== null) {
-                    deltaTime = closestSnapDeltaTime;
-                }
+                        const barDuration = parsedBeatsPerBar * (60 / activeBpm);
+                        const nearestBarIdx = Math.round(rawNewEnd / barDuration);
+                        const nearestBarTime = nearestBarIdx * barDuration;
+
+                        // Apply small magnetic force to bar separation line
+                        if (Math.abs(rawNewEnd - nearestBarTime) < snapThresholdTime) {
+                            snappedEnd = nearestBarTime;
+                        }
+
+                        const newDuration = Math.max(minDurationTime, snappedEnd - orig.originalTime);
+                        note.duration = newDuration;
+                    }
+                });
+            } else if (action === 'resize-left') {
+                noteDragState.originalNotes.forEach(orig => {
+                    const note = notes[orig.index];
+                    if (note) {
+                        // For resize-left, end time is fixed. Start time and duration change.
+                        const originalEndTime = orig.originalTime + orig.originalDuration;
+                        let rawNewTime = orig.originalTime + deltaTime;
+
+                        const barDuration = parsedBeatsPerBar * (60 / activeBpm);
+                        const nearestBarIdx = Math.round(rawNewTime / barDuration);
+                        const nearestBarTime = nearestBarIdx * barDuration;
+
+                        // Apply small magnetic force to bar separation line
+                        if (Math.abs(rawNewTime - nearestBarTime) < snapThresholdTime) {
+                            rawNewTime = nearestBarTime;
+                        }
+
+                        let newTime = Math.max(0, rawNewTime);
+                        let newDuration = originalEndTime - newTime;
+                        
+                        if (newDuration < minDurationTime) {
+                            newDuration = minDurationTime;
+                            newTime = originalEndTime - minDurationTime;
+                        }
+                        
+                        note.time = newTime;
+                        note.duration = newDuration;
+                    }
+                });
             }
-
-            noteDragState.originalNotes.forEach(orig => {
-                const note = notes[orig.index];
-                if (note) {
-                    note.time = Math.max(0, orig.originalTime + deltaTime);
-                    note.midi = Math.max(0, Math.min(127, orig.originalMidi + deltaPitch));
-                }
-            });
 
             setParsedMidiStems({ ...parsedMidiStems });
             return;
@@ -279,7 +336,7 @@ export function useMidiEditorOperations({
         }
     };
 
-    const handleNoteMouseDown = (index, e) => {
+    const handleNoteMouseDown = (index, e, action = 'move') => {
         if (e.button !== 0) return; // Only allow left clicks
         e.stopPropagation();
         let newSelection = new Set(selectedNoteIndices);
@@ -294,7 +351,7 @@ export function useMidiEditorOperations({
             const stemData = parsedMidiStems[trackName];
             if (stemData && stemData.midiData && stemData.midiData.tracks && stemData.midiData.tracks[0].notes) {
                 const note = stemData.midiData.tracks[0].notes[index];
-                if (note && auditionNote) {
+                if (note && auditionNote && action === 'move') {
                     auditionNote(note);
                 }
             }
@@ -312,7 +369,8 @@ export function useMidiEditorOperations({
         const originalNotes = Array.from(newSelection).map(idx => ({
             index: idx,
             originalTime: notes[idx].time,
-            originalMidi: notes[idx].midi
+            originalMidi: notes[idx].midi,
+            originalDuration: notes[idx].duration
         }));
         
         setNoteDragState({
@@ -321,7 +379,8 @@ export function useMidiEditorOperations({
             startX: e.clientX,
             startY: e.clientY,
             originalNotes,
-            clickedNoteIndex: index
+            clickedNoteIndex: index,
+            action
         });
     };
 
