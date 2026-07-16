@@ -232,6 +232,7 @@ export function useMidiEditorOperations({
             const minDurationTime = 0.05; // 50ms minimum duration
 
             const action = noteDragState.action || 'move';
+            const isReplicating = e.shiftKey && action === 'move';
 
             if (action === 'move') {
                 const clickedOriginal = noteDragState.originalNotes.find(n => n.index === noteDragState.clickedNoteIndex);
@@ -285,10 +286,19 @@ export function useMidiEditorOperations({
                 noteDragState.originalNotes.forEach(orig => {
                     const note = notes[orig.index];
                     if (note) {
-                        note.time = Math.max(0, orig.originalTime + deltaTime);
-                        note.midi = Math.max(0, Math.min(127, orig.originalMidi + deltaPitch));
+                        if (isReplicating) {
+                            note.time = orig.originalTime;
+                            note.midi = orig.originalMidi;
+                        } else {
+                            note.time = Math.max(0, orig.originalTime + deltaTime);
+                            note.midi = Math.max(0, Math.min(127, orig.originalMidi + deltaPitch));
+                        }
                     }
                 });
+                
+                noteDragState.isReplicating = isReplicating;
+                noteDragState.deltaTime = deltaTime;
+                noteDragState.deltaPitch = deltaPitch;
             } else if (action === 'resize-right') {
                 noteDragState.originalNotes.forEach(orig => {
                     const note = notes[orig.index];
@@ -374,8 +384,35 @@ export function useMidiEditorOperations({
         setSelectedNoteIndices(newSelection);
     };
 
-    const handleGridMouseUp = () => {
+    const handleGridMouseUp = (e) => {
         if (noteDragState) {
+            if (!noteDragState.hasMoved && noteDragState.wasShiftHeldAtStart && selectedNoteIndices.has(noteDragState.clickedNoteIndex)) {
+                // If it was just a shift+click without moving, toggle the selection off
+                const newSelection = new Set(selectedNoteIndices);
+                newSelection.delete(noteDragState.clickedNoteIndex);
+                setSelectedNoteIndices(newSelection);
+            } else if (noteDragState.hasMoved && noteDragState.isReplicating) {
+                if (parsedMidiStems && parsedMidiStems[trackName]) {
+                    const track = parsedMidiStems[trackName].midiData.tracks[0];
+                    const notes = track.notes;
+                    
+                    noteDragState.originalNotes.forEach(orig => {
+                        const noteToClone = notes[orig.index];
+                        if (noteToClone) {
+                            const newTime = Math.max(0, orig.originalTime + noteDragState.deltaTime);
+                            const newMidi = Math.max(0, Math.min(127, orig.originalMidi + noteDragState.deltaPitch));
+                            
+                            track.addNote({
+                                midi: newMidi,
+                                time: newTime,
+                                duration: noteToClone.duration,
+                                velocity: noteToClone.velocity
+                            });
+                        }
+                    });
+                    setParsedMidiStems({ ...parsedMidiStems });
+                }
+            }
             setNoteDragState(null);
         }
         if (isDraggingSelection) {
@@ -403,12 +440,6 @@ export function useMidiEditorOperations({
                     auditionNote(note);
                 }
             }
-        } else {
-            if (e.shiftKey) {
-                newSelection.delete(index);
-                setSelectedNoteIndices(newSelection);
-                return; 
-            }
         }
         
         const stemData = parsedMidiStems[trackName];
@@ -428,7 +459,8 @@ export function useMidiEditorOperations({
             startY: e.clientY,
             originalNotes,
             clickedNoteIndex: index,
-            action
+            action,
+            wasShiftHeldAtStart: e.shiftKey
         });
     };
 

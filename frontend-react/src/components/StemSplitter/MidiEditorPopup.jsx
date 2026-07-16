@@ -705,10 +705,54 @@ export default function MidiEditorPopup({
                             linear-gradient(to bottom, transparent ${popupRowHeight - 1}px, rgba(255,255,255,0.05) ${popupRowHeight}px)
                         `
                     }}>
-                        {/* Drag Highlight Row */}
+                        {/* Drag Highlight Row or Replication Projections */}
                         {noteDragState && noteDragState.hasMoved && parsedMidiStems && parsedMidiStems[trackName] && (
                             (() => {
                                 const notes = parsedMidiStems[trackName].midiData.tracks[0].notes;
+                                
+                                if (noteDragState.isReplicating) {
+                                    return noteDragState.originalNotes.map(orig => {
+                                        const noteToClone = notes[orig.index];
+                                        if (!noteToClone) return null;
+                                        
+                                        const projTime = Math.max(0, orig.originalTime + noteDragState.deltaTime);
+                                        const projMidi = Math.max(0, Math.min(127, orig.originalMidi + noteDragState.deltaPitch));
+                                        
+                                        const noteStartBeats = projTime * (activeBpm / 60);
+                                        const noteStartBars = noteStartBeats / parsedBeatsPerBar;
+                                        const leftPx = noteStartBars * popupPixelsPerBar;
+
+                                        const noteDurationBeats = orig.originalDuration * (activeBpm / 60);
+                                        const noteDurationBars = noteDurationBeats / parsedBeatsPerBar;
+                                        const widthPx = Math.max(2, noteDurationBars * popupPixelsPerBar);
+
+                                        const topPx = (127 - projMidi) * popupRowHeight;
+
+                                        const v = noteToClone.velocity !== undefined ? Math.max(0.01, noteToClone.velocity) : 0.8;
+                                        const hue = 200 - (v * 185); 
+                                        const saturation = Math.round(25 + (v * 10)); 
+                                        const lightness = Math.round(75 - (v * 40)); 
+                                        const isDisabled = v <= 0.015;
+                                        const noteColor = isDisabled ? '#555' : `hsla(${Math.round(hue)}, ${saturation}%, ${lightness}%, 0.4)`;
+
+                                        return (
+                                            <div key={`proj-${orig.index}`} style={{
+                                                position: 'absolute',
+                                                left: `${leftPx}px`,
+                                                width: `${widthPx}px`,
+                                                top: `${topPx}px`,
+                                                height: `${popupRowHeight}px`,
+                                                backgroundColor: noteColor,
+                                                border: '1px solid rgba(255,255,255,0.4)',
+                                                borderRadius: '2px',
+                                                boxSizing: 'border-box',
+                                                pointerEvents: 'none',
+                                                zIndex: 15
+                                            }} />
+                                        );
+                                    });
+                                }
+
                                 const clickedNote = notes[noteDragState.clickedNoteIndex];
                                 if (!clickedNote) return null;
                                 
@@ -773,7 +817,10 @@ export default function MidiEditorPopup({
                             cursor: undoStackLength > 0 ? 'pointer' : 'default',
                             opacity: undoStackLength > 0 ? 1 : 0.4,
                             color: undoStackLength > 0 ? '#fff' : '#aaa',
-                            borderBottom: '1px solid #333'
+                            borderBottom: '1px solid #333',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
                         }}
                         onClick={() => {
                             if (undoStackLength > 0 && handleUndoMidi) handleUndoMidi();
@@ -782,7 +829,8 @@ export default function MidiEditorPopup({
                         onMouseEnter={(e) => { if (undoStackLength > 0) e.target.style.backgroundColor = '#333' }}
                         onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
                     >
-                        Undo
+                        <span>Undo</span>
+                        <span style={{ fontSize: '11px', opacity: 0.5, marginLeft: '20px' }}>Cmd/Ctrl+Z</span>
                     </div>
                     
                     {selectedNoteIndices.size > 0 && (
@@ -796,12 +844,13 @@ export default function MidiEditorPopup({
                                 {allDisabled ? "Restore" : "Disable"}
                             </div>
                             <div 
-                                style={{ padding: '8px 16px', cursor: 'pointer', color: '#e53935' }}
+                                style={{ padding: '8px 16px', cursor: 'pointer', color: '#e53935', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                                 onClick={() => { handleDeleteNotes(); closeContextMenu(); }}
                                 onMouseEnter={(e) => e.target.style.backgroundColor = '#333'}
                                 onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
                             >
-                                Delete
+                                <span>Delete</span>
+                                <span style={{ fontSize: '11px', opacity: 0.5, marginLeft: '20px', color: '#aaa' }}>⌫ / Del</span>
                             </div>
                             {canJoin && (
                                 <div 
@@ -820,12 +869,13 @@ export default function MidiEditorPopup({
                     {selectedNoteIndices.size === 0 && contextMenu.gridX !== undefined && (
                         <>
                             <div 
-                                style={{ padding: '8px 16px', cursor: 'pointer' }}
+                                style={{ padding: '8px 16px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                                 onClick={() => { handleAddNote(contextMenu.gridX, contextMenu.gridY); closeContextMenu(); }}
                                 onMouseEnter={(e) => e.target.style.backgroundColor = '#333'}
                                 onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
                             >
-                                Add Note
+                                <span>Add Note</span>
+                                <span style={{ fontSize: '11px', opacity: 0.5, marginLeft: '20px' }}>Cmd/Ctrl+Click</span>
                             </div>
                             <div style={{ height: '1px', backgroundColor: '#333', margin: '4px 0' }} />
                         </>
