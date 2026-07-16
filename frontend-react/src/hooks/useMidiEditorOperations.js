@@ -136,6 +136,37 @@ export function useMidiEditorOperations({
         setParsedMidiStems({ ...parsedMidiStems });
     };
 
+    const handleAddNote = (gridX, gridY) => {
+        if (!parsedMidiStems || !parsedMidiStems[trackName]) return;
+        
+        if (pushUndoState) pushUndoState();
+
+        const deltaBars = gridX / popupPixelsPerBar;
+        const deltaBeats = deltaBars * parsedBeatsPerBar;
+        const rawTime = Math.max(0, deltaBeats / (activeBpm / 60));
+
+        const beatDuration = 60 / activeBpm;
+        
+        // Position perfectly in the beat region where the pointer lands
+        const beatRegionIdx = Math.floor(rawTime / beatDuration);
+        const time = beatRegionIdx * beatDuration;
+
+        const pitch = Math.max(0, Math.min(127, 127 - Math.floor(gridY / popupRowHeight)));
+        
+        // length is exactly one beat
+        const duration = beatDuration;
+        
+        const track = parsedMidiStems[trackName].midiData.tracks[0];
+        track.addNote({
+            midi: pitch,
+            time: time,
+            duration: duration,
+            velocity: 0.6 // velocity 60%
+        });
+
+        setParsedMidiStems({ ...parsedMidiStems });
+    };
+
     // Note Selection & Dragging (Mouse Handlers)
     const getNoteLayout = (note, index) => {
         const noteStartBeats = note.time * (activeBpm / 60);
@@ -158,6 +189,11 @@ export function useMidiEditorOperations({
         const rect = e.currentTarget.getBoundingClientRect();
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
+
+        if (e.metaKey || e.ctrlKey) {
+            handleAddNote(x, y);
+            return;
+        }
         
         setIsDraggingSelection(true);
         setSelectionStart({ x, y });
@@ -406,6 +442,7 @@ export function useMidiEditorOperations({
         handleVelocityChange,
         handleToggleDisable,
         handleJoinNotes,
+        handleAddNote,
         handleDeleteNotes,
         handleGridMouseDown,
         handleGridMouseMove,

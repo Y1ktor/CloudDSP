@@ -121,7 +121,6 @@ export default function MidiEditorPopup({
     // Selection state for MIDI notes (multi selection)
     const [selectedNoteIndices, setSelectedNoteIndices] = React.useState(new Set());
     
-    // Context menu state
     const [contextMenu, setContextMenu] = React.useState(null);
     const closeContextMenu = () => { if (contextMenu) setContextMenu(null); };
     React.useEffect(() => {
@@ -129,6 +128,29 @@ export default function MidiEditorPopup({
         window.addEventListener('click', handleClick);
         return () => window.removeEventListener('click', handleClick);
     }, [contextMenu]);
+    
+    // Track if Cmd/Ctrl is held down
+    const [isModifierHeld, setIsModifierHeld] = React.useState(false);
+    React.useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.metaKey || e.ctrlKey) setIsModifierHeld(true);
+        };
+        const handleKeyUp = (e) => {
+            if (!e.metaKey && !e.ctrlKey) setIsModifierHeld(false);
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('keyup', handleKeyUp);
+        
+        // Failsafe in case window loses focus while holding the key
+        const handleBlur = () => setIsModifierHeld(false);
+        window.addEventListener('blur', handleBlur);
+        
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('keyup', handleKeyUp);
+            window.removeEventListener('blur', handleBlur);
+        };
+    }, []);
     
     // Center scroll on C4 (MIDI 60) when opened
     React.useEffect(() => {
@@ -158,6 +180,7 @@ export default function MidiEditorPopup({
         handleVelocityChange,
         handleToggleDisable,
         handleJoinNotes,
+        handleAddNote,
         handleDeleteNotes,
         handleGridMouseDown,
         handleGridMouseMove,
@@ -664,13 +687,17 @@ export default function MidiEditorPopup({
                         onMouseLeave={handleGridMouseUp}
                         onContextMenu={(e) => {
                             e.preventDefault();
-                            setContextMenu({ x: e.clientX, y: e.clientY, isNoteSelected: false });
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const gridX = e.clientX - rect.left;
+                            const gridY = e.clientY - rect.top;
+                            setContextMenu({ x: e.clientX, y: e.clientY, gridX, gridY, isNoteSelected: false });
                         }}
                         style={{
                         position: 'relative',
                         width: '100%',
                         height: `${gridHeight}px`,
                         marginTop: '0px',
+                        cursor: isModifierHeld ? 'crosshair' : 'default',
                         backgroundSize: `${popupPixelsPerBar}px 100%, ${popupPixelsPerBar / parsedBeatsPerBar}px 100%, 100% ${popupRowHeight}px`,
                         backgroundImage: `
                             linear-gradient(to right, transparent ${popupPixelsPerBar - 1}px, rgba(255,255,255,0.1) ${popupPixelsPerBar}px),
@@ -786,6 +813,20 @@ export default function MidiEditorPopup({
                                     Join
                                 </div>
                             )}
+                            <div style={{ height: '1px', backgroundColor: '#333', margin: '4px 0' }} />
+                        </>
+                    )}
+
+                    {selectedNoteIndices.size === 0 && contextMenu.gridX !== undefined && (
+                        <>
+                            <div 
+                                style={{ padding: '8px 16px', cursor: 'pointer' }}
+                                onClick={() => { handleAddNote(contextMenu.gridX, contextMenu.gridY); closeContextMenu(); }}
+                                onMouseEnter={(e) => e.target.style.backgroundColor = '#333'}
+                                onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
+                            >
+                                Add Note
+                            </div>
                             <div style={{ height: '1px', backgroundColor: '#333', margin: '4px 0' }} />
                         </>
                     )}
