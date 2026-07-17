@@ -34,42 +34,6 @@ export function useMidiEditorOperations({
         }
     }, [selectedNoteIndices, parsedMidiStems, trackName, pushUndoState, setParsedMidiStems, setSelectedNoteIndices]);
 
-    useEffect(() => {
-        const handleKeyDown = (e) => {
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-            if (e.key === 'Backspace' || e.key === 'Delete') {
-                e.preventDefault();
-                handleDeleteNotes();
-            }
-        };
-
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [handleDeleteNotes]);
-
-    // Velocity Control Logic
-    let commonVelocity = 0.8;
-    if (selectedNoteIndices.size === 1 && parsedMidiStems && parsedMidiStems[trackName] && parsedMidiStems[trackName].midiData.tracks[0].notes.length > 0) {
-        const selectedIndex = Array.from(selectedNoteIndices)[0];
-        const note = parsedMidiStems[trackName].midiData.tracks[0].notes[selectedIndex];
-        if (note) {
-            commonVelocity = note.velocity !== undefined ? Math.max(0.01, note.velocity) : 0.8;
-        }
-    }
-
-    const handleVelocityChange = (e) => {
-        const newVelocity = parseFloat(e.target.value);
-        if (selectedNoteIndices.size !== 1 || !parsedMidiStems) return;
-
-        const selectedIndex = Array.from(selectedNoteIndices)[0];
-        const note = parsedMidiStems[trackName].midiData.tracks[0].notes[selectedIndex];
-        if (note) {
-            note.velocity = newVelocity;
-        }
-
-        setParsedMidiStems({ ...parsedMidiStems });
-    };
-
     // Disable / Restore Notes Logic
     let allDisabled = false;
     let selectedNotesForDisable = [];
@@ -79,13 +43,30 @@ export function useMidiEditorOperations({
         allDisabled = selectedNotesForDisable.every(note => note.velocity !== undefined && note.velocity <= 0.015);
     }
 
-    const handleToggleDisable = () => {
+    const handleToggleDisable = React.useCallback(() => {
+        if (!parsedMidiStems || !parsedMidiStems[trackName] || selectedNoteIndices.size === 0) return;
+        
+        const notes = parsedMidiStems[trackName].midiData.tracks[0].notes;
+        const selectedNotes = Array.from(selectedNoteIndices).map(idx => notes[idx]);
+        const currentlyAllDisabled = selectedNotes.every(note => note.velocity !== undefined && note.velocity <= 0.015);
+
         if (pushUndoState) pushUndoState();
-        selectedNotesForDisable.forEach(note => {
-            note.velocity = allDisabled ? 0.8 : 0.01;
+        selectedNotes.forEach(note => {
+            if (currentlyAllDisabled) {
+                // Restore logic
+                note.velocity = note.preDisableVelocity !== undefined ? note.preDisableVelocity : 0.8;
+                // Optional: clean up the custom property
+                delete note.preDisableVelocity;
+            } else {
+                // Disable logic: Only save velocity if it's not already disabled
+                if (note.velocity > 0.015) {
+                    note.preDisableVelocity = note.velocity;
+                }
+                note.velocity = 0.01;
+            }
         });
         setParsedMidiStems({ ...parsedMidiStems });
-    };
+    }, [parsedMidiStems, trackName, selectedNoteIndices, pushUndoState, setParsedMidiStems]);
 
     // Join Notes Logic
     const canJoinSelectedNotes = () => {
@@ -113,7 +94,8 @@ export function useMidiEditorOperations({
 
     const canJoin = canJoinSelectedNotes();
 
-    const handleJoinNotes = () => {
+    const handleJoinNotes = React.useCallback(() => {
+        if (!canJoin) return;
         if (pushUndoState) pushUndoState();
         const notes = parsedMidiStems[trackName].midiData.tracks[0].notes;
         const selected = Array.from(selectedNoteIndices).map(idx => {
@@ -134,7 +116,52 @@ export function useMidiEditorOperations({
         
         setSelectedNoteIndices(new Set([notes.indexOf(noteToKeep)]));
         setParsedMidiStems({ ...parsedMidiStems });
+    }, [canJoin, parsedMidiStems, trackName, selectedNoteIndices, pushUndoState, setParsedMidiStems, setSelectedNoteIndices]);
+
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            if (e.key === 'Backspace' || e.key === 'Delete') {
+                e.preventDefault();
+                handleDeleteNotes();
+            }
+            if ((e.key === 'd' || e.key === 'D') && !e.metaKey && !e.ctrlKey) {
+                e.preventDefault();
+                handleToggleDisable();
+            }
+            if ((e.key === 'j' || e.key === 'J') && !e.metaKey && !e.ctrlKey) {
+                e.preventDefault();
+                handleJoinNotes();
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [handleDeleteNotes, handleToggleDisable, handleJoinNotes]);
+
+    // Velocity Control Logic
+    let commonVelocity = 0.8;
+    if (selectedNoteIndices.size === 1 && parsedMidiStems && parsedMidiStems[trackName] && parsedMidiStems[trackName].midiData.tracks[0].notes.length > 0) {
+        const selectedIndex = Array.from(selectedNoteIndices)[0];
+        const note = parsedMidiStems[trackName].midiData.tracks[0].notes[selectedIndex];
+        if (note) {
+            commonVelocity = note.velocity !== undefined ? Math.max(0.01, note.velocity) : 0.8;
+        }
+    }
+
+    const handleVelocityChange = (e) => {
+        const newVelocity = parseFloat(e.target.value);
+        if (selectedNoteIndices.size !== 1 || !parsedMidiStems) return;
+
+        const selectedIndex = Array.from(selectedNoteIndices)[0];
+        const note = parsedMidiStems[trackName].midiData.tracks[0].notes[selectedIndex];
+        if (note) {
+            note.velocity = newVelocity;
+        }
+
+        setParsedMidiStems({ ...parsedMidiStems });
     };
+
 
     const handleAddNote = (gridX, gridY) => {
         if (!parsedMidiStems || !parsedMidiStems[trackName]) return;
@@ -408,6 +435,13 @@ export function useMidiEditorOperations({
                                 duration: noteToClone.duration,
                                 velocity: noteToClone.velocity
                             });
+                            
+                            if (noteToClone.preDisableVelocity !== undefined) {
+                                const newNote = track.notes.find(n => n.midi === newMidi && n.time === newTime && n.velocity === noteToClone.velocity);
+                                if (newNote) {
+                                    newNote.preDisableVelocity = noteToClone.preDisableVelocity;
+                                }
+                            }
                         }
                     });
                     setParsedMidiStems({ ...parsedMidiStems });

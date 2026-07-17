@@ -120,6 +120,7 @@ export default function MidiEditorPopup({
     
     // Selection state for MIDI notes (multi selection)
     const [selectedNoteIndices, setSelectedNoteIndices] = React.useState(new Set());
+    const [showHintBox, setShowHintBox] = React.useState(false);
     
     const [contextMenu, setContextMenu] = React.useState(null);
     const closeContextMenu = () => { if (contextMenu) setContextMenu(null); };
@@ -518,27 +519,118 @@ export default function MidiEditorPopup({
                     Revert
                 </button>
 
+                {/* Hint Button & Popup */}
+                <div style={{ position: 'relative' }}>
+                    <button onClick={() => setShowHintBox(!showHintBox)} style={{
+                        height: '24px', width: '24px', padding: '0',
+                        background: 'transparent',
+                        color: '#aaa', 
+                        border: 'none',
+                        cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        transition: 'color 0.2s',
+                        marginLeft: '4px'
+                    }} title="Shortcuts & Controls" onMouseEnter={e => e.currentTarget.style.color = 'white'} onMouseLeave={e => e.currentTarget.style.color = '#aaa'}>
+                        <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>
+                        </svg>
+                    </button>
+
+                    {showHintBox && (
+                        <>
+                            {/* Transparent overlay for clicking outside */}
+                            <div 
+                                style={{ position: 'fixed', inset: 0, zIndex: 10999 }} 
+                                onClick={() => setShowHintBox(false)} 
+                            />
+                            
+                            <div style={{
+                                position: 'absolute',
+                                top: '35px',
+                                right: '-10px',
+                                width: '280px',
+                                backgroundColor: '#111',
+                                border: '1px solid #333',
+                                borderRadius: '6px',
+                                padding: '16px',
+                                color: '#fff',
+                                boxShadow: '0 8px 32px rgba(0,0,0,0.8)',
+                                cursor: 'default',
+                                zIndex: 11000
+                            }} onClick={e => e.stopPropagation()}>
+                                {/* Triangle pointer */}
+                                <div style={{
+                                    position: 'absolute',
+                                    top: '-7px',
+                                    right: '18px',
+                                    width: 0,
+                                    height: 0,
+                                    borderLeft: '7px solid transparent',
+                                    borderRight: '7px solid transparent',
+                                    borderBottom: '7px solid #333',
+                                }} />
+                                <div style={{
+                                    position: 'absolute',
+                                    top: '-6px',
+                                    right: '19px',
+                                    width: 0,
+                                    height: 0,
+                                    borderLeft: '6px solid transparent',
+                                    borderRight: '6px solid transparent',
+                                    borderBottom: '6px solid #111',
+                                    zIndex: 1
+                                }} />
+                                
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', borderBottom: '1px solid #222', paddingBottom: '8px' }}>
+                                    <h3 style={{ margin: 0, fontSize: '14px' }}>Shortcuts & Controls</h3>
+                                    <button onClick={() => setShowHintBox(false)} style={{ background: 'transparent', border: 'none', color: '#aaa', cursor: 'pointer', fontSize: '16px' }}>&times;</button>
+                                </div>
+                                
+                                <div style={{ display: 'grid', gap: '8px', fontSize: '12px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <span style={{ color: '#aaa' }}>Add Note</span>
+                                        <span><kbd>Cmd/Ctrl</kbd> + Click</span>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <span style={{ color: '#aaa' }}>Replicate</span>
+                                        <span><kbd>Shift</kbd> + Drag</span>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <span style={{ color: '#aaa' }}>Multi-select</span>
+                                        <span><kbd>Shift</kbd> + Click</span>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <span style={{ color: '#aaa' }}>Lasso Select</span>
+                                        <span>Drag Background</span>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <span style={{ color: '#aaa' }}>Context Menu</span>
+                                        <span>Right Click</span>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <span style={{ color: '#aaa' }}>Undo</span>
+                                        <span><kbd>Cmd/Ctrl</kbd> + <kbd>Z</kbd></span>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <span style={{ color: '#aaa' }}>Delete Note(s)</span>
+                                        <span><kbd>Backspace / Del</kbd></span>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <span style={{ color: '#aaa' }}>Disable / Restore</span>
+                                        <span><kbd>D</kbd></span>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <span style={{ color: '#aaa' }}>Join Notes</span>
+                                        <span><kbd>J</kbd></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </>
+                    )}
+                </div>
+
                 {/* Spacer to push sliders to the right */}
                 <div style={{ flexGrow: 1 }}></div>
-
-                {/* Disable/Restore Button */}
-                {selectedNoteIndices.size > 0 && (
-                    <div style={{ marginRight: selectedNoteIndices.size === 1 ? '10px' : '20px', borderRight: selectedNoteIndices.size === 1 ? 'none' : '1px solid #333', paddingRight: selectedNoteIndices.size === 1 ? '0' : '20px' }}>
-                        <button onClick={handleToggleDisable} style={{
-                            height: '24px', padding: '0 10px',
-                            background: 'transparent',
-                            color: 'white', 
-                            border: '1px solid white', 
-                            borderRadius: '4px',
-                            cursor: 'pointer', fontSize: '12px', fontWeight: 'bold',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            transition: 'all 0.2s',
-                            opacity: 0.8
-                        }} title={allDisabled ? "Restore Selected Notes" : "Disable Selected Notes"}>
-                            {allDisabled ? "Restore" : "Disable"}
-                        </button>
-                    </div>
-                )}
 
                 {/* Velocity Control */}
                 {selectedNoteIndices.size === 1 && (
@@ -554,25 +646,6 @@ export default function MidiEditorPopup({
                             onPointerDown={pushUndoState}
                             style={{ width: '80px', cursor: 'pointer', accentColor: '#aaa' }}
                         />
-                    </div>
-                )}
-
-                {/* Join Notes Button */}
-                {canJoin && (
-                    <div style={{ marginRight: '20px', borderRight: '1px solid #333', paddingRight: '20px' }}>
-                        <button onClick={handleJoinNotes} style={{
-                            height: '24px', padding: '0 10px',
-                            background: 'transparent',
-                            color: 'white', 
-                            border: '1px solid white', 
-                            borderRadius: '4px',
-                            cursor: 'pointer', fontSize: '12px', fontWeight: 'bold',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            transition: 'all 0.2s',
-                            opacity: 0.8
-                        }} title="Join Selected Notes">
-                            Join
-                        </button>
                     </div>
                 )}
 
@@ -836,12 +909,13 @@ export default function MidiEditorPopup({
                     {selectedNoteIndices.size > 0 && (
                         <>
                             <div 
-                                style={{ padding: '8px 16px', cursor: 'pointer' }}
+                                style={{ padding: '8px 16px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                                 onClick={() => { handleToggleDisable(); closeContextMenu(); }}
                                 onMouseEnter={(e) => e.target.style.backgroundColor = '#333'}
                                 onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
                             >
-                                {allDisabled ? "Restore" : "Disable"}
+                                <span>{allDisabled ? "Restore" : "Disable"}</span>
+                                <span style={{ fontSize: '11px', opacity: 0.5, marginLeft: '20px', color: '#aaa' }}>D</span>
                             </div>
                             <div 
                                 style={{ padding: '8px 16px', cursor: 'pointer', color: '#e53935', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
@@ -854,12 +928,13 @@ export default function MidiEditorPopup({
                             </div>
                             {canJoin && (
                                 <div 
-                                    style={{ padding: '8px 16px', cursor: 'pointer' }}
+                                    style={{ padding: '8px 16px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                                     onClick={() => { handleJoinNotes(); closeContextMenu(); }}
                                     onMouseEnter={(e) => e.target.style.backgroundColor = '#333'}
                                     onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
                                 >
-                                    Join
+                                    <span>Join</span>
+                                    <span style={{ fontSize: '11px', opacity: 0.5, marginLeft: '20px', color: '#aaa' }}>J</span>
                                 </div>
                             )}
                             <div style={{ height: '1px', backgroundColor: '#333', margin: '4px 0' }} />
