@@ -296,14 +296,14 @@ export default function MidiEditorPopup({
             // Map velocity (0-1) continuously across an HSL color spectrum (Muted / Greyish Heatmap)
             const v = note.velocity !== undefined ? Math.max(0.01, note.velocity) : 0.8;
             
-            // Hue: Blue(200) -> Green -> Orange -> Red(15)
-            const hue = 200 - (v * 185); 
+            // Hue: Purple(280) -> Blue -> Cyan -> Green -> Yellow -> Red(0)
+            const hue = 280 - (v * 280); 
             
-            // Saturation: Stays low to prevent vibrance. 25% (pale blue) to 35% (brownish red)
-            const saturation = Math.round(25 + (v * 10)); 
+            // Saturation: Muted with more gray
+            const saturation = Math.round(35 + (v * 15)); 
             
-            // Lightness: 75% (light, pale blue) down to 35% (dark, brownish red)
-            const lightness = Math.round(75 - (v * 40)); 
+            // Lightness: Slightly darker to prevent bright neon colors
+            const lightness = Math.round(45 + (v * 10)); 
             
             const isDisabled = note.velocity !== undefined && note.velocity <= 0.015;
             const noteColor = isDisabled ? '#555' : `hsl(${Math.round(hue)}, ${saturation}%, ${lightness}%)`;
@@ -633,7 +633,7 @@ export default function MidiEditorPopup({
                 <div style={{ flexGrow: 1 }}></div>
 
                 {/* Velocity Control */}
-                {selectedNoteIndices.size === 1 && (
+                {selectedNoteIndices.size > 0 && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginRight: '20px', borderRight: '1px solid #333', paddingRight: '20px' }}>
                         <span style={{ color: '#aaa', fontSize: '12px', fontWeight: 'bold' }}>
                             Velocity: {Math.round(commonVelocity * 100)}
@@ -802,9 +802,10 @@ export default function MidiEditorPopup({
                                         const topPx = (127 - projMidi) * popupRowHeight;
 
                                         const v = noteToClone.velocity !== undefined ? Math.max(0.01, noteToClone.velocity) : 0.8;
-                                        const hue = 200 - (v * 185); 
-                                        const saturation = Math.round(25 + (v * 10)); 
-                                        const lightness = Math.round(75 - (v * 40)); 
+                                        // Hue: Purple(280) -> Blue -> Cyan -> Green -> Yellow -> Red(0)
+                                        const hue = 280 - (v * 280); 
+                                        const saturation = Math.round(35 + (v * 15)); 
+                                        const lightness = Math.round(45 + (v * 10));
                                         const isDisabled = v <= 0.015;
                                         const noteColor = isDisabled ? '#555' : `hsla(${Math.round(hue)}, ${saturation}%, ${lightness}%, 0.4)`;
 

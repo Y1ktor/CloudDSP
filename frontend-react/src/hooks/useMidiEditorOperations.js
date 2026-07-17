@@ -141,23 +141,43 @@ export function useMidiEditorOperations({
 
     // Velocity Control Logic
     let commonVelocity = 0.8;
-    if (selectedNoteIndices.size === 1 && parsedMidiStems && parsedMidiStems[trackName] && parsedMidiStems[trackName].midiData.tracks[0].notes.length > 0) {
-        const selectedIndex = Array.from(selectedNoteIndices)[0];
-        const note = parsedMidiStems[trackName].midiData.tracks[0].notes[selectedIndex];
-        if (note) {
-            commonVelocity = note.velocity !== undefined ? Math.max(0.01, note.velocity) : 0.8;
+    let referenceNoteIndex = null;
+    
+    if (selectedNoteIndices.size > 0 && parsedMidiStems && parsedMidiStems[trackName]) {
+        const notes = parsedMidiStems[trackName].midiData.tracks[0].notes;
+        const selectedNotes = Array.from(selectedNoteIndices).map(idx => ({ note: notes[idx], index: idx })).filter(n => n.note);
+        
+        if (selectedNotes.length > 0) {
+            // Find the lowest note (by velocity)
+            selectedNotes.sort((a, b) => {
+                const velA = a.note.velocity !== undefined ? Math.max(0.01, a.note.velocity) : 0.8;
+                const velB = b.note.velocity !== undefined ? Math.max(0.01, b.note.velocity) : 0.8;
+                if (velA !== velB) return velA - velB;
+                return a.note.time - b.note.time;
+            });
+            
+            const refNote = selectedNotes[0];
+            referenceNoteIndex = refNote.index;
+            commonVelocity = refNote.note.velocity !== undefined ? Math.max(0.01, refNote.note.velocity) : 0.8;
         }
     }
 
     const handleVelocityChange = (e) => {
         const newVelocity = parseFloat(e.target.value);
-        if (selectedNoteIndices.size !== 1 || !parsedMidiStems) return;
+        if (selectedNoteIndices.size === 0 || !parsedMidiStems || referenceNoteIndex === null) return;
 
-        const selectedIndex = Array.from(selectedNoteIndices)[0];
-        const note = parsedMidiStems[trackName].midiData.tracks[0].notes[selectedIndex];
-        if (note) {
-            note.velocity = newVelocity;
-        }
+        const notes = parsedMidiStems[trackName].midiData.tracks[0].notes;
+        const refNote = notes[referenceNoteIndex];
+        const oldVelocity = refNote.velocity !== undefined ? Math.max(0.01, refNote.velocity) : 0.8;
+        const delta = newVelocity - oldVelocity;
+
+        selectedNoteIndices.forEach(idx => {
+            const note = notes[idx];
+            if (note) {
+                const currentV = note.velocity !== undefined ? Math.max(0.01, note.velocity) : 0.8;
+                note.velocity = Math.max(0.01, Math.min(1, currentV + delta));
+            }
+        });
 
         setParsedMidiStems({ ...parsedMidiStems });
     };
