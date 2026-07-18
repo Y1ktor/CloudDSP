@@ -26,18 +26,65 @@ export default function ControlBar({
     splitMode,
     setSplitMode,
     executeStemSplit,
+    executeLinkExtraction,
     file,
-    errorMsg
+    errorMsg,
+    handleLinkSet
 }) {
+    const [showLinkPopup, setShowLinkPopup] = React.useState(false);
+    const [linkInput, setLinkInput] = React.useState('');
+
+    const handleLinkSubmit = () => {
+        if (!linkInput) return;
+        handleLinkSet(linkInput);
+        setShowLinkPopup(false);
+        setLinkInput(''); // clear the input after submission
+    };
+
     return (
         <>
             <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' }}>
                 <label htmlFor="stem-upload" className="upload-btn" style={{ margin: 0, cursor: isSplitting ? 'not-allowed' : 'pointer', opacity: isSplitting ? 0.5 : 1 }}>Browse...</label>
                 <input type="file" id="stem-upload" accept="audio/*" style={{ display: 'none' }} onChange={handleFileUpload} disabled={isSplitting} />
                 
-                <div id="file-name-container" style={{ flexGrow: 1, margin: 0 }}>
-                    <div id="file-name-display" style={{ color: fileName === "No file loaded" ? '#aaa' : '#fff' }}>{fileName}</div>
+                <div id="file-name-container" onClick={() => !isSplitting && setShowLinkPopup(true)} style={{ flexGrow: 1, margin: 0, cursor: isSplitting ? 'not-allowed' : 'pointer' }} title="Click to paste a link">
+                    <div id="file-name-display" style={{ color: (fileName === "No file loaded" || fileName === "Upload audio or paste a link") ? '#aaa' : '#fff' }}>
+                        {fileName === "No file loaded" ? "Upload audio or paste a link" : fileName}
+                    </div>
                 </div>
+
+                {showLinkPopup && (
+                    <div style={{
+                        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                        backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 9999,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center'
+                    }} onClick={() => setShowLinkPopup(false)}>
+                        <div style={{
+                            background: '#1e1e1e', padding: '20px 24px', borderRadius: '12px',
+                            width: '80%', maxWidth: '800px', display: 'flex', flexDirection: 'column', gap: '12px',
+                            boxShadow: '0 12px 30px rgba(0,0,0,0.5)', border: '1px solid #333'
+                        }} onClick={e => e.stopPropagation()}>
+                            <p style={{ margin: 0, fontSize: '14px', color: '#ccc', fontWeight: '500' }}>
+                                Paste a URL to extract audio directly
+                            </p>
+                            <div style={{ display: 'flex', gap: '10px' }}>
+                                <input 
+                                    type="text" 
+                                    value={linkInput} 
+                                    onChange={e => setLinkInput(e.target.value)} 
+                                    onKeyDown={e => e.key === 'Enter' && handleLinkSubmit()}
+                                    placeholder="https://www.youtube.com/watch?v=..."
+                                    autoFocus
+                                    style={{ 
+                                        flexGrow: 1, padding: '10px 14px', borderRadius: '6px', border: '1px solid #444', 
+                                        background: '#111', color: 'white', boxSizing: 'border-box',
+                                        fontSize: '14px', outline: 'none'
+                                    }}
+                                />
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 <div style={{ width: 'auto', minWidth: '150px' }}>
                     <select 
@@ -65,15 +112,18 @@ export default function ControlBar({
                 </div>
 
                 <button 
-                    onClick={executeStemSplit}
-                    disabled={isSplitting || !file}
+                    onClick={() => {
+                        if (file) executeStemSplit();
+                        else if (fileName && fileName.startsWith('http')) executeLinkExtraction(fileName);
+                    }}
+                    disabled={isSplitting || (!file && (!fileName || !fileName.startsWith('http')))}
                     style={{
-                        background: isSplitting ? '#555' : (!file ? '#555' : '#4CAF50'),
+                        background: isSplitting ? '#555' : ((!file && (!fileName || !fileName.startsWith('http'))) ? '#555' : '#4CAF50'),
                         color: 'white',
                         border: 'none',
                         padding: '8px 16px',
                         borderRadius: '4px',
-                        cursor: isSplitting || !file ? 'not-allowed' : 'pointer',
+                        cursor: isSplitting || (!file && (!fileName || !fileName.startsWith('http'))) ? 'not-allowed' : 'pointer',
                         fontWeight: 'bold',
                         transition: 'background-color 0.2s',
                         fontSize: '13px'

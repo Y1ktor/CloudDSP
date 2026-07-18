@@ -80,6 +80,7 @@ def lambda_handler(event, context):
             connection_id = body.get('connectionId')
             
         url = body.get('url')
+        stem_mode = body.get('stemMode', '6-stems')
         
         if not url:
             error_payload = {'type': 'error', 'message': 'Missing required parameter: url'}
@@ -136,7 +137,7 @@ def lambda_handler(event, context):
             return {'statusCode': 500, 'body': json.dumps(error_payload)}
             
         # Define S3 Key
-        s3_key = f"uploads/yt-dlp/{temp_id}/{title}.mp3"
+        s3_key = f"uploads/yt-dlp/{temp_id}-{title}.mp3"
         print(f"Uploading to S3: s3://{BUCKET_NAME}/{s3_key}")
         
         # Send upload status
@@ -145,10 +146,15 @@ def lambda_handler(event, context):
             'message': 'Extraction complete. Uploading to S3...'
         })
         
-        # Upload the converted MP3 file to S3 with connectionId in metadata
-        extra_args = {}
+        # Upload the converted MP3 file to S3 with connectionId and stemMode in metadata
+        extra_args = {'Metadata': {}}
         if connection_id:
-            extra_args = {'Metadata': {'connection-id': connection_id}}
+            extra_args['Metadata']['connection-id'] = connection_id
+        if stem_mode:
+            extra_args['Metadata']['stem-mode'] = stem_mode
+            
+        if not extra_args['Metadata']:
+            extra_args = {}
             
         s3_client.upload_file(final_file, BUCKET_NAME, s3_key, ExtraArgs=extra_args)
         

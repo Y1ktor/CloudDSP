@@ -52,7 +52,7 @@ export default function StemSplitter({
     fileName, setFileName,
     splitMode, setSplitMode,
     isSplitting, statusMessage, stemUrls, errorMsg, setErrorMsg, setStemUrls,
-    executeStemSplit, connectWebSocket, closeWebSocket
+    executeStemSplit, executeLinkExtraction, connectWebSocket, closeWebSocket
 }) {
     const isSplittingRef = React.useRef(isSplitting);
     React.useEffect(() => {
@@ -232,6 +232,13 @@ export default function StemSplitter({
         };
     }, [activeBpm, pixelsPerBar, totalBars, parsedBeatsPerBar, audioEngine.handleSeek, audioEngine.setCycleRegion]);
 
+    const handleLinkSet = (url) => {
+        setFile(null);
+        setFileName(url);
+        setStemUrls(null);
+        setErrorMsg("");
+    };
+
     return (
         <div style={{
             background: '#333',
@@ -254,10 +261,12 @@ export default function StemSplitter({
             <ControlBar 
                 isSplitting={isSplitting}
                 handleFileUpload={handleFileUpload}
+                handleLinkSet={handleLinkSet}
                 fileName={fileName}
                 splitMode={splitMode}
                 setSplitMode={setSplitMode}
                 executeStemSplit={executeStemSplit}
+                executeLinkExtraction={executeLinkExtraction}
                 file={file}
                 errorMsg={errorMsg}
             />

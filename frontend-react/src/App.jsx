@@ -118,6 +118,19 @@ export default function App() {
                     socketRef.current.close();
                 }
                 
+                // Phase 3.5: yt-dlp Extraction Updates
+                else if (data.type === "status") {
+                    setStatusMessage(data.message);
+                }
+                else if (data.type === "extraction_complete") {
+                    console.log("Extracted audio details:", data);
+                    setStatusMessage("Extraction Complete! Audio is ready.");
+                    setIsSplitting(false);
+                    // Optionally, store the downloadUrl in state if needed globally, 
+                    // or just leave it for now since AWS Batch will start processing it automatically.
+                    // socketRef.current.close(); // Wait for Batch processing_complete before closing
+                }
+                
                 // Phase 4: Server Error
                 else if (data.type === "error") {
                     setErrorMsg(data.message || "An AWS backend error occurred.");
@@ -136,6 +149,28 @@ export default function App() {
             socketRef.current.close();
         }
     }, []);
+
+    const executeLinkExtraction = (url) => {
+        if (!awsConnectionId) {
+            setErrorMsg("Still establishing secure connection to AWS... please try again in a few seconds.");
+            connectWebSocket();
+            return;
+        }
+        
+        setIsSplitting(true);
+        setErrorMsg("");
+        setStatusMessage("Sending link to CloudDSP...");
+        setStemUrls(null);
+        
+        // Construct the payload mapping to the 'yt-dlp' route
+        const payload = {
+            action: "yt-dlp",
+            url: url,
+            stemMode: splitMode
+        };
+        
+        socketRef.current.send(JSON.stringify(payload));
+    };
 
 
     const executeStemSplit = async () => {
@@ -217,7 +252,7 @@ export default function App() {
         fileName: stemFileName, setFileName: setStemFileName,
         splitMode, setSplitMode,
         isSplitting, statusMessage, stemUrls, errorMsg, setErrorMsg, setStemUrls,
-        executeStemSplit, connectWebSocket, closeWebSocket
+        executeStemSplit, executeLinkExtraction, connectWebSocket, closeWebSocket
     };
 
     return (

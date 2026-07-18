@@ -22,7 +22,7 @@ def lambda_handler(event, context):
 
         # Ensure we have a valid filename and construct the key
         safe_file_name = file_name if file_name else "unnamed_file"
-        file_key = f"uploads/{uuid.uuid4()}-{safe_file_name}"
+        file_key = f"uploads/local/{uuid.uuid4()}-{safe_file_name}"
         
         # Use provided file type or fallback to a generic binary stream
         content_type = file_type if file_type else 'application/octet-stream'
