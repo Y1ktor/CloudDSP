@@ -592,36 +592,36 @@ export default function MidiEditorPopup({
                                         <span><kbd>Cmd/Ctrl</kbd> + Click</span>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                        <span style={{ color: '#aaa' }}>Replicate</span>
-                                        <span><kbd>Shift</kbd> + Drag</span>
+                                        <span style={{ color: '#aaa' }}>Lasso Select</span>
+                                        <span>Drag Background</span>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                                         <span style={{ color: '#aaa' }}>Multi-select</span>
                                         <span><kbd>Shift</kbd> + Click</span>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                        <span style={{ color: '#aaa' }}>Lasso Select</span>
-                                        <span>Drag Background</span>
-                                    </div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                                         <span style={{ color: '#aaa' }}>Context Menu</span>
                                         <span>Right Click</span>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                        <span style={{ color: '#aaa' }}>Undo</span>
-                                        <span><kbd>Cmd/Ctrl</kbd> + <kbd>Z</kbd></span>
+                                        <span style={{ color: '#aaa' }}>Replicate</span>
+                                        <span><kbd>Shift</kbd> + Drag</span>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                        <span style={{ color: '#aaa' }}>Delete Note(s)</span>
-                                        <span><kbd>Backspace / Del</kbd></span>
+                                        <span style={{ color: '#aaa' }}>Join Notes</span>
+                                        <span><kbd>J</kbd></span>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                                         <span style={{ color: '#aaa' }}>Disable / Restore</span>
                                         <span><kbd>D</kbd></span>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                        <span style={{ color: '#aaa' }}>Join Notes</span>
-                                        <span><kbd>J</kbd></span>
+                                        <span style={{ color: '#aaa' }}>Delete Note(s)</span>
+                                        <span><kbd>Backspace / Del</kbd></span>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <span style={{ color: '#aaa' }}>Undo</span>
+                                        <span><kbd>Cmd/Ctrl</kbd> + <kbd>Z</kbd></span>
                                     </div>
                                 </div>
                             </div>
