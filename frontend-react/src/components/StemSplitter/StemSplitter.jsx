@@ -149,12 +149,13 @@ export default function StemSplitter({
 
     const dynamicDuration = audioEngine.originalBpm && audioEngine.duration ? audioEngine.duration * (audioEngine.originalBpm / audioEngine.bpm) : audioEngine.duration;
     const dynamicProgress = audioEngine.originalBpm && audioEngine.progress ? audioEngine.progress * (audioEngine.originalBpm / audioEngine.bpm) : audioEngine.progress;
-    const playheadX = (audioEngine.progress * (activeBpm / 60) / parsedBeatsPerBar) * pixelsPerBar;
+    const playheadX = Math.round((audioEngine.progress * (activeBpm / 60) / parsedBeatsPerBar) * pixelsPerBar);
 
     const [isPlayheadHovered, setIsPlayheadHovered] = React.useState(false);
     const playheadDragRef = React.useRef({ isDragging: false });
     const cycleDragRef = React.useRef({ isDragging: false, mode: 'move', initialX: 0, initialStart: 0, initialEnd: 0 });
     const timelineRef = React.useRef(null);
+    const scrollContainerRef = React.useRef(null);
 
     React.useEffect(() => {
         const handleMouseMove = (e) => {
@@ -231,6 +232,50 @@ export default function StemSplitter({
             window.removeEventListener('mouseup', handleMouseUp);
         };
     }, [activeBpm, pixelsPerBar, totalBars, parsedBeatsPerBar, audioEngine.handleSeek, audioEngine.setCycleRegion]);
+
+    const scrollStateRef = React.useRef('roll');
+
+    React.useLayoutEffect(() => {
+        if (audioEngine.isPlaying && scrollContainerRef.current) {
+            const container = scrollContainerRef.current;
+            const halfWidth = container.clientWidth / 2;
+            const width = container.clientWidth;
+            
+            let relativeX = playheadX - container.scrollLeft;
+
+            // 1. Detect out-of-bounds (e.g. Go to Beginning or hitting the edge)
+            if (relativeX < 0 || relativeX >= width) {
+                if (scrollStateRef.current === 'slide-right' && relativeX >= width) {
+                    // Intended page shift: playhead reached the right edge
+                    container.scrollLeft = playheadX;
+                    relativeX = playheadX - container.scrollLeft;
+                    scrollStateRef.current = 'roll';
+                } else {
+                    // Unexpected jump out of bounds (e.g. seek off-screen), snap to center
+                    container.scrollLeft = Math.max(0, playheadX - halfWidth);
+                    relativeX = playheadX - container.scrollLeft;
+                    scrollStateRef.current = 'roll';
+                }
+            }
+            
+            // 2. Detect a click/jump in the right section while we were rolling
+            if (scrollStateRef.current === 'roll' && relativeX > halfWidth + 5) {
+                scrollStateRef.current = 'slide-right';
+            }
+            
+            // 3. Detect a click/jump to the left section
+            if (relativeX < halfWidth - 5) {
+                scrollStateRef.current = 'roll';
+            }
+
+            // 4. Execute behavior
+            if (scrollStateRef.current === 'roll') {
+                if (relativeX >= halfWidth) {
+                    container.scrollLeft = playheadX - halfWidth;
+                }
+            }
+        }
+    }, [playheadX, audioEngine.isPlaying]);
 
     const handleLinkSet = (url) => {
         setFile(null);
@@ -476,7 +521,7 @@ export default function StemSplitter({
                             />
                             
                             {/* RIGHT COLUMN: Timeline Canvas (Scrollable) */}
-                            <div style={{ flexGrow: 1, overflowX: 'auto', paddingBottom: '10px' }}>
+                            <div ref={scrollContainerRef} style={{ flexGrow: 1, overflowX: 'auto', paddingBottom: '10px', scrollBehavior: 'auto' }}>
                                 <div ref={timelineRef} style={{ minWidth: `${pixelsPerBar * totalBars}px`, display: 'flex', flexDirection: 'column', gap: '3px', position: 'relative' }}>
                                     
                                     {/* Time Indicator (Playhead) */}

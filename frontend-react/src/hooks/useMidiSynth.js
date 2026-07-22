@@ -52,8 +52,19 @@ export function useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, 
         };
     }, [synthRef]);
 
+    const prevProgressRef = useRef(progress);
+
     // 2. Playback Scheduler Loop
     useEffect(() => {
+        const delta = progress - prevProgressRef.current;
+        prevProgressRef.current = progress;
+        
+        // If the playhead jumped significantly (e.g. > 500ms), clear memory and stop ringing notes
+        if (Math.abs(delta) > 0.5) {
+            scheduledNotesRef.current.clear();
+            if (synthRef.current) synthRef.current.stop();
+        }
+
         if (!isMidiMode || !isPlaying || !synthRef.current || !parsedMidiStems || !parsedMidiStems[trackName] || !originalBpm) return;
         
         const hasSolos = Object.values(soloedTracks).some(val => val);
@@ -103,11 +114,13 @@ export function useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, 
         });
     }, [progress, isPlaying, isMidiMode, activeBpm, originalBpm, parsedMidiStems, trackName, audioCtxRef, mutedTracks, soloedTracks]);
 
-    // 3. Clear scheduled notes if we seek, pause, or switch tracks
+    // 3. Clear scheduled notes when pausing
     useEffect(() => {
-        scheduledNotesRef.current.clear();
-        if (synthRef.current && !isPlaying) {
-            synthRef.current.stop(); // Stop immediately on pause
+        if (!isPlaying) {
+            scheduledNotesRef.current.clear();
+            if (synthRef.current) {
+                synthRef.current.stop(); // Stop immediately on pause
+            }
         }
-    }, [progress < 0.1, isPlaying, trackName, synthRef]); // Clear when seeking back to 0 or pausing
+    }, [isPlaying, synthRef]);
 }

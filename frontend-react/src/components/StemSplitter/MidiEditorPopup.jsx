@@ -371,7 +371,49 @@ export default function MidiEditorPopup({
     const gridHeight = 128 * popupRowHeight;
     
     // Scale the playhead position to match the popup's local zoom level
-    const popupPlayheadX = (playheadX / pixelsPerBar) * popupPixelsPerBar;
+    const popupPlayheadX = Math.round((playheadX / pixelsPerBar) * popupPixelsPerBar);
+
+    const scrollStateRef = React.useRef('roll');
+
+    React.useLayoutEffect(() => {
+        if (isPlaying && gridScrollRef.current) {
+            const container = gridScrollRef.current;
+            const halfWidth = container.clientWidth / 2;
+            const width = container.clientWidth;
+            
+            let relativeX = popupPlayheadX - container.scrollLeft;
+
+            // 1. Detect out-of-bounds (e.g. Go to Beginning or hitting the edge)
+            if (relativeX < 0 || relativeX >= width) {
+                if (scrollStateRef.current === 'slide-right' && relativeX >= width) {
+                    container.scrollLeft = popupPlayheadX;
+                    relativeX = popupPlayheadX - container.scrollLeft;
+                    scrollStateRef.current = 'roll';
+                } else {
+                    container.scrollLeft = Math.max(0, popupPlayheadX - halfWidth);
+                    relativeX = popupPlayheadX - container.scrollLeft;
+                    scrollStateRef.current = 'roll';
+                }
+            }
+            
+            // 2. Detect a click/jump in the right section while we were rolling
+            if (scrollStateRef.current === 'roll' && relativeX > halfWidth + 5) {
+                scrollStateRef.current = 'slide-right';
+            }
+            
+            // 3. Detect a click/jump to the left section
+            if (relativeX < halfWidth - 5) {
+                scrollStateRef.current = 'roll';
+            }
+
+            // 4. Execute behavior
+            if (scrollStateRef.current === 'roll') {
+                if (relativeX >= halfWidth) {
+                    container.scrollLeft = popupPlayheadX - halfWidth;
+                }
+            }
+        }
+    }, [popupPlayheadX, isPlaying]);
 
     return (
         <div style={{
