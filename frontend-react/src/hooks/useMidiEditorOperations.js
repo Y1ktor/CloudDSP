@@ -1,5 +1,30 @@
 import React, { useState, useEffect } from 'react';
 
+/**
+ * useMidiEditorOperations
+ * 
+ * A mega-hook that encapsulates all the business logic, state, and event handlers for the 
+ * interactive piano roll editor. It manages mouse events for selecting notes via lasso, 
+ * dragging/moving notes, duplicating notes (Alt+Drag), adding new notes, deleting notes, 
+ * and modifying note velocities.
+ * 
+ * This hook acts as the primary controller for mutating the `@tonejs/midi` class instances 
+ * in real-time, utilizing React state to trigger UI repaints on the canvas.
+ * 
+ * @param {Object} props - Hook arguments
+ * @param {string} props.trackName - The currently active track being edited
+ * @param {Object} props.parsedMidiStems - The master dictionary of all parsed MIDI tracks
+ * @param {Function} props.setParsedMidiStems - State setter to trigger React re-renders upon mutation
+ * @param {Set<number>} props.selectedNoteIndices - Set of currently highlighted note indices
+ * @param {Function} props.setSelectedNoteIndices - State setter for selection updates
+ * @param {Function} props.pushUndoState - Callback to snapshot the MIDI state before a mutation occurs
+ * @param {number} props.activeBpm - The current user-adjusted playback BPM
+ * @param {number} props.parsedBeatsPerBar - The number of beats in a bar (e.g. 4 for 4/4)
+ * @param {number} props.popupPixelsPerBar - The current horizontal zoom scale of the editor
+ * @param {number} props.popupRowHeight - The current vertical zoom scale (height of each piano key)
+ * @param {Function} props.auditionNote - Callback to play a brief sound when clicking a note
+ * @returns {Object} A dictionary containing all state variables and event handlers needed by the UI
+ */
 export function useMidiEditorOperations({
     trackName,
     parsedMidiStems,

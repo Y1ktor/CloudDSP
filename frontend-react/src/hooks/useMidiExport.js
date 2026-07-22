@@ -1,6 +1,25 @@
 import { useCallback } from 'react';
 import { Midi } from '@tonejs/midi';
 
+/**
+ * useMidiExport
+ * 
+ * A custom hook providing functionality to export parsed MIDI data back into standard `.mid` files.
+ * It handles both full track exports and localized cycle region (loop) exports, ensuring that 
+ * the exported file correctly honors any user-adjusted BPM (time stretching) by forcing 
+ * `@tonejs/midi` to recalculate its internal tick map.
+ * 
+ * @param {Object} props - Hook arguments
+ * @param {Object} props.parsedMidiStems - The global dictionary of parsed MIDI objects
+ * @param {string} props.trackName - The currently selected track to export
+ * @param {string} props.fileName - The original file name to use as a base for the download
+ * @param {Object} props.cycleRegion - The current cycle loop boundaries { startBar, endBar }
+ * @param {number} props.pixelsPerBar - The current horizontal zoom scale
+ * @param {number} props.totalBars - The total number of bars in the timeline
+ * @param {number} props.duration - The master duration of the track in seconds
+ * @param {number} props.activeBpm - The current user-adjusted playback BPM
+ * @returns {Object} { handleExportMidi, handleExportCycleRange }
+ */
 export function useMidiExport({ 
     parsedMidiStems, 
     trackName, 

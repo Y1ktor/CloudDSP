@@ -11,6 +11,7 @@ import { useInstruments } from '../../hooks/useInstruments';
 import { useMidiManager } from '../../hooks/useMidiManager';
 import { useGlobalShortcuts } from '../../hooks/useGlobalShortcuts';
 import { useUndoHistory } from '../../hooks/useUndoHistory';
+import { usePlayheadScroll } from '../../hooks/usePlayheadScroll';
 
 function MidiScheduler({ trackName, activeBpm, originalBpm, progress, isPlaying, parsedMidiStems, audioCtxRef, synthRef, isMidiMode, mutedTracks, soloedTracks }) {
     useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, trackName, activeBpm, originalBpm, synthRef, isMidiMode, mutedTracks, soloedTracks);
@@ -233,49 +234,7 @@ export default function StemSplitter({
         };
     }, [activeBpm, pixelsPerBar, totalBars, parsedBeatsPerBar, audioEngine.handleSeek, audioEngine.setCycleRegion]);
 
-    const scrollStateRef = React.useRef('roll');
-
-    React.useLayoutEffect(() => {
-        if (audioEngine.isPlaying && scrollContainerRef.current) {
-            const container = scrollContainerRef.current;
-            const halfWidth = container.clientWidth / 2;
-            const width = container.clientWidth;
-            
-            let relativeX = playheadX - container.scrollLeft;
-
-            // 1. Detect out-of-bounds (e.g. Go to Beginning or hitting the edge)
-            if (relativeX < 0 || relativeX >= width) {
-                if (scrollStateRef.current === 'slide-right' && relativeX >= width) {
-                    // Intended page shift: playhead reached the right edge
-                    container.scrollLeft = playheadX;
-                    relativeX = playheadX - container.scrollLeft;
-                    scrollStateRef.current = 'roll';
-                } else {
-                    // Unexpected jump out of bounds (e.g. seek off-screen), snap to center
-                    container.scrollLeft = Math.max(0, playheadX - halfWidth);
-                    relativeX = playheadX - container.scrollLeft;
-                    scrollStateRef.current = 'roll';
-                }
-            }
-            
-            // 2. Detect a click/jump in the right section while we were rolling
-            if (scrollStateRef.current === 'roll' && relativeX > halfWidth + 5) {
-                scrollStateRef.current = 'slide-right';
-            }
-            
-            // 3. Detect a click/jump to the left section
-            if (relativeX < halfWidth - 5) {
-                scrollStateRef.current = 'roll';
-            }
-
-            // 4. Execute behavior
-            if (scrollStateRef.current === 'roll') {
-                if (relativeX >= halfWidth) {
-                    container.scrollLeft = playheadX - halfWidth;
-                }
-            }
-        }
-    }, [playheadX, audioEngine.isPlaying]);
+    usePlayheadScroll(scrollContainerRef, playheadX, audioEngine.isPlaying);
 
     const handleLinkSet = (url) => {
         setFile(null);
