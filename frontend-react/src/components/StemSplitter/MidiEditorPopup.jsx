@@ -210,7 +210,8 @@ export default function MidiEditorPopup({
         pixelsPerBar,
         totalBars,
         duration,
-        activeBpm
+        activeBpm,
+        parsedBeatsPerBar
     });
 
     if (!trackName) return null;

@@ -1,3 +1,13 @@
+"""Run a cloud-based Demucs stem-separation job.
+
+The module downloads an audio object from S3, selects a Demucs model for 2-,
+4-, or 6-stem separation (with S3 metadata able to override the requested
+mode), and uploads the resulting stem files to S3. It asynchronously invokes
+the Lambda named by ``BASIC_PITCH_LAMBDA_NAME`` for every stem, then creates
+one-hour download URLs and optionally notifies the originating frontend through
+API Gateway WebSockets.
+"""
+
 import os
 import sys
 import argparse
@@ -36,6 +46,38 @@ def upload_directory_to_s3(s3_client, local_dir: Path, bucket: str, prefix: str)
             
     print("Upload complete.")
     return uploaded_keys
+
+def trigger_basic_pitch_jobs(lambda_client, function_name: str, bucket_name: str,
+                             uploaded_keys: dict, connection_id: str,
+                             websocket_url: str, source_file_key: str):
+    """Asynchronously invoke Basic Pitch once for every uploaded audio stem."""
+    for stem_name, file_key in uploaded_keys.items():
+        payload = {
+            "bucket_name": bucket_name,
+            "file_key": file_key,
+            "connection_id": connection_id,
+            "stem_name": stem_name,
+            "websocket_url": websocket_url,
+            "source_file_key": source_file_key,
+        }
+        print(
+            f"Triggering Basic Pitch Lambda '{function_name}' for stem "
+            f"'{stem_name}' (s3://{bucket_name}/{file_key}): {payload}"
+        )
+        try:
+            response = lambda_client.invoke(
+                FunctionName=function_name,
+                InvocationType="Event",
+                Payload=json.dumps(payload).encode("utf-8"),
+            )
+            print(
+                f"Basic Pitch Lambda accepted stem '{stem_name}' "
+                f"(StatusCode: {response.get('StatusCode')})."
+            )
+        except Exception as e:
+            # MIDI extraction is downstream work; do not mark a completed stem
+            # split as failed solely because the handoff could not be started.
+            print(f"Warning: Failed to trigger Basic Pitch for '{stem_name}': {e}")
 
 def split_stems_cloud(input_bucket: str, output_bucket: str, file_key: str, mode: str = "6-stems"):
     s3_client = boto3.client('s3')
@@ -101,8 +143,31 @@ def split_stems_cloud(input_bucket: str, output_bucket: str, file_key: str, mode
     # We will store them under 'stems/<original_filename_without_extension>/'
     s3_output_prefix = f"stems/{local_input_path.stem}"
     uploaded_keys = upload_directory_to_s3(s3_client, demucs_output_path, output_bucket, s3_output_prefix)
+
+    # 5. Start MIDI extraction for every uploaded stem when a downstream Lambda
+    # has been configured for this Batch job.
+    basic_pitch_lambda_name = os.environ.get("BASIC_PITCH_LAMBDA_NAME")
+    websocket_url = os.environ.get("WEBSOCKET_API_URL", "")
+    if basic_pitch_lambda_name:
+        print(
+            f"Starting downstream Basic Pitch jobs with Lambda "
+            f"'{basic_pitch_lambda_name}'."
+        )
+        trigger_basic_pitch_jobs(
+            boto3.client("lambda"),
+            basic_pitch_lambda_name,
+            output_bucket,
+            uploaded_keys,
+            connection_id,
+            websocket_url,
+            file_key,
+        )
+    else:
+        print(
+            "Skipping Basic Pitch handoff: BASIC_PITCH_LAMBDA_NAME is not set."
+        )
     
-    # 5. Generate Presigned GET URLs for the uploaded stems
+    # 6. Generate Presigned GET URLs for the uploaded stems
     print("\nGenerating pre-signed download URLs...")
     download_urls = {}
     for stem_name, key in uploaded_keys.items():
@@ -116,11 +181,10 @@ def split_stems_cloud(input_bucket: str, output_bucket: str, file_key: str, mode
         )
         download_urls[stem_name] = url
         
-    # 6. Notify the Frontend via WebSocket API
-    ws_url = os.environ.get('WEBSOCKET_API_URL')
-    if ws_url and connection_id and connection_id != 'unknown':
+    # 7. Notify the Frontend via WebSocket API
+    if websocket_url and connection_id and connection_id != 'unknown':
         print(f"Sending completion event to WebSocket ID: {connection_id}")
-        apigw_client = boto3.client('apigatewaymanagementapi', endpoint_url=ws_url)
+        apigw_client = boto3.client('apigatewaymanagementapi', endpoint_url=websocket_url)
         
         payload = json.dumps({
             "type": "processing_complete",

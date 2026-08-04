@@ -15,9 +15,9 @@ import { Midi } from '@tonejs/midi';
  * @param {string} props.fileName - The original file name to use as a base for the download
  * @param {Object} props.cycleRegion - The current cycle loop boundaries { startBar, endBar }
  * @param {number} props.pixelsPerBar - The current horizontal zoom scale
- * @param {number} props.totalBars - The total number of bars in the timeline
  * @param {number} props.duration - The master duration of the track in seconds
  * @param {number} props.activeBpm - The current user-adjusted playback BPM
+ * @param {number} props.parsedBeatsPerBar - The number of beats per bar in the time signature
  * @returns {Object} { handleExportMidi, handleExportCycleRange }
  */
 export function useMidiExport({ 
@@ -28,7 +28,8 @@ export function useMidiExport({
     pixelsPerBar, 
     totalBars,
     duration,
-    activeBpm
+    activeBpm,
+    parsedBeatsPerBar
 }) {
     const handleExportMidi = useCallback(() => {
         const stemData = parsedMidiStems[trackName];
@@ -87,8 +88,9 @@ export function useMidiExport({
         const stemData = parsedMidiStems[trackName];
         if (!stemData || !stemData.midiData) return;
         
-        const cycleStartSeconds = (cycleRegion.startBar / totalBars) * duration;
-        const cycleEndSeconds = (cycleRegion.endBar / totalBars) * duration;
+        const secondsPerBar = parsedBeatsPerBar * (60 / activeBpm);
+        const cycleStartSeconds = cycleRegion.startBar * secondsPerBar;
+        const cycleEndSeconds = cycleRegion.endBar * secondsPerBar;
         
         const originalMidi = stemData.midiData;
         
@@ -154,7 +156,7 @@ export function useMidiExport({
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-    }, [parsedMidiStems, trackName, fileName, cycleRegion, pixelsPerBar, totalBars, duration, activeBpm]);
+    }, [parsedMidiStems, trackName, fileName, cycleRegion, pixelsPerBar, totalBars, duration, activeBpm, parsedBeatsPerBar]);
 
     return { handleExportMidi, handleExportCycleRange };
 }

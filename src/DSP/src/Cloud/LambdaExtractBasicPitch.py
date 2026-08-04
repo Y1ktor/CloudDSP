@@ -5,17 +5,9 @@ import json
 import urllib.parse
 from pathlib import Path
 
-# ==========================================
-# TFLITE MOCK TENSORFLOW MODULE HACK
-# ==========================================
-# Since we installed basic_pitch without tensorflow (to save 1.5GB) and instead use tflite-runtime,
-# we need to mock the `tensorflow` module so that `basic_pitch` doesn't crash on import.
-import types
-if 'tensorflow' not in sys.modules:
-    dummy_tf = types.ModuleType('tensorflow')
-    sys.modules['tensorflow'] = dummy_tf
-
-# Now we can safely import basic_pitch and librosa
+# Basic Pitch uses its bundled TensorFlow Lite model when ``tflite-runtime`` is
+# installed. Do not mock TensorFlow: Basic Pitch would then incorrectly select
+# its TensorFlow SavedModel instead of the lightweight ``.tflite`` model.
 try:
     from basic_pitch.inference import predict_and_save
     from basic_pitch import ICASSP_2022_MODEL_PATH
@@ -118,10 +110,29 @@ def lambda_handler(event, context):
     output_bucket = os.environ.get("OUTPUT_BUCKET")
     
     try:
+        # Scenario A: Invoked directly by the stem-splitting Batch job.
+        # The input stem is also the destination bucket unless OUTPUT_BUCKET
+        # explicitly routes MIDI files elsewhere.
+        if event.get("bucket_name") and event.get("file_key"):
+            bucket = event["bucket_name"]
+            key = event["file_key"]
+            output_bucket = output_bucket or bucket
+            print(
+                f"Received direct stem-split invocation for "
+                f"s3://{bucket}/{key} "
+                f"(stem: {event.get('stem_name', 'unknown')}, "
+                f"connection: {event.get('connection_id', 'unknown')})."
+            )
+            extract_midi_cloud(bucket, output_bucket, key)
+            return {
+                'statusCode': 200,
+                'body': json.dumps('Successfully processed audio.')
+            }
+
         # Loop through all records in the event
         for record in event.get('Records', []):
             
-            # Scenario A: Triggered via an SQS Queue wrapped around an S3 Event
+            # Scenario B: Triggered via an SQS Queue wrapped around an S3 Event
             if 'body' in record:
                 body = json.loads(record['body'])
                 if 'Records' in body:
@@ -136,7 +147,7 @@ def lambda_handler(event, context):
                     extract_midi_cloud(bucket, output_bucket, key)
                     continue
 
-            # Scenario B: Triggered directly from an S3 Event Notification
+            # Scenario C: Triggered directly from an S3 Event Notification
             if 's3' in record:
                 bucket = record['s3']['bucket']['name']
                 key = urllib.parse.unquote_plus(record['s3']['object']['key'])

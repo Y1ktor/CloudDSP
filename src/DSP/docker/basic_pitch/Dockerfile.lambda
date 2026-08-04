@@ -1,45 +1,51 @@
-# Use the official AWS Lambda Python 3.10 base image
-# This image is extremely lightweight and specifically optimized for Lambda runtime
-FROM public.ecr.aws/lambda/python:3.10
+# TensorFlow Lite 2.14 requires GLIBC 2.27, so use Amazon Linux 2023 rather
+# than the Amazon Linux 2 Python images. Basic Pitch 0.4.0 supports Python 3.11.
+# This image targets x86_64.
+ARG LAMBDA_PLATFORM=linux/amd64
+FROM --platform=${LAMBDA_PLATFORM} public.ecr.aws/lambda/provided:al2023
 
-# Install OS-level dependencies
-# Amazon Linux 2 (Lambda's OS) uses yum instead of apt-get
-RUN yum update -y && \
-    yum install -y tar xz libsndfile \
-    yum clean all
+# The OS-only Lambda image requires a Python runtime interface client. libsndfile
+# handles WAV/FLAC and FFmpeg supports compressed uploads such as MP3 and M4A.
+RUN dnf install -y python3.11 python3.11-pip tar xz libsndfile && \
+    dnf clean all && \
+    rm -rf /var/cache/dnf
 
-# Amazon Linux does not have FFmpeg in its default repositories.
-# We download and install a static build of FFmpeg manually so librosa can process MP3s.
-RUN curl -O https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz && \
-    tar xvf ffmpeg-release-amd64-static.tar.xz && \
-    mv ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/ && \
-    mv ffmpeg-*-amd64-static/ffprobe /usr/local/bin/ && \
-    rm -rf ffmpeg-*
+# Amazon Linux 2023 does not provide FFmpeg in its default repositories. Pin
+# the static x86_64 build and verify its published checksum before installing it.
+ARG FFMPEG_VERSION=6.0.1
+ARG FFMPEG_SHA256=28268bf402f1083833ea269331587f60a242848880073be8016501d864bd07a5
+RUN curl -fsSLo ffmpeg.tar.xz "https://www.johnvansickle.com/ffmpeg/old-releases/ffmpeg-${FFMPEG_VERSION}-amd64-static.tar.xz" && \
+    echo "${FFMPEG_SHA256}  ffmpeg.tar.xz" | sha256sum -c - && \
+    tar -xJf ffmpeg.tar.xz && \
+    install -m 0755 "ffmpeg-${FFMPEG_VERSION}-amd64-static/ffmpeg" /usr/local/bin/ffmpeg && \
+    install -m 0755 "ffmpeg-${FFMPEG_VERSION}-amd64-static/ffprobe" /usr/local/bin/ffprobe && \
+    rm -rf "ffmpeg-${FFMPEG_VERSION}-amd64-static" \
+           ffmpeg.tar.xz
 
-# Install Python Dependencies carefully
-# 1. We install basic-pitch WITHOUT its dependencies (--no-deps). 
-#    This explicitly prevents pip from downloading the massive 1.5GB TensorFlow library.
-RUN pip install --no-cache-dir --no-deps basic-pitch
-
-# 2. We manually install the required audio libraries and `tflite-runtime`.
-#    tflite-runtime is only ~50MB (compared to TensorFlow's 1.5GB) and is perfect for Lambda.
-RUN pip install --no-cache-dir \
-    boto3 \
-    librosa \
-    pretty_midi \
-    scipy \
-    "numpy<2.0.0" \
+# Basic Pitch declares TensorFlow for Python 3.11, although its TFLite model is
+# fully supported. Install the complete inference-only dependency set before
+# adding Basic Pitch without dependencies, which excludes full TensorFlow.
+RUN python3.11 -m pip install --no-cache-dir \
+    "awslambdaric==3.0.0" \
+    "boto3==1.34.162" \
+    "librosa==0.10.2.post1" \
+    "pretty_midi==0.2.10" \
+    "scipy==1.11.4" \
+    "numpy==1.26.4" \
     "soxr==0.3.7" \
-    tflite-runtime \
-    scikit-learn \
-    mir-eval \
-    resampy \
-    soundfile \
-    typing_extensions
+    "tflite-runtime==2.14.0" \
+    "scikit-learn==1.3.2" \
+    "mir-eval==0.7" \
+    "resampy==0.4.2" \
+    "soundfile==0.12.1" \
+    "typing_extensions==4.12.2" && \
+    python3.11 -m pip install --no-cache-dir --no-deps "basic-pitch==0.4.0" && \
+    python3.11 -c "import tflite_runtime.interpreter" && \
+    python3.11 -c "from basic_pitch import ICASSP_2022_MODEL_PATH; assert str(ICASSP_2022_MODEL_PATH).endswith('.tflite'), ICASSP_2022_MODEL_PATH; from basic_pitch.inference import predict_and_save"
 
-# Copy the Lambda-compatible Python wrapper script
-# NOTE: You will need a slightly modified version of CloudExtractBasicPitch.py 
-# that exposes a `lambda_handler` function for AWS Lambda to trigger.
+# Configure the Lambda custom runtime and copy the handler.
+COPY docker/basic_pitch/bootstrap ${LAMBDA_RUNTIME_DIR}/bootstrap
+RUN chmod 755 ${LAMBDA_RUNTIME_DIR}/bootstrap
 COPY src/Cloud/LambdaExtractBasicPitch.py ${LAMBDA_TASK_ROOT}/BasicPitch.py
 
 # Tell Lambda exactly which function to execute when an event arrives
