@@ -114,8 +114,13 @@ export default function App() {
                     console.log("Stems received globally from AWS Batch:", data.stems);
                     setStemUrls(data.stems);
                     setIsSplitting(false);
-                    setStatusMessage("Complete!");
-                    socketRef.current.close();
+                    setStatusMessage("Stems ready. Extracting MIDI...");
+                }
+
+                // Phase 4: MIDI Extraction Finished
+                else if (data.type === "midi_processing_complete") {
+                    console.log("MIDI received from Basic Pitch:", data);
+                    setStatusMessage(`MIDI extraction complete for ${data.stem_name}.`);
                 }
                 
                 // Phase 3.5: yt-dlp Extraction Updates
@@ -131,7 +136,7 @@ export default function App() {
                     // socketRef.current.close(); // Wait for Batch processing_complete before closing
                 }
                 
-                // Phase 4: Server Error
+                // Phase 5: Server Error
                 else if (data.type === "error") {
                     setErrorMsg(data.message || "An AWS backend error occurred.");
                     setIsSplitting(false);

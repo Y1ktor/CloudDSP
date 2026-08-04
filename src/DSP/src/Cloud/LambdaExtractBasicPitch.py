@@ -3,6 +3,7 @@ import sys
 import boto3
 import json
 import urllib.parse
+import shutil
 from pathlib import Path
 
 # Basic Pitch uses its bundled TensorFlow Lite model when ``tflite-runtime`` is
@@ -27,11 +28,69 @@ def upload_file_to_s3(s3_client, local_file: Path, bucket: str, s3_key: str):
     s3_client.upload_file(str(local_file), bucket, s3_key)
     print("Upload complete.")
 
+def get_stem_processing_context(s3_client, bucket: str, key: str, event: dict):
+    """Resolve callback data from stem metadata, with direct-event fallbacks."""
+    metadata = {}
+    try:
+        head_response = s3_client.head_object(Bucket=bucket, Key=key)
+        metadata = head_response.get("Metadata", {})
+    except Exception as e:
+        print(f"Warning: Could not read metadata for s3://{bucket}/{key}: {e}")
+
+    # CloudStemSplit injects this metadata on every output stem. Retain the
+    # direct-invocation field as a fallback while existing stem objects age out.
+    connection_id = metadata.get("connection-id") or event.get("connection_id")
+    if connection_id == "unknown":
+        connection_id = None
+    websocket_url = event.get("websocket_url") or os.environ.get("WEBSOCKET_API_URL")
+    stem_name = event.get("stem_name") or Path(key).stem
+
+    print(
+        f"Resolved callback context for stem '{stem_name}': "
+        f"connection ID {'found' if connection_id else 'missing'}, "
+        f"WebSocket URL {'found' if websocket_url else 'missing'}."
+    )
+    return connection_id, websocket_url, stem_name
+
+def send_midi_complete_notification(connection_id: str, websocket_url: str,
+                                    stem_name: str, midi_url: str,
+                                    bpm_url: str | None):
+    """Push the generated MIDI download URL to the originating frontend."""
+    if not connection_id or not websocket_url:
+        print("Skipping MIDI completion notification (missing connection ID or WebSocket URL).")
+        return
+
+    payload = {
+        "type": "midi_processing_complete",
+        "stem_name": stem_name,
+        "midi_url": midi_url,
+    }
+    if bpm_url:
+        payload["bpm_url"] = bpm_url
+
+    print(f"Sending MIDI completion event to WebSocket ID: {connection_id}")
+    try:
+        apigw_client = boto3.client(
+            "apigatewaymanagementapi",
+            endpoint_url=websocket_url,
+        )
+        apigw_client.post_to_connection(
+            ConnectionId=connection_id,
+            Data=json.dumps(payload).encode("utf-8"),
+        )
+        print(f"Successfully sent the MIDI URL for '{stem_name}'.")
+    except Exception as e:
+        print(f"Warning: Failed to send MIDI completion notification: {e}")
+
 def extract_midi_cloud(input_bucket: str, output_bucket: str, file_key: str):
     s3_client = boto3.client('s3')
     
     # Lambda provides 512MB to 10GB of temporary storage in /tmp
     base_tmp_dir = Path("/tmp/clouddsp")
+    # Lambda execution environments are reused. Basic Pitch will not overwrite
+    # an existing MIDI output, so discard files left by a prior warm invocation
+    # before creating this invocation's isolated working directories.
+    shutil.rmtree(base_tmp_dir, ignore_errors=True)
     input_filename = Path(file_key).name
     local_input_path = base_tmp_dir / "input" / input_filename
     local_output_dir = base_tmp_dir / "output"
@@ -96,8 +155,47 @@ def extract_midi_cloud(input_bucket: str, output_bucket: str, file_key: str):
     
     if bpm_file_path and bpm_file_path.exists():
         upload_file_to_s3(s3_client, bpm_file_path, output_bucket, s3_bpm_key)
+        bpm_key = s3_bpm_key
+    else:
+        bpm_key = None
     
     print("\nLambda Basic Pitch job completed successfully.")
+    return {
+        "midi_key": s3_output_key,
+        "bpm_key": bpm_key,
+    }
+
+def process_stem(bucket: str, output_bucket: str, key: str, event: dict):
+    """Extract MIDI, generate download URLs, and notify the frontend."""
+    s3_client = boto3.client("s3")
+    connection_id, websocket_url, stem_name = get_stem_processing_context(
+        s3_client,
+        bucket,
+        key,
+        event,
+    )
+    output = extract_midi_cloud(bucket, output_bucket, key)
+    midi_url = s3_client.generate_presigned_url(
+        ClientMethod="get_object",
+        Params={"Bucket": output_bucket, "Key": output["midi_key"]},
+        ExpiresIn=3600,
+    )
+    bpm_url = None
+    if output["bpm_key"]:
+        bpm_url = s3_client.generate_presigned_url(
+            ClientMethod="get_object",
+            Params={"Bucket": output_bucket, "Key": output["bpm_key"]},
+            ExpiresIn=3600,
+        )
+
+    send_midi_complete_notification(
+        connection_id,
+        websocket_url,
+        stem_name,
+        midi_url,
+        bpm_url,
+    )
+    return midi_url
 
 def lambda_handler(event, context):
     """
@@ -123,7 +221,7 @@ def lambda_handler(event, context):
                 f"(stem: {event.get('stem_name', 'unknown')}, "
                 f"connection: {event.get('connection_id', 'unknown')})."
             )
-            extract_midi_cloud(bucket, output_bucket, key)
+            process_stem(bucket, output_bucket, key, event)
             return {
                 'statusCode': 200,
                 'body': json.dumps('Successfully processed audio.')
@@ -144,7 +242,7 @@ def lambda_handler(event, context):
                     if not output_bucket:
                         output_bucket = bucket
                     
-                    extract_midi_cloud(bucket, output_bucket, key)
+                    process_stem(bucket, output_bucket, key, body)
                     continue
 
             # Scenario C: Triggered directly from an S3 Event Notification
@@ -155,7 +253,7 @@ def lambda_handler(event, context):
                 if not output_bucket:
                     output_bucket = bucket
                 
-                extract_midi_cloud(bucket, output_bucket, key)
+                process_stem(bucket, output_bucket, key, {})
                 
         return {
             'statusCode': 200,

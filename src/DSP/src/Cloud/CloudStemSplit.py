@@ -28,7 +28,8 @@ def download_from_s3(s3_client, bucket: str, key: str, local_path: Path):
     s3_client.download_file(bucket, key, str(local_path))
     print("Download complete.")
 
-def upload_directory_to_s3(s3_client, local_dir: Path, bucket: str, prefix: str):
+def upload_directory_to_s3(s3_client, local_dir: Path, bucket: str, prefix: str,
+                           metadata: dict | None = None):
     print(f"Uploading stems from {local_dir} to s3://{bucket}/{prefix} ...")
     uploaded_keys = {}
     for root, dirs, files in os.walk(local_dir):
@@ -38,7 +39,10 @@ def upload_directory_to_s3(s3_client, local_dir: Path, bucket: str, prefix: str)
             rel_path = local_file.relative_to(local_dir)
             s3_key = f"{prefix}/{rel_path}"
             print(f"  -> Uploading {file} to {s3_key}")
-            s3_client.upload_file(str(local_file), bucket, s3_key)
+            upload_kwargs = {}
+            if metadata:
+                upload_kwargs["ExtraArgs"] = {"Metadata": metadata}
+            s3_client.upload_file(str(local_file), bucket, s3_key, **upload_kwargs)
             
             # Use the filename without extension as the stem identifier (e.g. "vocals", "drums")
             stem_name = local_file.stem
@@ -142,7 +146,21 @@ def split_stems_cloud(input_bucket: str, output_bucket: str, file_key: str, mode
     # 4. Upload the resulting stems back to S3
     # We will store them under 'stems/<original_filename_without_extension>/'
     s3_output_prefix = f"stems/{local_input_path.stem}"
-    uploaded_keys = upload_directory_to_s3(s3_client, demucs_output_path, output_bucket, s3_output_prefix)
+    # Propagate the originating WebSocket connection to each output object. The
+    # Basic Pitch Lambda reads this metadata after downloading a stem, allowing
+    # it to notify the correct browser even when invoked from an S3 event.
+    stem_metadata = {}
+    if connection_id and connection_id != "unknown":
+        stem_metadata["connection-id"] = connection_id
+        print("Injecting the WebSocket connection ID into uploaded stem metadata.")
+
+    uploaded_keys = upload_directory_to_s3(
+        s3_client,
+        demucs_output_path,
+        output_bucket,
+        s3_output_prefix,
+        stem_metadata,
+    )
 
     # 5. Start MIDI extraction for every uploaded stem when a downstream Lambda
     # has been configured for this Batch job.

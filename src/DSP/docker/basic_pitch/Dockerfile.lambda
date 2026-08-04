@@ -48,5 +48,10 @@ COPY docker/basic_pitch/bootstrap ${LAMBDA_RUNTIME_DIR}/bootstrap
 RUN chmod 755 ${LAMBDA_RUNTIME_DIR}/bootstrap
 COPY src/Cloud/LambdaExtractBasicPitch.py ${LAMBDA_TASK_ROOT}/BasicPitch.py
 
+# Librosa decorates some functions with Numba's persistent cache. Lambda's
+# task and site-packages directories are read-only at runtime, so direct the
+# cache to Lambda's writable ephemeral storage before Python imports Librosa.
+ENV NUMBA_CACHE_DIR=/tmp/numba-cache
+
 # Tell Lambda exactly which function to execute when an event arrives
 CMD ["BasicPitch.lambda_handler"]

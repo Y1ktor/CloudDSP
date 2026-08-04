@@ -1,2 +1,9 @@
 #!/bin/sh
-exec /usr/bin/python3.11 -m awslambdaric "$1"
+
+# Lambda normally passes the handler from the image CMD as the first argument.
+# If a function-level ImageConfig Command override is present but empty, Lambda
+# passes an empty string instead; awslambdaric then fails before importing the
+# application with Runtime.MalformedHandlerName. Keep the image usable in that
+# configuration by falling back to the handler bundled in this image.
+HANDLER="${1:-BasicPitch.lambda_handler}"
+exec /usr/bin/python3.11 -m awslambdaric "$HANDLER"
