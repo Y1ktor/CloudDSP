@@ -1,0 +1,45 @@
+# Madmom 0.16.1 is an older Cython package. NumPy 1.23 preserves the aliases
+# it requires while Python 3.11 on Amazon Linux 2 remains a supported Lambda
+# runtime through June 2027.
+ARG LAMBDA_PLATFORM=linux/amd64
+FROM --platform=${LAMBDA_PLATFORM} public.ecr.aws/lambda/python:3.11
+
+# Madmom needs a compiler for its Cython extensions. FFmpeg lets its audio
+# loader normalize compressed source files as well as the Demucs WAV stems.
+RUN yum install -y gcc gcc-c++ gzip make tar xz && \
+    yum clean all && \
+    rm -rf /var/cache/yum
+
+ARG FFMPEG_VERSION=6.0.1
+ARG FFMPEG_SHA256=28268bf402f1083833ea269331587f60a242848880073be8016501d864bd07a5
+RUN curl -fsSLo ffmpeg.tar.xz "https://www.johnvansickle.com/ffmpeg/old-releases/ffmpeg-${FFMPEG_VERSION}-amd64-static.tar.xz" && \
+    echo "${FFMPEG_SHA256}  ffmpeg.tar.xz" | sha256sum -c - && \
+    tar -xJf ffmpeg.tar.xz && \
+    install -m 0755 "ffmpeg-${FFMPEG_VERSION}-amd64-static/ffmpeg" /usr/local/bin/ffmpeg && \
+    install -m 0755 "ffmpeg-${FFMPEG_VERSION}-amd64-static/ffprobe" /usr/local/bin/ffprobe && \
+    rm -rf "ffmpeg-${FFMPEG_VERSION}-amd64-static" ffmpeg.tar.xz
+
+# Pin the legacy scientific stack before installing Madmom without dependency
+# resolution. Regenerate its neural-network extension with current Cython so
+# the old release remains compatible with Python 3.11.
+RUN pip install --no-cache-dir \
+        "numpy==1.23.5" \
+        "scipy==1.10.1" \
+        "mido==1.3.2" \
+        "Cython==3.0.11"
+
+RUN pip download --no-deps --no-binary=:all: --no-build-isolation --dest /tmp "madmom==0.16.1" && \
+    tar -xzf /tmp/madmom-0.16.1.tar.gz -C /tmp && \
+    cd /tmp/madmom-0.16.1 && \
+    sed -i 's/from collections import MutableSequence/from collections.abc import MutableSequence/' madmom/processors.py && \
+    cython -3 madmom/ml/nn/layers.py
+
+RUN pip install --no-cache-dir --no-deps --no-build-isolation /tmp/madmom-0.16.1 && \
+    python -c "from madmom.features.onsets import RNNOnsetProcessor; from madmom.features.beats import RNNBeatProcessor; import mido" && \
+    yum remove -y gcc gcc-c++ make && \
+    yum clean all && \
+    rm -rf /var/cache/yum /tmp/madmom-0.16.1 /tmp/madmom-0.16.1.tar.gz
+
+COPY src/Cloud/LambdaExtractMadmom.py ${LAMBDA_TASK_ROOT}/Madmom.py
+
+CMD ["Madmom.lambda_handler"]

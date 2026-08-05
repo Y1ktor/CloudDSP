@@ -3,9 +3,9 @@
 The module downloads an audio object from S3, selects a Demucs model for 2-,
 4-, or 6-stem separation (with S3 metadata able to override the requested
 mode), and uploads the resulting stem files to S3. It asynchronously invokes
-the Lambda named by ``BASIC_PITCH_LAMBDA_NAME`` for every stem, then creates
-one-hour download URLs and optionally notifies the originating frontend through
-API Gateway WebSockets.
+``ADTOF_LAMBDA_NAME`` for the drum stem and ``BASIC_PITCH_LAMBDA_NAME`` for
+all other stems, then creates one-hour download URLs and optionally notifies
+the originating frontend through API Gateway WebSockets.
 """
 
 import os
@@ -51,11 +51,26 @@ def upload_directory_to_s3(s3_client, local_dir: Path, bucket: str, prefix: str,
     print("Upload complete.")
     return uploaded_keys
 
-def trigger_basic_pitch_jobs(lambda_client, function_name: str, bucket_name: str,
-                             uploaded_keys: dict, connection_id: str,
-                             websocket_url: str, source_file_key: str):
-    """Asynchronously invoke Basic Pitch once for every uploaded audio stem."""
+def trigger_midi_extraction_jobs(lambda_client, basic_pitch_lambda_name: str | None,
+                                 adtof_lambda_name: str | None, bucket_name: str,
+                                 uploaded_keys: dict, connection_id: str,
+                                 websocket_url: str, source_file_key: str):
+    """Send drums to ADTOF and every other stem to Basic Pitch."""
     for stem_name, file_key in uploaded_keys.items():
+        if stem_name.lower() == "drums":
+            function_name = adtof_lambda_name
+            extractor_name = "ADTOF"
+        else:
+            function_name = basic_pitch_lambda_name
+            extractor_name = "Basic Pitch"
+
+        if not function_name:
+            print(
+                f"Skipping {extractor_name} handoff for stem '{stem_name}': "
+                f"the required Lambda environment variable is not set."
+            )
+            continue
+
         payload = {
             "bucket_name": bucket_name,
             "file_key": file_key,
@@ -65,7 +80,7 @@ def trigger_basic_pitch_jobs(lambda_client, function_name: str, bucket_name: str
             "source_file_key": source_file_key,
         }
         print(
-            f"Triggering Basic Pitch Lambda '{function_name}' for stem "
+            f"Triggering {extractor_name} Lambda '{function_name}' for stem "
             f"'{stem_name}' (s3://{bucket_name}/{file_key}): {payload}"
         )
         try:
@@ -75,13 +90,13 @@ def trigger_basic_pitch_jobs(lambda_client, function_name: str, bucket_name: str
                 Payload=json.dumps(payload).encode("utf-8"),
             )
             print(
-                f"Basic Pitch Lambda accepted stem '{stem_name}' "
+                f"{extractor_name} Lambda accepted stem '{stem_name}' "
                 f"(StatusCode: {response.get('StatusCode')})."
             )
         except Exception as e:
             # MIDI extraction is downstream work; do not mark a completed stem
             # split as failed solely because the handoff could not be started.
-            print(f"Warning: Failed to trigger Basic Pitch for '{stem_name}': {e}")
+            print(f"Warning: Failed to trigger {extractor_name} for '{stem_name}': {e}")
 
 def split_stems_cloud(input_bucket: str, output_bucket: str, file_key: str, mode: str = "6-stems"):
     s3_client = boto3.client('s3')
@@ -162,18 +177,21 @@ def split_stems_cloud(input_bucket: str, output_bucket: str, file_key: str, mode
         stem_metadata,
     )
 
-    # 5. Start MIDI extraction for every uploaded stem when a downstream Lambda
-    # has been configured for this Batch job.
+    # 5. Use the drum-specific ADTOF Lambda for drums, and Basic Pitch for
+    # every other stem. Both Lambdas receive the same callback payload.
     basic_pitch_lambda_name = os.environ.get("BASIC_PITCH_LAMBDA_NAME")
+    adtof_lambda_name = os.environ.get("ADTOF_LAMBDA_NAME")
     websocket_url = os.environ.get("WEBSOCKET_API_URL", "")
-    if basic_pitch_lambda_name:
+    if basic_pitch_lambda_name or adtof_lambda_name:
         print(
-            f"Starting downstream Basic Pitch jobs with Lambda "
-            f"'{basic_pitch_lambda_name}'."
+            "Starting downstream MIDI extraction jobs "
+            f"(Basic Pitch: {basic_pitch_lambda_name or 'not configured'}, "
+            f"ADTOF: {adtof_lambda_name or 'not configured'})."
         )
-        trigger_basic_pitch_jobs(
+        trigger_midi_extraction_jobs(
             boto3.client("lambda"),
             basic_pitch_lambda_name,
+            adtof_lambda_name,
             output_bucket,
             uploaded_keys,
             connection_id,
@@ -182,7 +200,8 @@ def split_stems_cloud(input_bucket: str, output_bucket: str, file_key: str, mode
         )
     else:
         print(
-            "Skipping Basic Pitch handoff: BASIC_PITCH_LAMBDA_NAME is not set."
+            "Skipping MIDI extraction handoff: BASIC_PITCH_LAMBDA_NAME and "
+            "ADTOF_LAMBDA_NAME are not set."
         )
     
     # 6. Generate Presigned GET URLs for the uploaded stems

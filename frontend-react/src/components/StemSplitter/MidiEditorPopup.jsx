@@ -84,6 +84,7 @@ export default function MidiEditorPopup({
     parsedBeatsPerBar,
     handleSeek,
     parsedMidiStems,
+    midiStatus,
     setParsedMidiStems,
     audioCtxRef,
     progress,
@@ -99,6 +100,10 @@ export default function MidiEditorPopup({
     const popupTimelineRef = useRef(null);
     const pianoScrollRef = useRef(null);
     const gridScrollRef = useRef(null);
+    const isMidiPending = midiStatus === 'processing' || midiStatus === 'loading';
+    const midiPendingLabel = midiStatus === 'loading'
+        ? 'Loading the generated MIDI into the editor…'
+        : 'Basic Pitch is still generating MIDI for this stem…';
 
     // Track drag state
 
@@ -213,8 +218,6 @@ export default function MidiEditorPopup({
         activeBpm,
         parsedBeatsPerBar
     });
-
-    if (!trackName) return null;
 
     // Sync vertical scrolling
     const handleGridScroll = (e) => {
@@ -377,6 +380,11 @@ export default function MidiEditorPopup({
 
     usePlayheadScroll(gridScrollRef, popupPlayheadX, isPlaying);
 
+    // Keep every hook above this point unconditional. The popup remains mounted
+    // while closed, and returning before usePlayheadScroll would change hook
+    // order as soon as a double-click selects a track.
+    if (!trackName) return null;
+
     return (
         <div style={{
             position: 'fixed',
@@ -389,9 +397,20 @@ export default function MidiEditorPopup({
         }}>
             {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-                <h3 style={{ margin: 0, color: '#fff', textTransform: 'capitalize', fontSize: '24px' }}>
-                    MIDI Editor: {trackName}
-                </h3>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <h3 style={{ margin: 0, color: '#fff', textTransform: 'capitalize', fontSize: '24px' }}>
+                        MIDI Editor: {trackName}
+                    </h3>
+                    {isMidiPending && (
+                        <span style={{
+                            color: '#f5c451', background: 'rgba(224, 168, 0, 0.16)',
+                            border: '1px solid rgba(224, 168, 0, 0.4)', borderRadius: '999px',
+                            padding: '4px 9px', fontSize: '12px', fontWeight: '600'
+                        }}>
+                            MIDI processing
+                        </span>
+                    )}
+                </div>
                 <button 
                     onClick={onClose}
                     style={{
@@ -711,6 +730,20 @@ export default function MidiEditorPopup({
                     style={{ flexGrow: 1, overflow: 'auto', position: 'relative' }}
                     onScroll={handleGridScroll}
                 >
+                    {isMidiPending && (
+                        <div style={{
+                            position: 'absolute', inset: 0, zIndex: 30, display: 'flex',
+                            alignItems: 'center', justifyContent: 'center', textAlign: 'center',
+                            color: '#f5c451', backgroundColor: 'rgba(15, 15, 15, 0.76)',
+                            padding: '24px', pointerEvents: 'auto'
+                        }}>
+                            <div>
+                                <div aria-hidden="true" style={{ fontSize: '20px', marginBottom: '8px' }}>●</div>
+                                <strong style={{ display: 'block', color: '#fff', marginBottom: '4px' }}>MIDI not ready yet</strong>
+                                <span style={{ fontSize: '13px' }}>{midiPendingLabel}</span>
+                            </div>
+                        </div>
+                    )}
                     <div 
                         ref={popupTimelineRef} 
                         style={{ 

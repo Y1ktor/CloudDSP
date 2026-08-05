@@ -40,26 +40,21 @@ function MidiScheduler({ trackName, activeBpm, originalBpm, progress, isPlaying,
  * @param {Function} props.setSplitMode - State setter for the mode
  * @param {boolean} props.isSplitting - Tracks if AWS Batch is currently processing
  * @param {string} props.statusMessage - The dynamic loading text
- * @param {Object} props.stemUrls - Dictionary of pre-signed S3 URLs returned by the server
+ * @param {Object} props.stemUrls - Dictionary of pre-signed S3 stem URLs returned by the server
+ * @param {Object} props.midiUrls - Dictionary of pre-signed MIDI URLs returned by Basic Pitch
  * @param {string} props.errorMsg - Any error messages to display
  * @param {Function} props.setErrorMsg - State setter for errors
  * @param {Function} props.setStemUrls - State setter for the stem URLs
  * @param {Function} props.executeStemSplit - Master function in App.jsx to trigger AWS upload
  * @param {Function} props.connectWebSocket - Function to initiate the background WebSocket
- * @param {Function} props.closeWebSocket - Function to explicitly close the connection
  */
 export default function StemSplitter({
     file, setFile,
     fileName, setFileName,
     splitMode, setSplitMode,
-    isSplitting, statusMessage, stemUrls, errorMsg, setErrorMsg, setStemUrls,
-    executeStemSplit, executeLinkExtraction, connectWebSocket, closeWebSocket
+    isSplitting, statusMessage, stemUrls, midiUrls, errorMsg, setErrorMsg, setStemUrls, setMidiUrls,
+    executeStemSplit, executeLinkExtraction, connectWebSocket
 }) {
-    const isSplittingRef = React.useRef(isSplitting);
-    React.useEffect(() => {
-        isSplittingRef.current = isSplitting;
-    }, [isSplitting]);
-
     const [showSigMenu, setShowSigMenu] = React.useState(false);
     const [selectedTrack, setSelectedTrack] = React.useState(null);
     const [editorOpenTrack, setEditorOpenTrack] = React.useState(null);
@@ -95,8 +90,22 @@ export default function StemSplitter({
 
     // 3. MIDI Manager
     const { parsedMidiStems, setParsedMidiStems, originalMidiStems, isMidiLoading } = useMidiManager(
-        stemUrls, audioEngine.timeSignature, audioEngine.setBpm, audioEngine.setOriginalBpm, audioEngine.audioCtxRef, globalSynthRef, guitarSynthRef, bassSynthRef
+        midiUrls, audioEngine.timeSignature, audioEngine.setBpm, audioEngine.setOriginalBpm, audioEngine.audioCtxRef, globalSynthRef, guitarSynthRef, bassSynthRef
     );
+    const midiStatusByTrack = React.useMemo(() => {
+        return Object.keys(stemUrls || {}).reduce((statuses, trackName) => {
+            if (parsedMidiStems[trackName]) {
+                statuses[trackName] = 'ready';
+            } else if (midiUrls?.[trackName]) {
+                statuses[trackName] = 'loading';
+            } else {
+                statuses[trackName] = 'processing';
+            }
+            return statuses;
+        }, {});
+    }, [stemUrls, midiUrls, parsedMidiStems]);
+    const pendingMidiCount = Object.values(midiStatusByTrack)
+        .filter((status) => status !== 'ready').length;
 
     // 4. Undo History
     const { undoStacks, pushUndoState, handleUndoMidi, handleRevertMidi } = useUndoHistory(
@@ -118,12 +127,11 @@ export default function StemSplitter({
     React.useEffect(() => {
         connectWebSocket();
         return () => {
-            if (!isSplittingRef.current) closeWebSocket();
             if (globalSynthRef.current) {
                 try { globalSynthRef.current.stop(); } catch (e) { }
             }
         };
-    }, [connectWebSocket, closeWebSocket, globalSynthRef]);
+    }, [connectWebSocket, globalSynthRef]);
 
     const handleFileUpload = (e) => {
         const uploadedFile = e.target.files[0];
@@ -131,6 +139,7 @@ export default function StemSplitter({
             setFile(uploadedFile);
             setFileName(uploadedFile.name);
             setStemUrls(null);
+            setMidiUrls(null);
             setErrorMsg("");
         }
     };
@@ -304,6 +313,17 @@ export default function StemSplitter({
                     </div>
                 ) : stemUrls ? (
                     <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                        {pendingMidiCount > 0 && (
+                            <div style={{
+                                display: 'flex', alignItems: 'center', gap: '9px',
+                                background: 'rgba(224, 168, 0, 0.13)', color: '#f5c451',
+                                border: '1px solid rgba(224, 168, 0, 0.4)', borderRadius: '4px',
+                                padding: '9px 12px', fontSize: '13px', fontWeight: '600'
+                            }}>
+                                <span aria-hidden="true" style={{ color: '#f5c451', fontSize: '16px' }}>●</span>
+                                MIDI is still processing for {pendingMidiCount} stem{pendingMidiCount === 1 ? '' : 's'}. Tracks will populate as each result arrives.
+                            </div>
+                        )}
                         {/* Central Master Audio Control */}
                         <div style={{ 
                             background: '#333', padding: '15px 20px', borderRadius: '4px', 
@@ -522,6 +542,7 @@ export default function StemSplitter({
                                     <TrackGrid 
                                         tracksToRender={tracksToRender}
                                         parsedMidiStems={parsedMidiStems}
+                                        midiStatusByTrack={midiStatusByTrack}
                                         pixelsPerBar={pixelsPerBar}
                                         activeBpm={activeBpm}
                                         parsedBeatsPerBar={parsedBeatsPerBar}
@@ -590,6 +611,7 @@ export default function StemSplitter({
                 parsedBeatsPerBar={parsedBeatsPerBar}
                 handleSeek={audioEngine.handleSeek}
                 parsedMidiStems={parsedMidiStems}
+                midiStatus={midiStatusByTrack[editorOpenTrack]}
                 setParsedMidiStems={setParsedMidiStems}
                 audioCtxRef={audioEngine.audioCtxRef}
                 progress={audioEngine.progress}
