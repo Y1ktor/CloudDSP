@@ -46,7 +46,7 @@ RUN python3.11 -m pip install --no-cache-dir \
 # Configure the Lambda custom runtime and copy the handler.
 COPY docker/basic_pitch/bootstrap ${LAMBDA_RUNTIME_DIR}/bootstrap
 RUN chmod 755 ${LAMBDA_RUNTIME_DIR}/bootstrap
-COPY src/Cloud/LambdaExtractBasicPitch.py ${LAMBDA_TASK_ROOT}/BasicPitch.py
+COPY src/Cloud/LambdaMIDIBasicPitch.py ${LAMBDA_TASK_ROOT}/BasicPitch.py
 
 # Librosa decorates some functions with Numba's persistent cache. Lambda's
 # task and site-packages directories are read-only at runtime, so direct the

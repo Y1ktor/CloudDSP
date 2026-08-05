@@ -40,6 +40,6 @@ RUN pip install --no-cache-dir --no-deps --no-build-isolation /tmp/madmom-0.16.1
     yum clean all && \
     rm -rf /var/cache/yum /tmp/madmom-0.16.1 /tmp/madmom-0.16.1.tar.gz
 
-COPY src/Cloud/LambdaExtractMadmom.py ${LAMBDA_TASK_ROOT}/Madmom.py
+COPY src/Cloud/LambdaMIDIMadmom.py ${LAMBDA_TASK_ROOT}/Madmom.py
 
 CMD ["Madmom.lambda_handler"]

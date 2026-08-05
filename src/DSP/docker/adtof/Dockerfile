@@ -49,6 +49,6 @@ RUN git clone https://github.com/xavriley/ADTOF-pytorch.git /tmp/adtof && \
     yum clean all && \
     rm -rf /var/cache/yum
 
-COPY src/Cloud/LambdaExtractADTOF.py ${LAMBDA_TASK_ROOT}/ADTOF.py
+COPY src/Cloud/LambdaMIDIADTOF.py ${LAMBDA_TASK_ROOT}/ADTOF.py
 
 CMD ["ADTOF.lambda_handler"]
