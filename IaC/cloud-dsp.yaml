@@ -1,0 +1,206 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  CloudDSP root stack. Composes the component stacks and passes their outputs
+  as parameters so resource names and ARNs are never hardcoded.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: clouddsp
+    AllowedPattern: '^[A-Za-z][A-Za-z0-9-]{0,31}$'
+
+  EnvironmentName:
+    Type: String
+    Default: dev
+    AllowedPattern: '^[a-z][a-z0-9-]{0,15}$'
+
+  TemplateBucketName:
+    Type: String
+    Description: S3 bucket containing the uploaded nested CloudFormation templates.
+
+  TemplatePrefix:
+    Type: String
+    Default: cloudformation
+    Description: Prefix in TemplateBucketName containing the nested template files.
+
+  ArtifactBucketName:
+    Type: String
+    Description: S3 bucket containing packaged Lambda zip artifacts.
+
+  JobApiCodeS3Key:
+    Type: String
+    Description: S3 key for the packaged job_api Lambda zip artifact.
+
+  WebSocketHandlerCodeS3Key:
+    Type: String
+    Description: S3 key for the packaged websocket_handler Lambda zip artifact.
+
+  AllowedFrontendOrigins:
+    Type: CommaDelimitedList
+    Default: http://localhost:5173
+    Description: Comma-separated browser origins allowed by S3 and the job API.
+
+  BasicPitchImageTag:
+    Type: String
+    Default: latest
+    Description: ECR tag or digest suffix for the Basic Pitch image.
+
+  ADTOFImageTag:
+    Type: String
+    Default: latest
+    Description: ECR tag or digest suffix for the ADTOF image.
+
+  DemucsImageTag:
+    Type: String
+    Default: latest
+    Description: ECR tag or digest suffix for the Demucs image.
+
+  GpuInstanceTypes:
+    Type: CommaDelimitedList
+    Default: g4dn.xlarge
+    Description: GPU instance types allowed in the Demucs compute environment.
+
+  BatchMaxvCpus:
+    Type: Number
+    Default: 8
+    MinValue: 4
+    Description: Maximum vCPUs allocated by the managed Demucs compute environment.
+
+Resources:
+  FoundationStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplateBucketName}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}/foundation.yaml'
+      Parameters:
+        ProjectName: !Ref ProjectName
+        EnvironmentName: !Ref EnvironmentName
+        AllowedFrontendOrigins: !Join [',', !Ref AllowedFrontendOrigins]
+
+  JobsStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplateBucketName}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}/jobs.yaml'
+      Parameters:
+        ProjectName: !Ref ProjectName
+        EnvironmentName: !Ref EnvironmentName
+
+  NetworkStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplateBucketName}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}/network.yaml'
+      Parameters:
+        ProjectName: !Ref ProjectName
+        EnvironmentName: !Ref EnvironmentName
+
+  RealtimeStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplateBucketName}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}/realtime.yaml'
+      Parameters:
+        ProjectName: !Ref ProjectName
+        EnvironmentName: !Ref EnvironmentName
+        JobsTableName: !GetAtt JobsStack.Outputs.JobsTableName
+        JobsTableArn: !GetAtt JobsStack.Outputs.JobsTableArn
+        WebSocketHandlerCodeS3Bucket: !Ref ArtifactBucketName
+        WebSocketHandlerCodeS3Key: !Ref WebSocketHandlerCodeS3Key
+
+  MidiLambdasStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplateBucketName}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}/midi-lambdas.yaml'
+      Parameters:
+        ProjectName: !Ref ProjectName
+        EnvironmentName: !Ref EnvironmentName
+        BasicPitchImageUri: !Sub
+          - '${RepositoryUri}:${ImageTag}'
+          - RepositoryUri: !GetAtt FoundationStack.Outputs.BasicPitchRepositoryUri
+            ImageTag: !Ref BasicPitchImageTag
+        ADTOFImageUri: !Sub
+          - '${RepositoryUri}:${ImageTag}'
+          - RepositoryUri: !GetAtt FoundationStack.Outputs.ADTOFRepositoryUri
+            ImageTag: !Ref ADTOFImageTag
+        ProcessedAudioBucketName: !GetAtt FoundationStack.Outputs.ProcessedAudioBucketName
+        ProcessedAudioBucketArn: !GetAtt FoundationStack.Outputs.ProcessedAudioBucketArn
+        JobsTableName: !GetAtt JobsStack.Outputs.JobsTableName
+        JobsTableArn: !GetAtt JobsStack.Outputs.JobsTableArn
+        ConnectionsTableName: !GetAtt RealtimeStack.Outputs.ConnectionsTableName
+        ConnectionsTableArn: !GetAtt RealtimeStack.Outputs.ConnectionsTableArn
+        UserConnectionsIndexName: !GetAtt RealtimeStack.Outputs.UserConnectionsIndexName
+        WebSocketApiId: !GetAtt RealtimeStack.Outputs.WebSocketApiId
+
+  ProcessingStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplateBucketName}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}/processing.yaml'
+      Parameters:
+        ProjectName: !Ref ProjectName
+        EnvironmentName: !Ref EnvironmentName
+        UploadsBucketName: !GetAtt FoundationStack.Outputs.UploadsBucketName
+        UploadsBucketArn: !GetAtt FoundationStack.Outputs.UploadsBucketArn
+        ProcessedAudioBucketName: !GetAtt FoundationStack.Outputs.ProcessedAudioBucketName
+        ProcessedAudioBucketArn: !GetAtt FoundationStack.Outputs.ProcessedAudioBucketArn
+        JobsTableName: !GetAtt JobsStack.Outputs.JobsTableName
+        JobsTableArn: !GetAtt JobsStack.Outputs.JobsTableArn
+        ConnectionsTableName: !GetAtt RealtimeStack.Outputs.ConnectionsTableName
+        ConnectionsTableArn: !GetAtt RealtimeStack.Outputs.ConnectionsTableArn
+        WebSocketApiId: !GetAtt RealtimeStack.Outputs.WebSocketApiId
+        DemucsImageUri: !Sub
+          - '${RepositoryUri}:${ImageTag}'
+          - RepositoryUri: !GetAtt FoundationStack.Outputs.DemucsRepositoryUri
+            ImageTag: !Ref DemucsImageTag
+        BasicPitchLambdaArn: !GetAtt MidiLambdasStack.Outputs.BasicPitchLambdaArn
+        ADTOFLambdaArn: !GetAtt MidiLambdasStack.Outputs.ADTOFLambdaArn
+        BatchSubnetIds: !GetAtt NetworkStack.Outputs.BatchPrivateSubnetIds
+        BatchSecurityGroupIds: !GetAtt NetworkStack.Outputs.BatchSecurityGroupId
+        GpuInstanceTypes: !Join [',', !Ref GpuInstanceTypes]
+        BatchMaxvCpus: !Ref BatchMaxvCpus
+
+  ApiStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplateBucketName}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}/api.yaml'
+      Parameters:
+        ProjectName: !Ref ProjectName
+        EnvironmentName: !Ref EnvironmentName
+        JobsTableName: !GetAtt JobsStack.Outputs.JobsTableName
+        JobsTableArn: !GetAtt JobsStack.Outputs.JobsTableArn
+        UploadsBucketName: !GetAtt FoundationStack.Outputs.UploadsBucketName
+        UploadsBucketArn: !GetAtt FoundationStack.Outputs.UploadsBucketArn
+        ProcessedAudioBucketName: !GetAtt FoundationStack.Outputs.ProcessedAudioBucketName
+        ProcessedAudioBucketArn: !GetAtt FoundationStack.Outputs.ProcessedAudioBucketArn
+        JobApiCodeS3Bucket: !Ref ArtifactBucketName
+        JobApiCodeS3Key: !Ref JobApiCodeS3Key
+        AllowedFrontendOrigins: !Join [',', !Ref AllowedFrontendOrigins]
+
+Outputs:
+  UploadsBucketName:
+    Description: Private bucket for original user audio uploads.
+    Value: !GetAtt FoundationStack.Outputs.UploadsBucketName
+
+  ProcessedAudioBucketName:
+    Description: Private bucket for stems and MIDI artifacts.
+    Value: !GetAtt FoundationStack.Outputs.ProcessedAudioBucketName
+
+  JobsTableName:
+    Description: Durable DynamoDB jobs table name.
+    Value: !GetAtt JobsStack.Outputs.JobsTableName
+
+  JobApiEndpoint:
+    Description: HTTP endpoint for job creation and snapshot reads.
+    Value: !GetAtt ApiStack.Outputs.JobApiEndpoint
+
+  WebSocketEndpoint:
+    Description: Browser WebSocket endpoint for subscribing to jobs.
+    Value: !GetAtt RealtimeStack.Outputs.WebSocketEndpoint
+
+  DemucsJobQueueArn:
+    Description: GPU Demucs Batch job queue ARN.
+    Value: !GetAtt ProcessingStack.Outputs.DemucsJobQueueArn
+
+  BasicPitchLambdaArn:
+    Description: Basic Pitch extraction Lambda ARN.
+    Value: !GetAtt MidiLambdasStack.Outputs.BasicPitchLambdaArn
+
+  ADTOFLambdaArn:
+    Description: ADTOF extraction Lambda ARN.
+    Value: !GetAtt MidiLambdasStack.Outputs.ADTOFLambdaArn

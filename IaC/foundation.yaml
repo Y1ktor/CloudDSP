@@ -1,0 +1,382 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  CloudDSP shared storage and container registries. Creates private S3 buckets
+  for source and processed audio plus ECR repositories for deployable workers.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: clouddsp
+    Description: Lowercase project name used in globally unique S3 bucket names.
+    AllowedPattern: '^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$'
+
+  EnvironmentName:
+    Type: String
+    Default: dev
+    Description: Deployment environment, such as dev, staging, or prod.
+    AllowedPattern: '^[a-z][a-z0-9-]{0,15}$'
+
+  AllowedFrontendOrigins:
+    Type: CommaDelimitedList
+    Default: http://localhost:5173
+    Description: >-
+      Comma-separated browser origins permitted to use presigned S3 URLs.
+      Include the deployed frontend origin before production deployment.
+
+Resources:
+  UploadsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub '${ProjectName}-uploads-${AWS::AccountId}-${AWS::Region}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      NotificationConfiguration:
+        EventBridgeConfiguration:
+          EventBridgeEnabled: true
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - '*'
+            AllowedMethods:
+              - GET
+              - HEAD
+              - PUT
+            AllowedOrigins: !Ref AllowedFrontendOrigins
+            ExposedHeaders:
+              - ETag
+            MaxAge: 3000
+      LifecycleConfiguration:
+        Rules:
+          - Id: AbortIncompleteMultipartUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+          - Id: ExpireNoncurrentUploadVersions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Component
+          Value: foundation
+
+  ProcessedAudioBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub '${ProjectName}-processed-audio-${AWS::AccountId}-${AWS::Region}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - '*'
+            AllowedMethods:
+              - GET
+              - HEAD
+            AllowedOrigins: !Ref AllowedFrontendOrigins
+            ExposedHeaders:
+              - ETag
+            MaxAge: 3000
+      LifecycleConfiguration:
+        Rules:
+          - Id: AbortIncompleteMultipartUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+          - Id: ExpireNoncurrentProcessedVersions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Component
+          Value: foundation
+
+  BasicPitchRepository:
+    Type: AWS::ECR::Repository
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      RepositoryName: !Sub '${ProjectName}/basic-pitch'
+      ImageTagMutability: MUTABLE
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Remove untagged image layers after seven days.",
+                "selection": {
+                  "tagStatus": "untagged",
+                  "countType": "sinceImagePushed",
+                  "countUnit": "days",
+                  "countNumber": 7
+                },
+                "action": { "type": "expire" }
+              },
+              {
+                "rulePriority": 2,
+                "description": "Keep the ten most recent images.",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 10
+                },
+                "action": { "type": "expire" }
+              }
+            ]
+          }
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  ADTOFRepository:
+    Type: AWS::ECR::Repository
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      RepositoryName: !Sub '${ProjectName}/adtof'
+      ImageTagMutability: MUTABLE
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Remove untagged image layers after seven days.",
+                "selection": {
+                  "tagStatus": "untagged",
+                  "countType": "sinceImagePushed",
+                  "countUnit": "days",
+                  "countNumber": 7
+                },
+                "action": { "type": "expire" }
+              },
+              {
+                "rulePriority": 2,
+                "description": "Keep the ten most recent images.",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 10
+                },
+                "action": { "type": "expire" }
+              }
+            ]
+          }
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  DemucsRepository:
+    Type: AWS::ECR::Repository
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      RepositoryName: !Sub '${ProjectName}/demucs'
+      ImageTagMutability: MUTABLE
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Remove untagged image layers after seven days.",
+                "selection": {
+                  "tagStatus": "untagged",
+                  "countType": "sinceImagePushed",
+                  "countUnit": "days",
+                  "countNumber": 7
+                },
+                "action": { "type": "expire" }
+              },
+              {
+                "rulePriority": 2,
+                "description": "Keep the ten most recent images.",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 10
+                },
+                "action": { "type": "expire" }
+              }
+            ]
+          }
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  MadmomRepository:
+    Type: AWS::ECR::Repository
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      RepositoryName: !Sub '${ProjectName}/madmom'
+      ImageTagMutability: MUTABLE
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Remove untagged image layers after seven days.",
+                "selection": {
+                  "tagStatus": "untagged",
+                  "countType": "sinceImagePushed",
+                  "countUnit": "days",
+                  "countNumber": 7
+                },
+                "action": { "type": "expire" }
+              },
+              {
+                "rulePriority": 2,
+                "description": "Keep the ten most recent images.",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 10
+                },
+                "action": { "type": "expire" }
+              }
+            ]
+          }
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  YtDlpRepository:
+    Type: AWS::ECR::Repository
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      RepositoryName: !Sub '${ProjectName}/yt-dlp'
+      ImageTagMutability: MUTABLE
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Remove untagged image layers after seven days.",
+                "selection": {
+                  "tagStatus": "untagged",
+                  "countType": "sinceImagePushed",
+                  "countUnit": "days",
+                  "countNumber": 7
+                },
+                "action": { "type": "expire" }
+              },
+              {
+                "rulePriority": 2,
+                "description": "Keep the ten most recent images.",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 10
+                },
+                "action": { "type": "expire" }
+              }
+            ]
+          }
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+Outputs:
+  UploadsBucketName:
+    Description: Private bucket for original user uploads.
+    Value: !Ref UploadsBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-UploadsBucketName'
+
+  UploadsBucketArn:
+    Description: ARN of the original-upload bucket.
+    Value: !GetAtt UploadsBucket.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-UploadsBucketArn'
+
+  ProcessedAudioBucketName:
+    Description: Private bucket for stems, MIDI, and other processed artifacts.
+    Value: !Ref ProcessedAudioBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-ProcessedAudioBucketName'
+
+  ProcessedAudioBucketArn:
+    Description: ARN of the processed-audio bucket.
+    Value: !GetAtt ProcessedAudioBucket.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ProcessedAudioBucketArn'
+
+  BasicPitchRepositoryUri:
+    Description: ECR image URI for the Basic Pitch Lambda image.
+    Value: !GetAtt BasicPitchRepository.RepositoryUri
+
+  ADTOFRepositoryUri:
+    Description: ECR image URI for the ADTOF Lambda image.
+    Value: !GetAtt ADTOFRepository.RepositoryUri
+
+  DemucsRepositoryUri:
+    Description: ECR image URI for the Demucs Batch image.
+    Value: !GetAtt DemucsRepository.RepositoryUri
+
+  MadmomRepositoryUri:
+    Description: ECR image URI for the Madmom Lambda image.
+    Value: !GetAtt MadmomRepository.RepositoryUri
+
+  YtDlpRepositoryUri:
+    Description: ECR image URI for the yt-dlp Lambda image.
+    Value: !GetAtt YtDlpRepository.RepositoryUri

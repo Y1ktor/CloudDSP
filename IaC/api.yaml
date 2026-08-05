@@ -1,0 +1,219 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  CloudDSP job API. Creates a durable job before upload and returns current
+  stem and MIDI snapshots with fresh presigned S3 URLs.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: clouddsp
+    Description: Prefix used when naming CloudDSP resources.
+    AllowedPattern: '^[A-Za-z][A-Za-z0-9-]{0,31}$'
+
+  EnvironmentName:
+    Type: String
+    Default: dev
+    Description: Deployment environment, such as dev, staging, or prod.
+    AllowedPattern: '^[a-z][a-z0-9-]{0,15}$'
+
+  JobsTableName:
+    Type: String
+    Description: Name output by the jobs component.
+
+  JobsTableArn:
+    Type: String
+    Description: ARN output by the jobs component.
+
+  UploadsBucketName:
+    Type: String
+    Description: Name output by the foundation component for source uploads.
+
+  UploadsBucketArn:
+    Type: String
+    Description: ARN output by the foundation component for source uploads.
+
+  ProcessedAudioBucketName:
+    Type: String
+    Description: Name output by the foundation component for processing artifacts.
+
+  ProcessedAudioBucketArn:
+    Type: String
+    Description: ARN output by the foundation component for processing artifacts.
+
+  JobApiCodeS3Bucket:
+    Type: String
+    Description: S3 bucket containing the packaged job_api Lambda zip artifact.
+
+  JobApiCodeS3Key:
+    Type: String
+    Description: S3 object key of the packaged job_api Lambda zip artifact.
+
+  AllowedFrontendOrigins:
+    Type: CommaDelimitedList
+    Default: http://localhost:5173
+    Description: Comma-separated browser origins permitted to call the API.
+
+  UploadUrlExpirySeconds:
+    Type: Number
+    Default: 300
+    MinValue: 60
+    MaxValue: 3600
+    Description: Lifetime of a source-upload presigned URL.
+
+  DownloadUrlExpirySeconds:
+    Type: Number
+    Default: 3600
+    MinValue: 60
+    MaxValue: 86400
+    Description: Lifetime of stem and MIDI download presigned URLs.
+
+Resources:
+  JobApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ProjectName}-${EnvironmentName}-JobApi'
+      RetentionInDays: 30
+
+  JobApiRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${EnvironmentName}-JobApiRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub '${ProjectName}-${EnvironmentName}-JobApiWriteFunctionLogs'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !GetAtt JobApiLogGroup.Arn
+        - PolicyName: !Sub '${ProjectName}-${EnvironmentName}-JobApiManageOwnedJobs'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:ConditionCheckItem
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:Query
+                  - dynamodb:UpdateItem
+                Resource:
+                  - !Ref JobsTableArn
+                  - !Sub '${JobsTableArn}/index/*'
+        - PolicyName: !Sub '${ProjectName}-${EnvironmentName}-JobApiPresignObjects'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub '${UploadsBucketArn}/uploads/*'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub '${ProcessedAudioBucketArn}/*'
+
+  JobApiFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${EnvironmentName}-JobApi'
+      Description: Creates CloudDSP processing jobs and returns durable job snapshots.
+      Runtime: python3.12
+      Handler: job_api.lambda_handler
+      Architectures:
+        - arm64
+      Role: !GetAtt JobApiRole.Arn
+      Timeout: 15
+      MemorySize: 256
+      Code:
+        S3Bucket: !Ref JobApiCodeS3Bucket
+        S3Key: !Ref JobApiCodeS3Key
+      Environment:
+        Variables:
+          JOBS_TABLE_NAME: !Ref JobsTableName
+          UPLOADS_BUCKET_NAME: !Ref UploadsBucketName
+          PROCESSED_AUDIO_BUCKET_NAME: !Ref ProcessedAudioBucketName
+          UPLOAD_URL_EXPIRY_SECONDS: !Ref UploadUrlExpirySeconds
+          DOWNLOAD_URL_EXPIRY_SECONDS: !Ref DownloadUrlExpirySeconds
+
+  JobHttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub '${ProjectName}-${EnvironmentName}-JobApi'
+      ProtocolType: HTTP
+      CorsConfiguration:
+        AllowCredentials: false
+        AllowHeaders:
+          - Authorization
+          - Content-Type
+        AllowMethods:
+          - GET
+          - OPTIONS
+          - POST
+        AllowOrigins: !Ref AllowedFrontendOrigins
+        MaxAge: 300
+
+  JobApiIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref JobHttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt JobApiFunction.Arn
+      PayloadFormatVersion: '2.0'
+
+  CreateJobRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref JobHttpApi
+      RouteKey: 'POST /jobs'
+      Target: !Join ['/', ['integrations', !Ref JobApiIntegration]]
+
+  GetJobRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref JobHttpApi
+      RouteKey: 'GET /jobs/{job_id}'
+      Target: !Join ['/', ['integrations', !Ref JobApiIntegration]]
+
+  JobApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref JobHttpApi
+      StageName: '$default'
+      AutoDeploy: true
+
+  AllowHttpApiToInvokeJobApi:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref JobApiFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${JobHttpApi}/*/*'
+
+Outputs:
+  JobApiEndpoint:
+    Description: HTTP API base endpoint for creating and reading processing jobs.
+    Value: !Sub 'https://${JobHttpApi}.execute-api.${AWS::Region}.amazonaws.com'
+    Export:
+      Name: !Sub '${AWS::StackName}-JobApiEndpoint'
+
+  JobApiFunctionName:
+    Description: Name of the Lambda that implements the job API routes.
+    Value: !Ref JobApiFunction
+    Export:
+      Name: !Sub '${AWS::StackName}-JobApiFunctionName'
+
+  JobApiRoleArn:
+    Description: Execution role ARN for the job API Lambda.
+    Value: !GetAtt JobApiRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-JobApiRoleArn'

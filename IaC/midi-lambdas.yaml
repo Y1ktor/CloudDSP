@@ -1,0 +1,248 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  CloudDSP image-based MIDI extraction Lambdas. Basic Pitch handles pitched
+  stems and ADTOF handles drum stems; both persist artifacts by job ID.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: clouddsp
+    AllowedPattern: '^[A-Za-z][A-Za-z0-9-]{0,31}$'
+
+  EnvironmentName:
+    Type: String
+    Default: dev
+    AllowedPattern: '^[a-z][a-z0-9-]{0,15}$'
+
+  BasicPitchImageUri:
+    Type: String
+    Description: ECR image URI for the Basic Pitch Lambda image.
+
+  ADTOFImageUri:
+    Type: String
+    Description: ECR image URI for the ADTOF Lambda image.
+
+  ProcessedAudioBucketName:
+    Type: String
+    Description: Processed-artifact bucket name from the foundation component.
+
+  ProcessedAudioBucketArn:
+    Type: String
+    Description: Processed-artifact bucket ARN from the foundation component.
+
+  JobsTableName:
+    Type: String
+    Description: Durable jobs table name from the jobs component.
+
+  JobsTableArn:
+    Type: String
+    Description: Durable jobs table ARN from the jobs component.
+
+  ConnectionsTableName:
+    Type: String
+    Description: WebSocket connection registry table name from the realtime component.
+
+  ConnectionsTableArn:
+    Type: String
+    Description: WebSocket connection registry table ARN from the realtime component.
+
+  UserConnectionsIndexName:
+    Type: String
+    Default: user_id-last_seen_at-index
+    Description: Connection-table index that lists active connections by user.
+
+  WebSocketApiId:
+    Type: String
+    Description: API Gateway WebSocket API ID from the realtime component.
+
+  BasicPitchMemoryMiB:
+    Type: Number
+    Default: 4096
+    MinValue: 1024
+    MaxValue: 10240
+    Description: Memory allocated to the Basic Pitch Lambda.
+
+  BasicPitchTimeoutSeconds:
+    Type: Number
+    Default: 600
+    MinValue: 1
+    MaxValue: 900
+    Description: Basic Pitch Lambda timeout.
+
+  BasicPitchEphemeralStorageMiB:
+    Type: Number
+    Default: 1024
+    MinValue: 512
+    MaxValue: 10240
+    Description: Temporary storage allocated to the Basic Pitch Lambda.
+
+  ADTOFMemoryMiB:
+    Type: Number
+    Default: 4096
+    MinValue: 1024
+    MaxValue: 10240
+    Description: Memory allocated to the ADTOF Lambda.
+
+  ADTOFTimeoutSeconds:
+    Type: Number
+    Default: 300
+    MinValue: 1
+    MaxValue: 900
+    Description: ADTOF Lambda timeout.
+
+  ADTOFEphemeralStorageMiB:
+    Type: Number
+    Default: 1024
+    MinValue: 512
+    MaxValue: 10240
+    Description: Temporary storage allocated to the ADTOF Lambda.
+
+Resources:
+  MidiExtractionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${EnvironmentName}-MidiExtractionRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: !Sub '${ProjectName}-${EnvironmentName}-MidiExtractionArtifacts'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub '${ProcessedAudioBucketArn}/*'
+        - PolicyName: !Sub '${ProjectName}-${EnvironmentName}-MidiExtractionUpdateJobs'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                Resource: !Ref JobsTableArn
+        - PolicyName: !Sub '${ProjectName}-${EnvironmentName}-MidiExtractionNotifySubscribers'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                Resource:
+                  - !Ref ConnectionsTableArn
+                  - !Sub '${ConnectionsTableArn}/index/*'
+              - Effect: Allow
+                Action:
+                  - execute-api:ManageConnections
+                Resource: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApiId}/${EnvironmentName}/POST/@connections/*'
+
+  BasicPitchLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ProjectName}-${EnvironmentName}-BasicPitch'
+      RetentionInDays: 30
+
+  ADTOFLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ProjectName}-${EnvironmentName}-ADTOF'
+      RetentionInDays: 30
+
+  BasicPitchFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: BasicPitchLogGroup
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${EnvironmentName}-BasicPitch'
+      Description: Extracts pitched MIDI from CloudDSP stems with Basic Pitch.
+      PackageType: Image
+      Architectures:
+        - x86_64
+      Role: !GetAtt MidiExtractionRole.Arn
+      Code:
+        ImageUri: !Ref BasicPitchImageUri
+      MemorySize: !Ref BasicPitchMemoryMiB
+      Timeout: !Ref BasicPitchTimeoutSeconds
+      EphemeralStorage:
+        Size: !Ref BasicPitchEphemeralStorageMiB
+      Environment:
+        Variables:
+          OUTPUT_BUCKET: !Ref ProcessedAudioBucketName
+          JOBS_TABLE_NAME: !Ref JobsTableName
+          CONNECTIONS_TABLE_NAME: !Ref ConnectionsTableName
+          USER_CONNECTIONS_INDEX_NAME: !Ref UserConnectionsIndexName
+          WEBSOCKET_API_URL: !Sub 'https://${WebSocketApiId}.execute-api.${AWS::Region}.amazonaws.com/${EnvironmentName}'
+      Tags:
+        Project: !Ref ProjectName
+        Environment: !Ref EnvironmentName
+        Component: midi-extraction
+        Extractor: basic-pitch
+
+  ADTOFFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: ADTOFLogGroup
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${EnvironmentName}-ADTOF'
+      Description: Extracts drum MIDI from CloudDSP stems with ADTOF.
+      PackageType: Image
+      Architectures:
+        - x86_64
+      Role: !GetAtt MidiExtractionRole.Arn
+      Code:
+        ImageUri: !Ref ADTOFImageUri
+      MemorySize: !Ref ADTOFMemoryMiB
+      Timeout: !Ref ADTOFTimeoutSeconds
+      EphemeralStorage:
+        Size: !Ref ADTOFEphemeralStorageMiB
+      Environment:
+        Variables:
+          OUTPUT_BUCKET: !Ref ProcessedAudioBucketName
+          JOBS_TABLE_NAME: !Ref JobsTableName
+          CONNECTIONS_TABLE_NAME: !Ref ConnectionsTableName
+          USER_CONNECTIONS_INDEX_NAME: !Ref UserConnectionsIndexName
+          WEBSOCKET_API_URL: !Sub 'https://${WebSocketApiId}.execute-api.${AWS::Region}.amazonaws.com/${EnvironmentName}'
+      Tags:
+        Project: !Ref ProjectName
+        Environment: !Ref EnvironmentName
+        Component: midi-extraction
+        Extractor: adtof
+
+Outputs:
+  BasicPitchLambdaArn:
+    Description: ARN used by Demucs Batch jobs to invoke Basic Pitch.
+    Value: !GetAtt BasicPitchFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-BasicPitchLambdaArn'
+
+  BasicPitchLambdaName:
+    Description: Name of the Basic Pitch MIDI extraction Lambda.
+    Value: !Ref BasicPitchFunction
+    Export:
+      Name: !Sub '${AWS::StackName}-BasicPitchLambdaName'
+
+  ADTOFLambdaArn:
+    Description: ARN used by Demucs Batch jobs to invoke ADTOF.
+    Value: !GetAtt ADTOFFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ADTOFLambdaArn'
+
+  ADTOFLambdaName:
+    Description: Name of the ADTOF MIDI extraction Lambda.
+    Value: !Ref ADTOFFunction
+    Export:
+      Name: !Sub '${AWS::StackName}-ADTOFLambdaName'
+
+  MidiExtractionRoleArn:
+    Description: Shared execution role ARN for image-based MIDI extraction Lambdas.
+    Value: !GetAtt MidiExtractionRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-MidiExtractionRoleArn'

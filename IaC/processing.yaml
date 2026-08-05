@@ -1,0 +1,415 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  CloudDSP asynchronous processing. EventBridge starts GPU Demucs Batch jobs
+  directly from S3 upload events; workers update durable jobs and notify clients.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: clouddsp
+    AllowedPattern: '^[A-Za-z][A-Za-z0-9-]{0,31}$'
+
+  EnvironmentName:
+    Type: String
+    Default: dev
+    AllowedPattern: '^[a-z][a-z0-9-]{0,15}$'
+
+  UploadsBucketName:
+    Type: String
+    Description: Source-upload bucket name from the foundation component.
+
+  UploadsBucketArn:
+    Type: String
+    Description: Source-upload bucket ARN from the foundation component.
+
+  ProcessedAudioBucketName:
+    Type: String
+    Description: Processed-artifact bucket name from the foundation component.
+
+  ProcessedAudioBucketArn:
+    Type: String
+    Description: Processed-artifact bucket ARN from the foundation component.
+
+  JobsTableName:
+    Type: String
+    Description: Durable jobs table name from the jobs component.
+
+  JobsTableArn:
+    Type: String
+    Description: Durable jobs table ARN from the jobs component.
+
+  ConnectionsTableName:
+    Type: String
+    Description: WebSocket connection registry table name from the realtime component.
+
+  ConnectionsTableArn:
+    Type: String
+    Description: WebSocket connection registry table ARN from the realtime component.
+
+  WebSocketApiId:
+    Type: String
+    Description: API Gateway WebSocket API ID from the realtime component.
+
+  DemucsImageUri:
+    Type: String
+    Description: ECR image URI for the Demucs Batch image from the foundation component.
+
+  BasicPitchLambdaArn:
+    Type: String
+    Description: ARN of the Basic Pitch container Lambda.
+
+  ADTOFLambdaArn:
+    Type: String
+    Description: ARN of the ADTOF container Lambda.
+
+  DefaultStemMode:
+    Type: String
+    Default: 6-stems
+    AllowedValues:
+      - 2-stems
+      - 4-stems
+      - 6-stems
+    Description: >-
+      Default mode passed by EventBridge. A future job-aware container update
+      will load the requested mode from the durable job record.
+
+  BatchSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Private subnets in which the GPU Batch instances can run.
+
+  BatchSecurityGroupIds:
+    Type: List<AWS::EC2::SecurityGroup::Id>
+    Description: Security groups applied to GPU Batch instances.
+
+  GpuInstanceTypes:
+    Type: CommaDelimitedList
+    Default: g4dn.xlarge
+    Description: GPU EC2 instance types available to the Demucs compute environment.
+
+  BatchMaxvCpus:
+    Type: Number
+    Default: 8
+    MinValue: 4
+    Description: Maximum vCPUs that the managed GPU compute environment may allocate.
+
+  BatchJobTimeoutSeconds:
+    Type: Number
+    Default: 3600
+    MinValue: 60
+    MaxValue: 86400
+    Description: Maximum Demucs job runtime before AWS Batch terminates it.
+
+  DemucsMemoryMiB:
+    Type: Number
+    Default: 14336
+    MinValue: 4096
+    Description: >-
+      Memory reserved for one Demucs job. The 14336 MiB default fits a
+      g4dn.xlarge while leaving capacity for the ECS host.
+
+Resources:
+  BatchServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${EnvironmentName}-BatchServiceRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: batch.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSBatchServiceRole
+
+  BatchEcsInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${EnvironmentName}-BatchEcsInstanceRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
+
+  BatchEcsInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub '${ProjectName}-${EnvironmentName}-BatchEcsInstanceProfile'
+      Roles:
+        - !Ref BatchEcsInstanceRole
+
+  DemucsJobRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${EnvironmentName}-DemucsJobRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub '${ProjectName}-${EnvironmentName}-DemucsAudioObjects'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub '${UploadsBucketArn}/uploads/*'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub '${ProcessedAudioBucketArn}/*'
+        - PolicyName: !Sub '${ProjectName}-${EnvironmentName}-DemucsUpdateJobs'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                Resource: !Ref JobsTableArn
+        - PolicyName: !Sub '${ProjectName}-${EnvironmentName}-DemucsNotifySubscribers'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:Query
+                Resource: !Sub '${ConnectionsTableArn}/index/*'
+              - Effect: Allow
+                Action:
+                  - execute-api:ManageConnections
+                Resource: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApiId}/${EnvironmentName}/POST/@connections/*'
+        - PolicyName: !Sub '${ProjectName}-${EnvironmentName}-DemucsInvokeMidiLambdas'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !Ref BasicPitchLambdaArn
+                  - !Ref ADTOFLambdaArn
+
+  DemucsComputeEnvironment:
+    Type: AWS::Batch::ComputeEnvironment
+    Properties:
+      ComputeEnvironmentName: !Sub '${ProjectName}-${EnvironmentName}-DemucsGpu'
+      Type: MANAGED
+      State: ENABLED
+      ServiceRole: !GetAtt BatchServiceRole.Arn
+      ComputeResources:
+        Type: EC2
+        AllocationStrategy: BEST_FIT_PROGRESSIVE
+        MinvCpus: 0
+        DesiredvCpus: 0
+        MaxvCpus: !Ref BatchMaxvCpus
+        InstanceTypes: !Ref GpuInstanceTypes
+        InstanceRole: !Ref BatchEcsInstanceProfile
+        SecurityGroupIds: !Ref BatchSecurityGroupIds
+        Subnets: !Ref BatchSubnetIds
+        Ec2Configuration:
+          - ImageType: ECS_AL2023_NVIDIA
+        Tags:
+          Project: !Ref ProjectName
+          Environment: !Ref EnvironmentName
+          Component: processing
+
+  DemucsJobQueue:
+    Type: AWS::Batch::JobQueue
+    Properties:
+      JobQueueName: !Sub '${ProjectName}-${EnvironmentName}-DemucsQueue'
+      State: ENABLED
+      Priority: 1
+      ComputeEnvironmentOrder:
+        - Order: 1
+          ComputeEnvironment: !Ref DemucsComputeEnvironment
+      Tags:
+        Project: !Ref ProjectName
+        Environment: !Ref EnvironmentName
+        Component: processing
+
+  DemucsJobLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/batch/${ProjectName}-${EnvironmentName}-Demucs'
+      RetentionInDays: 30
+
+  DemucsJobDefinition:
+    Type: AWS::Batch::JobDefinition
+    Properties:
+      JobDefinitionName: !Sub '${ProjectName}-${EnvironmentName}-Demucs'
+      Type: container
+      PlatformCapabilities:
+        - EC2
+      PropagateTags: true
+      RetryStrategy:
+        Attempts: 1
+      Timeout:
+        AttemptDurationSeconds: !Ref BatchJobTimeoutSeconds
+      ContainerProperties:
+        Image: !Ref DemucsImageUri
+        JobRoleArn: !GetAtt DemucsJobRole.Arn
+        ResourceRequirements:
+          - Type: GPU
+            Value: '1'
+          - Type: VCPU
+            Value: '4'
+          - Type: MEMORY
+            Value: !Sub '${DemucsMemoryMiB}'
+        Environment:
+          - Name: OUTPUT_BUCKET
+            Value: !Ref ProcessedAudioBucketName
+          - Name: JOBS_TABLE_NAME
+            Value: !Ref JobsTableName
+          - Name: CONNECTIONS_TABLE_NAME
+            Value: !Ref ConnectionsTableName
+          - Name: BASIC_PITCH_LAMBDA_NAME
+            Value: !Ref BasicPitchLambdaArn
+          - Name: ADTOF_LAMBDA_NAME
+            Value: !Ref ADTOFLambdaArn
+          - Name: WEBSOCKET_API_URL
+            Value: !Sub 'https://${WebSocketApiId}.execute-api.${AWS::Region}.amazonaws.com/${EnvironmentName}'
+        LogConfiguration:
+          LogDriver: awslogs
+          Options:
+            awslogs-group: !Ref DemucsJobLogGroup
+            awslogs-region: !Ref AWS::Region
+            awslogs-stream-prefix: demucs
+      Tags:
+        Project: !Ref ProjectName
+        Environment: !Ref EnvironmentName
+        Component: processing
+
+  EventBridgeBatchTargetRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${EnvironmentName}-EventBridgeBatchTargetRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub '${ProjectName}-${EnvironmentName}-EventBridgeSubmitDemucs'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - batch:SubmitJob
+                Resource:
+                  - !Ref DemucsJobQueue
+                  - !Ref DemucsJobDefinition
+
+  ProcessingDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectName}-${EnvironmentName}-ProcessingEventsDlq'
+      MessageRetentionPeriod: 1209600
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Component
+          Value: processing
+
+  UploadCreatedRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${ProjectName}-${EnvironmentName}-UploadCreated'
+      Description: Starts GPU Demucs work directly for CloudDSP source audio uploads.
+      EventPattern:
+        source:
+          - aws.s3
+        detail-type:
+          - Object Created
+        detail:
+          bucket:
+            name:
+              - !Ref UploadsBucketName
+          object:
+            key:
+              - prefix: uploads/
+      State: ENABLED
+      Targets:
+        - Arn: !Ref DemucsJobQueue
+          Id: !Sub '${ProjectName}-${EnvironmentName}-SubmitDemucs'
+          RoleArn: !GetAtt EventBridgeBatchTargetRole.Arn
+          BatchParameters:
+            JobDefinition: !Ref DemucsJobDefinition
+            JobName: !Sub '${ProjectName}-${EnvironmentName}-Demucs'
+          InputTransformer:
+            InputPathsMap:
+              inputBucket: '$.detail.bucket.name'
+              fileKey: '$.detail.object.key'
+            InputTemplate: !Sub |
+              {
+                "ContainerOverrides": {
+                  "environment": [
+                    {"name": "INPUT_BUCKET", "value": "<inputBucket>"},
+                    {"name": "FILE_KEY", "value": "<fileKey>"},
+                    {"name": "OUTPUT_BUCKET", "value": "${ProcessedAudioBucketName}"},
+                    {"name": "STEM_MODE", "value": "${DefaultStemMode}"}
+                  ]
+                }
+              }
+          DeadLetterConfig:
+            Arn: !GetAtt ProcessingDeadLetterQueue.Arn
+          RetryPolicy:
+            MaximumEventAgeInSeconds: 3600
+            MaximumRetryAttempts: 24
+
+  ProcessingDeadLetterQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref ProcessingDeadLetterQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt ProcessingDeadLetterQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !GetAtt UploadCreatedRule.Arn
+
+Outputs:
+  DemucsJobQueueArn:
+    Description: ARN of the GPU Demucs Batch job queue.
+    Value: !Ref DemucsJobQueue
+    Export:
+      Name: !Sub '${AWS::StackName}-DemucsJobQueueArn'
+
+  DemucsJobDefinitionArn:
+    Description: ARN of the GPU Demucs Batch job definition.
+    Value: !Ref DemucsJobDefinition
+    Export:
+      Name: !Sub '${AWS::StackName}-DemucsJobDefinitionArn'
+
+  DemucsComputeEnvironmentArn:
+    Description: ARN of the managed GPU compute environment.
+    Value: !Ref DemucsComputeEnvironment
+    Export:
+      Name: !Sub '${AWS::StackName}-DemucsComputeEnvironmentArn'
+
+  ProcessingDeadLetterQueueUrl:
+    Description: URL of the failed-upload-event dead-letter queue.
+    Value: !Ref ProcessingDeadLetterQueue
+    Export:
+      Name: !Sub '${AWS::StackName}-ProcessingDeadLetterQueueUrl'

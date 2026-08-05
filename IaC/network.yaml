@@ -1,0 +1,314 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  CloudDSP Batch network. Creates a two-AZ private subnet environment for GPU
+  Batch instances, an S3 gateway endpoint, and controlled outbound NAT access.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: clouddsp
+    Description: Prefix used when naming CloudDSP resources.
+    AllowedPattern: '^[A-Za-z][A-Za-z0-9-]{0,31}$'
+
+  EnvironmentName:
+    Type: String
+    Default: dev
+    Description: Deployment environment, such as dev, staging, or prod.
+    AllowedPattern: '^[a-z][a-z0-9-]{0,15}$'
+
+  VpcCidr:
+    Type: String
+    Default: 10.68.0.0/16
+    Description: IPv4 CIDR range for the CloudDSP Batch VPC.
+    AllowedPattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}/(16|17|18|19|20|21|22|23|24)$'
+
+  PublicSubnetCidr:
+    Type: String
+    Default: 10.68.0.0/24
+    Description: Public subnet containing the NAT gateway.
+    AllowedPattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}/(16|17|18|19|20|21|22|23|24|25|26|27|28)$'
+
+  PrivateSubnetACidr:
+    Type: String
+    Default: 10.68.16.0/20
+    Description: First private GPU Batch subnet.
+    AllowedPattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}/(16|17|18|19|20|21|22|23|24|25|26|27|28)$'
+
+  PrivateSubnetBCidr:
+    Type: String
+    Default: 10.68.32.0/20
+    Description: Second private GPU Batch subnet in a separate Availability Zone.
+    AllowedPattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}/(16|17|18|19|20|21|22|23|24|25|26|27|28)$'
+
+Resources:
+  BatchVpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${EnvironmentName}-BatchVpc'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Component
+          Value: network
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${EnvironmentName}-InternetGateway'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref BatchVpc
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref BatchVpc
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !Ref PublicSubnetCidr
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${EnvironmentName}-PublicSubnetA'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: NetworkTier
+          Value: public
+
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref BatchVpc
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !Ref PrivateSubnetACidr
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${EnvironmentName}-PrivateBatchSubnetA'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: NetworkTier
+          Value: private
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref BatchVpc
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: !Ref PrivateSubnetBCidr
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${EnvironmentName}-PrivateBatchSubnetB'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: NetworkTier
+          Value: private
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref BatchVpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${EnvironmentName}-PublicRoutes'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  PublicInternetRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet
+
+  NatGatewayElasticIp:
+    Type: AWS::EC2::EIP
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${EnvironmentName}-BatchNatEip'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  BatchNatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGatewayElasticIp.AllocationId
+      SubnetId: !Ref PublicSubnet
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${EnvironmentName}-BatchNatGateway'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  PrivateRouteTableA:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref BatchVpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${EnvironmentName}-PrivateRoutesA'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  PrivateRouteTableB:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref BatchVpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${EnvironmentName}-PrivateRoutesB'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  PrivateInternetRouteA:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableA
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref BatchNatGateway
+
+  PrivateInternetRouteB:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableB
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref BatchNatGateway
+
+  PrivateSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableA
+      SubnetId: !Ref PrivateSubnetA
+
+  PrivateSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableB
+      SubnetId: !Ref PrivateSubnetB
+
+  S3GatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref BatchVpc
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
+      VpcEndpointType: Gateway
+      RouteTableIds:
+        - !Ref PrivateRouteTableA
+        - !Ref PrivateRouteTableB
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${EnvironmentName}-S3GatewayEndpoint'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  BatchSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${ProjectName}-${EnvironmentName}-BatchSecurityGroup'
+      GroupDescription: Egress-only security group for private CloudDSP Batch instances.
+      VpcId: !Ref BatchVpc
+      SecurityGroupEgress:
+        - Description: HTTPS to AWS APIs and the private S3 endpoint route.
+          IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - Description: DNS over UDP to the VPC resolver.
+          IpProtocol: udp
+          FromPort: 53
+          ToPort: 53
+          CidrIp: !Ref VpcCidr
+        - Description: DNS over TCP to the VPC resolver.
+          IpProtocol: tcp
+          FromPort: 53
+          ToPort: 53
+          CidrIp: !Ref VpcCidr
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${EnvironmentName}-BatchSecurityGroup'
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Component
+          Value: network
+
+Outputs:
+  BatchVpcId:
+    Description: VPC ID for CloudDSP GPU Batch resources.
+    Value: !Ref BatchVpc
+    Export:
+      Name: !Sub '${AWS::StackName}-BatchVpcId'
+
+  BatchPrivateSubnetIds:
+    Description: Comma-separated private subnet IDs for the Batch compute environment.
+    Value: !Join [',', [!Ref PrivateSubnetA, !Ref PrivateSubnetB]]
+    Export:
+      Name: !Sub '${AWS::StackName}-BatchPrivateSubnetIds'
+
+  BatchPrivateSubnetAId:
+    Description: First private subnet ID for Batch.
+    Value: !Ref PrivateSubnetA
+    Export:
+      Name: !Sub '${AWS::StackName}-BatchPrivateSubnetAId'
+
+  BatchPrivateSubnetBId:
+    Description: Second private subnet ID for Batch.
+    Value: !Ref PrivateSubnetB
+    Export:
+      Name: !Sub '${AWS::StackName}-BatchPrivateSubnetBId'
+
+  BatchSecurityGroupId:
+    Description: Egress-only security group ID for the Batch compute environment.
+    Value: !GetAtt BatchSecurityGroup.GroupId
+    Export:
+      Name: !Sub '${AWS::StackName}-BatchSecurityGroupId'
+
+  S3GatewayEndpointId:
+    Description: VPC gateway endpoint ID used by Batch for S3 traffic.
+    Value: !Ref S3GatewayEndpoint
+    Export:
+      Name: !Sub '${AWS::StackName}-S3GatewayEndpointId'

@@ -1,0 +1,245 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  CloudDSP real-time delivery. Provides a WebSocket API with durable
+  subscription records so clients can reconnect and receive job snapshots.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: clouddsp
+    Description: Prefix used when naming CloudDSP resources.
+    AllowedPattern: '^[A-Za-z][A-Za-z0-9-]{0,31}$'
+
+  EnvironmentName:
+    Type: String
+    Default: dev
+    Description: Deployment environment, such as dev, staging, or prod.
+    AllowedPattern: '^[a-z][a-z0-9-]{0,15}$'
+
+  JobsTableName:
+    Type: String
+    Description: Name output by the jobs component.
+
+  JobsTableArn:
+    Type: String
+    Description: ARN output by the jobs component.
+
+  WebSocketHandlerCodeS3Bucket:
+    Type: String
+    Description: S3 bucket containing the packaged websocket_handler Lambda zip artifact.
+
+  WebSocketHandlerCodeS3Key:
+    Type: String
+    Description: S3 object key of the packaged websocket_handler Lambda zip artifact.
+
+Resources:
+  CloudDSPConnections:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${ProjectName}-${EnvironmentName}-Connections'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: connection_id
+          AttributeType: S
+        - AttributeName: user_id
+          AttributeType: S
+        - AttributeName: last_seen_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: connection_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: user_id-last_seen_at-index
+          KeySchema:
+            - AttributeName: user_id
+              KeyType: HASH
+            - AttributeName: last_seen_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      TimeToLiveSpecification:
+        AttributeName: expires_at
+        Enabled: true
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Component
+          Value: realtime
+
+  WebSocketHandlerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ProjectName}-${EnvironmentName}-WebSocketHandler'
+      RetentionInDays: 30
+
+  WebSocketHandlerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${EnvironmentName}-WebSocketHandlerRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: !Sub '${ProjectName}-${EnvironmentName}-WebSocketManageConnections'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - execute-api:ManageConnections
+                Resource: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${CloudDSPWebSocketApi}/${EnvironmentName}/POST/@connections/*'
+        - PolicyName: !Sub '${ProjectName}-${EnvironmentName}-WebSocketConnectionRegistry'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:DeleteItem
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:Query
+                  - dynamodb:UpdateItem
+                Resource:
+                  - !GetAtt CloudDSPConnections.Arn
+                  - !Sub '${CloudDSPConnections.Arn}/index/*'
+        - PolicyName: !Sub '${ProjectName}-${EnvironmentName}-WebSocketReadJobs'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                Resource: !Ref JobsTableArn
+
+  WebSocketHandlerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${EnvironmentName}-WebSocketHandler'
+      Description: Records CloudDSP socket subscriptions and acknowledges heartbeats.
+      Runtime: python3.12
+      Handler: websocket_handler.lambda_handler
+      Architectures:
+        - arm64
+      Role: !GetAtt WebSocketHandlerRole.Arn
+      Timeout: 15
+      MemorySize: 256
+      Code:
+        S3Bucket: !Ref WebSocketHandlerCodeS3Bucket
+        S3Key: !Ref WebSocketHandlerCodeS3Key
+      Environment:
+        Variables:
+          CONNECTIONS_TABLE_NAME: !Ref CloudDSPConnections
+          JOBS_TABLE_NAME: !Ref JobsTableName
+
+  CloudDSPWebSocketApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub '${ProjectName}-${EnvironmentName}-WebSocketApi'
+      ProtocolType: WEBSOCKET
+      RouteSelectionExpression: '$request.body.action'
+
+  WebSocketHandlerIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref CloudDSPWebSocketApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WebSocketHandlerFunction.Arn}/invocations'
+
+  ConnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref CloudDSPWebSocketApi
+      RouteKey: '$connect'
+      Target: !Join ['/', ['integrations', !Ref WebSocketHandlerIntegration]]
+
+  DisconnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref CloudDSPWebSocketApi
+      RouteKey: '$disconnect'
+      Target: !Join ['/', ['integrations', !Ref WebSocketHandlerIntegration]]
+
+  SubscribeRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref CloudDSPWebSocketApi
+      RouteKey: subscribe
+      Target: !Join ['/', ['integrations', !Ref WebSocketHandlerIntegration]]
+
+  HeartbeatRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref CloudDSPWebSocketApi
+      RouteKey: heartbeat
+      Target: !Join ['/', ['integrations', !Ref WebSocketHandlerIntegration]]
+
+  DefaultRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref CloudDSPWebSocketApi
+      RouteKey: '$default'
+      Target: !Join ['/', ['integrations', !Ref WebSocketHandlerIntegration]]
+
+  WebSocketStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref CloudDSPWebSocketApi
+      StageName: !Ref EnvironmentName
+      AutoDeploy: true
+
+  AllowWebSocketApiToInvokeHandler:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref WebSocketHandlerFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${CloudDSPWebSocketApi}/*/*'
+
+Outputs:
+  ConnectionsTableName:
+    Description: Ephemeral WebSocket connection registry table name.
+    Value: !Ref CloudDSPConnections
+    Export:
+      Name: !Sub '${AWS::StackName}-ConnectionsTableName'
+
+  ConnectionsTableArn:
+    Description: Ephemeral WebSocket connection registry table ARN.
+    Value: !GetAtt CloudDSPConnections.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ConnectionsTableArn'
+
+  UserConnectionsIndexName:
+    Description: Index for finding all active connections for a user.
+    Value: user_id-last_seen_at-index
+    Export:
+      Name: !Sub '${AWS::StackName}-UserConnectionsIndexName'
+
+  WebSocketEndpoint:
+    Description: Browser WebSocket endpoint for the CloudDSP client.
+    Value: !Sub 'wss://${CloudDSPWebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${EnvironmentName}'
+    Export:
+      Name: !Sub '${AWS::StackName}-WebSocketEndpoint'
+
+  WebSocketApiId:
+    Description: API Gateway WebSocket API identifier.
+    Value: !Ref CloudDSPWebSocketApi
+    Export:
+      Name: !Sub '${AWS::StackName}-WebSocketApiId'
+
+  WebSocketHandlerFunctionName:
+    Description: Lambda function implementing socket lifecycle routes.
+    Value: !Ref WebSocketHandlerFunction
+    Export:
+      Name: !Sub '${AWS::StackName}-WebSocketHandlerFunctionName'
