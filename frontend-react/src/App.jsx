@@ -1,34 +1,73 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { BrowserRouter, Link, Route, Routes, useLocation } from 'react-router-dom';
 import EqPage from './EqPage';
+import AuthPanel from './components/AuthPanel';
 import StemSplitter from './components/StemSplitter/StemSplitter';
+import {
+    confirmSignUp,
+    getCurrentSession,
+    isCognitoConfigured,
+    signIn,
+    signOut,
+    signUp,
+} from './auth/cognito';
 
-const WEBSOCKET_URL = import.meta.env.VITE_WEBSOCKET_URL ||
-    'wss://grreq325rk.execute-api.us-east-1.amazonaws.com/dev';
-const UPLOAD_URL_API = import.meta.env.VITE_UPLOAD_URL_API ||
-    'https://6ec8xwsshl.execute-api.us-east-1.amazonaws.com/upload-url';
+const JOB_API_URL = import.meta.env.VITE_JOB_API_URL?.replace(/\/$/, '');
+const WEBSOCKET_URL = import.meta.env.VITE_WEBSOCKET_URL;
+const POLL_INTERVAL_MS = 15_000;
+const RECONNECT_MAX_DELAY_MS = 30_000;
 
-function NavBar() {
+function getStoredJobs(storageKey) {
+    try {
+        const parsed = JSON.parse(sessionStorage.getItem(storageKey) || '[]');
+        return Array.isArray(parsed) ? parsed.filter((value) => typeof value === 'string') : [];
+    } catch {
+        return [];
+    }
+}
+
+function isJobPending(job) {
+    return job && !['completed', 'failed'].includes(job.status);
+}
+
+function messageForJob(job, fallback) {
+    if (!job) return fallback;
+    if (job.status === 'upload_pending') return 'Upload complete. Waiting for AWS Batch capacity…';
+    if (job.status === 'stem_processing') return 'AWS Batch is separating stems…';
+    if (job.status === 'midi_processing') return 'Stems are ready. MIDI extraction is still running…';
+    if (job.status === 'completed') return 'Stems and MIDI extraction are complete.';
+    if (job.status === 'failed') return job.error || 'Processing failed. See the job status for details.';
+    return fallback;
+}
+
+function urlsForReadyArtifacts(artifacts) {
+    return Object.fromEntries(
+        Object.entries(artifacts || {})
+            .filter(([, artifact]) => artifact?.status === 'ready' && artifact.url)
+            .map(([name, artifact]) => [name, artifact.url]),
+    );
+}
+
+function NavBar({ authProps }) {
     const location = useLocation();
     const navStyle = {
         background: '#222', padding: '15px 20px', display: 'flex', gap: '20px',
         borderBottom: '1px solid #444', marginBottom: '40px', alignItems: 'center',
-        boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
+        boxShadow: '0 4px 12px rgba(0,0,0,0.3)', flexWrap: 'wrap',
     };
     const getLinkStyle = (path) => ({
         color: location.pathname === path ? '#fff' : '#aaa',
         textDecoration: 'none', fontWeight: 'bold', padding: '8px 16px',
         borderRadius: '4px', background: location.pathname === path ? '#4CAF50' : 'transparent',
-        transition: 'all 0.2s ease-in-out'
+        transition: 'all 0.2s ease-in-out',
     });
 
     return (
         <div style={navStyle}>
-            <div style={{ color: '#fff', fontWeight: '900', fontSize: '20px', marginRight: '20px', letterSpacing: '1px' }}>
-                CloudDSP
-            </div>
+            <div style={{ color: '#fff', fontWeight: '900', fontSize: '20px', marginRight: '20px', letterSpacing: '1px' }}>CloudDSP</div>
             <Link to="/" style={getLinkStyle('/')}>Interactive EQ</Link>
             <Link to="/stems" style={getLinkStyle('/stems')}>Stem Splitter</Link>
+            <div style={{ marginLeft: 'auto' }}><AuthPanel {...authProps} /></div>
         </div>
     );
 }
@@ -37,214 +76,317 @@ export default function App() {
     const [stemFile, setStemFile] = useState(null);
     const [stemFileName, setStemFileName] = useState('No file loaded');
     const [splitMode, setSplitMode] = useState('6-stems');
-    const [isSplitting, setIsSplitting] = useState(false);
-    const [statusMessage, setStatusMessage] = useState('');
-    const [stemUrls, setStemUrls] = useState(null);
-    const [midiUrls, setMidiUrls] = useState(null);
+    const [statusMessage, setStatusMessage] = useState('Sign in and upload an audio file to begin.');
     const [errorMsg, setErrorMsg] = useState('');
-    const [awsConnectionId, setAwsConnectionId] = useState(null);
+    const [authSession, setAuthSession] = useState(null);
+    const [authLoading, setAuthLoading] = useState(isCognitoConfigured);
+    const [activeJobIds, setActiveJobIds] = useState([]);
+    const [activeJobId, setActiveJobId] = useState(null);
+    const [jobSnapshots, setJobSnapshots] = useState({});
+    const [isUploading, setIsUploading] = useState(false);
 
     const socketRef = useRef(null);
-    const pendingMidiStemsRef = useRef(new Set());
-    const receivedMidiStemsRef = useRef(new Set());
+    const shouldReconnectRef = useRef(false);
+    const reconnectTimerRef = useRef(null);
+    const reconnectAttemptsRef = useRef(0);
+    const activeJobIdsRef = useRef([]);
+    const jobSnapshotsRef = useRef({});
 
-    useEffect(() => () => socketRef.current?.close(), []);
+    const currentJob = activeJobId ? jobSnapshots[activeJobId] : null;
+    const authUsername = authSession?.username;
+    const stemUrls = useMemo(() => urlsForReadyArtifacts(currentJob?.stems), [currentJob]);
+    const midiUrls = useMemo(() => urlsForReadyArtifacts(currentJob?.midi), [currentJob]);
+    const midiStates = currentJob?.midi || {};
+    const isSplitting = isUploading || isJobPending(currentJob);
+    const storageKey = authSession ? `clouddsp.activeJobs.${authSession.username}` : null;
 
-    const connectWebSocket = React.useCallback(() => {
-        const socket = socketRef.current;
-        if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
-            return;
+    useEffect(() => {
+        activeJobIdsRef.current = activeJobIds;
+    }, [activeJobIds]);
+
+    useEffect(() => {
+        jobSnapshotsRef.current = jobSnapshots;
+    }, [jobSnapshots]);
+
+    const restoreSession = useCallback(async () => {
+        try {
+            const session = await getCurrentSession();
+            setAuthSession(session);
+            return session;
+        } catch (error) {
+            console.warn('Could not restore Cognito session:', error);
+            setAuthSession(null);
+            return null;
+        } finally {
+            setAuthLoading(false);
         }
-
-        console.log('Opening CloudDSP WebSocket connection.');
-        const nextSocket = new WebSocket(WEBSOCKET_URL);
-        socketRef.current = nextSocket;
-
-        nextSocket.onopen = () => {
-            console.log('CloudDSP WebSocket connected.');
-            nextSocket.send(JSON.stringify({ action: 'echo' }));
-        };
-
-        nextSocket.onerror = (error) => {
-            console.error('WebSocket error:', error);
-            setErrorMsg('Failed to connect to the CloudDSP WebSocket server.');
-        };
-
-        nextSocket.onclose = () => {
-            console.log('CloudDSP WebSocket closed.');
-            setAwsConnectionId(null);
-        };
-
-        nextSocket.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-
-                if (data.type === 'connected') {
-                    setAwsConnectionId(data.connectionId);
-                    console.log('Received CloudDSP WebSocket connection ID.');
-                    return;
-                }
-
-                // CloudStemSplit emits processing_complete/stems. The Batch EventBridge
-                // notifier uses stems_ready/urls, so support both during the migration.
-                if (data.type === 'processing_complete' || data.type === 'stems_ready') {
-                    const urls = data.stems || data.urls;
-                    if (!urls || Object.keys(urls).length === 0) {
-                        throw new Error('The backend completed without any stem URLs.');
-                    }
-
-                    const stemNames = Object.keys(urls);
-                    pendingMidiStemsRef.current = new Set(stemNames);
-                    receivedMidiStemsRef.current.forEach((stemName) => {
-                        pendingMidiStemsRef.current.delete(stemName);
-                    });
-                    const remaining = pendingMidiStemsRef.current.size;
-                    setStemUrls(urls);
-                    setIsSplitting(false);
-                    setStatusMessage(
-                        remaining > 0
-                            ? `Stems ready. Extracting MIDI for ${remaining} stem(s)...`
-                            : 'Stems and MIDI extraction complete.'
-                    );
-                    console.log('Received presigned stem URLs:', stemNames);
-                    return;
-                }
-
-                if (data.type === 'midi_processing_complete') {
-                    if (!data.stem_name || !data.midi_url) {
-                        throw new Error('The MIDI completion event is missing a stem name or MIDI URL.');
-                    }
-
-                    setMidiUrls((current) => ({
-                        ...(current || {}),
-                        [data.stem_name]: data.midi_url,
-                    }));
-                    receivedMidiStemsRef.current.add(data.stem_name);
-                    pendingMidiStemsRef.current.delete(data.stem_name);
-                    const remaining = pendingMidiStemsRef.current.size;
-                    setStatusMessage(
-                        remaining > 0
-                            ? `MIDI ready for ${data.stem_name}. Waiting for ${remaining} stem(s)...`
-                            : 'MIDI extraction complete.'
-                    );
-                    console.log(`Received presigned MIDI URL for ${data.stem_name}.`);
-                    return;
-                }
-
-                if (data.type === 'status') {
-                    setStatusMessage(data.message || 'Processing...');
-                    return;
-                }
-
-                if (data.type === 'extraction_complete') {
-                    setStatusMessage('Extraction complete. Waiting for stem processing...');
-                    return;
-                }
-
-                if (data.type === 'error') {
-                    setErrorMsg(data.message || 'An AWS backend error occurred.');
-                    setIsSplitting(false);
-                }
-            } catch (error) {
-                console.error('Failed to handle WebSocket message:', error);
-                setErrorMsg(error.message || 'Received an invalid backend message.');
-                setIsSplitting(false);
-            }
-        };
     }, []);
 
-    const executeLinkExtraction = (url) => {
-        if (!awsConnectionId || socketRef.current?.readyState !== WebSocket.OPEN) {
-            setErrorMsg('Still establishing a secure connection to AWS. Please try again in a moment.');
-            connectWebSocket();
+    useEffect(() => {
+        restoreSession();
+    }, [restoreSession]);
+
+    useEffect(() => {
+        if (!storageKey) {
+            setActiveJobIds([]);
+            setActiveJobId(null);
+            setJobSnapshots({});
             return;
         }
+        const restoredJobIds = getStoredJobs(storageKey);
+        setActiveJobIds(restoredJobIds);
+        setActiveJobId(restoredJobIds.at(-1) || null);
+        setJobSnapshots({});
+    }, [storageKey]);
 
-        setIsSplitting(true);
+    useEffect(() => {
+        if (storageKey) sessionStorage.setItem(storageKey, JSON.stringify(activeJobIds));
+    }, [activeJobIds, storageKey]);
+
+    const authenticatedFetch = useCallback(async (path, options = {}) => {
+        if (!JOB_API_URL) throw new Error('VITE_JOB_API_URL is not configured.');
+        const session = await getCurrentSession();
+        if (!session) throw new Error('Your session has expired. Sign in again to continue.');
+        setAuthSession(session);
+        const response = await fetch(`${JOB_API_URL}${path}`, {
+            ...options,
+            headers: {
+                Authorization: `Bearer ${session.idToken}`,
+                ...(options.headers || {}),
+            },
+        });
+        return response;
+    }, []);
+
+    const fetchJobSnapshot = useCallback(async (jobId, { showError = false } = {}) => {
+        try {
+            const response = await authenticatedFetch(`/jobs/${encodeURIComponent(jobId)}`);
+            if (!response.ok) {
+                throw new Error(`Could not refresh job ${jobId} (${response.status}).`);
+            }
+            const snapshot = await response.json();
+            setJobSnapshots((current) => {
+                const previous = current[jobId];
+                if (previous && Number(previous.revision || 0) > Number(snapshot.revision || 0)) return current;
+                return { ...current, [jobId]: snapshot };
+            });
+            return snapshot;
+        } catch (error) {
+            console.warn(`Job snapshot refresh failed for ${jobId}:`, error);
+            if (showError) setErrorMsg(error.message || 'Could not refresh the processing job.');
+            return null;
+        }
+    }, [authenticatedFetch]);
+
+    const subscribeToJobs = useCallback((socket, jobIds = activeJobIdsRef.current) => {
+        if (socket?.readyState !== WebSocket.OPEN) return;
+        jobIds.forEach((jobId) => socket.send(JSON.stringify({ action: 'subscribe', job_id: jobId })));
+    }, []);
+
+    const connectWebSocket = useCallback(async () => {
+        if (!WEBSOCKET_URL || !authUsername) return;
+        const existingSocket = socketRef.current;
+        if (existingSocket && [WebSocket.OPEN, WebSocket.CONNECTING].includes(existingSocket.readyState)) return;
+
+        let session;
+        let socket;
+        try {
+            session = await getCurrentSession();
+            if (!session) {
+                setErrorMsg('Your session has expired. Sign in again to reconnect.');
+                return;
+            }
+            setAuthSession(session);
+            const socketUrl = new URL(WEBSOCKET_URL);
+            socketUrl.searchParams.set('token', session.idToken);
+            socket = new WebSocket(socketUrl.toString());
+        } catch (error) {
+            console.warn('Could not open CloudDSP WebSocket:', error);
+            setErrorMsg('Could not establish an authenticated WebSocket connection.');
+            return;
+        }
+        socketRef.current = socket;
+
+        socket.onopen = () => {
+            reconnectAttemptsRef.current = 0;
+            subscribeToJobs(socket);
+            console.log('CloudDSP WebSocket connected and subscribed to active jobs.');
+        };
+        socket.onmessage = (event) => {
+            try {
+                const message = JSON.parse(event.data);
+                if (message.type === 'job_updated' && message.job_id) {
+                    fetchJobSnapshot(message.job_id, { showError: true });
+                } else if (message.type === 'error') {
+                    setErrorMsg(message.error || 'The CloudDSP WebSocket rejected a request.');
+                }
+            } catch (error) {
+                console.warn('Ignoring invalid CloudDSP WebSocket message:', error);
+            }
+        };
+        socket.onerror = () => console.warn('CloudDSP WebSocket transport error.');
+        socket.onclose = () => {
+            socketRef.current = null;
+            if (!shouldReconnectRef.current) return;
+            const delay = Math.min(1_000 * (2 ** reconnectAttemptsRef.current), RECONNECT_MAX_DELAY_MS);
+            reconnectAttemptsRef.current += 1;
+            reconnectTimerRef.current = window.setTimeout(() => connectWebSocket(), delay);
+        };
+    }, [authUsername, fetchJobSnapshot, subscribeToJobs]);
+
+    useEffect(() => {
+        shouldReconnectRef.current = Boolean(authUsername && WEBSOCKET_URL);
+        if (shouldReconnectRef.current) connectWebSocket();
+        return () => {
+            shouldReconnectRef.current = false;
+            window.clearTimeout(reconnectTimerRef.current);
+            socketRef.current?.close();
+            socketRef.current = null;
+        };
+    }, [authUsername, connectWebSocket]);
+
+    useEffect(() => {
+        subscribeToJobs(socketRef.current, activeJobIds);
+    }, [activeJobIds, subscribeToJobs]);
+
+    useEffect(() => {
+        if (!authSession || activeJobIds.length === 0) return undefined;
+        const refreshPendingJobs = () => {
+            activeJobIds
+                .filter((jobId) => !jobSnapshotsRef.current[jobId] || isJobPending(jobSnapshotsRef.current[jobId]))
+                .forEach((jobId) => fetchJobSnapshot(jobId));
+        };
+        refreshPendingJobs();
+        const timer = window.setInterval(() => {
+            refreshPendingJobs();
+        }, POLL_INTERVAL_MS);
+        return () => window.clearInterval(timer);
+    }, [activeJobIds, authSession, fetchJobSnapshot]);
+
+    useEffect(() => {
+        if (!currentJob) return;
+        setStatusMessage(messageForJob(currentJob, 'Processing…'));
+        if (currentJob.status === 'failed') setErrorMsg(currentJob.error || 'CloudDSP processing failed.');
+    }, [currentJob]);
+
+    const beginNewUpload = () => {
+        setActiveJobId(null);
         setErrorMsg('');
-        setStatusMessage('Sending link to CloudDSP...');
-        setStemUrls(null);
-        setMidiUrls(null);
-        pendingMidiStemsRef.current.clear();
-        receivedMidiStemsRef.current.clear();
-        socketRef.current.send(JSON.stringify({ action: 'yt-dlp', url, stemMode: splitMode }));
+        setStatusMessage('Ready to upload audio.');
     };
 
     const executeStemSplit = async () => {
         if (!stemFile) {
-            setErrorMsg('Please select a file first.');
+            setErrorMsg('Please select an audio file first.');
             return;
         }
-        if (!awsConnectionId || socketRef.current?.readyState !== WebSocket.OPEN) {
-            setErrorMsg('Still establishing a secure connection to AWS. Please try again in a moment.');
-            connectWebSocket();
+        if (!authSession) {
+            setErrorMsg('Sign in before uploading audio.');
             return;
         }
 
-        setIsSplitting(true);
+        setIsUploading(true);
         setErrorMsg('');
-        setStemUrls(null);
-        setMidiUrls(null);
-        pendingMidiStemsRef.current.clear();
-        receivedMidiStemsRef.current.clear();
-
+        setStatusMessage('Creating a durable processing job…');
         try {
-            const fileType = stemFile.type || 'application/octet-stream';
-            const query = new URLSearchParams({
-                filename: stemFileName,
-                filetype: fileType,
-                connectionId: awsConnectionId,
-                stemMode: splitMode,
+            const contentType = stemFile.type || 'application/octet-stream';
+            const response = await authenticatedFetch('/jobs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    filename: stemFile.name,
+                    content_type: contentType,
+                    stem_mode: splitMode,
+                }),
             });
-
-            setStatusMessage('Requesting a secure S3 upload URL...');
-            const uploadUrlResponse = await fetch(`${UPLOAD_URL_API}?${query.toString()}`);
-            if (!uploadUrlResponse.ok) {
-                throw new Error(`Upload URL request failed (${uploadUrlResponse.status}).`);
-            }
-            const uploadDetails = await uploadUrlResponse.json();
-            if (!uploadDetails.uploadUrl) {
-                throw new Error(uploadDetails.error || 'The upload service did not return an upload URL.');
+            const job = await response.json();
+            if (!response.ok) throw new Error(job.error || `Could not create a job (${response.status}).`);
+            if (!job.job_id || !job.upload_url || !job.upload_headers) {
+                throw new Error('The job API returned an incomplete upload contract.');
             }
 
-            setStatusMessage('Uploading audio to S3...');
-            const uploadResponse = await fetch(uploadDetails.uploadUrl, {
+            setActiveJobIds((current) => [...new Set([...current, job.job_id])]);
+            setActiveJobId(job.job_id);
+            setJobSnapshots((current) => ({
+                ...current,
+                [job.job_id]: { job_id: job.job_id, status: job.status, revision: job.revision, stems: {}, midi: {} },
+            }));
+            subscribeToJobs(socketRef.current, [job.job_id]);
+
+            setStatusMessage('Uploading audio to the secure job location…');
+            const uploadResponse = await fetch(job.upload_url, {
                 method: 'PUT',
+                headers: job.upload_headers,
                 body: stemFile,
-                headers: {
-                    'Content-Type': fileType,
-                    'x-amz-meta-connection-id': awsConnectionId,
-                    'x-amz-meta-stem-mode': splitMode,
-                },
             });
             if (!uploadResponse.ok) {
                 throw new Error(`S3 upload failed (${uploadResponse.status}). Check the upload bucket CORS policy.`);
             }
-
-            // The successful PUT creates the S3 event. EventBridge submits the
-            // Demucs job; its WebSocket messages drive the remaining UI state.
-            setStatusMessage('Upload complete. Waiting for AWS Batch stem processing...');
-            console.log('Audio uploaded to S3; waiting for backend stem and MIDI events.');
+            setStatusMessage('Upload complete. Waiting for AWS Batch capacity…');
+            await fetchJobSnapshot(job.job_id, { showError: true });
         } catch (error) {
-            console.error('Audio upload failed:', error);
+            console.error('CloudDSP upload failed:', error);
             setErrorMsg(error.message || 'Failed to upload audio to CloudDSP.');
-            setIsSplitting(false);
+        } finally {
+            setIsUploading(false);
         }
     };
 
+    const executeLinkExtraction = () => {
+        setErrorMsg('Link ingestion is not part of the durable job API yet. Download the audio locally, then upload it here.');
+    };
+
+    const handleSignIn = async (email, password) => {
+        const session = await signIn(email, password);
+        setAuthSession(session);
+        setErrorMsg('');
+        setStatusMessage('Signed in. Select an audio file to begin.');
+    };
+
+    const handleSignOut = () => {
+        signOut();
+        setAuthSession(null);
+        setErrorMsg('');
+        setStatusMessage('Signed out.');
+    };
+
     const stemProps = {
-        file: stemFile, setFile: setStemFile,
-        fileName: stemFileName, setFileName: setStemFileName,
-        splitMode, setSplitMode,
-        isSplitting, statusMessage, stemUrls, midiUrls, errorMsg,
-        setErrorMsg, setStemUrls, setMidiUrls,
-        executeStemSplit, executeLinkExtraction, connectWebSocket,
+        file: stemFile,
+        setFile: setStemFile,
+        fileName: stemFileName,
+        setFileName: setStemFileName,
+        splitMode,
+        setSplitMode,
+        isSplitting,
+        statusMessage,
+        stemUrls: Object.keys(stemUrls).length ? stemUrls : null,
+        midiUrls: Object.keys(midiUrls).length ? midiUrls : null,
+        midiStates,
+        errorMsg,
+        setErrorMsg,
+        executeStemSplit,
+        executeLinkExtraction,
+        beginNewUpload,
+    };
+
+    const authProps = {
+        configured: isCognitoConfigured,
+        session: authSession,
+        onSignIn: handleSignIn,
+        onSignUp: signUp,
+        onConfirmSignUp: confirmSignUp,
+        onSignOut: handleSignOut,
     };
 
     return (
         <BrowserRouter>
             <div style={{ minHeight: '100vh' }}>
-                <NavBar />
+                <NavBar authProps={authProps} />
+                {!authLoading && (!JOB_API_URL || !WEBSOCKET_URL) && (
+                    <div style={{ margin: '-24px 20px 20px', color: '#f5c451', fontSize: '13px' }}>
+                        Set VITE_JOB_API_URL and VITE_WEBSOCKET_URL before using the processing workspace.
+                    </div>
+                )}
                 <Routes>
                     <Route path="/" element={<EqPage />} />
                     <Route path="/stems" element={<div style={{ display: 'flex', justifyContent: 'center' }}><StemSplitter {...stemProps} /></div>} />

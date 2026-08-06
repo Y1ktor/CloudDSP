@@ -1,269 +1,178 @@
-import os
-import sys
-import boto3
+"""Extract pitched MIDI for a durable CloudDSP job with Basic Pitch.
+
+This Lambda receives a stem key under ``stems/{job_id}/``.  It persists MIDI
+artifact keys to the job record before posting ``job_updated`` to subscribed
+browser sockets.  Clients fetch fresh presigned URLs from the Job API.
+"""
+
 import json
-import urllib.parse
+import os
 import shutil
+import urllib.parse
 from pathlib import Path
+from typing import Any
 
-# Basic Pitch uses its bundled TensorFlow Lite model when ``tflite-runtime`` is
-# installed. Do not mock TensorFlow: Basic Pitch would then incorrectly select
-# its TensorFlow SavedModel instead of the lightweight ``.tflite`` model.
+import boto3
+
+from cloud_job_workflow import (
+    get_job,
+    job_id_from_key,
+    record_midi_state,
+    send_job_updated,
+)
+
 try:
-    from basic_pitch.inference import predict_and_save
     from basic_pitch import ICASSP_2022_MODEL_PATH
+    from basic_pitch.inference import predict_and_save
     import librosa
-except ImportError as e:
-    print(f"ImportError: {e}")
-    sys.exit(1)
+except ImportError as error:
+    raise RuntimeError(f"Basic Pitch dependencies are unavailable: {error}") from error
 
-def download_from_s3(s3_client, bucket: str, key: str, local_path: Path):
+
+EXTRACTOR = "basic_pitch"
+
+
+def download_from_s3(s3_client, bucket: str, key: str, local_path: Path) -> None:
     print(f"Downloading s3://{bucket}/{key} to {local_path}...")
     local_path.parent.mkdir(parents=True, exist_ok=True)
     s3_client.download_file(bucket, key, str(local_path))
-    print("Download complete.")
 
-def upload_file_to_s3(s3_client, local_file: Path, bucket: str, s3_key: str):
-    print(f"Uploading {local_file.name} to s3://{bucket}/{s3_key} ...")
-    s3_client.upload_file(str(local_file), bucket, s3_key)
-    print("Upload complete.")
 
-def get_stem_processing_context(s3_client, bucket: str, key: str, event: dict):
-    """Resolve callback data from stem metadata, with direct-event fallbacks."""
-    metadata = {}
+def upload_file_to_s3(s3_client, local_file: Path, bucket: str, key: str) -> None:
+    print(f"Uploading {local_file.name} to s3://{bucket}/{key}...")
+    s3_client.upload_file(str(local_file), bucket, key)
+
+
+def estimate_bpm(audio_path: Path) -> float | None:
+    """Return a display tempo without allowing estimation to fail MIDI output."""
     try:
-        head_response = s3_client.head_object(Bucket=bucket, Key=key)
-        metadata = head_response.get("Metadata", {})
-    except Exception as e:
-        print(f"Warning: Could not read metadata for s3://{bucket}/{key}: {e}")
+        print("Estimating BPM with librosa...")
+        audio, sample_rate = librosa.load(str(audio_path))
+        tempo, _ = librosa.beat.beat_track(y=audio, sr=sample_rate)
+        return float(tempo[0]) if hasattr(tempo, "__iter__") else float(tempo)
+    except Exception as error:
+        print(f"Warning: BPM estimation failed: {error}")
+        return None
 
-    # CloudStemSplit injects this metadata on every output stem. Retain the
-    # direct-invocation field as a fallback while existing stem objects age out.
-    connection_id = metadata.get("connection-id") or event.get("connection_id")
-    if connection_id == "unknown":
-        connection_id = None
-    websocket_url = event.get("websocket_url") or os.environ.get("WEBSOCKET_API_URL")
-    stem_name = event.get("stem_name") or Path(key).stem
 
-    print(
-        f"Resolved callback context for stem '{stem_name}': "
-        f"connection ID {'found' if connection_id else 'missing'}, "
-        f"WebSocket URL {'found' if websocket_url else 'missing'}."
-    )
-    return connection_id, websocket_url, stem_name
-
-def send_midi_complete_notification(connection_id: str, websocket_url: str,
-                                    stem_name: str, midi_url: str,
-                                    bpm_url: str | None):
-    """Push the generated MIDI download URL to the originating frontend."""
-    if not connection_id or not websocket_url:
-        print("Skipping MIDI completion notification (missing connection ID or WebSocket URL).")
-        return
-
-    payload = {
-        "type": "midi_processing_complete",
-        "stem_name": stem_name,
-        "midi_url": midi_url,
-    }
-    if bpm_url:
-        payload["bpm_url"] = bpm_url
-
-    print(f"Sending MIDI completion event to WebSocket ID: {connection_id}")
-    try:
-        apigw_client = boto3.client(
-            "apigatewaymanagementapi",
-            endpoint_url=websocket_url,
-        )
-        apigw_client.post_to_connection(
-            ConnectionId=connection_id,
-            Data=json.dumps(payload).encode("utf-8"),
-        )
-        print(f"Successfully sent the MIDI URL for '{stem_name}'.")
-    except Exception as e:
-        print(f"Warning: Failed to send MIDI completion notification: {e}")
-
-def extract_midi_cloud(input_bucket: str, output_bucket: str, file_key: str):
-    s3_client = boto3.client('s3')
-    
-    # Lambda provides 512MB to 10GB of temporary storage in /tmp
-    base_tmp_dir = Path("/tmp/clouddsp")
-    # Lambda execution environments are reused. Basic Pitch will not overwrite
-    # an existing MIDI output, so discard files left by a prior warm invocation
-    # before creating this invocation's isolated working directories.
+def extract_midi_cloud(
+    input_bucket: str,
+    output_bucket: str,
+    file_key: str,
+    job_id: str,
+    stem_name: str,
+) -> dict[str, str | None]:
+    """Run Basic Pitch and upload MIDI/BPM artifacts using the job prefix."""
+    s3_client = boto3.client("s3")
+    base_tmp_dir = Path("/tmp/clouddsp-basic-pitch") / job_id / stem_name
     shutil.rmtree(base_tmp_dir, ignore_errors=True)
-    input_filename = Path(file_key).name
-    local_input_path = base_tmp_dir / "input" / input_filename
+    local_input_path = base_tmp_dir / "input" / Path(file_key).name
     local_output_dir = base_tmp_dir / "output"
     local_output_dir.mkdir(parents=True, exist_ok=True)
-    
-    # 1. Download the audio stem from S3
+
     download_from_s3(s3_client, input_bucket, file_key, local_input_path)
-    
-    # 2. Run Basic Pitch
-    print(f"Running Basic Pitch on {input_filename}...")
+    print(f"Running Basic Pitch for job {job_id}, stem {stem_name}...")
+    predict_and_save(
+        audio_path_list=[str(local_input_path)],
+        output_directory=str(local_output_dir),
+        save_midi=True,
+        sonify_midi=False,
+        save_model_outputs=False,
+        save_notes=False,
+        model_or_model_path=ICASSP_2022_MODEL_PATH,
+    )
+
+    midi_path = local_output_dir / f"{local_input_path.stem}_basic_pitch.mid"
+    if not midi_path.exists():
+        generated_files = list(local_output_dir.glob("*.mid"))
+        if not generated_files:
+            raise FileNotFoundError("Basic Pitch did not generate a MIDI file.")
+        midi_path = generated_files[0]
+
+    midi_key = f"midi/{job_id}/{stem_name}.mid"
+    upload_file_to_s3(s3_client, midi_path, output_bucket, midi_key)
+
+    bpm_key: str | None = None
+    bpm = estimate_bpm(local_input_path)
+    if bpm is not None:
+        bpm_path = local_output_dir / f"{stem_name}_bpm.json"
+        bpm_path.write_text(json.dumps({"bpm": bpm, "extractor": EXTRACTOR}))
+        bpm_key = f"midi/{job_id}/{stem_name}_bpm.json"
+        upload_file_to_s3(s3_client, bpm_path, output_bucket, bpm_key)
+
+    shutil.rmtree(base_tmp_dir, ignore_errors=True)
+    return {"midi_key": midi_key, "bpm_key": bpm_key}
+
+
+def process_stem(bucket: str, output_bucket: str, key: str, event: dict[str, Any]) -> None:
+    """Persist state before and after inference, then notify subscribers."""
+    job_id = event.get("job_id") or job_id_from_key(key, "stems")
+    stem_name = event.get("stem_name") or Path(key).stem
+    if not isinstance(job_id, str) or not job_id:
+        raise ValueError("job_id is required.")
+    if not isinstance(stem_name, str) or not stem_name:
+        raise ValueError("stem_name is required.")
+
+    jobs_table = boto3.resource("dynamodb").Table(os.environ["JOBS_TABLE_NAME"])
+    connections_table = boto3.resource("dynamodb").Table(os.environ["CONNECTIONS_TABLE_NAME"])
+    job = get_job(jobs_table, job_id)
+    stem_record = (job.get("stems") or {}).get(stem_name)
+    if not stem_record or stem_record.get("s3_key") != key:
+        raise ValueError(f"Stem key does not match the durable job record for {job_id}/{stem_name}.")
+
+    item = record_midi_state(
+        jobs_table, job_id, stem_name, {"status": "processing", "extractor": EXTRACTOR}
+    )
+    send_job_updated(connections_table, item, job_id, item.get("revision", 0))
     try:
-        predict_and_save(
-            audio_path_list=[str(local_input_path)],
-            output_directory=str(local_output_dir),
-            save_midi=True,
-            sonify_midi=False,
-            save_model_outputs=False,
-            save_notes=False,
-            model_or_model_path=ICASSP_2022_MODEL_PATH
+        artifacts = extract_midi_cloud(bucket, output_bucket, key, job_id, stem_name)
+        state: dict[str, str] = {
+            "status": "ready",
+            "extractor": EXTRACTOR,
+            "s3_key": artifacts["midi_key"],
+        }
+        if artifacts["bpm_key"]:
+            state["bpm_key"] = artifacts["bpm_key"]
+        item = record_midi_state(jobs_table, job_id, stem_name, state)
+        send_job_updated(connections_table, item, job_id, item.get("revision", 0))
+        print(f"Basic Pitch completed job {job_id}, stem {stem_name}.")
+    except Exception as error:
+        item = record_midi_state(
+            jobs_table,
+            job_id,
+            stem_name,
+            {"status": "failed", "extractor": EXTRACTOR, "error": str(error)[:1000]},
         )
-        print("Basic Pitch inference complete!")
-    except Exception as e:
-        print(f"An error occurred during Basic Pitch processing: {e}")
-        raise e
-        
-    # 3. Find the generated MIDI file
-    expected_midi_name = f"{local_input_path.stem}_basic_pitch.mid"
-    midi_file_path = local_output_dir / expected_midi_name
-    
-    if not midi_file_path.exists():
-        midi_files = list(local_output_dir.glob("*.mid"))
-        if not midi_files:
-            raise FileNotFoundError("No MIDI file was generated.")
-        midi_file_path = midi_files[0]
-        
-    # 4. Extract BPM using Librosa
-    print("Extracting BPM using librosa...")
-    bpm_file_path = None
-    try:
-        y, sr = librosa.load(str(local_input_path))
-        tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
-        bpm = float(tempo[0]) if hasattr(tempo, "__iter__") else float(tempo)
-        
-        bpm_data = {"bpm": bpm}
-        bpm_file_path = local_output_dir / f"{local_input_path.stem}_bpm.json"
-        with open(bpm_file_path, "w") as f:
-            json.dump(bpm_data, f)
-    except Exception as e:
-        print(f"Warning: Failed to extract BPM: {e}")
-        
-    # 5. Upload the resulting MIDI and BPM JSON files back to S3
-    parts = Path(file_key).parts
-    if len(parts) >= 3 and parts[0] == "stems":
-        uuid_folder = parts[1]
-        s3_output_key = f"midi/{uuid_folder}/{local_input_path.stem}.mid"
-        s3_bpm_key = f"midi/{uuid_folder}/{local_input_path.stem}_bpm.json"
-    else:
-        s3_output_key = f"midi/{local_input_path.stem}.mid"
-        s3_bpm_key = f"midi/{local_input_path.stem}_bpm.json"
-        
-    upload_file_to_s3(s3_client, midi_file_path, output_bucket, s3_output_key)
-    
-    if bpm_file_path and bpm_file_path.exists():
-        upload_file_to_s3(s3_client, bpm_file_path, output_bucket, s3_bpm_key)
-        bpm_key = s3_bpm_key
-    else:
-        bpm_key = None
-    
-    print("\nLambda Basic Pitch job completed successfully.")
-    return {
-        "midi_key": s3_output_key,
-        "bpm_key": bpm_key,
-    }
+        send_job_updated(connections_table, item, job_id, item.get("revision", 0))
+        print(f"Basic Pitch failed for job {job_id}, stem {stem_name}: {error}")
+        raise
 
-def process_stem(bucket: str, output_bucket: str, key: str, event: dict):
-    """Extract MIDI, generate download URLs, and notify the frontend."""
-    s3_client = boto3.client("s3")
-    connection_id, websocket_url, stem_name = get_stem_processing_context(
-        s3_client,
-        bucket,
-        key,
-        event,
-    )
-    output = extract_midi_cloud(bucket, output_bucket, key)
-    midi_url = s3_client.generate_presigned_url(
-        ClientMethod="get_object",
-        Params={"Bucket": output_bucket, "Key": output["midi_key"]},
-        ExpiresIn=3600,
-    )
-    bpm_url = None
-    if output["bpm_key"]:
-        bpm_url = s3_client.generate_presigned_url(
-            ClientMethod="get_object",
-            Params={"Bucket": output_bucket, "Key": output["bpm_key"]},
-            ExpiresIn=3600,
-        )
 
-    send_midi_complete_notification(
-        connection_id,
-        websocket_url,
-        stem_name,
-        midi_url,
-        bpm_url,
-    )
-    return midi_url
+def event_stems(event: dict[str, Any]) -> list[tuple[str, str, dict[str, Any]]]:
+    """Support direct Batch invokes plus legacy direct S3/SQS delivery."""
+    if event.get("bucket_name") and event.get("file_key"):
+        return [(event["bucket_name"], event["file_key"], event)]
 
-def lambda_handler(event, context):
-    """
-    AWS Lambda Entry Point.
-    This function is triggered by S3 events (e.g., ObjectCreated) or SQS queues.
-    """
-    print("Received event:", json.dumps(event))
-    
-    # OUTPUT_BUCKET can be set in Lambda Environment Variables
+    stems: list[tuple[str, str, dict[str, Any]]] = []
+    for record in event.get("Records", []):
+        wrapped = json.loads(record["body"]) if "body" in record else {"Records": [record]}
+        for s3_record in wrapped.get("Records", []):
+            if "s3" not in s3_record:
+                continue
+            stems.append((
+                s3_record["s3"]["bucket"]["name"],
+                urllib.parse.unquote_plus(s3_record["s3"]["object"]["key"]),
+                wrapped,
+            ))
+    return stems
+
+
+def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
+    print("Received Basic Pitch event:", json.dumps(event))
     output_bucket = os.environ.get("OUTPUT_BUCKET")
-    
-    try:
-        # Scenario A: Invoked directly by the stem-splitting Batch job.
-        # The input stem is also the destination bucket unless OUTPUT_BUCKET
-        # explicitly routes MIDI files elsewhere.
-        if event.get("bucket_name") and event.get("file_key"):
-            bucket = event["bucket_name"]
-            key = event["file_key"]
-            output_bucket = output_bucket or bucket
-            print(
-                f"Received direct stem-split invocation for "
-                f"s3://{bucket}/{key} "
-                f"(stem: {event.get('stem_name', 'unknown')}, "
-                f"connection: {event.get('connection_id', 'unknown')})."
-            )
-            process_stem(bucket, output_bucket, key, event)
-            return {
-                'statusCode': 200,
-                'body': json.dumps('Successfully processed audio.')
-            }
-
-        # Loop through all records in the event
-        for record in event.get('Records', []):
-            
-            # Scenario B: Triggered via an SQS Queue wrapped around an S3 Event
-            if 'body' in record:
-                body = json.loads(record['body'])
-                if 'Records' in body:
-                    s3_event = body['Records'][0]
-                    bucket = s3_event['s3']['bucket']['name']
-                    # Unquote handles URL encoded characters like spaces (+) in the file name
-                    key = urllib.parse.unquote_plus(s3_event['s3']['object']['key'])
-                    
-                    if not output_bucket:
-                        output_bucket = bucket
-                    
-                    process_stem(bucket, output_bucket, key, body)
-                    continue
-
-            # Scenario C: Triggered directly from an S3 Event Notification
-            if 's3' in record:
-                bucket = record['s3']['bucket']['name']
-                key = urllib.parse.unquote_plus(record['s3']['object']['key'])
-                
-                if not output_bucket:
-                    output_bucket = bucket
-                
-                process_stem(bucket, output_bucket, key, {})
-                
-        return {
-            'statusCode': 200,
-            'body': json.dumps('Successfully processed audio.')
-        }
-        
-    except Exception as e:
-        print(f"Error processing event: {e}")
-        # Return a 500 error so AWS Lambda/SQS knows the job failed and can automatically retry it
-        return {
-            'statusCode': 500,
-            'body': json.dumps(f"Error: {str(e)}")
-        }
+    stems = event_stems(event)
+    if not stems:
+        raise ValueError("No supported stem records were supplied.")
+    for bucket, key, stem_event in stems:
+        process_stem(bucket, output_bucket or bucket, key, stem_event)
+    return {"statusCode": 200, "body": json.dumps("Processed Basic Pitch stem(s).")}

@@ -48,6 +48,14 @@ Parameters:
     Type: String
     Description: S3 object key of the packaged job_api Lambda zip artifact.
 
+  CognitoUserPoolIssuer:
+    Type: String
+    Description: Cognito OIDC issuer URL from the auth component.
+
+  CognitoBrowserClientId:
+    Type: String
+    Description: Cognito public browser client ID accepted by the JWT authorizer.
+
   AllowedFrontendOrigins:
     Type: CommaDelimitedList
     Default: http://localhost:5173
@@ -170,11 +178,26 @@ Resources:
       IntegrationUri: !GetAtt JobApiFunction.Arn
       PayloadFormatVersion: '2.0'
 
+  JobApiJwtAuthorizer:
+    Type: AWS::ApiGatewayV2::Authorizer
+    Properties:
+      ApiId: !Ref JobHttpApi
+      Name: !Sub '${ProjectName}-${EnvironmentName}-JobApiJwt'
+      AuthorizerType: JWT
+      IdentitySource:
+        - '$request.header.Authorization'
+      JwtConfiguration:
+        Audience:
+          - !Ref CognitoBrowserClientId
+        Issuer: !Ref CognitoUserPoolIssuer
+
   CreateJobRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref JobHttpApi
       RouteKey: 'POST /jobs'
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JobApiJwtAuthorizer
       Target: !Join ['/', ['integrations', !Ref JobApiIntegration]]
 
   GetJobRoute:
@@ -182,6 +205,8 @@ Resources:
     Properties:
       ApiId: !Ref JobHttpApi
       RouteKey: 'GET /jobs/{job_id}'
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JobApiJwtAuthorizer
       Target: !Join ['/', ['integrations', !Ref JobApiIntegration]]
 
   JobApiStage:

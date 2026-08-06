@@ -49,6 +49,7 @@ RUN git clone https://github.com/xavriley/ADTOF-pytorch.git /tmp/adtof && \
     yum clean all && \
     rm -rf /var/cache/yum
 
+COPY src/Cloud/cloud_job_workflow.py ${LAMBDA_TASK_ROOT}/cloud_job_workflow.py
 COPY src/Cloud/LambdaMIDIADTOF.py ${LAMBDA_TASK_ROOT}/ADTOF.py
 
 CMD ["ADTOF.lambda_handler"]

@@ -40,20 +40,19 @@ function MidiScheduler({ trackName, activeBpm, originalBpm, progress, isPlaying,
  * @param {Function} props.setSplitMode - State setter for the mode
  * @param {boolean} props.isSplitting - Tracks if AWS Batch is currently processing
  * @param {string} props.statusMessage - The dynamic loading text
- * @param {Object} props.stemUrls - Dictionary of pre-signed S3 stem URLs returned by the server
- * @param {Object} props.midiUrls - Dictionary of pre-signed MIDI URLs returned by Basic Pitch
+ * @param {Object} props.stemUrls - Fresh presigned stem URLs from the durable job snapshot
+ * @param {Object} props.midiUrls - Fresh presigned MIDI URLs from the durable job snapshot
+ * @param {Object} props.midiStates - Per-stem durable MIDI extraction states
  * @param {string} props.errorMsg - Any error messages to display
  * @param {Function} props.setErrorMsg - State setter for errors
- * @param {Function} props.setStemUrls - State setter for the stem URLs
- * @param {Function} props.executeStemSplit - Master function in App.jsx to trigger AWS upload
- * @param {Function} props.connectWebSocket - Function to initiate the background WebSocket
+ * @param {Function} props.executeStemSplit - Master function in App.jsx to create and upload a job
  */
 export default function StemSplitter({
     file, setFile,
     fileName, setFileName,
     splitMode, setSplitMode,
-    isSplitting, statusMessage, stemUrls, midiUrls, errorMsg, setErrorMsg, setStemUrls, setMidiUrls,
-    executeStemSplit, executeLinkExtraction, connectWebSocket
+    isSplitting, statusMessage, stemUrls, midiUrls, midiStates, errorMsg, setErrorMsg,
+    executeStemSplit, executeLinkExtraction, beginNewUpload
 }) {
     const [showSigMenu, setShowSigMenu] = React.useState(false);
     const [selectedTrack, setSelectedTrack] = React.useState(null);
@@ -96,14 +95,18 @@ export default function StemSplitter({
         return Object.keys(stemUrls || {}).reduce((statuses, trackName) => {
             if (parsedMidiStems[trackName]) {
                 statuses[trackName] = 'ready';
+            } else if (midiStates?.[trackName]?.status === 'failed') {
+                statuses[trackName] = 'failed';
             } else if (midiUrls?.[trackName]) {
                 statuses[trackName] = 'loading';
+            } else if (trackName === 'Original') {
+                statuses[trackName] = 'unavailable';
             } else {
                 statuses[trackName] = 'processing';
             }
             return statuses;
         }, {});
-    }, [stemUrls, midiUrls, parsedMidiStems]);
+    }, [stemUrls, midiUrls, midiStates, parsedMidiStems]);
     const pendingMidiCount = Object.values(midiStatusByTrack)
         .filter((status) => status !== 'ready').length;
 
@@ -125,21 +128,19 @@ export default function StemSplitter({
     });
 
     React.useEffect(() => {
-        connectWebSocket();
         return () => {
             if (globalSynthRef.current) {
                 try { globalSynthRef.current.stop(); } catch (e) { }
             }
         };
-    }, [connectWebSocket, globalSynthRef]);
+    }, [globalSynthRef]);
 
     const handleFileUpload = (e) => {
         const uploadedFile = e.target.files[0];
         if (uploadedFile) {
             setFile(uploadedFile);
             setFileName(uploadedFile.name);
-            setStemUrls(null);
-            setMidiUrls(null);
+            beginNewUpload();
             setErrorMsg("");
         }
     };
@@ -248,7 +249,7 @@ export default function StemSplitter({
     const handleLinkSet = (url) => {
         setFile(null);
         setFileName(url);
-        setStemUrls(null);
+        beginNewUpload();
         setErrorMsg("");
     };
 

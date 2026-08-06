@@ -15,6 +15,7 @@ import os
 import time
 import uuid
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import PurePath
 from typing import Any
 
@@ -50,8 +51,15 @@ def response(status_code: int, body: dict[str, Any]) -> dict[str, Any]:
             "content-type": "application/json",
             "cache-control": "no-store",
         },
-        "body": json.dumps(body),
+        "body": json.dumps(body, default=json_default),
     }
+
+
+def json_default(value: Any) -> int | float:
+    """Serialize DynamoDB ``Decimal`` values without losing integer revisions."""
+    if isinstance(value, Decimal):
+        return int(value) if value % 1 == 0 else float(value)
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
 
 def parse_json_body(event: dict[str, Any]) -> dict[str, Any]:

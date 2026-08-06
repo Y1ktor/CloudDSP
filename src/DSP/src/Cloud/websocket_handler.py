@@ -35,12 +35,12 @@ def now() -> tuple[str, int]:
     return timestamp, int(time.time())
 
 
-def connection_context(event: dict[str, Any]) -> tuple[str, str]:
+def connection_id_from_event(event: dict[str, Any]) -> str:
     request_context = event.get("requestContext", {})
     connection_id = request_context.get("connectionId")
     if not isinstance(connection_id, str) or not connection_id:
         raise WebSocketRequestError("Connection ID is missing.")
-    return connection_id, websocket_user_id(event)
+    return connection_id
 
 
 def websocket_user_id(event: dict[str, Any]) -> str:
@@ -51,6 +51,15 @@ def websocket_user_id(event: dict[str, Any]) -> str:
         user_id = authorizer.get("sub")
     if not isinstance(user_id, str) or not user_id:
         raise WebSocketRequestError("Authentication is required.")
+    return user_id
+
+
+def registered_connection_user(connection_id: str) -> str:
+    """Use the identity saved at `$connect` for subsequent socket routes."""
+    connection = _connections.get_item(Key={"connection_id": connection_id}).get("Item")
+    user_id = connection.get("user_id") if connection else None
+    if not isinstance(user_id, str) or not user_id:
+        raise WebSocketRequestError("Connection is not registered.")
     return user_id
 
 
@@ -162,15 +171,18 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     print(f"Received WebSocket route: {route_key}")
     connection_id: str | None = None
     try:
-        connection_id, user_id = connection_context(event)
+        connection_id = connection_id_from_event(event)
         if route_key == "$connect":
+            user_id = websocket_user_id(event)
             put_connection(connection_id, user_id)
         elif route_key == "$disconnect":
             _connections.delete_item(Key={"connection_id": connection_id})
             print(f"Deleted WebSocket connection {connection_id}.")
         elif route_key == "subscribe":
+            user_id = registered_connection_user(connection_id)
             subscribe(event, connection_id, user_id)
         elif route_key == "heartbeat":
+            user_id = registered_connection_user(connection_id)
             update_heartbeat(connection_id, user_id)
             post(event, connection_id, {"type": "heartbeat_ack", "server_time": now()[0]})
         else:

@@ -32,6 +32,22 @@ Parameters:
     Type: String
     Description: S3 object key of the packaged websocket_handler Lambda zip artifact.
 
+  WebSocketAuthorizerCodeS3Bucket:
+    Type: String
+    Description: S3 bucket containing the packaged websocket_authorizer Lambda zip artifact.
+
+  WebSocketAuthorizerCodeS3Key:
+    Type: String
+    Description: S3 object key of the packaged websocket_authorizer Lambda zip artifact.
+
+  CognitoUserPoolIssuer:
+    Type: String
+    Description: Cognito OIDC issuer URL used to verify WebSocket ID tokens.
+
+  CognitoBrowserClientId:
+    Type: String
+    Description: Cognito public browser client ID accepted by WebSocket authorization.
+
 Resources:
   CloudDSPConnections:
     Type: AWS::DynamoDB::Table
@@ -76,6 +92,12 @@ Resources:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub '/aws/lambda/${ProjectName}-${EnvironmentName}-WebSocketHandler'
+      RetentionInDays: 30
+
+  WebSocketAuthorizerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ProjectName}-${EnvironmentName}-WebSocketAuthorizer'
       RetentionInDays: 30
 
   WebSocketHandlerRole:
@@ -123,6 +145,20 @@ Resources:
                   - dynamodb:GetItem
                 Resource: !Ref JobsTableArn
 
+  WebSocketAuthorizerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${EnvironmentName}-WebSocketAuthorizerRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
   WebSocketHandlerFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -143,6 +179,27 @@ Resources:
           CONNECTIONS_TABLE_NAME: !Ref CloudDSPConnections
           JOBS_TABLE_NAME: !Ref JobsTableName
 
+  WebSocketAuthorizerFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: WebSocketAuthorizerLogGroup
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${EnvironmentName}-WebSocketAuthorizer'
+      Description: Validates Cognito ID tokens during CloudDSP WebSocket connection.
+      Runtime: python3.12
+      Handler: websocket_authorizer.lambda_handler
+      Architectures:
+        - arm64
+      Role: !GetAtt WebSocketAuthorizerRole.Arn
+      Timeout: 10
+      MemorySize: 256
+      Code:
+        S3Bucket: !Ref WebSocketAuthorizerCodeS3Bucket
+        S3Key: !Ref WebSocketAuthorizerCodeS3Key
+      Environment:
+        Variables:
+          COGNITO_USER_POOL_ISSUER: !Ref CognitoUserPoolIssuer
+          COGNITO_BROWSER_CLIENT_ID: !Ref CognitoBrowserClientId
+
   CloudDSPWebSocketApi:
     Type: AWS::ApiGatewayV2::Api
     Properties:
@@ -157,11 +214,24 @@ Resources:
       IntegrationType: AWS_PROXY
       IntegrationUri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WebSocketHandlerFunction.Arn}/invocations'
 
+  WebSocketConnectAuthorizer:
+    Type: AWS::ApiGatewayV2::Authorizer
+    Properties:
+      ApiId: !Ref CloudDSPWebSocketApi
+      Name: !Sub '${ProjectName}-${EnvironmentName}-WebSocketCognitoJwt'
+      AuthorizerType: REQUEST
+      AuthorizerUri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WebSocketAuthorizerFunction.Arn}/invocations'
+      IdentitySource:
+        - route.request.querystring.token
+      AuthorizerResultTtlInSeconds: 300
+
   ConnectRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref CloudDSPWebSocketApi
       RouteKey: '$connect'
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref WebSocketConnectAuthorizer
       Target: !Join ['/', ['integrations', !Ref WebSocketHandlerIntegration]]
 
   DisconnectRoute:
@@ -207,6 +277,14 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${CloudDSPWebSocketApi}/*/*'
 
+  AllowWebSocketApiToInvokeAuthorizer:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref WebSocketAuthorizerFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${CloudDSPWebSocketApi}/*'
+
 Outputs:
   ConnectionsTableName:
     Description: Ephemeral WebSocket connection registry table name.
@@ -243,3 +321,9 @@ Outputs:
     Value: !Ref WebSocketHandlerFunction
     Export:
       Name: !Sub '${AWS::StackName}-WebSocketHandlerFunctionName'
+
+  WebSocketAuthorizerFunctionName:
+    Description: Lambda function that validates Cognito tokens on `$connect`.
+    Value: !Ref WebSocketAuthorizerFunction
+    Export:
+      Name: !Sub '${AWS::StackName}-WebSocketAuthorizerFunctionName'

@@ -101,9 +101,12 @@ export default function MidiEditorPopup({
     const pianoScrollRef = useRef(null);
     const gridScrollRef = useRef(null);
     const isMidiPending = midiStatus === 'processing' || midiStatus === 'loading';
+    const isMidiFailed = midiStatus === 'failed';
     const midiPendingLabel = midiStatus === 'loading'
         ? 'Loading the generated MIDI into the editor…'
-        : 'Basic Pitch is still generating MIDI for this stem…';
+        : isMidiFailed
+            ? 'MIDI extraction failed for this stem. You can retry the job from the workspace after inspecting its status.'
+            : 'MIDI is still being generated for this stem…';
 
     // Track drag state
 
@@ -401,13 +404,13 @@ export default function MidiEditorPopup({
                     <h3 style={{ margin: 0, color: '#fff', textTransform: 'capitalize', fontSize: '24px' }}>
                         MIDI Editor: {trackName}
                     </h3>
-                    {isMidiPending && (
+                    {(isMidiPending || isMidiFailed) && (
                         <span style={{
-                            color: '#f5c451', background: 'rgba(224, 168, 0, 0.16)',
-                            border: '1px solid rgba(224, 168, 0, 0.4)', borderRadius: '999px',
+                            color: isMidiFailed ? '#ff9a9a' : '#f5c451', background: isMidiFailed ? 'rgba(155, 45, 45, 0.22)' : 'rgba(224, 168, 0, 0.16)',
+                            border: `1px solid ${isMidiFailed ? 'rgba(255, 100, 100, 0.45)' : 'rgba(224, 168, 0, 0.4)'}`, borderRadius: '999px',
                             padding: '4px 9px', fontSize: '12px', fontWeight: '600'
                         }}>
-                            MIDI processing
+                            {isMidiFailed ? 'MIDI failed' : 'MIDI processing'}
                         </span>
                     )}
                 </div>
@@ -730,16 +733,16 @@ export default function MidiEditorPopup({
                     style={{ flexGrow: 1, overflow: 'auto', position: 'relative' }}
                     onScroll={handleGridScroll}
                 >
-                    {isMidiPending && (
+                    {(isMidiPending || isMidiFailed) && (
                         <div style={{
                             position: 'absolute', inset: 0, zIndex: 30, display: 'flex',
                             alignItems: 'center', justifyContent: 'center', textAlign: 'center',
-                            color: '#f5c451', backgroundColor: 'rgba(15, 15, 15, 0.76)',
+                            color: isMidiFailed ? '#ff9a9a' : '#f5c451', backgroundColor: 'rgba(15, 15, 15, 0.76)',
                             padding: '24px', pointerEvents: 'auto'
                         }}>
                             <div>
-                                <div aria-hidden="true" style={{ fontSize: '20px', marginBottom: '8px' }}>●</div>
-                                <strong style={{ display: 'block', color: '#fff', marginBottom: '4px' }}>MIDI not ready yet</strong>
+                                <div aria-hidden="true" style={{ fontSize: '20px', marginBottom: '8px' }}>{isMidiFailed ? '!' : '●'}</div>
+                                <strong style={{ display: 'block', color: '#fff', marginBottom: '4px' }}>{isMidiFailed ? 'MIDI unavailable' : 'MIDI not ready yet'}</strong>
                                 <span style={{ fontSize: '13px' }}>{midiPendingLabel}</span>
                             </div>
                         </div>

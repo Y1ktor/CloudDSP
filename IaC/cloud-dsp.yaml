@@ -35,6 +35,10 @@ Parameters:
     Type: String
     Description: S3 key for the packaged websocket_handler Lambda zip artifact.
 
+  WebSocketAuthorizerCodeS3Key:
+    Type: String
+    Description: S3 key for the packaged websocket_authorizer Lambda zip artifact.
+
   AllowedFrontendOrigins:
     Type: CommaDelimitedList
     Default: http://localhost:5173
@@ -66,6 +70,15 @@ Parameters:
     MinValue: 4
     Description: Maximum vCPUs allocated by the managed Demucs compute environment.
 
+  CognitoUserPoolTier:
+    Type: String
+    Default: LITE
+    AllowedValues:
+      - LITE
+      - ESSENTIALS
+      - PLUS
+    Description: Cognito User Pool feature plan for CloudDSP browser authentication.
+
 Resources:
   FoundationStack:
     Type: AWS::CloudFormation::Stack
@@ -83,6 +96,15 @@ Resources:
       Parameters:
         ProjectName: !Ref ProjectName
         EnvironmentName: !Ref EnvironmentName
+
+  AuthStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplateBucketName}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}/auth.yaml'
+      Parameters:
+        ProjectName: !Ref ProjectName
+        EnvironmentName: !Ref EnvironmentName
+        UserPoolTier: !Ref CognitoUserPoolTier
 
   NetworkStack:
     Type: AWS::CloudFormation::Stack
@@ -103,6 +125,10 @@ Resources:
         JobsTableArn: !GetAtt JobsStack.Outputs.JobsTableArn
         WebSocketHandlerCodeS3Bucket: !Ref ArtifactBucketName
         WebSocketHandlerCodeS3Key: !Ref WebSocketHandlerCodeS3Key
+        WebSocketAuthorizerCodeS3Bucket: !Ref ArtifactBucketName
+        WebSocketAuthorizerCodeS3Key: !Ref WebSocketAuthorizerCodeS3Key
+        CognitoUserPoolIssuer: !GetAtt AuthStack.Outputs.UserPoolIssuer
+        CognitoBrowserClientId: !GetAtt AuthStack.Outputs.BrowserClientId
 
   MidiLambdasStack:
     Type: AWS::CloudFormation::Stack
@@ -171,6 +197,8 @@ Resources:
         JobApiCodeS3Bucket: !Ref ArtifactBucketName
         JobApiCodeS3Key: !Ref JobApiCodeS3Key
         AllowedFrontendOrigins: !Join [',', !Ref AllowedFrontendOrigins]
+        CognitoUserPoolIssuer: !GetAtt AuthStack.Outputs.UserPoolIssuer
+        CognitoBrowserClientId: !GetAtt AuthStack.Outputs.BrowserClientId
 
 Outputs:
   UploadsBucketName:
@@ -184,6 +212,18 @@ Outputs:
   JobsTableName:
     Description: Durable DynamoDB jobs table name.
     Value: !GetAtt JobsStack.Outputs.JobsTableName
+
+  CognitoUserPoolId:
+    Description: Cognito User Pool ID for CloudDSP user authentication.
+    Value: !GetAtt AuthStack.Outputs.UserPoolId
+
+  CognitoBrowserClientId:
+    Description: Public Cognito app client ID used by the React application.
+    Value: !GetAtt AuthStack.Outputs.BrowserClientId
+
+  CognitoUserPoolIssuer:
+    Description: Cognito JWT issuer URL for API Gateway authorizers.
+    Value: !GetAtt AuthStack.Outputs.UserPoolIssuer
 
   JobApiEndpoint:
     Description: HTTP endpoint for job creation and snapshot reads.

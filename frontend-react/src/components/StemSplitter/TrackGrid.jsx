@@ -98,7 +98,12 @@ export default function TrackGrid({
             {Object.keys(tracksToRender).map((trackName) => {
                 const midiStatus = midiStatusByTrack[trackName];
                 const isMidiPending = midiStatus === 'processing' || midiStatus === 'loading';
-                const statusLabel = midiStatus === 'loading' ? 'Loading MIDI…' : 'MIDI processing…';
+                const isMidiFailed = midiStatus === 'failed';
+                const statusLabel = midiStatus === 'loading'
+                    ? 'Loading MIDI…'
+                    : isMidiFailed
+                        ? 'MIDI extraction failed'
+                        : 'MIDI processing…';
 
                 return (
                     <div
@@ -116,14 +121,14 @@ export default function TrackGrid({
                         }}
                     >
                         {renderMidiNotes(trackName)}
-                        {isMidiPending && (
+                        {(isMidiPending || isMidiFailed) && (
                             <div style={{
                                 position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
-                                justifyContent: 'center', gap: '7px', color: '#e7bd47', fontSize: '12px',
-                                fontWeight: '600', backgroundColor: 'rgba(15, 15, 15, 0.38)',
+                                justifyContent: 'center', gap: '7px', color: isMidiFailed ? '#ff9a9a' : '#e7bd47', fontSize: '12px',
+                                fontWeight: '600', backgroundColor: isMidiFailed ? 'rgba(75, 25, 25, 0.45)' : 'rgba(15, 15, 15, 0.38)',
                                 pointerEvents: 'none'
                             }}>
-                                <span aria-hidden="true">●</span>
+                                <span aria-hidden="true">{isMidiFailed ? '!' : '●'}</span>
                                 {statusLabel}
                             </div>
                         )}

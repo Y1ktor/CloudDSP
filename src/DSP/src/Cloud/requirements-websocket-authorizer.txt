@@ -1,0 +1,3 @@
+# Package with websocket_authorizer.py for the Lambda authorizer. Build these
+# dependencies for the configured Lambda architecture and Amazon Linux runtime.
+PyJWT[crypto]==2.10.1

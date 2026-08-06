@@ -5,7 +5,10 @@
 CloudDSP is a cloud-powered, browser-based digital audio workstation. It
 separates uploaded audio into stems, extracts MIDI, supports piano-roll
 editing, and applies DSP effects through a React client and AWS processing
-services.
+services. The durable processing architecture is documented in
+[`docs/architecture.md`](docs/architecture.md); update that document whenever
+a public API, event payload, persistence model, or infrastructure boundary
+changes.
 
 ### Technology
 
@@ -43,6 +46,14 @@ Store S3 keys and status in DynamoDB; never store presigned URLs as the
 authoritative artifact value. URLs expire and must be generated when a job is
 read.
 
+The browser uses a Cognito **User Pool** only. It never receives AWS
+credentials: it calls the Job HTTP API with an ID token and transfers S3
+objects only with presigned URLs. The HTTP API's JWT authorizer uses the
+Cognito ID token in `Authorization`. The WebSocket `$connect` authorizer uses
+the short-lived ID token in the WSS `token` query parameter because browser
+WebSockets cannot set arbitrary opening-handshake headers. Do not log that
+token.
+
 ### WebSocket lifecycle
 
 - On socket open or reconnect, the client sends `subscribe` for every active
@@ -59,14 +70,21 @@ read.
 ## 2. Repository Layout
 
 - `/frontend-react/` — Vite/React application.
+  - `src/auth/cognito.js` and `src/components/AuthPanel.jsx` — browser-only
+    Cognito User Pool authentication.
   - `src/components/StemSplitter/` — stem grid, MIDI status, and popup editor.
   - `src/hooks/` — audio scheduling, MIDI parsing/editing, undo history, and
     drag interactions.
 - `/src/DSP/src/Cloud/` — Lambda handlers, Batch entry points, and cloud DSP
   scripts.
-  - `CloudStemSplit.py` — Demucs Batch entry point and downstream MIDI handoff.
-  - `LambdaExtractBasicPitch.py` — pitched-stem MIDI extraction.
-  - `LambdaExtractADTOF.py` — drum MIDI extraction.
+  - `job_api.py` — authenticated job creation and snapshot API Lambda.
+  - `BatchDemucs.py` — Demucs Batch entry point and downstream MIDI handoff.
+  - `LambdaMIDIBasicPitch.py` — pitched-stem MIDI extraction Lambda.
+  - `LambdaMIDIADTOF.py` — drum MIDI extraction Lambda.
+  - `cloud_job_workflow.py` — shared DynamoDB state and WebSocket-notification
+    helpers. Container images must copy this module alongside their handler.
+  - `websocket_handler.py` and `websocket_authorizer.py` — authenticated
+    subscription/heartbeat lifecycle and Cognito ID-token verification.
 - `/src/DSP/docker/` — deployment Dockerfiles.
   - `stem_split/` runs Demucs in AWS Batch on GPU.
   - `basic_pitch/` and `adtof/` are Lambda container images.
@@ -85,6 +103,8 @@ read.
   - `cloud-dsp.yaml` — root nested-stack composition template.
 - `/docs/job-id-workflow-plan.md` — phased implementation plan and acceptance
   criteria for the durable job architecture.
+- `/docs/architecture.md` — complete component, data-flow, deployment, and
+  security reference for the implemented architecture.
 
 ## 3. Local Setup and Validation
 
@@ -96,6 +116,11 @@ npm install
 npm run dev
 npm run build
 ```
+
+Copy `frontend-react/.env.example` to a local ignored environment file and set
+the Cognito, Job API, and WebSocket values from the deployed stack outputs.
+Do not put credentials or private AWS resource values in a `VITE_*` variable:
+Vite embeds those values into browser assets.
 
 ### DSP
 
@@ -109,9 +134,16 @@ Docker image before local testing.
   installed; at minimum run a YAML parser and `git diff --check`.
 - Pass stack outputs into dependent component templates. Do not hardcode bucket
   names, table names, ARNs, API IDs, or regions in source code.
-- A root/nested-stack template may compose the component stacks later; until
-  then, deploy components in dependency order: foundation and jobs, realtime
-  and MIDI Lambdas, processing, then API wiring/source updates as applicable.
+- The root `IaC/cloud-dsp.yaml` composes the component stacks. When deploying
+  components independently, use this dependency order: foundation, jobs, auth,
+  network, realtime, MIDI Lambdas, processing, then the API.
+- Package the three zip Lambdas (`job_api`, `websocket_handler`, and
+  `websocket_authorizer`) before deployment. The authorizer package must also
+  contain the dependencies in `requirements-websocket-authorizer.txt`; build
+  native dependencies for Lambda's `arm64` Linux runtime.
+- Build and publish Basic Pitch and ADTOF Lambda images for `linux/amd64`/
+  Lambda `x86_64`, and publish the Demucs GPU image before creating or updating
+  the processing stack.
 
 ## 4. Infrastructure Rules
 
@@ -156,6 +188,9 @@ Docker image before local testing.
 - Persist a completed artifact to DynamoDB before sending `job_updated`.
   Notifications can be duplicate or out of order; frontend snapshot hydration
   must be idempotent.
+- Treat S3, EventBridge, Lambda asynchronous invocation, and WebSockets as
+  at-least-once/best-effort transports. Do not make processing correctness rely
+  on a single notification or on exactly-once event delivery.
 - Surface MIDI download or parsing errors as failed states. Do not leave a
   track displayed indefinitely as "processing" after a URL has arrived.
 
@@ -167,3 +202,6 @@ Docker image before local testing.
   infrastructure change.
 - Do not commit local editor configuration, generated artifacts, Docker caches,
   credentials, or image layers.
+- Do not run a blanket `npm audit fix` or accept a major dependency upgrade
+  without reviewing the lockfile and testing `npm run build`. Treat dependency
+  remediation as an intentional, isolated change.
