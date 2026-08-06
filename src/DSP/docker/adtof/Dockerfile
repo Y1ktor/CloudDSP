@@ -9,21 +9,6 @@ ENV NUMBA_CACHE_DIR=/tmp/numba-cache \
     MKL_NUM_THREADS=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-# FFmpeg is retained for non-WAV inputs. Git is only needed to fetch a pinned
-# ADTOF revision and is removed after installation.
-RUN yum install -y git gzip tar xz && \
-    yum clean all && \
-    rm -rf /var/cache/yum
-
-ARG FFMPEG_VERSION=6.0.1
-ARG FFMPEG_SHA256=28268bf402f1083833ea269331587f60a242848880073be8016501d864bd07a5
-RUN curl -fsSLo ffmpeg.tar.xz "https://www.johnvansickle.com/ffmpeg/old-releases/ffmpeg-${FFMPEG_VERSION}-amd64-static.tar.xz" && \
-    echo "${FFMPEG_SHA256}  ffmpeg.tar.xz" | sha256sum -c - && \
-    tar -xJf ffmpeg.tar.xz && \
-    install -m 0755 "ffmpeg-${FFMPEG_VERSION}-amd64-static/ffmpeg" /usr/local/bin/ffmpeg && \
-    install -m 0755 "ffmpeg-${FFMPEG_VERSION}-amd64-static/ffprobe" /usr/local/bin/ffprobe && \
-    rm -rf "ffmpeg-${FFMPEG_VERSION}-amd64-static" ffmpeg.tar.xz
-
 # ADTOF's PyTorch port needs only Torch, Librosa, and PrettyMIDI. Use the
 # PyTorch CPU wheel index so no CUDA runtime is included in the Lambda image.
 RUN pip install --no-cache-dir \
@@ -39,13 +24,25 @@ RUN pip install --no-cache-dir \
     pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
         "torch==2.5.1+cpu"
 
+# FFmpeg is retained for non-WAV inputs. Git, tar, and xz are build-only.
+# Keep their installation, use, and removal in one layer so they are not
+# retained in the final Lambda image.
+ARG FFMPEG_VERSION=6.0.1
+ARG FFMPEG_SHA256=28268bf402f1083833ea269331587f60a242848880073be8016501d864bd07a5
 ARG ADTOF_COMMIT=85c192e78f716ea0b111cc8a5ee4a8f6a3a4f8a9
-RUN git clone https://github.com/xavriley/ADTOF-pytorch.git /tmp/adtof && \
+RUN yum install -y --setopt=install_weak_deps=False git tar xz && \
+    curl -fsSLo ffmpeg.tar.xz "https://www.johnvansickle.com/ffmpeg/old-releases/ffmpeg-${FFMPEG_VERSION}-amd64-static.tar.xz" && \
+    echo "${FFMPEG_SHA256}  ffmpeg.tar.xz" | sha256sum -c - && \
+    tar -xJf ffmpeg.tar.xz && \
+    install -m 0755 "ffmpeg-${FFMPEG_VERSION}-amd64-static/ffmpeg" /usr/local/bin/ffmpeg && \
+    install -m 0755 "ffmpeg-${FFMPEG_VERSION}-amd64-static/ffprobe" /usr/local/bin/ffprobe && \
+    rm -rf "ffmpeg-${FFMPEG_VERSION}-amd64-static" ffmpeg.tar.xz && \
+    git clone https://github.com/xavriley/ADTOF-pytorch.git /tmp/adtof && \
     git -C /tmp/adtof checkout --detach "${ADTOF_COMMIT}" && \
     pip install --no-cache-dir --no-deps /tmp/adtof && \
     python -c "from adtof_pytorch import transcribe_to_midi; print('ADTOF import succeeded')" && \
     rm -rf /tmp/adtof && \
-    yum remove -y git && \
+    yum remove -y git tar xz && \
     yum clean all && \
     rm -rf /var/cache/yum
 

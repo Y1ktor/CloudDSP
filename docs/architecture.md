@@ -139,7 +139,8 @@ query parameter on the WSS endpoint. The custom Lambda authorizer validates:
 It returns the Cognito subject as API Gateway's **principalId**. The authorizer
 and client must not log the token. WSS encrypts the connection, but a query
 token is still sensitive and must not be placed in analytics URLs or error
-messages. The authorizer result is cached for five minutes.
+messages. API Gateway does not support authorizer-result caching for WebSocket
+APIs, so the token is validated when each connection is established.
 
 ## Durable data model
 
@@ -404,6 +405,11 @@ The processing stack defines a managed EC2 GPU compute environment:
 - Demucs task: one GPU, four vCPUs, 14,336 MiB memory, and one-hour timeout.
 - Batch job retry strategy: one attempt.
 
+The compute environment omits a custom service role. For a managed
+environment, AWS Batch uses or creates its **AWSServiceRoleForBatch**
+service-linked role, which is the supported role for capacity management and
+future infrastructure updates.
+
 The single NAT Gateway is a cost optimization and a single-AZ dependency.
 Evaluate per-AZ NAT gateways and/or AWS interface endpoints for a
 high-availability production environment.
@@ -465,6 +471,29 @@ with any handler that imports it. Package **PyJWT[crypto]** with the WebSocket
 authorizer for Lambda ARM64 Linux; local macOS packages are not suitable for
 that runtime. Build/push Demucs, Basic Pitch, and ADTOF images before updating
 the stacks that reference their tags or immutable digests.
+
+### First deployment bootstrap
+
+Container images introduce a deliberate two-phase deployment. An ECR repository
+must exist before an image can be pushed, while Lambda and Batch cannot be
+created from an image tag that does not exist yet.
+
+1. Upload the nested templates and ZIP Lambda artifacts to the template and
+   artifact buckets.
+2. Create the root stack with **DeployProcessingWorkers=false**. This creates
+   Foundation (including ECR), Jobs, Auth, Network, Realtime, and the Job API;
+   it intentionally skips the image-based MIDI Lambdas and Batch processing
+   stack.
+3. Build and push the Basic Pitch, ADTOF, and Demucs images to the Foundation
+   ECR repositories with the desired tags.
+4. Update the same root stack with **DeployProcessingWorkers=true** and those
+   image tags. CloudFormation then creates the MIDI Lambda and Batch
+   processing nested stacks.
+
+The root outputs for the Basic Pitch and ADTOF Lambda ARNs and Demucs queue are
+absent during the bootstrap phase and appear after worker processing is
+enabled. This avoids a circular requirement without manually creating CloudDSP
+ECR repositories in the console.
 
 Use **ProjectName** (default **clouddsp**) and **EnvironmentName** (default
 **dev**) consistently. IAM role and inline policy names include both. S3/ECR

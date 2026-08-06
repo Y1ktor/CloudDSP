@@ -137,6 +137,11 @@ Docker image before local testing.
 - The root `IaC/cloud-dsp.yaml` composes the component stacks. When deploying
   components independently, use this dependency order: foundation, jobs, auth,
   network, realtime, MIDI Lambdas, processing, then the API.
+- A clean account needs a two-phase root deployment. First use
+  `DeployProcessingWorkers=false` to create foundation/ECR and the non-image
+  components. Push the three worker images, then update the same root stack
+  with `DeployProcessingWorkers=true`. Do not try to create Lambda image
+  functions before their ECR tags exist.
 - Package the three zip Lambdas (`job_api`, `websocket_handler`, and
   `websocket_authorizer`) before deployment. The authorizer package must also
   contain the dependencies in `requirements-websocket-authorizer.txt`; build
@@ -163,6 +168,10 @@ Docker image before local testing.
   endpoint. If private instances do not use NAT, also provide the required
   interface endpoints for ECR API/Docker, CloudWatch Logs, STS, and ECS/AWS
   Batch dependencies before launching jobs.
+- Do not set a custom IAM service role on the managed Batch compute
+  environment. Omit `ServiceRole` so AWS Batch uses its
+  `AWSServiceRoleForBatch` service-linked role; the deployment principal
+  needs permission to create that service-linked role if it does not exist.
 - EventBridge sees S3 event data, not object metadata. Use its transformer for
   bucket/key values; read `stem-mode` and other object metadata inside the
   container with `HeadObject`.

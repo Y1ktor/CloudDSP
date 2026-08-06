@@ -16,27 +16,35 @@ Parameters:
 
   TemplateBucketName:
     Type: String
+    Default: clouddsp-dev-cfn-templates-512383926199-us-east-1
     Description: S3 bucket containing the uploaded nested CloudFormation templates.
 
   TemplatePrefix:
     Type: String
-    Default: cloudformation
-    Description: Prefix in TemplateBucketName containing the nested template files.
+    Default: cloudformation/
+    Description: >-
+      Optional path prefix, including its trailing slash, for nested templates.
+      Leave empty when the templates are at the bucket root; use cloudformation/
+      when they are under that prefix.
 
   ArtifactBucketName:
     Type: String
+    Default: clouddsp-dev-cfn-artifacts-512383926199-us-east-1
     Description: S3 bucket containing packaged Lambda zip artifacts.
 
   JobApiCodeS3Key:
     Type: String
+    Default: job_api.zip
     Description: S3 key for the packaged job_api Lambda zip artifact.
 
   WebSocketHandlerCodeS3Key:
     Type: String
+    Default: websocket_handler.zip
     Description: S3 key for the packaged websocket_handler Lambda zip artifact.
 
   WebSocketAuthorizerCodeS3Key:
     Type: String
+    Default: websocket_authorizer.zip
     Description: S3 key for the packaged websocket_authorizer Lambda zip artifact.
 
   AllowedFrontendOrigins:
@@ -59,6 +67,17 @@ Parameters:
     Default: latest
     Description: ECR tag or digest suffix for the Demucs image.
 
+  DeployProcessingWorkers:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'false'
+      - 'true'
+    Description: >-
+      Set false for the bootstrap deployment that creates ECR repositories.
+      Push the Basic Pitch, ADTOF, and Demucs images, then update the stack
+      with true to create the Lambda and Batch processing workers.
+
   GpuInstanceTypes:
     Type: CommaDelimitedList
     Default: g4dn.xlarge
@@ -79,11 +98,14 @@ Parameters:
       - PLUS
     Description: Cognito User Pool feature plan for CloudDSP browser authentication.
 
+Conditions:
+  CreateProcessingWorkers: !Equals [!Ref DeployProcessingWorkers, 'true']
+
 Resources:
   FoundationStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: !Sub 'https://${TemplateBucketName}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}/foundation.yaml'
+      TemplateURL: !Sub 'https://${TemplateBucketName}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}foundation.yaml'
       Parameters:
         ProjectName: !Ref ProjectName
         EnvironmentName: !Ref EnvironmentName
@@ -92,7 +114,7 @@ Resources:
   JobsStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: !Sub 'https://${TemplateBucketName}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}/jobs.yaml'
+      TemplateURL: !Sub 'https://${TemplateBucketName}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}jobs.yaml'
       Parameters:
         ProjectName: !Ref ProjectName
         EnvironmentName: !Ref EnvironmentName
@@ -100,7 +122,7 @@ Resources:
   AuthStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: !Sub 'https://${TemplateBucketName}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}/auth.yaml'
+      TemplateURL: !Sub 'https://${TemplateBucketName}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}auth.yaml'
       Parameters:
         ProjectName: !Ref ProjectName
         EnvironmentName: !Ref EnvironmentName
@@ -109,7 +131,7 @@ Resources:
   NetworkStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: !Sub 'https://${TemplateBucketName}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}/network.yaml'
+      TemplateURL: !Sub 'https://${TemplateBucketName}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}network.yaml'
       Parameters:
         ProjectName: !Ref ProjectName
         EnvironmentName: !Ref EnvironmentName
@@ -117,7 +139,7 @@ Resources:
   RealtimeStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: !Sub 'https://${TemplateBucketName}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}/realtime.yaml'
+      TemplateURL: !Sub 'https://${TemplateBucketName}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}realtime.yaml'
       Parameters:
         ProjectName: !Ref ProjectName
         EnvironmentName: !Ref EnvironmentName
@@ -132,8 +154,9 @@ Resources:
 
   MidiLambdasStack:
     Type: AWS::CloudFormation::Stack
+    Condition: CreateProcessingWorkers
     Properties:
-      TemplateURL: !Sub 'https://${TemplateBucketName}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}/midi-lambdas.yaml'
+      TemplateURL: !Sub 'https://${TemplateBucketName}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}midi-lambdas.yaml'
       Parameters:
         ProjectName: !Ref ProjectName
         EnvironmentName: !Ref EnvironmentName
@@ -156,8 +179,9 @@ Resources:
 
   ProcessingStack:
     Type: AWS::CloudFormation::Stack
+    Condition: CreateProcessingWorkers
     Properties:
-      TemplateURL: !Sub 'https://${TemplateBucketName}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}/processing.yaml'
+      TemplateURL: !Sub 'https://${TemplateBucketName}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}processing.yaml'
       Parameters:
         ProjectName: !Ref ProjectName
         EnvironmentName: !Ref EnvironmentName
@@ -184,7 +208,7 @@ Resources:
   ApiStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: !Sub 'https://${TemplateBucketName}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}/api.yaml'
+      TemplateURL: !Sub 'https://${TemplateBucketName}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}api.yaml'
       Parameters:
         ProjectName: !Ref ProjectName
         EnvironmentName: !Ref EnvironmentName
@@ -234,13 +258,16 @@ Outputs:
     Value: !GetAtt RealtimeStack.Outputs.WebSocketEndpoint
 
   DemucsJobQueueArn:
+    Condition: CreateProcessingWorkers
     Description: GPU Demucs Batch job queue ARN.
     Value: !GetAtt ProcessingStack.Outputs.DemucsJobQueueArn
 
   BasicPitchLambdaArn:
+    Condition: CreateProcessingWorkers
     Description: Basic Pitch extraction Lambda ARN.
     Value: !GetAtt MidiLambdasStack.Outputs.BasicPitchLambdaArn
 
   ADTOFLambdaArn:
+    Condition: CreateProcessingWorkers
     Description: ADTOF extraction Lambda ARN.
     Value: !GetAtt MidiLambdasStack.Outputs.ADTOFLambdaArn

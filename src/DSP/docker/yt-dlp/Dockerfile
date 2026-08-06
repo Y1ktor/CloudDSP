@@ -1,24 +1,29 @@
-FROM public.ecr.aws/lambda/python:3.11
+ARG LAMBDA_PLATFORM=linux/amd64
+FROM --platform=${LAMBDA_PLATFORM} public.ecr.aws/lambda/python:3.11
 
-# Install tar and xz (required for extracting the static ffmpeg build)
-RUN yum update -y && \
-    yum install -y tar xz wget && \
-    yum clean all
+# Pin and verify FFmpeg, and keep extraction tools in the same layer so they
+# do not remain in the final Lambda image. A system-wide yum update makes builds
+# nondeterministic and adds packages the function does not need.
+ARG FFMPEG_VERSION=6.0.1
+ARG FFMPEG_SHA256=28268bf402f1083833ea269331587f60a242848880073be8016501d864bd07a5
+RUN yum install -y --setopt=install_weak_deps=False tar xz && \
+    curl -fsSLo ffmpeg.tar.xz "https://www.johnvansickle.com/ffmpeg/old-releases/ffmpeg-${FFMPEG_VERSION}-amd64-static.tar.xz" && \
+    echo "${FFMPEG_SHA256}  ffmpeg.tar.xz" | sha256sum -c - && \
+    tar -xJf ffmpeg.tar.xz && \
+    install -m 0755 "ffmpeg-${FFMPEG_VERSION}-amd64-static/ffmpeg" /usr/local/bin/ffmpeg && \
+    install -m 0755 "ffmpeg-${FFMPEG_VERSION}-amd64-static/ffprobe" /usr/local/bin/ffprobe && \
+    rm -rf "ffmpeg-${FFMPEG_VERSION}-amd64-static" ffmpeg.tar.xz && \
+    yum remove -y tar xz && \
+    yum clean all && \
+    rm -rf /var/cache/yum
 
-# Download and install a static build of FFmpeg
-RUN wget https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz && \
-    tar -xJf ffmpeg-release-amd64-static.tar.xz && \
-    mv ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/ffmpeg && \
-    mv ffmpeg-*-amd64-static/ffprobe /usr/local/bin/ffprobe && \
-    rm -rf ffmpeg-*-amd64-static*
-
-# Copy requirements and install dependencies
-COPY requirements.txt ${LAMBDA_TASK_ROOT}
-RUN pip install --no-cache-dir --upgrade -r requirements.txt
-RUN pip install --no-cache-dir --upgrade "yt-dlp[default,curl-cffi]"
+# Install one pinned yt-dlp distribution. Lambda's Python base image already
+# supplies boto3, so installing it again only increases the image size.
+COPY docker/yt-dlp/requirements.txt ${LAMBDA_TASK_ROOT}/requirements.txt
+RUN pip install --no-cache-dir -r ${LAMBDA_TASK_ROOT}/requirements.txt
 
 # Copy the lambda function handler
-COPY LambdaYtDlp.py ${LAMBDA_TASK_ROOT}
+COPY src/Cloud/LambdaYtDlp.py ${LAMBDA_TASK_ROOT}/LambdaYtDlp.py
 
 # Set the CMD to your handler
-CMD [ "LambdaYtDlp.lambda_handler" ]
+CMD ["LambdaYtDlp.lambda_handler"]

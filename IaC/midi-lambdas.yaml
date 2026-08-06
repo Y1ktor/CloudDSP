@@ -57,10 +57,12 @@ Parameters:
 
   BasicPitchMemoryMiB:
     Type: Number
-    Default: 4096
+    Default: 3008
     MinValue: 1024
-    MaxValue: 10240
-    Description: Memory allocated to the Basic Pitch Lambda.
+    MaxValue: 3008
+    Description: >-
+      Memory allocated to the Basic Pitch Lambda. 3008 MiB is the maximum
+      currently permitted by this AWS account's Lambda quota.
 
   BasicPitchTimeoutSeconds:
     Type: Number
@@ -78,10 +80,12 @@ Parameters:
 
   ADTOFMemoryMiB:
     Type: Number
-    Default: 4096
+    Default: 3008
     MinValue: 1024
-    MaxValue: 10240
-    Description: Memory allocated to the ADTOF Lambda.
+    MaxValue: 3008
+    Description: >-
+      Memory allocated to the ADTOF Lambda. 3008 MiB is the maximum
+      currently permitted by this AWS account's Lambda quota.
 
   ADTOFTimeoutSeconds:
     Type: Number
@@ -182,10 +186,14 @@ Resources:
           USER_CONNECTIONS_INDEX_NAME: !Ref UserConnectionsIndexName
           WEBSOCKET_API_URL: !Sub 'https://${WebSocketApiId}.execute-api.${AWS::Region}.amazonaws.com/${EnvironmentName}'
       Tags:
-        Project: !Ref ProjectName
-        Environment: !Ref EnvironmentName
-        Component: midi-extraction
-        Extractor: basic-pitch
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Component
+          Value: midi-extraction
+        - Key: Extractor
+          Value: basic-pitch
 
   ADTOFFunction:
     Type: AWS::Lambda::Function
@@ -211,10 +219,14 @@ Resources:
           USER_CONNECTIONS_INDEX_NAME: !Ref UserConnectionsIndexName
           WEBSOCKET_API_URL: !Sub 'https://${WebSocketApiId}.execute-api.${AWS::Region}.amazonaws.com/${EnvironmentName}'
       Tags:
-        Project: !Ref ProjectName
-        Environment: !Ref EnvironmentName
-        Component: midi-extraction
-        Extractor: adtof
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Component
+          Value: midi-extraction
+        - Key: Extractor
+          Value: adtof
 
 Outputs:
   BasicPitchLambdaArn:

@@ -1,0 +1,11 @@
+# Local virtual environments and generated audio are not required by any of the
+# CloudDSP container builds. Excluding them reduces the shared src/DSP build
+# context from roughly 1.6 GB to the source files the Dockerfiles actually copy.
+venv*/
+output/
+assets/
+tests/
+.DS_Store
+.git/
+**/__pycache__/
+*.py[cod]

@@ -108,20 +108,6 @@ Parameters:
       g4dn.xlarge while leaving capacity for the ECS host.
 
 Resources:
-  BatchServiceRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub '${ProjectName}-${EnvironmentName}-BatchServiceRole'
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: batch.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSBatchServiceRole
-
   BatchEcsInstanceRole:
     Type: AWS::IAM::Role
     Properties:
@@ -206,7 +192,8 @@ Resources:
       ComputeEnvironmentName: !Sub '${ProjectName}-${EnvironmentName}-DemucsGpu'
       Type: MANAGED
       State: ENABLED
-      ServiceRole: !GetAtt BatchServiceRole.Arn
+      # Omit ServiceRole so AWS Batch uses (or creates) the supported
+      # AWSServiceRoleForBatch service-linked role for this managed environment.
       ComputeResources:
         Type: EC2
         AllocationStrategy: BEST_FIT_PROGRESSIVE

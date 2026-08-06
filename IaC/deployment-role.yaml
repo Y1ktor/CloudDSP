@@ -1,0 +1,55 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Bootstrap CloudFormation execution role for the CloudDSP root stack. Deploy
+  this template once, then pass the output role ARN when creating or updating
+  cloud-dsp.yaml.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: clouddsp
+    Description: Project identifier included in the execution-role name.
+    AllowedPattern: '^[a-z][a-z0-9-]{0,31}$'
+
+  EnvironmentName:
+    Type: String
+    Default: dev
+    Description: Deployment environment included in the execution-role name.
+    AllowedPattern: '^[a-z][a-z0-9-]{0,15}$'
+
+Resources:
+  CloudFormationExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${EnvironmentName}-CloudFormationExecutionRole'
+      Description: !Sub 'CloudFormation execution role for ${ProjectName} ${EnvironmentName} infrastructure.'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudFormationService
+            Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action: sts:AssumeRole
+      # This role must create every resource in all nested components, including
+      # IAM roles, the Batch service-linked role, Lambda functions, networking,
+      # and their dependent policies. Start with this explicit bootstrap role;
+      # narrow it only after CloudTrail confirms the full required action set.
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AdministratorAccess
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Component
+          Value: deployment
+
+Outputs:
+  CloudFormationExecutionRoleArn:
+    Description: Pass this ARN as the CloudFormation service role when deploying cloud-dsp.yaml.
+    Value: !GetAtt CloudFormationExecutionRole.Arn
+
+  CloudFormationExecutionRoleName:
+    Description: Name of the CloudFormation execution role.
+    Value: !Ref CloudFormationExecutionRole
