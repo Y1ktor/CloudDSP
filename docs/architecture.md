@@ -174,8 +174,23 @@ An illustrative item:
       "status": "ready",
       "extractor": "adtof",
       "s3_key": "midi/0f0bb9f6-4c98-4d38-8fea-b7d7f700c5f7/drums.mid",
-      "bpm_key": "midi/0f0bb9f6-4c98-4d38-8fea-b7d7f700c5f7/drums_bpm.json"
+      "bpm_key": "midi/0f0bb9f6-4c98-4d38-8fea-b7d7f700c5f7/drums_bpm.json",
+      "tempo_candidate": {
+        "bpm": 128.0,
+        "beat_count": 92,
+        "drum_event_count": 240,
+        "interval_consistency": 0.94,
+        "credible": true,
+        "source": "adtof_drums"
+      }
     }
+  },
+  "tempo": {
+    "bpm": 128.0,
+    "source": "adtof_drums",
+    "confidence": "high",
+    "candidate_count": 1,
+    "contributing_stems": ["drums"]
   },
   "revision": 8,
   "created_at": "2026-08-05T12:00:00Z",
@@ -255,7 +270,9 @@ metadata will make S3 reject the upload.
 **GET /jobs/{job_id}** returns only an authorized job. It removes internal
 source bucket/key and TTL fields. Each persisted **s3_key** becomes a fresh
 presigned **url**, and each **bpm_key** becomes a fresh **bpm_url**. Download
-URLs are valid for one hour by default.
+URLs are valid for one hour by default. The top-level **tempo** object is the
+backend-selected master tempo; it is returned directly and never requires a
+client to download or vote on BPM artifacts.
 
 The frontend retains job IDs, not presigned URLs. It requests a new snapshot
 after a reload, a notification, polling, or a download-link expiry.
@@ -342,12 +359,19 @@ The steps in detail:
    is persisted on that individual MIDI state.
 10. A MIDI Lambda confirms the stem key matches the durable job record, records
     **processing**, and uses a job-and-stem-scoped temporary directory.
-11. Basic Pitch produces melodic MIDI and tries BPM estimation with librosa. A
-    BPM-estimation failure does not discard successful MIDI. ADTOF runs its CPU
-    drum model with configurable FPS/thresholds and writes MIDI plus BPM JSON.
+11. Basic Pitch produces melodic MIDI and records a Librosa tempo candidate.
+    ADTOF runs its CPU drum model with configurable FPS/thresholds, counts its
+    predicted drum events, and records a drum tempo candidate only when both
+    drum-event and beat-tracking evidence are sufficient. Both write MIDI plus
+    a BPM JSON artifact; failed tempo analysis never discards successful MIDI.
 12. Each Lambda writes its artifacts under **midi/{job_id}/**, persists the
-    result as ready or failed, derives final job status when all MIDI work is
-    terminal, and emits a best-effort update.
+    result as ready or failed, and recomputes the backend-owned top-level
+    **tempo** field. A credible ADTOF drum candidate wins; otherwise credible
+    non-vocal candidates are normalized for clear half/double-time values,
+    clustered within 3 BPM (or 3%), and resolved using a weighted median. If
+    no credible candidate exists, the durable fallback is 120 BPM with
+    **confidence=unknown**. The worker then derives final job status when all
+    MIDI work is terminal and emits a best-effort update.
 
 ## Frontend behavior
 

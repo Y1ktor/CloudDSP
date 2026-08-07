@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import boto3
+import numpy as np
 
 from cloud_job_workflow import (
     get_job,
@@ -30,6 +31,9 @@ except ImportError as error:
 
 
 EXTRACTOR = "basic_pitch"
+MIN_BEAT_COUNT = 8
+MIN_SHORT_CLIP_BEAT_COUNT = 4
+MIN_BEAT_INTERVAL_CONSISTENCY = 0.70
 
 
 def download_from_s3(s3_client, bucket: str, key: str, local_path: Path) -> None:
@@ -43,16 +47,52 @@ def upload_file_to_s3(s3_client, local_file: Path, bucket: str, key: str) -> Non
     s3_client.upload_file(str(local_file), bucket, key)
 
 
-def estimate_bpm(audio_path: Path) -> float | None:
-    """Return a display tempo without allowing estimation to fail MIDI output."""
+def estimate_tempo_candidate(audio_path: Path) -> dict[str, Any]:
+    """Estimate a BPM candidate and retain evidence for backend consensus."""
     try:
         print("Estimating BPM with librosa...")
         audio, sample_rate = librosa.load(str(audio_path))
-        tempo, _ = librosa.beat.beat_track(y=audio, sr=sample_rate)
-        return float(tempo[0]) if hasattr(tempo, "__iter__") else float(tempo)
+        tempo, beat_times = librosa.beat.beat_track(y=audio, sr=sample_rate, units="time")
+        tempo_values = np.asarray(tempo).reshape(-1)
+        bpm = float(tempo_values[0]) if tempo_values.size else 0.0
+        beats = np.asarray(beat_times, dtype=float).reshape(-1)
+        duration_seconds = len(audio) / sample_rate if sample_rate else 0.0
+        intervals = np.diff(beats)
+        if intervals.size:
+            median_interval = float(np.median(intervals))
+            tolerance = max(0.04, median_interval * 0.12)
+            interval_consistency = float(np.mean(np.abs(intervals - median_interval) <= tolerance))
+        else:
+            interval_consistency = 0.0
+        minimum_beats = MIN_SHORT_CLIP_BEAT_COUNT if duration_seconds < 20 else MIN_BEAT_COUNT
+        credible = bool(
+            np.isfinite(bpm)
+            and bpm > 0
+            and beats.size >= minimum_beats
+            and interval_consistency >= MIN_BEAT_INTERVAL_CONSISTENCY
+        )
+        candidate = {
+            "bpm": round(bpm, 2) if np.isfinite(bpm) and bpm > 0 else None,
+            "beat_count": int(beats.size),
+            "duration_seconds": round(duration_seconds, 2),
+            "interval_consistency": round(interval_consistency, 3),
+            "credible": credible,
+            "confidence": "medium" if credible else "low",
+            "source": "librosa_stem",
+        }
+        print(f"Basic Pitch tempo candidate: {candidate}")
+        return candidate
     except Exception as error:
         print(f"Warning: BPM estimation failed: {error}")
-        return None
+        return {
+            "bpm": None,
+            "beat_count": 0,
+            "duration_seconds": 0.0,
+            "interval_consistency": 0.0,
+            "credible": False,
+            "confidence": "low",
+            "source": "librosa_stem",
+        }
 
 
 def extract_midi_cloud(
@@ -61,7 +101,7 @@ def extract_midi_cloud(
     file_key: str,
     job_id: str,
     stem_name: str,
-) -> dict[str, str | None]:
+) -> dict[str, Any]:
     """Run Basic Pitch and upload MIDI/BPM artifacts using the job prefix."""
     s3_client = boto3.client("s3")
     base_tmp_dir = Path("/tmp/clouddsp-basic-pitch") / job_id / stem_name
@@ -92,16 +132,18 @@ def extract_midi_cloud(
     midi_key = f"midi/{job_id}/{stem_name}.mid"
     upload_file_to_s3(s3_client, midi_path, output_bucket, midi_key)
 
-    bpm_key: str | None = None
-    bpm = estimate_bpm(local_input_path)
-    if bpm is not None:
-        bpm_path = local_output_dir / f"{stem_name}_bpm.json"
-        bpm_path.write_text(json.dumps({"bpm": bpm, "extractor": EXTRACTOR}))
-        bpm_key = f"midi/{job_id}/{stem_name}_bpm.json"
-        upload_file_to_s3(s3_client, bpm_path, output_bucket, bpm_key)
+    tempo_candidate = estimate_tempo_candidate(local_input_path)
+    bpm_path = local_output_dir / f"{stem_name}_bpm.json"
+    bpm_path.write_text(json.dumps({"extractor": EXTRACTOR, **tempo_candidate}))
+    bpm_key = f"midi/{job_id}/{stem_name}_bpm.json"
+    upload_file_to_s3(s3_client, bpm_path, output_bucket, bpm_key)
 
     shutil.rmtree(base_tmp_dir, ignore_errors=True)
-    return {"midi_key": midi_key, "bpm_key": bpm_key}
+    return {
+        "midi_key": midi_key,
+        "bpm_key": bpm_key,
+        "tempo_candidate": tempo_candidate,
+    }
 
 
 def process_stem(bucket: str, output_bucket: str, key: str, event: dict[str, Any]) -> None:
@@ -126,10 +168,11 @@ def process_stem(bucket: str, output_bucket: str, key: str, event: dict[str, Any
     send_job_updated(connections_table, item, job_id, item.get("revision", 0))
     try:
         artifacts = extract_midi_cloud(bucket, output_bucket, key, job_id, stem_name)
-        state: dict[str, str] = {
+        state: dict[str, Any] = {
             "status": "ready",
             "extractor": EXTRACTOR,
             "s3_key": artifacts["midi_key"],
+            "tempo_candidate": artifacts["tempo_candidate"],
         }
         if artifacts["bpm_key"]:
             state["bpm_key"] = artifacts["bpm_key"]

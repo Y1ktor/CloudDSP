@@ -19,6 +19,7 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}) 
     const audioRefs = useRef({});
     const audioCtxRef = useRef(null);
     const sourceNodesRef = useRef({});
+    const preloadedTracksRef = useRef(new Set());
     
     // Core Player State
     const [isPlaying, setIsPlaying] = useState(false);
@@ -47,17 +48,43 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}) 
             setOriginalUrl(null);
         }
     }, [file]);
-    
-    // Reset player state when new stems arrive
+
     useEffect(() => {
-        if (stemUrls) {
-            setIsPlaying(false);
-            setProgress(0);
-            setDuration(0);
-            setMutedTracks({ 'Original': true });
-            setSoloedTracks({});
-        }
-    }, [stemUrls]);
+        // A new local upload must not inherit preloading state from the last job.
+        preloadedTracksRef.current.clear();
+    }, [file]);
+    
+    const stemTrackSignature = Object.keys(stemUrls || {}).sort().join('|');
+
+    // Reset only for a new source file or a changed set of stem tracks. Presigned
+    // URLs refresh whenever the browser reads a job snapshot, so depending on
+    // the URL object itself would interrupt playback while MIDI results arrive.
+    useEffect(() => {
+        setIsPlaying(false);
+        setProgress(0);
+        setDuration(0);
+        setMutedTracks(stemTrackSignature ? { Original: true } : {});
+        setSoloedTracks({});
+    }, [file, stemTrackSignature]);
+
+    useEffect(() => {
+        const tracksToPreload = [
+            ...(originalUrl ? ['Original'] : []),
+            ...Object.keys(stemUrls || {}),
+        ];
+        const frame = window.requestAnimationFrame(() => {
+            tracksToPreload.forEach((trackName) => {
+                if (preloadedTracksRef.current.has(trackName)) return;
+                const audio = audioRefs.current[trackName];
+                if (!audio) return;
+                // ``preload`` is only a browser hint. Calling load() starts a
+                // media request as soon as the original/stem row is mounted.
+                audio.load();
+                preloadedTracksRef.current.add(trackName);
+            });
+        });
+        return () => window.cancelAnimationFrame(frame);
+    }, [originalUrl, stemTrackSignature, stemUrls]);
 
     /**
      * Toggles play/pause for all loaded audio tracks simultaneously.
@@ -65,7 +92,10 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}) 
      * track timestamps to guarantee phase alignment before waking decoders.
      */
     const togglePlay = () => {
-        if (!stemUrls) return;
+        // The local upload is a playable track before AWS Batch returns stems.
+        // Refs are created by TrackList, so this also safely ignores an empty
+        // workspace before a file has been selected.
+        if (!Object.values(audioRefs.current).some(Boolean)) return;
         const nextState = !isPlaying;
 
         // 1. Initialize AudioContext strictly upon user gesture

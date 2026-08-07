@@ -5,8 +5,8 @@ import { Midi } from '@tonejs/midi';
  * 
  * Utility functions for parsing raw MIDI files utilizing Tone.js (@tonejs/midi).
  * This module transforms raw ArrayBuffers directly from S3 into structural JSON blocks 
- * suitable for rendering onto a React Canvas. It also implements a Smart BPM Hierarchy 
- * strategy to safely calculate the true master tempo from a diverse collection of stems.
+ * suitable for rendering onto a React Canvas. The durable backend job owns master
+ * tempo selection; MIDI header tempo is retained here only as per-file metadata.
  */
 
 /**
@@ -57,42 +57,4 @@ export async function parseMidiFile(midiInput, timeSignature = "4/4") {
         totalBeats,
         midiData: midi // Raw parsed Tone.js Midi object for rendering later
     };
-}
-
-/**
- * Determines the master BPM from a collection of parsed stems using a hierarchy strategy.
- * This avoids the pitfalls of averaging erratic vocal/ambient BPMs.
- * 
- * @param {Object} parsedStems - An object mapping track names to their parsed MIDI data (which contains .bpm)
- * @returns {number} The most reliable BPM found.
- */
-export function determineMasterBpm(parsedStems) {
-    if (!parsedStems || Object.keys(parsedStems).length === 0) return 120;
-
-    const trackNames = Object.keys(parsedStems);
-    
-    // Helper to find a track by keyword (case-insensitive) and return its BPM
-    const getBpm = (keyword) => {
-        const match = trackNames.find(name => name.toLowerCase().includes(keyword));
-        return match ? parsedStems[match].bpm : null;
-    };
-
-    // HIERARCHY 1: Drums / Percussion (Most reliable transients)
-    const drumsBpm = getBpm('drum') || getBpm('percussion');
-    if (drumsBpm) return drumsBpm;
-
-    // HIERARCHY 2: Bass (Usually locked tightly to the grid)
-    const bassBpm = getBpm('bass');
-    if (bassBpm) return bassBpm;
-
-    // HIERARCHY 3: Instrumental / Accompaniment / Other (Standard for 2-stem splits)
-    const instBpm = getBpm('instrumental') || getBpm('accompaniment') || getBpm('other');
-    if (instBpm) return instBpm;
-
-    // HIERARCHY 4: Any non-vocal track
-    const nonVocal = trackNames.find(name => !name.toLowerCase().includes('vocal'));
-    if (nonVocal) return parsedStems[nonVocal].bpm;
-
-    // FALLBACK: If literally only a vocal track exists, or completely unrecognized names, just take the first one
-    return parsedStems[trackNames[0]].bpm;
 }

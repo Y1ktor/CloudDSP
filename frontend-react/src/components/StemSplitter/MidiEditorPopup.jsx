@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import TimelineRuler from './TimelineRuler';
 import { useMidiEditorOperations } from '../../hooks/useMidiEditorOperations';
 import { useMidiExport } from '../../hooks/useMidiExport';
@@ -130,6 +130,7 @@ export default function MidiEditorPopup({
     // Selection state for MIDI notes (multi selection)
     const [selectedNoteIndices, setSelectedNoteIndices] = React.useState(new Set());
     const [showHintBox, setShowHintBox] = React.useState(false);
+    const [isRevertConfirmationOpen, setIsRevertConfirmationOpen] = useState(false);
     
     const [contextMenu, setContextMenu] = React.useState(null);
     const closeContextMenu = () => { if (contextMenu) setContextMenu(null); };
@@ -161,6 +162,21 @@ export default function MidiEditorPopup({
             window.removeEventListener('blur', handleBlur);
         };
     }, []);
+
+    useEffect(() => {
+        if (!isRevertConfirmationOpen) return undefined;
+        const handleKeyDown = (event) => {
+            if (event.key === 'Escape') setIsRevertConfirmationOpen(false);
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [isRevertConfirmationOpen]);
+
+    const confirmRevertMidi = () => {
+        if (handleRevertMidi) handleRevertMidi();
+        setSelectedNoteIndices(new Set());
+        setIsRevertConfirmationOpen(false);
+    };
     
     // Center scroll on C4 (MIDI 60) when opened
     React.useEffect(() => {
@@ -398,6 +414,59 @@ export default function MidiEditorPopup({
             flexDirection: 'column',
             padding: '20px'
         }}>
+            {isRevertConfirmationOpen && (
+                <div
+                    role="presentation"
+                    onMouseDown={() => setIsRevertConfirmationOpen(false)}
+                    style={{
+                        position: 'fixed', inset: 0, zIndex: 10,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        backgroundColor: 'rgba(0, 0, 0, 0.55)', padding: '20px'
+                    }}
+                >
+                    <section
+                        role="alertdialog"
+                        aria-modal="true"
+                        aria-labelledby="revert-midi-title"
+                        aria-describedby="revert-midi-description"
+                        onMouseDown={(event) => event.stopPropagation()}
+                        style={{
+                            width: 'min(420px, 100%)', backgroundColor: '#202020', color: '#fff',
+                            border: '1px solid #555', borderRadius: '8px', padding: '20px',
+                            boxShadow: '0 18px 50px rgba(0, 0, 0, 0.6)'
+                        }}
+                    >
+                        <h4 id="revert-midi-title" style={{ margin: '0 0 10px', fontSize: '18px' }}>
+                            Revert {trackName} MIDI?
+                        </h4>
+                        <p id="revert-midi-description" style={{ margin: '0 0 20px', color: '#c8c8c8', fontSize: '14px', lineHeight: 1.45 }}>
+                            This restores the generated MIDI for this track and discards the current edits. You can undo the revert afterward.
+                        </p>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                            <button
+                                type="button"
+                                onClick={() => setIsRevertConfirmationOpen(false)}
+                                style={{
+                                    padding: '7px 12px', background: 'transparent', color: '#fff', border: '1px solid #777',
+                                    borderRadius: '4px', cursor: 'pointer', fontWeight: '600'
+                                }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={confirmRevertMidi}
+                                style={{
+                                    padding: '7px 12px', background: '#b63737', color: '#fff', border: '1px solid #dd5757',
+                                    borderRadius: '4px', cursor: 'pointer', fontWeight: '700'
+                                }}
+                            >
+                                Revert MIDI
+                            </button>
+                        </div>
+                    </section>
+                </div>
+            )}
             {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -529,7 +598,7 @@ export default function MidiEditorPopup({
 
                 {/* Revert MIDI Button */}
                 <button onClick={() => {
-                    if (handleRevertMidi) handleRevertMidi();
+                    if (handleRevertMidi) setIsRevertConfirmationOpen(true);
                 }} style={{
                     height: '24px', padding: '0 10px',
                     background: 'transparent',

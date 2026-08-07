@@ -14,7 +14,7 @@ import {
 
 const JOB_API_URL = import.meta.env.VITE_JOB_API_URL?.replace(/\/$/, '');
 const WEBSOCKET_URL = import.meta.env.VITE_WEBSOCKET_URL;
-const POLL_INTERVAL_MS = 15_000;
+const POLL_INTERVAL_MS = 5_000;
 const RECONNECT_MAX_DELAY_MS = 30_000;
 const JOB_REFRESH_BACKOFF_INITIAL_MS = 5_000;
 const JOB_REFRESH_BACKOFF_MAX_MS = 60_000;
@@ -48,6 +48,32 @@ function urlsForReadyArtifacts(artifacts) {
             .filter(([, artifact]) => artifact?.status === 'ready' && artifact.url)
             .map(([name, artifact]) => [name, artifact.url]),
     );
+}
+
+function preserveReadyArtifactUrls(previous, snapshot) {
+    /*
+     * Job API snapshots carry newly signed URLs. Replacing an already-mounted
+     * media element's URL on every progress poll can cancel its load, and it
+     * causes the MIDI loader to re-download the same immutable artifact.
+     * Artifacts are immutable within a job, so keep the first usable URL until
+     * the browser reloads or a new job starts.
+     */
+    if (!previous) return snapshot;
+    const result = { ...snapshot };
+    for (const collectionName of ['stems', 'midi']) {
+        const previousArtifacts = previous[collectionName] || {};
+        const nextArtifacts = snapshot[collectionName] || {};
+        result[collectionName] = Object.fromEntries(
+            Object.entries(nextArtifacts).map(([name, artifact]) => {
+                const prior = previousArtifacts[name];
+                if (artifact?.status === 'ready' && artifact.url && prior?.status === 'ready' && prior.url) {
+                    return [name, { ...artifact, url: prior.url }];
+                }
+                return [name, artifact];
+            }),
+        );
+    }
+    return result;
 }
 
 function NavBar({ authProps }) {
@@ -163,10 +189,10 @@ export default function App() {
         return response;
     }, []);
 
-    const fetchJobSnapshot = useCallback(async (jobId, { showError = false } = {}) => {
+    const fetchJobSnapshot = useCallback(async (jobId, { showError = false, force = false } = {}) => {
         const inFlight = jobRefreshInFlightRef.current;
         const retryState = jobRefreshBackoffRef.current.get(jobId);
-        if (inFlight.has(jobId) || retryState?.nextAttemptAt > Date.now()) return null;
+        if (inFlight.has(jobId) || (!force && retryState?.nextAttemptAt > Date.now())) return null;
 
         inFlight.add(jobId);
         try {
@@ -181,7 +207,7 @@ export default function App() {
             setJobSnapshots((current) => {
                 const previous = current[jobId];
                 if (previous && Number(previous.revision || 0) > Number(snapshot.revision || 0)) return current;
-                return { ...current, [jobId]: snapshot };
+                return { ...current, [jobId]: preserveReadyArtifactUrls(previous, snapshot) };
             });
             return snapshot;
         } catch (error) {
@@ -246,7 +272,9 @@ export default function App() {
             try {
                 const message = JSON.parse(event.data);
                 if (message.type === 'job_updated' && message.job_id) {
-                    fetchJobSnapshot(message.job_id, { showError: true });
+                    // Notifications are hints, but they should bypass a prior
+                    // polling backoff so completed artifacts hydrate promptly.
+                    fetchJobSnapshot(message.job_id, { showError: true, force: true });
                 } else if (message.type === 'error') {
                     setErrorMsg(message.error || 'The CloudDSP WebSocket rejected a request.');
                 }
@@ -392,6 +420,8 @@ export default function App() {
         stemUrls: Object.keys(stemUrls).length ? stemUrls : null,
         midiUrls: Object.keys(midiUrls).length ? midiUrls : null,
         midiStates,
+        jobTempo: currentJob?.tempo,
+        jobId: currentJob?.job_id || activeJobId,
         errorMsg,
         setErrorMsg,
         executeStemSplit,

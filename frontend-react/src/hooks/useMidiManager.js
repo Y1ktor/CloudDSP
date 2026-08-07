@@ -1,13 +1,13 @@
 import React from 'react';
 import { SplendidGrandPiano, Soundfont } from 'smplr';
-import { parseMidiFile, determineMasterBpm } from '../utils/MidiParser';
+import { parseMidiFile } from '../utils/MidiParser';
 
 /**
- * Fetches and parses Basic Pitch MIDI files as their presigned URLs arrive over
- * the WebSocket. Each stem is processed once, allowing the editor to become
- * available incrementally rather than waiting for every Basic Pitch job.
+ * Fetches and parses generated MIDI files as their presigned URLs arrive.
+ * Tempo is intentionally not inferred from MIDI headers: the durable backend
+ * job owns tempo selection and passes it to the editor separately.
  */
-export function useMidiManager(midiUrls, timeSignature, setBpm, setOriginalBpm, audioCtxRef, globalSynthRef, guitarSynthRef, bassSynthRef) {
+export function useMidiManager(midiUrls, jobId, timeSignature, audioCtxRef, globalSynthRef, guitarSynthRef, bassSynthRef) {
     const [parsedMidiStems, setParsedMidiStems] = React.useState({});
     const [originalMidiStems, setOriginalMidiStems] = React.useState({});
     const [isMidiLoading, setIsMidiLoading] = React.useState(false);
@@ -16,11 +16,15 @@ export function useMidiManager(midiUrls, timeSignature, setBpm, setOriginalBpm, 
     const loadedUrlsRef = React.useRef(new Map());
     const inFlightTracksRef = React.useRef(new Set());
     const resetVersionRef = React.useRef(0);
+    const previousJobIdRef = React.useRef(jobId);
 
     React.useEffect(() => {
-        // A new upload clears midiUrls before the first completion event. Reset
-        // all editor data so results from an earlier job cannot be mixed in.
-        if (!midiUrls) {
+        // A new upload normally clears midiUrls, but reset explicitly by job
+        // ID as well so an old completed job can never suppress the first MIDI
+        // fetch for the next one.
+        const jobChanged = previousJobIdRef.current !== jobId;
+        if (jobChanged || !midiUrls) {
+            previousJobIdRef.current = jobId;
             resetVersionRef.current += 1;
             loadedUrlsRef.current.clear();
             inFlightTracksRef.current.clear();
@@ -29,7 +33,7 @@ export function useMidiManager(midiUrls, timeSignature, setBpm, setOriginalBpm, 
             setParsedMidiStems({});
             setOriginalMidiStems({});
             setIsMidiLoading(false);
-            return;
+            if (!midiUrls) return;
         }
 
         const entriesToLoad = Object.entries(midiUrls).filter(([track, url]) => (
@@ -64,6 +68,7 @@ export function useMidiManager(midiUrls, timeSignature, setBpm, setOriginalBpm, 
 
             await Promise.all(entriesToLoad.map(async ([track, url]) => {
                 try {
+                    console.info(`Downloading generated MIDI for ${track}.`);
                     const response = await fetch(url);
                     if (!response.ok) {
                         throw new Error(`MIDI download failed (${response.status}).`);
@@ -93,16 +98,11 @@ export function useMidiManager(midiUrls, timeSignature, setBpm, setOriginalBpm, 
             setParsedMidiStems(nextParsed);
             setOriginalMidiStems(nextOriginal);
 
-            const bestBpm = determineMasterBpm(nextParsed);
-            if (bestBpm) {
-                setOriginalBpm(bestBpm);
-                setBpm(bestBpm);
-            }
             setIsMidiLoading(inFlightTracksRef.current.size > 0);
         };
 
         fetchAndParse();
-    }, [midiUrls, timeSignature, setBpm, setOriginalBpm, audioCtxRef, globalSynthRef, guitarSynthRef, bassSynthRef]);
+    }, [midiUrls, jobId, timeSignature, audioCtxRef, globalSynthRef, guitarSynthRef, bassSynthRef]);
 
     return { parsedMidiStems, setParsedMidiStems, originalMidiStems, isMidiLoading };
 }

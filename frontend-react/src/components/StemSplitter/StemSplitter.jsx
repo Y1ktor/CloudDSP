@@ -43,6 +43,8 @@ function MidiScheduler({ trackName, activeBpm, originalBpm, progress, isPlaying,
  * @param {Object} props.stemUrls - Fresh presigned stem URLs from the durable job snapshot
  * @param {Object} props.midiUrls - Fresh presigned MIDI URLs from the durable job snapshot
  * @param {Object} props.midiStates - Per-stem durable MIDI extraction states
+ * @param {Object} props.jobTempo - Backend-selected master tempo for the active job
+ * @param {string} props.jobId - Durable job ID used to reset tempo between uploads
  * @param {string} props.errorMsg - Any error messages to display
  * @param {Function} props.setErrorMsg - State setter for errors
  * @param {Function} props.executeStemSplit - Master function in App.jsx to create and upload a job
@@ -51,7 +53,7 @@ export default function StemSplitter({
     file, setFile,
     fileName, setFileName,
     splitMode, setSplitMode,
-    isSplitting, statusMessage, stemUrls, midiUrls, midiStates, errorMsg, setErrorMsg,
+    isSplitting, statusMessage, stemUrls, midiUrls, midiStates, jobTempo, jobId, errorMsg, setErrorMsg,
     executeStemSplit, executeLinkExtraction, beginNewUpload
 }) {
     const [showSigMenu, setShowSigMenu] = React.useState(false);
@@ -86,11 +88,33 @@ export default function StemSplitter({
 
     // 2. Audio Player
     const audioEngine = useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks);
+    const { setBpm, setOriginalBpm } = audioEngine;
 
     // 3. MIDI Manager
     const { parsedMidiStems, setParsedMidiStems, originalMidiStems, isMidiLoading } = useMidiManager(
-        midiUrls, audioEngine.timeSignature, audioEngine.setBpm, audioEngine.setOriginalBpm, audioEngine.audioCtxRef, globalSynthRef, guitarSynthRef, bassSynthRef
+        midiUrls, jobId, audioEngine.timeSignature, audioEngine.audioCtxRef, globalSynthRef, guitarSynthRef, bassSynthRef
     );
+
+    const backendTempoBpm = Number(jobTempo?.bpm);
+    const hasBackendTempo = Number.isFinite(backendTempoBpm) && backendTempoBpm > 0;
+    // A 120 BPM fallback keeps timeline math stable but is not a measured tempo.
+    // Do not present it as a BPM result until the backend has a real candidate.
+    const hasDeterminedTempo = hasBackendTempo && jobTempo?.confidence !== 'unknown';
+    const appliedTempoRef = React.useRef({ jobId: null, bpm: null });
+
+    React.useEffect(() => {
+        const previous = appliedTempoRef.current;
+        if (previous.jobId === jobId && previous.bpm === (hasDeterminedTempo ? backendTempoBpm : null)) return;
+
+        if (hasDeterminedTempo) {
+            setOriginalBpm(backendTempoBpm);
+            setBpm(backendTempoBpm);
+        } else if (previous.jobId !== jobId) {
+            setOriginalBpm(null);
+            setBpm(120);
+        }
+        appliedTempoRef.current = { jobId, bpm: hasDeterminedTempo ? backendTempoBpm : null };
+    }, [jobId, hasDeterminedTempo, backendTempoBpm, setBpm, setOriginalBpm]);
     const midiStatusByTrack = React.useMemo(() => {
         return Object.keys(stemUrls || {}).reduce((statuses, trackName) => {
             if (parsedMidiStems[trackName]) {
@@ -107,8 +131,9 @@ export default function StemSplitter({
             return statuses;
         }, {});
     }, [stemUrls, midiUrls, midiStates, parsedMidiStems]);
-    const pendingMidiCount = Object.values(midiStatusByTrack)
-        .filter((status) => status !== 'ready').length;
+    const pendingMidiCount = Object.entries(midiStatusByTrack)
+        .filter(([trackName, status]) => trackName !== 'Original' && ['processing', 'loading'].includes(status))
+        .length;
 
     // 4. Undo History
     const { undoStacks, pushUndoState, handleUndoMidi, handleRevertMidi } = useUndoHistory(
@@ -155,7 +180,7 @@ export default function StemSplitter({
 
     const [pixelsPerBar, setPixelsPerBar] = React.useState(100);
     const parsedBeatsPerBar = parseInt(audioEngine.timeSignature.split('/')[0], 10) || 4;
-    const activeBpm = audioEngine.originalBpm || audioEngine.bpm;
+    const activeBpm = audioEngine.bpm;
     const totalBars = audioEngine.duration > 0 ? Math.ceil((audioEngine.duration * (activeBpm / 60)) / parsedBeatsPerBar) : 20;
 
     const dynamicDuration = audioEngine.originalBpm && audioEngine.duration ? audioEngine.duration * (audioEngine.originalBpm / audioEngine.bpm) : audioEngine.duration;
@@ -293,27 +318,29 @@ export default function StemSplitter({
                 minHeight: '200px',
                 display: 'flex',
                 flexDirection: 'column',
-                justifyContent: stemUrls ? 'flex-start' : 'center',
-                alignItems: stemUrls ? 'stretch' : 'center',
+                justifyContent: Object.keys(tracksToRender).length ? 'flex-start' : 'center',
+                alignItems: Object.keys(tracksToRender).length ? 'stretch' : 'center',
                 color: '#777',
                 border: '1px dashed #444',
                 gap: '15px'
             }}>
-                {isSplitting ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '15px' }}>
-                        <div style={{ 
-                            width: '40px', height: '40px', 
-                            border: '4px solid #444', borderTop: '4px solid #4CAF50', 
-                            borderRadius: '50%', animation: 'spin 1s linear infinite' 
-                        }} />
-                        <div style={{ color: '#fff', fontWeight: 'bold' }}>{statusMessage}</div>
-                        <div style={{ fontSize: '12px' }}>You can safely navigate to the EQ Canvas while this runs in the background.</div>
-                        <style>{`
-                            @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-                        `}</style>
-                    </div>
-                ) : stemUrls ? (
+                {Object.keys(tracksToRender).length ? (
                     <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                        {isSplitting && (
+                            <div style={{
+                                display: 'flex', alignItems: 'center', gap: '9px',
+                                background: 'rgba(76, 175, 80, 0.13)', color: '#d7f3dc',
+                                border: '1px solid rgba(76, 175, 80, 0.42)', borderRadius: '4px',
+                                padding: '9px 12px', fontSize: '13px', fontWeight: '600'
+                            }}>
+                                <span aria-hidden="true" style={{
+                                    width: '10px', height: '10px', border: '2px solid rgba(215, 243, 220, 0.35)',
+                                    borderTopColor: '#d7f3dc', borderRadius: '50%', animation: 'spin 1s linear infinite'
+                                }} />
+                                {statusMessage}
+                                {!hasDeterminedTempo && <span style={{ color: '#a9d8b0', fontWeight: '500' }}>BPM pending</span>}
+                            </div>
+                        )}
                         {pendingMidiCount > 0 && (
                             <div style={{
                                 display: 'flex', alignItems: 'center', gap: '9px',
@@ -370,18 +397,16 @@ export default function StemSplitter({
                                 <span className="bpm-label" style={{ color: '#fff', fontSize: '14px', fontWeight: 'bold' }}>BPM:</span>
                                 <div style={{ 
                                     background: 'linear-gradient(180deg, #2A3644 0%, #1B232D 100%)',
-                                    color: isMidiLoading ? '#444' : '#e2e8f0', 
+                                    color: hasDeterminedTempo ? '#e2e8f0' : '#777',
                                     fontSize: '14px', fontFamily: 'monospace', fontWeight: 'bold',
                                     padding: '4px 8px', borderRadius: '4px', width: '55px', textAlign: 'center',
                                     border: '1px solid #0a0d12',
                                     borderTop: '1px solid #485c70',
                                     boxShadow: 'inset 0 2px 5px rgba(0,0,0,0.6), 0 1px 1px rgba(255,255,255,0.05)',
-                                    textShadow: isMidiLoading ? 'none' : '0 0 6px rgba(226, 232, 240, 0.4)',
+                                    textShadow: hasDeterminedTempo ? '0 0 6px rgba(226, 232, 240, 0.4)' : 'none',
                                     display: 'flex', justifyContent: 'center', userSelect: 'none'
                                 }}>
-                                    {isMidiLoading ? (
-                                        <span style={{ cursor: 'default' }}>---</span>
-                                    ) : (
+                                    {hasDeterminedTempo ? (
                                         <>
                                             <span 
                                                 onMouseDown={(e) => audioEngine.handleBpmMouseDown(e, 'int')}
@@ -393,6 +418,8 @@ export default function StemSplitter({
                                                 style={{ cursor: 'ns-resize', flexGrow: 1, textAlign: 'left' }}
                                             >{Math.round((audioEngine.bpm - Math.floor(audioEngine.bpm)) * 10)}</span>
                                         </>
+                                    ) : (
+                                        <span style={{ cursor: 'default' }}>---</span>
                                     )}
                                 </div>
                             </div>
@@ -558,6 +585,9 @@ export default function StemSplitter({
                 ) : (
                     <div>Stem extraction and MIDI results will appear here as downloadable multitracks</div>
                 )}
+                <style>{`
+                    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+                `}</style>
             </div>
 
             {/* Background MIDI Schedulers */}

@@ -17,6 +17,7 @@ import boto3
 import librosa
 import numpy as np
 from adtof_pytorch import transcribe_to_midi
+from pretty_midi import PrettyMIDI
 
 from cloud_job_workflow import (
     get_job,
@@ -27,9 +28,12 @@ from cloud_job_workflow import (
 
 
 EXTRACTOR = "adtof"
-DEFAULT_BPM = 120.0
 DEFAULT_FPS = 100
 DEFAULT_THRESHOLDS = (0.22, 0.24, 0.32, 0.22, 0.30)
+MIN_DRUM_EVENT_COUNT = 8
+MIN_BEAT_COUNT = 8
+MIN_SHORT_CLIP_BEAT_COUNT = 4
+MIN_BEAT_INTERVAL_CONSISTENCY = 0.70
 
 
 def download_from_s3(s3_client, bucket: str, key: str, local_path: Path) -> None:
@@ -56,12 +60,65 @@ def parse_thresholds() -> tuple[float, ...]:
     return thresholds
 
 
-def estimate_bpm(audio_path: Path) -> float:
+def count_drum_events(midi_path: Path) -> int:
+    """Count ADTOF's predicted drum notes before trusting a drum-derived tempo."""
+    try:
+        midi = PrettyMIDI(str(midi_path))
+        return sum(len(instrument.notes) for instrument in midi.instruments)
+    except Exception as error:
+        print(f"Warning: Could not count ADTOF drum events: {error}")
+        return 0
+
+
+def estimate_tempo_candidate(audio_path: Path, drum_event_count: int) -> dict[str, Any]:
+    """Return a drum BPM candidate only when both beats and ADTOF hits support it."""
     print("Estimating BPM from drum stem...")
-    audio, sample_rate = librosa.load(str(audio_path), sr=None, mono=True)
-    tempo, _ = librosa.beat.beat_track(y=audio, sr=sample_rate)
-    bpm = float(np.asarray(tempo).item()) if np.asarray(tempo).size == 1 else DEFAULT_BPM
-    return bpm if np.isfinite(bpm) and bpm > 0 else DEFAULT_BPM
+    try:
+        audio, sample_rate = librosa.load(str(audio_path), sr=None, mono=True)
+        tempo, beat_times = librosa.beat.beat_track(y=audio, sr=sample_rate, units="time")
+        tempo_values = np.asarray(tempo).reshape(-1)
+        bpm = float(tempo_values[0]) if tempo_values.size else 0.0
+        beats = np.asarray(beat_times, dtype=float).reshape(-1)
+        duration_seconds = len(audio) / sample_rate if sample_rate else 0.0
+        intervals = np.diff(beats)
+        if intervals.size:
+            median_interval = float(np.median(intervals))
+            tolerance = max(0.04, median_interval * 0.12)
+            interval_consistency = float(np.mean(np.abs(intervals - median_interval) <= tolerance))
+        else:
+            interval_consistency = 0.0
+        minimum_beats = MIN_SHORT_CLIP_BEAT_COUNT if duration_seconds < 20 else MIN_BEAT_COUNT
+        credible = bool(
+            np.isfinite(bpm)
+            and bpm > 0
+            and drum_event_count >= MIN_DRUM_EVENT_COUNT
+            and beats.size >= minimum_beats
+            and interval_consistency >= MIN_BEAT_INTERVAL_CONSISTENCY
+        )
+        candidate = {
+            "bpm": round(bpm, 2) if np.isfinite(bpm) and bpm > 0 else None,
+            "beat_count": int(beats.size),
+            "duration_seconds": round(duration_seconds, 2),
+            "interval_consistency": round(interval_consistency, 3),
+            "drum_event_count": drum_event_count,
+            "credible": credible,
+            "confidence": "high" if credible else "low",
+            "source": "adtof_drums",
+        }
+        print(f"ADTOF tempo candidate: {candidate}")
+        return candidate
+    except Exception as error:
+        print(f"Warning: Drum BPM estimation failed: {error}")
+        return {
+            "bpm": None,
+            "beat_count": 0,
+            "duration_seconds": 0.0,
+            "interval_consistency": 0.0,
+            "drum_event_count": drum_event_count,
+            "credible": False,
+            "confidence": "low",
+            "source": "adtof_drums",
+        }
 
 
 def extract_midi_cloud(
@@ -70,7 +127,7 @@ def extract_midi_cloud(
     file_key: str,
     job_id: str,
     stem_name: str,
-) -> dict[str, str]:
+) -> dict[str, Any]:
     s3_client = boto3.client("s3")
     base_tmp_dir = Path("/tmp/clouddsp-adtof") / job_id / stem_name
     shutil.rmtree(base_tmp_dir, ignore_errors=True)
@@ -89,15 +146,20 @@ def extract_midi_cloud(
     transcribe_to_midi(local_input_path, local_midi_path, thresholds=thresholds, fps=fps, device="cpu")
     print(f"ADTOF inference completed in {time.monotonic() - started_at:.2f}s.")
 
-    bpm = estimate_bpm(local_input_path)
+    drum_event_count = count_drum_events(local_midi_path)
+    tempo_candidate = estimate_tempo_candidate(local_input_path, drum_event_count)
     local_bpm_path.parent.mkdir(parents=True, exist_ok=True)
-    local_bpm_path.write_text(json.dumps({"bpm": bpm, "extractor": EXTRACTOR}))
+    local_bpm_path.write_text(json.dumps({"extractor": EXTRACTOR, **tempo_candidate}))
     midi_key = f"midi/{job_id}/{stem_name}.mid"
     bpm_key = f"midi/{job_id}/{stem_name}_bpm.json"
     upload_file_to_s3(s3_client, local_midi_path, output_bucket, midi_key)
     upload_file_to_s3(s3_client, local_bpm_path, output_bucket, bpm_key)
     shutil.rmtree(base_tmp_dir, ignore_errors=True)
-    return {"midi_key": midi_key, "bpm_key": bpm_key}
+    return {
+        "midi_key": midi_key,
+        "bpm_key": bpm_key,
+        "tempo_candidate": tempo_candidate,
+    }
 
 
 def process_stem(bucket: str, output_bucket: str, key: str, event: dict[str, Any]) -> None:
@@ -128,6 +190,7 @@ def process_stem(bucket: str, output_bucket: str, key: str, event: dict[str, Any
                 "extractor": EXTRACTOR,
                 "s3_key": artifacts["midi_key"],
                 "bpm_key": artifacts["bpm_key"],
+                "tempo_candidate": artifacts["tempo_candidate"],
             },
         )
         send_job_updated(connections_table, item, job_id, item.get("revision", 0))
