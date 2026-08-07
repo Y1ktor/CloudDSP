@@ -345,11 +345,11 @@ Resources:
             InputTemplate: !Sub |
               {
                 "ContainerOverrides": {
-                  "environment": [
-                    {"name": "INPUT_BUCKET", "value": "<inputBucket>"},
-                    {"name": "FILE_KEY", "value": "<fileKey>"},
-                    {"name": "OUTPUT_BUCKET", "value": "${ProcessedAudioBucketName}"},
-                    {"name": "STEM_MODE", "value": "${DefaultStemMode}"}
+                  "Environment": [
+                    {"Name": "INPUT_BUCKET", "Value": "<inputBucket>"},
+                    {"Name": "FILE_KEY", "Value": "<fileKey>"},
+                    {"Name": "OUTPUT_BUCKET", "Value": "${ProcessedAudioBucketName}"},
+                    {"Name": "STEM_MODE", "Value": "${DefaultStemMode}"}
                   ]
                 }
               }

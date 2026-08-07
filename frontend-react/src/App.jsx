@@ -16,6 +16,8 @@ const JOB_API_URL = import.meta.env.VITE_JOB_API_URL?.replace(/\/$/, '');
 const WEBSOCKET_URL = import.meta.env.VITE_WEBSOCKET_URL;
 const POLL_INTERVAL_MS = 15_000;
 const RECONNECT_MAX_DELAY_MS = 30_000;
+const JOB_REFRESH_BACKOFF_INITIAL_MS = 5_000;
+const JOB_REFRESH_BACKOFF_MAX_MS = 60_000;
 
 function getStoredJobs(storageKey) {
     try {
@@ -91,6 +93,8 @@ export default function App() {
     const reconnectAttemptsRef = useRef(0);
     const activeJobIdsRef = useRef([]);
     const jobSnapshotsRef = useRef({});
+    const jobRefreshInFlightRef = useRef(new Set());
+    const jobRefreshBackoffRef = useRef(new Map());
 
     const currentJob = activeJobId ? jobSnapshots[activeJobId] : null;
     const authUsername = authSession?.username;
@@ -137,6 +141,8 @@ export default function App() {
         setActiveJobIds(restoredJobIds);
         setActiveJobId(restoredJobIds.at(-1) || null);
         setJobSnapshots({});
+        jobRefreshInFlightRef.current.clear();
+        jobRefreshBackoffRef.current.clear();
     }, [storageKey]);
 
     useEffect(() => {
@@ -147,7 +153,6 @@ export default function App() {
         if (!JOB_API_URL) throw new Error('VITE_JOB_API_URL is not configured.');
         const session = await getCurrentSession();
         if (!session) throw new Error('Your session has expired. Sign in again to continue.');
-        setAuthSession(session);
         const response = await fetch(`${JOB_API_URL}${path}`, {
             ...options,
             headers: {
@@ -159,12 +164,20 @@ export default function App() {
     }, []);
 
     const fetchJobSnapshot = useCallback(async (jobId, { showError = false } = {}) => {
+        const inFlight = jobRefreshInFlightRef.current;
+        const retryState = jobRefreshBackoffRef.current.get(jobId);
+        if (inFlight.has(jobId) || retryState?.nextAttemptAt > Date.now()) return null;
+
+        inFlight.add(jobId);
         try {
             const response = await authenticatedFetch(`/jobs/${encodeURIComponent(jobId)}`);
             if (!response.ok) {
-                throw new Error(`Could not refresh job ${jobId} (${response.status}).`);
+                const error = new Error(`Could not refresh job ${jobId} (${response.status}).`);
+                error.status = response.status;
+                throw error;
             }
             const snapshot = await response.json();
+            jobRefreshBackoffRef.current.delete(jobId);
             setJobSnapshots((current) => {
                 const previous = current[jobId];
                 if (previous && Number(previous.revision || 0) > Number(snapshot.revision || 0)) return current;
@@ -172,9 +185,26 @@ export default function App() {
             });
             return snapshot;
         } catch (error) {
-            console.warn(`Job snapshot refresh failed for ${jobId}:`, error);
+            const status = Number(error.status);
+            if (status === 429 || status >= 500) {
+                const attempts = (retryState?.attempts || 0) + 1;
+                const delay = Math.min(
+                    JOB_REFRESH_BACKOFF_INITIAL_MS * (2 ** (attempts - 1)),
+                    JOB_REFRESH_BACKOFF_MAX_MS,
+                );
+                jobRefreshBackoffRef.current.set(jobId, {
+                    attempts,
+                    nextAttemptAt: Date.now() + delay,
+                });
+                console.warn(`Job snapshot refresh failed for ${jobId} (${status}); retrying in ${delay / 1000}s.`, error);
+            } else {
+                jobRefreshBackoffRef.current.delete(jobId);
+                console.warn(`Job snapshot refresh failed for ${jobId}:`, error);
+            }
             if (showError) setErrorMsg(error.message || 'Could not refresh the processing job.');
             return null;
+        } finally {
+            inFlight.delete(jobId);
         }
     }, [authenticatedFetch]);
 
@@ -250,7 +280,7 @@ export default function App() {
     }, [activeJobIds, subscribeToJobs]);
 
     useEffect(() => {
-        if (!authSession || activeJobIds.length === 0) return undefined;
+        if (!authUsername || activeJobIds.length === 0) return undefined;
         const refreshPendingJobs = () => {
             activeJobIds
                 .filter((jobId) => !jobSnapshotsRef.current[jobId] || isJobPending(jobSnapshotsRef.current[jobId]))
@@ -261,7 +291,7 @@ export default function App() {
             refreshPendingJobs();
         }, POLL_INTERVAL_MS);
         return () => window.clearInterval(timer);
-    }, [activeJobIds, authSession, fetchJobSnapshot]);
+    }, [activeJobIds, authUsername, fetchJobSnapshot]);
 
     useEffect(() => {
         if (!currentJob) return;
