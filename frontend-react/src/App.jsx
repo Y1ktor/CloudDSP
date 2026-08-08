@@ -20,6 +20,7 @@ const WEBSOCKET_HEARTBEAT_INTERVAL_MS = 120_000;
 const RECONNECT_MAX_DELAY_MS = 30_000;
 const JOB_REFRESH_BACKOFF_INITIAL_MS = 5_000;
 const JOB_REFRESH_BACKOFF_MAX_MS = 60_000;
+const PRESIGNED_URL_REFRESH_SAFETY_MS = 60_000;
 
 function isJobPending(job) {
     return job && !['completed', 'failed'].includes(job.status);
@@ -66,17 +67,50 @@ function urlsForReadyArtifacts(artifacts) {
     );
 }
 
+function readyArtifactNames(artifacts) {
+    return Object.entries(artifacts || {})
+        .filter(([, artifact]) => artifact?.status === 'ready' && artifact.url)
+        .map(([name]) => name);
+}
+
+function presignedUrlIsUsable(url) {
+    try {
+        const parsed = new URL(url);
+        const legacyExpires = Number(parsed.searchParams.get('Expires'));
+        if (Number.isFinite(legacyExpires) && legacyExpires > 0) {
+            return legacyExpires * 1_000 > Date.now() + PRESIGNED_URL_REFRESH_SAFETY_MS;
+        }
+
+        const signatureDate = parsed.searchParams.get('X-Amz-Date');
+        const signatureLifetime = Number(parsed.searchParams.get('X-Amz-Expires'));
+        if (signatureDate && Number.isFinite(signatureLifetime)) {
+            const match = signatureDate.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/);
+            if (!match) return false;
+            const [, year, month, day, hour, minute, second] = match;
+            const expiresAt = Date.UTC(year, Number(month) - 1, day, hour, minute, second)
+                + signatureLifetime * 1_000;
+            return expiresAt > Date.now() + PRESIGNED_URL_REFRESH_SAFETY_MS;
+        }
+
+        // This branch is only for a future non-expiring artifact source. Job
+        // API URLs today always use one of the two presigned URL formats.
+        return true;
+    } catch {
+        return false;
+    }
+}
+
 function preserveReadyArtifactUrls(previous, snapshot) {
     /*
      * Job API snapshots carry newly signed URLs. Replacing an already-mounted
      * media element's URL on every progress poll can cancel its load, and it
-     * causes the MIDI loader to re-download the same immutable artifact.
-     * Artifacts are immutable within a job, so keep the first usable URL until
-     * the browser reloads or a new job starts.
+     * causes the MIDI loader to re-download the same immutable artifact. Keep
+     * a URL only while it has at least one minute left; otherwise accept the
+     * Job API's fresh URL before the browser retries an expired signature.
      */
     if (!previous) return snapshot;
     const result = { ...snapshot };
-    if (snapshot.original_url && previous.original_url) {
+    if (snapshot.original_url && previous.original_url && presignedUrlIsUsable(previous.original_url)) {
         result.original_url = previous.original_url;
     }
     for (const collectionName of ['stems', 'midi']) {
@@ -85,7 +119,13 @@ function preserveReadyArtifactUrls(previous, snapshot) {
         result[collectionName] = Object.fromEntries(
             Object.entries(nextArtifacts).map(([name, artifact]) => {
                 const prior = previousArtifacts[name];
-                if (artifact?.status === 'ready' && artifact.url && prior?.status === 'ready' && prior.url) {
+                if (
+                    artifact?.status === 'ready'
+                    && artifact.url
+                    && prior?.status === 'ready'
+                    && prior.url
+                    && presignedUrlIsUsable(prior.url)
+                ) {
                     return [name, { ...artifact, url: prior.url }];
                 }
                 return [name, artifact];
@@ -134,6 +174,8 @@ export default function App() {
     const [isPreviousJobsLoading, setIsPreviousJobsLoading] = useState(false);
     const [previousJobsError, setPreviousJobsError] = useState('');
     const [isPreviousJobsOpen, setIsPreviousJobsOpen] = useState(false);
+    const [isRestoringHistoryJob, setIsRestoringHistoryJob] = useState(false);
+    const [isHistoryJob, setIsHistoryJob] = useState(false);
 
     const socketRef = useRef(null);
     const shouldReconnectRef = useRef(false);
@@ -150,7 +192,10 @@ export default function App() {
     const stemUrls = useMemo(() => urlsForReadyArtifacts(currentJob?.stems), [currentJob]);
     const midiUrls = useMemo(() => urlsForReadyArtifacts(currentJob?.midi), [currentJob]);
     const midiStates = currentJob?.midi || {};
-    const isSplitting = isUploading || isJobPending(currentJob);
+    // A saved job has already been submitted. While its snapshot and private
+    // artifacts are being restored, do not describe the wait as new Batch or
+    // MIDI processing work.
+    const isSplitting = isUploading || (!isRestoringHistoryJob && isJobPending(currentJob));
     useEffect(() => {
         activeJobIdRef.current = activeJobId;
     }, [activeJobId]);
@@ -190,6 +235,8 @@ export default function App() {
             setActiveJobId(null);
             setJobSnapshots({});
             setIsPreviousJobsOpen(false);
+            setIsRestoringHistoryJob(false);
+            setIsHistoryJob(false);
             jobRefreshInFlightRef.current.clear();
             jobRefreshBackoffRef.current.clear();
         }
@@ -245,23 +292,36 @@ export default function App() {
         void fetchPreviousJobs();
     }, [fetchPreviousJobs]);
 
-    const fetchJobSnapshot = useCallback(async (jobId, { showError = false, force = false } = {}) => {
+    const fetchJobSnapshot = useCallback(async (jobId, {
+        showError = false,
+        force = false,
+        replaceArtifactUrls = false,
+    } = {}) => {
         const inFlight = jobRefreshInFlightRef.current;
         const retryState = jobRefreshBackoffRef.current.get(jobId);
         if (inFlight.has(jobId) || (!force && retryState?.nextAttemptAt > Date.now())) return null;
 
         inFlight.add(jobId);
         try {
+            console.info(`[CloudDSP] Requesting stems and MIDI snapshot for job ${jobId}.`);
             const response = await authenticatedFetch(`/jobs/${encodeURIComponent(jobId)}`);
             if (!response.ok) {
+                console.error(`[CloudDSP] Job snapshot request failed for ${jobId} (HTTP ${response.status}).`);
                 const error = new Error(`Could not refresh job ${jobId} (${response.status}).`);
                 error.status = response.status;
                 throw error;
             }
             const snapshot = await response.json();
+            const stemNames = readyArtifactNames(snapshot.stems);
+            const midiNames = readyArtifactNames(snapshot.midi);
+            console.info(
+                `[CloudDSP] Received job snapshot for ${jobId}. `
+                + `Signed S3 stem URLs: ${stemNames.length ? stemNames.join(', ') : 'none'}. `
+                + `Signed S3 MIDI URLs: ${midiNames.length ? midiNames.join(', ') : 'none'}.`,
+            );
             jobRefreshBackoffRef.current.delete(jobId);
             setJobSnapshots((current) => {
-                const previous = current[jobId];
+                const previous = replaceArtifactUrls ? null : current[jobId];
                 if (previous && Number(previous.revision || 0) > Number(snapshot.revision || 0)) return current;
                 return { ...current, [jobId]: preserveReadyArtifactUrls(previous, snapshot) };
             });
@@ -354,7 +414,7 @@ export default function App() {
                     socket.send(JSON.stringify({ action: 'heartbeat' }));
                 }
             }, WEBSOCKET_HEARTBEAT_INTERVAL_MS);
-            console.log('CloudDSP WebSocket connected and subscribed to active jobs.');
+            console.info('[CloudDSP] WebSocket connected and subscribed to the active job.');
         };
         socket.onmessage = (event) => {
             try {
@@ -362,15 +422,17 @@ export default function App() {
                 if (message.type === 'job_updated' && message.job_id === activeJobIdRef.current) {
                     // Notifications are hints, but they should bypass a prior
                     // polling backoff so completed artifacts hydrate promptly.
+                    console.info(`[CloudDSP] WebSocket reported an update for job ${message.job_id}; requesting fresh artifacts.`);
                     fetchJobSnapshot(message.job_id, { showError: true, force: true });
                 } else if (message.type === 'error') {
+                    console.error('[CloudDSP] WebSocket reported an application error:', message.error);
                     setErrorMsg(message.error || 'The CloudDSP WebSocket rejected a request.');
                 }
             } catch (error) {
-                console.warn('Ignoring invalid CloudDSP WebSocket message:', error);
+                console.warn('[CloudDSP] Ignoring invalid WebSocket message:', error);
             }
         };
-        socket.onerror = () => console.warn('CloudDSP WebSocket transport error.');
+        socket.onerror = () => console.warn('[CloudDSP] WebSocket transport error.');
         socket.onclose = () => {
             window.clearInterval(heartbeatTimerRef.current);
             heartbeatTimerRef.current = null;
@@ -415,13 +477,19 @@ export default function App() {
 
     useEffect(() => {
         if (!currentJob) return;
+        if (isRestoringHistoryJob) {
+            setStatusMessage('Stems and MIDI will arrive shortly.');
+            return;
+        }
         setStatusMessage(messageForJob(currentJob, 'Processing…'));
         if (currentJob.status === 'failed') setErrorMsg(currentJob.error || 'CloudDSP processing failed.');
-    }, [currentJob]);
+    }, [currentJob, isRestoringHistoryJob]);
 
     const beginNewUpload = () => {
         setActiveJobId(null);
         setJobSnapshots({});
+        setIsRestoringHistoryJob(false);
+        setIsHistoryJob(false);
         setErrorMsg('');
         setStatusMessage('Ready to upload audio.');
     };
@@ -434,12 +502,24 @@ export default function App() {
         setStemFile(null);
         setStemFileName(selectedJob.source_filename || 'Saved CloudDSP job');
         setActiveJobId(jobId);
-        setStatusMessage('Loading saved job artifacts…');
+        setIsRestoringHistoryJob(true);
+        setIsHistoryJob(true);
+        setStatusMessage('Stems and MIDI will arrive shortly.');
         subscribeToActiveJob(socketRef.current, jobId);
 
-        const snapshot = await fetchJobSnapshot(jobId, { showError: true, force: true });
-        if (snapshot) {
-            setStemFileName(snapshot.source_filename || selectedJob.source_filename || 'Saved CloudDSP job');
+        // Opening a saved job is an explicit reload. Accept fresh signed URLs
+        // even if this tab had displayed the same job earlier in the day.
+        try {
+            const snapshot = await fetchJobSnapshot(jobId, {
+                showError: true,
+                force: true,
+                replaceArtifactUrls: true,
+            });
+            if (snapshot) {
+                setStemFileName(snapshot.source_filename || selectedJob.source_filename || 'Saved CloudDSP job');
+            }
+        } finally {
+            setIsRestoringHistoryJob(false);
         }
     };
 
@@ -530,6 +610,8 @@ export default function App() {
         signOut();
         setAuthSession(null);
         setIsPreviousJobsOpen(false);
+        setIsRestoringHistoryJob(false);
+        setIsHistoryJob(false);
         setErrorMsg('');
         setStatusMessage('Signed out.');
     };
@@ -549,6 +631,8 @@ export default function App() {
         jobTempo: currentJob?.tempo,
         jobId: currentJob?.job_id || activeJobId,
         sourceUrl: currentJob?.original_url,
+        isRestoringHistoryJob,
+        isHistoryJob,
         errorMsg,
         setErrorMsg,
         executeStemSplit,

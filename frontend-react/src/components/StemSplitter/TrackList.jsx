@@ -10,9 +10,6 @@ export default function TrackList({
     pixelsPerBar,
     setPixelsPerBar,
     timelineRows,
-    audioRefs,
-    duration,
-    setDuration,
     toggleMute,
     mutedTracks,
     toggleSolo,
@@ -107,13 +104,6 @@ export default function TrackList({
                             userSelect: 'none', transition: 'background-color 0.2s'
                         }}
                     >
-                        <audio
-                            ref={(element) => { audioRefs.current[trackName] = element; }}
-                            src={row.url} preload="auto" crossOrigin="anonymous"
-                            onLoadedMetadata={(event) => {
-                                if (duration === 0) setDuration(event.target.duration);
-                            }}
-                        />
                         <div style={{ color: '#fff', fontWeight: 'bold', textTransform: 'capitalize', width: '80px', display: 'flex', alignItems: 'center' }}>
                             {row.hasDrumSubtracks && (
                                 <button

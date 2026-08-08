@@ -79,21 +79,29 @@ export function useMidiManager(midiUrls, midiStates, jobId, timeSignature, audio
 
             await Promise.all(entriesToLoad.map(async ([track, url]) => {
                 try {
-                    console.info(`Downloading generated MIDI for ${track}.`);
+                    console.info(`[CloudDSP] Received signed S3 MIDI URL for '${track}'.`);
+                    console.info(`[CloudDSP] Starting S3 MIDI download for '${track}'.`);
                     const response = await fetch(url);
                     if (!response.ok) {
+                        console.error(`[CloudDSP] S3 MIDI request failed for '${track}' (HTTP ${response.status}).`);
                         throw new Error(`MIDI download failed (${response.status}).`);
                     }
 
                     const midiBytes = await response.arrayBuffer();
+                    console.info(`[CloudDSP] S3 MIDI download complete for '${track}' (${midiBytes.byteLength} bytes).`);
                     const isAdtofDrum = midiStates?.[track]?.extractor === 'adtof'
                         || track === 'drums';
-                    parsedUpdates[track] = await parseMidiFile(midiBytes.slice(0), timeSignature, { isAdtofDrum });
+                    const parsedMidi = await parseMidiFile(midiBytes.slice(0), timeSignature, { isAdtofDrum });
+                    parsedUpdates[track] = parsedMidi;
                     originalUpdates[track] = await parseMidiFile(midiBytes.slice(0), timeSignature, { isAdtofDrum });
                     loadedUrlsRef.current.set(track, url);
-                    console.log(`Parsed backend MIDI for ${track}.`);
+                    const noteCount = parsedMidi?.midiData?.tracks?.reduce(
+                        (count, midiTrack) => count + (midiTrack.notes?.length || 0),
+                        0,
+                    ) || 0;
+                    console.info(`[CloudDSP] MIDI parse complete for '${track}' (${noteCount} notes).`);
                 } catch (error) {
-                    console.error(`Failed to load MIDI for ${track}:`, error);
+                    console.error(`[CloudDSP] Failed to load MIDI for '${track}':`, error);
                 } finally {
                     inFlightTracksRef.current.delete(track);
                 }

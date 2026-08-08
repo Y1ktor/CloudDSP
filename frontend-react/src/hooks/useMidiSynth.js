@@ -27,6 +27,7 @@ import {
  * @param {Object} soloedTracks - Dictionary of soloed audio tracks.
  * @param {Object} drumMutedVoices - Dictionary of muted ADTOF MIDI lanes.
  * @param {Object} drumSoloedVoices - Dictionary of soloed ADTOF MIDI lanes.
+ * @param {number|null} transportStartTime - Scheduled AudioContext time for the shared stem transport.
  */
 export function useMidiSynth(
     audioCtxRef,
@@ -41,7 +42,8 @@ export function useMidiSynth(
     mutedTracks = {},
     soloedTracks = {},
     drumMutedVoices = {},
-    drumSoloedVoices = {}
+    drumSoloedVoices = {},
+    transportStartTime = null
 ) {
     const scheduledNotesRef = useRef(new Set());
     const isDrumTrack = parsedMidiStems?.[trackName]?.isAdtofDrum === true;
@@ -120,6 +122,10 @@ export function useMidiSynth(
         const realWorldLookahead = 0.5;
         // Which corresponds to this much unstretched audio time:
         const unstretchedLookahead = realWorldLookahead * playbackRate;
+        const transportLeadSeconds = Math.max(
+            0,
+            (transportStartTime || audioCtxRef.current.currentTime) - audioCtxRef.current.currentTime
+        );
         
         getMidiNotes(trackData.midiData).forEach((note, index) => {
             // note.time and progress are both in absolute, UNSTRETCHED seconds
@@ -154,7 +160,7 @@ export function useMidiSynth(
                         velocity: drumVoice
                             ? getDrumPlaybackVelocity(note, drumVoice)
                             : Math.round((note.velocity !== undefined ? note.velocity : 0.8) * 127),
-                        time: audioCtxRef.current.currentTime + realWorldDelay,
+                        time: audioCtxRef.current.currentTime + transportLeadSeconds + realWorldDelay,
                         duration: realWorldDuration
                     });
                     scheduledNotesRef.current.add(index);
@@ -175,7 +181,8 @@ export function useMidiSynth(
         soloedTracks,
         isDrumTrack,
         drumMutedVoices,
-        drumSoloedVoices
+        drumSoloedVoices,
+        transportStartTime
     ]);
 
     // 3. Clear scheduled notes when pausing

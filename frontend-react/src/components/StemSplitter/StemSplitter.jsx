@@ -27,7 +27,8 @@ function MidiScheduler({
     mutedTracks,
     soloedTracks,
     drumMutedVoices,
-    drumSoloedVoices
+    drumSoloedVoices,
+    transportStartTime
 }) {
     useMidiSynth(
         audioCtxRef,
@@ -42,7 +43,8 @@ function MidiScheduler({
         mutedTracks,
         soloedTracks,
         drumMutedVoices,
-        drumSoloedVoices
+        drumSoloedVoices,
+        transportStartTime
     );
     return null;
 }
@@ -67,7 +69,9 @@ function MidiScheduler({
  * @param {Function} props.setFileName - State setter for the filename
  * @param {string} props.splitMode - The selected Demucs mode (2, 4, or 6 stems)
  * @param {Function} props.setSplitMode - State setter for the mode
- * @param {boolean} props.isSplitting - Tracks if AWS Batch is currently processing
+ * @param {boolean} props.isSplitting - Tracks if the active upload is being processed
+ * @param {boolean} props.isRestoringHistoryJob - A saved job is being hydrated from private artifacts
+ * @param {boolean} props.isHistoryJob - The workspace currently displays a saved job
  * @param {string} props.statusMessage - The dynamic loading text
  * @param {Object} props.stemUrls - Fresh presigned stem URLs from the durable job snapshot
  * @param {Object} props.midiUrls - Fresh presigned MIDI URLs from the durable job snapshot
@@ -83,7 +87,7 @@ export default function StemSplitter({
     file, setFile,
     fileName, setFileName,
     splitMode, setSplitMode,
-    isSplitting, statusMessage, stemUrls, midiUrls, midiStates, jobTempo, jobId, errorMsg, setErrorMsg,
+    isSplitting, isRestoringHistoryJob, isHistoryJob, statusMessage, stemUrls, midiUrls, midiStates, jobTempo, jobId, errorMsg, setErrorMsg,
     sourceUrl,
     executeStemSplit, executeLinkExtraction, beginNewUpload
 }) {
@@ -192,9 +196,28 @@ export default function StemSplitter({
             return statuses;
         }, {});
     }, [stemUrls, midiUrls, midiStates, parsedMidiStems]);
-    const pendingMidiCount = Object.entries(midiStatusByTrack)
-        .filter(([trackName, status]) => trackName !== 'Original' && ['processing', 'loading'].includes(status))
-        .length;
+    const pendingMidiTracks = Object.entries(midiStatusByTrack)
+        .filter(([trackName, status]) => trackName !== 'Original' && ['processing', 'loading'].includes(status));
+    const backendMidiProcessingCount = pendingMidiTracks.filter(([, status]) => status === 'processing').length;
+    const midiDownloadCount = pendingMidiTracks.filter(([, status]) => status === 'loading').length;
+    const showActivityNotice = isSplitting || isRestoringHistoryJob;
+    const activityMessage = isRestoringHistoryJob ? 'Stems and MIDI will arrive shortly.' : statusMessage;
+
+    const renderActivityNotice = () => showActivityNotice && (
+        <div style={{
+            display: 'flex', alignItems: 'center', gap: '9px',
+            background: 'rgba(76, 175, 80, 0.13)', color: '#d7f3dc',
+            border: '1px solid rgba(76, 175, 80, 0.42)', borderRadius: '4px',
+            padding: '9px 12px', fontSize: '13px', fontWeight: '600'
+        }}>
+            <span aria-hidden="true" style={{
+                width: '10px', height: '10px', border: '2px solid rgba(215, 243, 220, 0.35)',
+                borderTopColor: '#d7f3dc', borderRadius: '50%', animation: 'spin 1s linear infinite'
+            }} />
+            {activityMessage}
+            {isSplitting && !hasDeterminedTempo && <span style={{ color: '#a9d8b0', fontWeight: '500' }}>BPM pending</span>}
+        </div>
+    );
 
     // 4. Undo History
     const { undoStacks, pushUndoState, handleUndoMidi, handleRevertMidi } = useUndoHistory(
@@ -233,7 +256,7 @@ export default function StemSplitter({
 
     const tracksToRender = React.useMemo(() => {
         const tr = {};
-        if (file && audioEngine.originalUrl) tr['Original'] = audioEngine.originalUrl;
+        if (file) tr.Original = null;
         else if (sourceUrl) tr['Original'] = sourceUrl;
         // Retain this fallback for incomplete legacy jobs created before the
         // Job API returned original uploads. New and restored jobs use the
@@ -241,7 +264,7 @@ export default function StemSplitter({
         else if (!file && stemUrls && Object.keys(stemUrls).length > 0) tr['Original'] = stemUrls[Object.keys(stemUrls)[0]];
         if (stemUrls) Object.assign(tr, stemUrls);
         return tr;
-    }, [file, audioEngine.originalUrl, sourceUrl, stemUrls]);
+    }, [file, sourceUrl, stemUrls]);
 
     // ADTOF emits a single drum MIDI file, but its five fixed note classes
     // represent distinct instruments. The audio stays on the parent row and
@@ -422,22 +445,22 @@ export default function StemSplitter({
             }}>
                 {Object.keys(tracksToRender).length ? (
                     <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                        {isSplitting && (
+                        {renderActivityNotice()}
+                        {!audioEngine.isAudioReady && (
                             <div style={{
                                 display: 'flex', alignItems: 'center', gap: '9px',
-                                background: 'rgba(76, 175, 80, 0.13)', color: '#d7f3dc',
-                                border: '1px solid rgba(76, 175, 80, 0.42)', borderRadius: '4px',
+                                background: 'rgba(85, 137, 198, 0.13)', color: '#bdd8f7',
+                                border: '1px solid rgba(85, 137, 198, 0.42)', borderRadius: '4px',
                                 padding: '9px 12px', fontSize: '13px', fontWeight: '600'
                             }}>
                                 <span aria-hidden="true" style={{
-                                    width: '10px', height: '10px', border: '2px solid rgba(215, 243, 220, 0.35)',
-                                    borderTopColor: '#d7f3dc', borderRadius: '50%', animation: 'spin 1s linear infinite'
+                                    width: '10px', height: '10px', border: '2px solid rgba(189, 216, 247, 0.35)',
+                                    borderTopColor: '#bdd8f7', borderRadius: '50%', animation: 'spin 1s linear infinite'
                                 }} />
-                                {statusMessage}
-                                {!hasDeterminedTempo && <span style={{ color: '#a9d8b0', fontWeight: '500' }}>BPM pending</span>}
+                                Preparing synchronized audio buffers. Playback will be available when every displayed track is ready.
                             </div>
                         )}
-                        {pendingMidiCount > 0 && (
+                        {backendMidiProcessingCount > 0 && isSplitting && (
                             <div style={{
                                 display: 'flex', alignItems: 'center', gap: '9px',
                                 background: 'rgba(224, 168, 0, 0.13)', color: '#f5c451',
@@ -445,7 +468,20 @@ export default function StemSplitter({
                                 padding: '9px 12px', fontSize: '13px', fontWeight: '600'
                             }}>
                                 <span aria-hidden="true" style={{ color: '#f5c451', fontSize: '16px' }}>●</span>
-                                MIDI is still processing for {pendingMidiCount} stem{pendingMidiCount === 1 ? '' : 's'}. Tracks will populate as each result arrives.
+                                MIDI extraction is still processing for {backendMidiProcessingCount} stem{backendMidiProcessingCount === 1 ? '' : 's'}. Tracks will populate as each result arrives.
+                            </div>
+                        )}
+                        {midiDownloadCount > 0 && (
+                            <div style={{
+                                display: 'flex', alignItems: 'center', gap: '9px',
+                                background: 'rgba(85, 137, 198, 0.13)', color: '#bdd8f7',
+                                border: '1px solid rgba(85, 137, 198, 0.42)', borderRadius: '4px',
+                                padding: '9px 12px', fontSize: '13px', fontWeight: '600'
+                            }}>
+                                <span aria-hidden="true" style={{ color: '#bdd8f7', fontSize: '16px' }}>●</span>
+                                {isHistoryJob
+                                    ? `Saved-job MIDI is downloading for ${midiDownloadCount} stem${midiDownloadCount === 1 ? '' : 's'}. Stems and MIDI will arrive shortly.`
+                                    : `Generated MIDI is downloading for ${midiDownloadCount} stem${midiDownloadCount === 1 ? '' : 's'}. Tracks will populate as each file arrives.`}
                             </div>
                         )}
                         {/* Central Master Audio Control */}
@@ -609,9 +645,6 @@ export default function StemSplitter({
                                 pixelsPerBar={pixelsPerBar}
                                 setPixelsPerBar={setPixelsPerBar}
                                 timelineRows={timelineRows}
-                                audioRefs={audioEngine.audioRefs}
-                                duration={audioEngine.duration}
-                                setDuration={audioEngine.setDuration}
                                 toggleMute={audioEngine.toggleMute}
                                 mutedTracks={audioEngine.mutedTracks}
                                 toggleSolo={audioEngine.toggleSolo}
@@ -684,7 +717,7 @@ export default function StemSplitter({
                         </div>
                 </div>
                 ) : (
-                    <div>Stem extraction and MIDI results will appear here as downloadable multitracks</div>
+                    renderActivityNotice() || <div>Stem extraction and MIDI results will appear here as downloadable multitracks</div>
                 )}
                 <style>{`
                     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
@@ -714,6 +747,7 @@ export default function StemSplitter({
                         soloedTracks={audioEngine.soloedTracks}
                         drumMutedVoices={drumMutedVoices}
                         drumSoloedVoices={drumSoloedVoices}
+                        transportStartTime={audioEngine.transportStartTime}
                     />
                 );
             })}
