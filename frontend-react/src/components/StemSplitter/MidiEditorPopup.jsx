@@ -3,7 +3,14 @@ import TimelineRuler from './TimelineRuler';
 import { useMidiEditorOperations } from '../../hooks/useMidiEditorOperations';
 import { useMidiExport } from '../../hooks/useMidiExport';
 import { usePlayheadScroll } from '../../hooks/usePlayheadScroll';
-import { ADTOF_DRUM_VOICES, getAdtofDrumVoice, getAdtofDrumVoiceIndex, getDrumPlaybackVelocity } from '../../utils/DrumMidi';
+import {
+    ADTOF_DRUM_VOICES,
+    getAdtofDrumVoice,
+    getAdtofDrumVoiceIndex,
+    getDrumPlaybackVelocity,
+    getDrumVoiceTrackId,
+    isDrumVoiceAudible
+} from '../../utils/DrumMidi';
 
 const DRUM_EDITOR_ROW_HEIGHT = 56;
 
@@ -44,6 +51,10 @@ const DRUM_EDITOR_ROW_HEIGHT = 56;
  * @param {Object} props.soloedTracks - Dictionary of soloed track states
  * @param {Function} props.toggleMute - Callback to toggle mute for a specific track
  * @param {Function} props.toggleSolo - Callback to toggle solo for a specific track
+ * @param {Object} props.drumMutedVoices - Dictionary of muted ADTOF drum MIDI lanes
+ * @param {Object} props.drumSoloedVoices - Dictionary of soloed ADTOF drum MIDI lanes
+ * @param {Function} props.toggleDrumMute - Callback to toggle one ADTOF drum MIDI lane
+ * @param {Function} props.toggleDrumSolo - Callback to solo one ADTOF drum MIDI lane
  * @param {number} props.activeBpm - The current user-adjusted master BPM
  * @param {number} props.originalBpm - The detected original master BPM of the song
  * @param {number} props.parsedBeatsPerBar - Derived variable representing number of beats in a bar
@@ -82,6 +93,10 @@ export default function MidiEditorPopup({
     soloedTracks,
     toggleMute,
     toggleSolo,
+    drumMutedVoices = {},
+    drumSoloedVoices = {},
+    toggleDrumMute,
+    toggleDrumSolo,
     activeBpm,
     originalBpm,
     parsedBeatsPerBar,
@@ -121,6 +136,12 @@ export default function MidiEditorPopup({
         if (isMidiMode && synthRef && synthRef.current && audioCtxRef.current) {
             const drumVoice = isAdtofDrum ? getAdtofDrumVoice(note.midi) : null;
             if (isAdtofDrum && !drumVoice) return;
+            if (isAdtofDrum && !isDrumVoiceAudible(
+                trackName,
+                drumVoice,
+                drumMutedVoices,
+                drumSoloedVoices
+            )) return;
             synthRef.current.start({
                 note: drumVoice ? drumVoice.sample : note.midi,
                 velocity: drumVoice
@@ -264,16 +285,44 @@ export default function MidiEditorPopup({
     // Render the piano keyboard column with realistic styling
     const renderPianoKeys = () => {
         if (isAdtofDrum) {
-            return ADTOF_DRUM_VOICES.map((voice) => (
-                <div key={voice.id} style={{
-                    height: `${DRUM_EDITOR_ROW_HEIGHT}px`, boxSizing: 'border-box', display: 'flex',
-                    alignItems: 'center', padding: '0 8px', color: voice.color, backgroundColor: '#1a1a1a',
-                    borderBottom: '1px solid #3a3a3a', borderLeft: `3px solid ${voice.color}`,
-                    fontSize: '12px', fontWeight: '700', userSelect: 'none'
-                }}>
-                    {voice.label}
-                </div>
-            ));
+            return ADTOF_DRUM_VOICES.map((voice) => {
+                const voiceTrackId = getDrumVoiceTrackId(trackName, voice.id);
+                const isMuted = Boolean(drumMutedVoices[voiceTrackId]);
+                const isSoloed = Boolean(drumSoloedVoices[voiceTrackId]);
+
+                return (
+                    <div key={voice.id} style={{
+                        height: `${DRUM_EDITOR_ROW_HEIGHT}px`, boxSizing: 'border-box', display: 'flex',
+                        alignItems: 'center', justifyContent: 'space-between', gap: '4px', padding: '0 7px',
+                        color: voice.color, backgroundColor: '#1a1a1a', borderBottom: '1px solid #3a3a3a',
+                        borderLeft: `3px solid ${voice.color}`, fontSize: '12px', fontWeight: '700', userSelect: 'none'
+                    }}>
+                        <span>{voice.label}</span>
+                        <div style={{ display: 'flex', gap: '3px' }}>
+                            <button
+                                type="button"
+                                onClick={() => toggleDrumMute?.(trackName, voice.id)}
+                                style={{
+                                    width: '21px', height: '21px', padding: 0, border: 'none', borderRadius: '3px',
+                                    background: isMuted ? '#e53935' : '#444', color: '#fff', cursor: 'pointer',
+                                    fontSize: '10px', fontWeight: 'bold'
+                                }}
+                                title={`Mute ${voice.label} MIDI`}
+                            >M</button>
+                            <button
+                                type="button"
+                                onClick={() => toggleDrumSolo?.(trackName, voice.id)}
+                                style={{
+                                    width: '21px', height: '21px', padding: 0, border: 'none', borderRadius: '3px',
+                                    background: isSoloed ? '#e0a800' : '#444', color: '#fff', cursor: 'pointer',
+                                    fontSize: '10px', fontWeight: 'bold'
+                                }}
+                                title={`Solo ${voice.label} MIDI`}
+                            >S</button>
+                        </div>
+                    </div>
+                );
+            });
         }
 
         const keys = [];
@@ -828,12 +877,12 @@ export default function MidiEditorPopup({
                 flexDirection: 'row'
             }}>
                 {/* Left Column: piano keys, or named ADTOF drum lanes */}
-                <div style={{ width: '60px', flexShrink: 0, display: 'flex', flexDirection: 'column', backgroundColor: '#111' }}>
+                <div style={{ width: isAdtofDrum ? '154px' : '60px', flexShrink: 0, display: 'flex', flexDirection: 'column', backgroundColor: '#111' }}>
                     {/* Empty top left corner to match the 30px TimelineRuler */}
                     <div style={{ height: '30px', backgroundColor: '#1a1a1a', borderBottom: '1px solid #333', borderRight: '1px solid #222', flexShrink: 0 }} />
                     
                     {/* The keys themselves (sync scrolled) */}
-                    <div ref={pianoScrollRef} style={{ flexGrow: 1, overflow: 'hidden', opacity: 0.6 }}>
+                    <div ref={pianoScrollRef} style={{ flexGrow: 1, overflow: 'hidden', opacity: isAdtofDrum ? 1 : 0.6 }}>
                         <div style={{ height: `${gridHeight}px` }}>
                             {renderPianoKeys()}
                         </div>

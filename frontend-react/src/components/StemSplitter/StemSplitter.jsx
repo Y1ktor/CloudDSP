@@ -4,7 +4,6 @@ import TimelineRuler from './TimelineRuler';
 import TrackList from './TrackList';
 import TrackGrid from './TrackGrid';
 import MidiEditorPopup from './MidiEditorPopup';
-import PreviousJobs from './PreviousJobs';
 
 import { useAudioMultiTrackPlayer } from '../../hooks/AudioMultiTrackPlayer';
 import { useMidiSynth } from '../../hooks/useMidiSynth';
@@ -13,10 +12,38 @@ import { useMidiManager } from '../../hooks/useMidiManager';
 import { useGlobalShortcuts } from '../../hooks/useGlobalShortcuts';
 import { useUndoHistory } from '../../hooks/useUndoHistory';
 import { usePlayheadScroll } from '../../hooks/usePlayheadScroll';
-import { ADTOF_DRUM_VOICES } from '../../utils/DrumMidi';
+import { ADTOF_DRUM_VOICES, getDrumVoiceTrackId } from '../../utils/DrumMidi';
 
-function MidiScheduler({ trackName, activeBpm, originalBpm, progress, isPlaying, parsedMidiStems, audioCtxRef, synthRef, isMidiMode, mutedTracks, soloedTracks }) {
-    useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, trackName, activeBpm, originalBpm, synthRef, isMidiMode, mutedTracks, soloedTracks);
+function MidiScheduler({
+    trackName,
+    activeBpm,
+    originalBpm,
+    progress,
+    isPlaying,
+    parsedMidiStems,
+    audioCtxRef,
+    synthRef,
+    isMidiMode,
+    mutedTracks,
+    soloedTracks,
+    drumMutedVoices,
+    drumSoloedVoices
+}) {
+    useMidiSynth(
+        audioCtxRef,
+        progress,
+        isPlaying,
+        parsedMidiStems,
+        trackName,
+        activeBpm,
+        originalBpm,
+        synthRef,
+        isMidiMode,
+        mutedTracks,
+        soloedTracks,
+        drumMutedVoices,
+        drumSoloedVoices
+    );
     return null;
 }
 
@@ -57,8 +84,7 @@ export default function StemSplitter({
     fileName, setFileName,
     splitMode, setSplitMode,
     isSplitting, statusMessage, stemUrls, midiUrls, midiStates, jobTempo, jobId, errorMsg, setErrorMsg,
-    sourceUrl, previousJobs, isPreviousJobsLoading, previousJobsError,
-    onSelectPreviousJob, onRefreshPreviousJobs,
+    sourceUrl,
     executeStemSplit, executeLinkExtraction, beginNewUpload
 }) {
     const [showSigMenu, setShowSigMenu] = React.useState(false);
@@ -66,6 +92,9 @@ export default function StemSplitter({
     const [editorOpenTrack, setEditorOpenTrack] = React.useState(null);
     const [activeMidiTracks, setActiveMidiTracks] = React.useState({});
     const [midiStateBeforeEditor, setMidiStateBeforeEditor] = React.useState({});
+    const [expandedDrumTracks, setExpandedDrumTracks] = React.useState({});
+    const [drumMutedVoices, setDrumMutedVoices] = React.useState({});
+    const [drumSoloedVoices, setDrumSoloedVoices] = React.useState({});
 
     const handleOpenEditor = (trackName) => {
         setMidiStateBeforeEditor(prev => ({ ...prev, [trackName]: !!activeMidiTracks[trackName] }));
@@ -86,6 +115,20 @@ export default function StemSplitter({
 
     const toggleMidiMode = (trackName) => {
         setActiveMidiTracks(prev => ({ ...prev, [trackName]: !prev[trackName] }));
+    };
+
+    const toggleDrumSubtracks = (trackName) => {
+        setExpandedDrumTracks(prev => ({ ...prev, [trackName]: !prev[trackName] }));
+    };
+
+    const toggleDrumMute = (trackName, voiceId) => {
+        const voiceTrackId = getDrumVoiceTrackId(trackName, voiceId);
+        setDrumMutedVoices(prev => ({ ...prev, [voiceTrackId]: !prev[voiceTrackId] }));
+    };
+
+    const toggleDrumSolo = (trackName, voiceId) => {
+        const voiceTrackId = getDrumVoiceTrackId(trackName, voiceId);
+        setDrumSoloedVoices(prev => ({ ...prev, [voiceTrackId]: !prev[voiceTrackId] }));
     };
 
     // 1. Instruments
@@ -129,6 +172,9 @@ export default function StemSplitter({
         setMidiStateBeforeEditor({});
         setEditorOpenTrack(null);
         setSelectedTrack(null);
+        setExpandedDrumTracks({});
+        setDrumMutedVoices({});
+        setDrumSoloedVoices({});
     }, [jobId]);
     const midiStatusByTrack = React.useMemo(() => {
         return Object.keys(stemUrls || {}).reduce((statuses, trackName) => {
@@ -198,12 +244,21 @@ export default function StemSplitter({
     }, [file, audioEngine.originalUrl, sourceUrl, stemUrls]);
 
     // ADTOF emits a single drum MIDI file, but its five fixed note classes
-    // represent distinct instruments. The audio stays on the parent row while
-    // the client renders a dedicated MIDI lane for each class.
+    // represent distinct instruments. The audio stays on the parent row and
+    // its child MIDI lanes are only rendered after the user expands Drums.
     const timelineRows = React.useMemo(() => (
         Object.entries(tracksToRender).flatMap(([trackName, url]) => {
-            const stemRow = { id: trackName, trackName, url, kind: 'stem' };
-            if (trackName !== 'drums' || !parsedMidiStems[trackName]?.isAdtofDrum) {
+            const hasDrumSubtracks = trackName === 'drums' && parsedMidiStems[trackName]?.isAdtofDrum;
+            const isDrumExpanded = hasDrumSubtracks && Boolean(expandedDrumTracks[trackName]);
+            const stemRow = {
+                id: trackName,
+                trackName,
+                url,
+                kind: 'stem',
+                hasDrumSubtracks,
+                isDrumExpanded
+            };
+            if (!hasDrumSubtracks || !isDrumExpanded) {
                 return [stemRow];
             }
 
@@ -217,7 +272,7 @@ export default function StemSplitter({
                 }))
             ];
         })
-    ), [tracksToRender, parsedMidiStems]);
+    ), [tracksToRender, parsedMidiStems, expandedDrumTracks]);
 
     const [pixelsPerBar, setPixelsPerBar] = React.useState(100);
     const parsedBeatsPerBar = parseInt(audioEngine.timeSignature.split('/')[0], 10) || 4;
@@ -349,15 +404,6 @@ export default function StemSplitter({
                 executeLinkExtraction={executeLinkExtraction}
                 file={file}
                 errorMsg={errorMsg}
-            />
-
-            <PreviousJobs
-                jobs={previousJobs}
-                activeJobId={jobId}
-                isLoading={isPreviousJobsLoading}
-                error={previousJobsError}
-                onSelect={onSelectPreviousJob}
-                onRefresh={onRefreshPreviousJobs}
             />
 
             {/* Dynamic Results Area */}
@@ -575,6 +621,11 @@ export default function StemSplitter({
                                 onDoubleClickTrack={handleOpenEditor}
                                 activeMidiTracks={activeMidiTracks}
                                 toggleMidiMode={toggleMidiMode}
+                                toggleDrumSubtracks={toggleDrumSubtracks}
+                                drumMutedVoices={drumMutedVoices}
+                                drumSoloedVoices={drumSoloedVoices}
+                                toggleDrumMute={toggleDrumMute}
+                                toggleDrumSolo={toggleDrumSolo}
                             />
                             
                             {/* RIGHT COLUMN: Timeline Canvas (Scrollable) */}
@@ -661,6 +712,8 @@ export default function StemSplitter({
                         isMidiMode={!!activeMidiTracks[trackName]}
                         mutedTracks={audioEngine.mutedTracks}
                         soloedTracks={audioEngine.soloedTracks}
+                        drumMutedVoices={drumMutedVoices}
+                        drumSoloedVoices={drumSoloedVoices}
                     />
                 );
             })}
@@ -688,6 +741,10 @@ export default function StemSplitter({
                 soloedTracks={audioEngine.soloedTracks}
                 toggleMute={audioEngine.toggleMute}
                 toggleSolo={audioEngine.toggleSolo}
+                drumMutedVoices={drumMutedVoices}
+                drumSoloedVoices={drumSoloedVoices}
+                toggleDrumMute={toggleDrumMute}
+                toggleDrumSolo={toggleDrumSolo}
                 activeBpm={activeBpm}
                 originalBpm={audioEngine.originalBpm}
                 parsedBeatsPerBar={parsedBeatsPerBar}

@@ -1,6 +1,12 @@
 import React, { useRef, useEffect } from 'react';
 import { Sampler, SplendidGrandPiano } from 'smplr';
-import { ADTOF_DRUM_SAMPLER_OPTIONS, getAdtofDrumVoice, getDrumPlaybackVelocity, getMidiNotes } from '../utils/DrumMidi';
+import {
+    ADTOF_DRUM_SAMPLER_OPTIONS,
+    getAdtofDrumVoice,
+    getDrumPlaybackVelocity,
+    getMidiNotes,
+    isDrumVoiceAudible
+} from '../utils/DrumMidi';
 
 /**
  * useMidiSynth
@@ -18,9 +24,25 @@ import { ADTOF_DRUM_SAMPLER_OPTIONS, getAdtofDrumVoice, getDrumPlaybackVelocity,
  * @param {React.MutableRefObject<Object>} synthRef - Global reference to the initialized smplr instrument.
  * @param {boolean} isMidiMode - Whether MIDI synthesis is currently active for this track.
  * @param {Object} mutedTracks - Dictionary of muted tracks.
- * @param {Object} soloedTracks - Dictionary of soloed tracks.
+ * @param {Object} soloedTracks - Dictionary of soloed audio tracks.
+ * @param {Object} drumMutedVoices - Dictionary of muted ADTOF MIDI lanes.
+ * @param {Object} drumSoloedVoices - Dictionary of soloed ADTOF MIDI lanes.
  */
-export function useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, trackName, activeBpm, originalBpm, synthRef, isMidiMode, mutedTracks = {}, soloedTracks = {}) {
+export function useMidiSynth(
+    audioCtxRef,
+    progress,
+    isPlaying,
+    parsedMidiStems,
+    trackName,
+    activeBpm,
+    originalBpm,
+    synthRef,
+    isMidiMode,
+    mutedTracks = {},
+    soloedTracks = {},
+    drumMutedVoices = {},
+    drumSoloedVoices = {}
+) {
     const scheduledNotesRef = useRef(new Set());
     const isDrumTrack = parsedMidiStems?.[trackName]?.isAdtofDrum === true;
 
@@ -44,6 +66,15 @@ export function useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, 
             }
         }
     }, [isMidiMode, audioCtxRef, synthRef, isDrumTrack]);
+
+    // A scheduled one-shot cannot be selectively cancelled in smplr. Stop the
+    // kit and rebuild the short scheduler window whenever a drum lane's M/S
+    // state changes, so the console responds immediately and correctly.
+    useEffect(() => {
+        if (!isDrumTrack || !synthRef.current) return;
+        scheduledNotesRef.current.clear();
+        synthRef.current.stop();
+    }, [isDrumTrack, synthRef, drumMutedVoices, drumSoloedVoices]);
 
     // Cleanup memory when the editor is completely closed (component unmounts)
     useEffect(() => {
@@ -111,6 +142,12 @@ export function useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, 
                     // The dedicated drum sampler accepts a sample name such as "kick".
                     // Never fall back to a piano pitch for an unknown drum note.
                     if (isDrumTrack && !drumVoice) return;
+                    if (isDrumTrack && !isDrumVoiceAudible(
+                        trackName,
+                        drumVoice,
+                        drumMutedVoices,
+                        drumSoloedVoices
+                    )) return;
 
                     synthRef.current.start({
                         note: drumVoice ? drumVoice.sample : note.midi,
@@ -124,7 +161,22 @@ export function useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, 
                 }
             }
         });
-    }, [progress, isPlaying, isMidiMode, activeBpm, originalBpm, parsedMidiStems, trackName, audioCtxRef, synthRef, mutedTracks, soloedTracks, isDrumTrack]);
+    }, [
+        progress,
+        isPlaying,
+        isMidiMode,
+        activeBpm,
+        originalBpm,
+        parsedMidiStems,
+        trackName,
+        audioCtxRef,
+        synthRef,
+        mutedTracks,
+        soloedTracks,
+        isDrumTrack,
+        drumMutedVoices,
+        drumSoloedVoices
+    ]);
 
     // 3. Clear scheduled notes when pausing
     useEffect(() => {

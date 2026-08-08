@@ -110,7 +110,9 @@ export default function TrackGrid({
                                 paddingLeft: '14px', color: '#9fa8da', fontSize: '12px', fontWeight: '600',
                                 pointerEvents: 'none'
                             }}>
-                                ADTOF drum kit — edit or play the named lanes below
+                                {row.isDrumExpanded
+                                    ? 'ADTOF drum kit — edit or play the named lanes below'
+                                    : 'ADTOF drum kit — expand Drums to show individual MIDI lanes'}
                             </div>
                         )}
                         {renderMidiNotes(row)}

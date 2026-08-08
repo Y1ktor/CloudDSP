@@ -9,7 +9,7 @@ export const ADTOF_DRUM_VOICES = Object.freeze([
     { id: 'kick', label: 'Kick', midi: 35, sample: 'kick', color: '#e57373', velocityScale: 1.2 },
     { id: 'snare', label: 'Snare', midi: 38, sample: 'snare', color: '#ffb74d' },
     { id: 'tom', label: 'Tom', midi: 47, sample: 'mid-tom', color: '#81c784' },
-    { id: 'hihat', label: 'Hi-hat', midi: 42, sample: 'hihat-close', color: '#64b5f6', velocityScale: 0.55 },
+    { id: 'hihat', label: 'Hi-hats', midi: 42, sample: 'hihat-close', color: '#64b5f6', velocityScale: 0.55 },
     { id: 'cymbal', label: 'Cymbal', midi: 49, sample: 'cymbal', color: '#ba68c8' },
 ]);
 
@@ -47,6 +47,24 @@ export function getAdtofDrumVoice(midiNote) {
 
 export function getAdtofDrumVoiceIndex(midiNote) {
     return ADTOF_DRUM_VOICES.findIndex((voice) => voice.midi === midiNote);
+}
+
+/** Build the stable UI state key for one ADTOF drum voice. */
+export function getDrumVoiceTrackId(trackName, voiceId) {
+    return `${trackName}:${voiceId}`;
+}
+
+/**
+ * Resolve one drum lane's MIDI audibility without changing the parent drum
+ * audio stem. A solo takes precedence over individual mute states, matching
+ * the normal track-console behavior.
+ */
+export function isDrumVoiceAudible(trackName, voice, mutedVoices = {}, soloedVoices = {}) {
+    if (!voice) return false;
+
+    const voiceTrackId = getDrumVoiceTrackId(trackName, voice.id);
+    const hasSoloedVoices = Object.values(soloedVoices).some(Boolean);
+    return hasSoloedVoices ? Boolean(soloedVoices[voiceTrackId]) : !mutedVoices[voiceTrackId];
 }
 
 /**

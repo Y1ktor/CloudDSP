@@ -3,6 +3,7 @@ import { BrowserRouter, Link, Route, Routes, useLocation } from 'react-router-do
 import EqPage from './EqPage';
 import AuthPanel from './components/AuthPanel';
 import StemSplitter from './components/StemSplitter/StemSplitter';
+import PreviousJobs from './components/StemSplitter/PreviousJobs';
 import {
     confirmSignUp,
     getCurrentSession,
@@ -132,6 +133,7 @@ export default function App() {
     const [previousJobs, setPreviousJobs] = useState([]);
     const [isPreviousJobsLoading, setIsPreviousJobsLoading] = useState(false);
     const [previousJobsError, setPreviousJobsError] = useState('');
+    const [isPreviousJobsOpen, setIsPreviousJobsOpen] = useState(false);
 
     const socketRef = useRef(null);
     const shouldReconnectRef = useRef(false);
@@ -187,6 +189,7 @@ export default function App() {
         } else {
             setActiveJobId(null);
             setJobSnapshots({});
+            setIsPreviousJobsOpen(false);
             jobRefreshInFlightRef.current.clear();
             jobRefreshBackoffRef.current.clear();
         }
@@ -235,6 +238,11 @@ export default function App() {
 
     useEffect(() => {
         fetchPreviousJobs();
+    }, [fetchPreviousJobs]);
+
+    const openPreviousJobs = useCallback(() => {
+        setIsPreviousJobsOpen(true);
+        void fetchPreviousJobs();
     }, [fetchPreviousJobs]);
 
     const fetchJobSnapshot = useCallback(async (jobId, { showError = false, force = false } = {}) => {
@@ -435,6 +443,11 @@ export default function App() {
         }
     };
 
+    const selectPreviousJob = async (selectedJob) => {
+        setIsPreviousJobsOpen(false);
+        await openPreviousJob(selectedJob);
+    };
+
     const executeStemSplit = async () => {
         if (!stemFile) {
             setErrorMsg('Please select an audio file first.');
@@ -516,6 +529,7 @@ export default function App() {
     const handleSignOut = () => {
         signOut();
         setAuthSession(null);
+        setIsPreviousJobsOpen(false);
         setErrorMsg('');
         setStatusMessage('Signed out.');
     };
@@ -535,11 +549,6 @@ export default function App() {
         jobTempo: currentJob?.tempo,
         jobId: currentJob?.job_id || activeJobId,
         sourceUrl: currentJob?.original_url,
-        previousJobs,
-        isPreviousJobsLoading,
-        previousJobsError,
-        onSelectPreviousJob: openPreviousJob,
-        onRefreshPreviousJobs: fetchPreviousJobs,
         errorMsg,
         setErrorMsg,
         executeStemSplit,
@@ -554,12 +563,23 @@ export default function App() {
         onSignUp: signUp,
         onConfirmSignUp: confirmSignUp,
         onSignOut: handleSignOut,
+        onOpenHistory: openPreviousJobs,
     };
 
     return (
         <BrowserRouter>
             <div style={{ minHeight: '100vh' }}>
                 <NavBar authProps={authProps} />
+                <PreviousJobs
+                    isOpen={isPreviousJobsOpen}
+                    onClose={() => setIsPreviousJobsOpen(false)}
+                    jobs={previousJobs}
+                    activeJobId={activeJobId}
+                    isLoading={isPreviousJobsLoading}
+                    error={previousJobsError}
+                    onSelect={selectPreviousJob}
+                    onRefresh={fetchPreviousJobs}
+                />
                 {!authLoading && (!JOB_API_URL || !WEBSOCKET_URL) && (
                     <div style={{ margin: '-24px 20px 20px', color: '#f5c451', fontSize: '13px' }}>
                         Set VITE_JOB_API_URL and VITE_WEBSOCKET_URL before using the processing workspace.

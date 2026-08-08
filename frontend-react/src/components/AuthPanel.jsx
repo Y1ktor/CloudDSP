@@ -1,6 +1,6 @@
 import React from 'react';
 
-export default function AuthPanel({ configured, session, onSignIn, onSignUp, onConfirmSignUp, onSignOut }) {
+export default function AuthPanel({ configured, session, onSignIn, onSignUp, onConfirmSignUp, onSignOut, onOpenHistory }) {
     const [mode, setMode] = React.useState('sign-in');
     const [email, setEmail] = React.useState('');
     const [password, setPassword] = React.useState('');
@@ -50,6 +50,14 @@ export default function AuthPanel({ configured, session, onSignIn, onSignUp, onC
         return (
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#d8e6d9', fontSize: '13px' }}>
                 <span title={session.username}>Signed in as {session.username}</span>
+                {onOpenHistory && (
+                    <button onClick={onOpenHistory} style={historyButtonStyle} title="Open job history">
+                        <svg aria-hidden="true" viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                            <path d="M13 3a9 9 0 1 0 8.94 10H20a7 7 0 1 1-2.05-4.95L15 11h6V5l-1.63 1.63A8.96 8.96 0 0 0 13 3Zm-1 5v5l4.25 2.52 1-1.64L14 12V8h-2Z" />
+                        </svg>
+                        History
+                    </button>
+                )}
                 <button onClick={onSignOut} style={buttonStyle}>Sign out</button>
             </div>
         );
@@ -102,6 +110,11 @@ const inputStyle = {
 
 const buttonStyle = {
     padding: '7px 10px', borderRadius: '4px', border: '1px solid #4CAF50', background: '#326d37', color: '#fff', cursor: 'pointer', fontSize: '12px',
+};
+
+const historyButtonStyle = {
+    padding: '7px 10px', borderRadius: '4px', border: '1px solid #5a6b80', background: '#374452', color: '#fff',
+    cursor: 'pointer', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '5px',
 };
 
 const linkStyle = {

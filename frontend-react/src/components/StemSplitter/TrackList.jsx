@@ -2,7 +2,7 @@
  * TrackList.jsx
  *
  * Fixed timeline console. Drum lanes are MIDI-only child rows; their parent
- * drum stem retains the audio, mute, solo, and MIDI-playback controls.
+ * drum stem retains the audio controls, while each lane has its own MIDI M/S.
  */
 import React from 'react';
 
@@ -21,7 +21,12 @@ export default function TrackList({
     setSelectedTrack,
     onDoubleClickTrack,
     activeMidiTracks = {},
-    toggleMidiMode
+    toggleMidiMode,
+    toggleDrumSubtracks,
+    drumMutedVoices = {},
+    drumSoloedVoices = {},
+    toggleDrumMute,
+    toggleDrumSolo
 }) {
     return (
         <div style={{ width: '210px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '3px' }}>
@@ -41,6 +46,8 @@ export default function TrackList({
                 const isDrumLane = row.kind === 'drum-lane';
                 const trackName = row.trackName;
                 if (isDrumLane) {
+                    const isMuted = Boolean(drumMutedVoices[row.id]);
+                    const isSoloed = Boolean(drumSoloedVoices[row.id]);
                     return (
                         <div
                             key={row.id}
@@ -55,9 +62,35 @@ export default function TrackList({
                             }}
                             title={`ADTOF ${row.drumVoice.label} lane — double-click to edit the drum kit MIDI`}
                         >
-                            <span style={{ color: row.drumVoice.color, fontWeight: '700', fontSize: '13px' }}>
+                            <span style={{ color: row.drumVoice.color, fontWeight: '700', fontSize: '13px', flexGrow: 1 }}>
                                 {row.drumVoice.label}
                             </span>
+                            <div style={{ display: 'flex', gap: '5px' }}>
+                                <button
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        toggleDrumMute?.(trackName, row.drumVoice.id);
+                                    }}
+                                    style={{
+                                        width: '24px', height: '24px', background: isMuted ? '#e53935' : '#555',
+                                        color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer',
+                                        fontSize: '11px', fontWeight: 'bold'
+                                    }}
+                                    title={`Mute ${row.drumVoice.label} MIDI`}
+                                >M</button>
+                                <button
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        toggleDrumSolo?.(trackName, row.drumVoice.id);
+                                    }}
+                                    style={{
+                                        width: '24px', height: '24px', background: isSoloed ? '#e0a800' : '#555',
+                                        color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer',
+                                        fontSize: '11px', fontWeight: 'bold'
+                                    }}
+                                    title={`Solo ${row.drumVoice.label} MIDI`}
+                                >S</button>
+                            </div>
                         </div>
                     );
                 }
@@ -81,8 +114,29 @@ export default function TrackList({
                                 if (duration === 0) setDuration(event.target.duration);
                             }}
                         />
-                        <div style={{ color: '#fff', fontWeight: 'bold', textTransform: 'capitalize', width: '80px' }}>
-                            {trackName}
+                        <div style={{ color: '#fff', fontWeight: 'bold', textTransform: 'capitalize', width: '80px', display: 'flex', alignItems: 'center' }}>
+                            {row.hasDrumSubtracks && (
+                                <button
+                                    type="button"
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        toggleDrumSubtracks?.(trackName);
+                                    }}
+                                    style={{
+                                        height: '26px', padding: 0, margin: 0, border: 'none',
+                                        background: 'transparent',
+                                        color: '#fff', cursor: 'pointer', display: 'inline-flex', alignItems: 'center',
+                                        gap: '3px', fontSize: 'inherit', fontWeight: 'bold',
+                                        textTransform: 'capitalize'
+                                    }}
+                                    title={`${row.isDrumExpanded ? 'Collapse' : 'Expand'} drum subtracks`}
+                                    aria-label={`${row.isDrumExpanded ? 'Collapse' : 'Expand'} drum subtracks`}
+                                >
+                                    <span>{trackName}</span>
+                                    <span aria-hidden="true" style={{ color: '#b9c5d6', fontSize: '10px' }}>▼</span>
+                                </button>
+                            )}
+                            {!row.hasDrumSubtracks && <span>{trackName}</span>}
                         </div>
                         <div style={{ display: 'flex', gap: '8px' }}>
                             {trackName !== 'Original' && (
