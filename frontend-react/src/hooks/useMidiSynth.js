@@ -1,5 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { SplendidGrandPiano } from 'smplr';
+import React, { useRef, useEffect } from 'react';
+import { Sampler, SplendidGrandPiano } from 'smplr';
+import { ADTOF_DRUM_SAMPLER_OPTIONS, getAdtofDrumVoice, getDrumPlaybackVelocity, getMidiNotes } from '../utils/DrumMidi';
 
 /**
  * useMidiSynth
@@ -21,6 +22,7 @@ import { SplendidGrandPiano } from 'smplr';
  */
 export function useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, trackName, activeBpm, originalBpm, synthRef, isMidiMode, mutedTracks = {}, soloedTracks = {}) {
     const scheduledNotesRef = useRef(new Set());
+    const isDrumTrack = parsedMidiStems?.[trackName]?.isAdtofDrum === true;
 
     // 1. Initialize instrument when MIDI mode is enabled (now just ensures it exists)
     useEffect(() => {
@@ -32,14 +34,16 @@ export function useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, 
                 audioCtxRef.current = new AudioContext();
             }
             if (!synthRef.current) {
-                synthRef.current = new SplendidGrandPiano(audioCtxRef.current);
+                synthRef.current = isDrumTrack
+                    ? Sampler(audioCtxRef.current, ADTOF_DRUM_SAMPLER_OPTIONS)
+                    : new SplendidGrandPiano(audioCtxRef.current);
             }
         } else {
             if (synthRef.current) {
                 synthRef.current.stop(); // Stop all ringing notes but keep the instance alive!
             }
         }
-    }, [isMidiMode, audioCtxRef, synthRef]);
+    }, [isMidiMode, audioCtxRef, synthRef, isDrumTrack]);
 
     // Cleanup memory when the editor is completely closed (component unmounts)
     useEffect(() => {
@@ -86,7 +90,7 @@ export function useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, 
         // Which corresponds to this much unstretched audio time:
         const unstretchedLookahead = realWorldLookahead * playbackRate;
         
-        trackData.midiData.tracks[0].notes.forEach((note, index) => {
+        getMidiNotes(trackData.midiData).forEach((note, index) => {
             // note.time and progress are both in absolute, UNSTRETCHED seconds
             if (note.time >= progress && note.time < progress + unstretchedLookahead) {
                 // If velocity is <= 0.015, it acts as our custom "disabled" flag. Skip playing it.
@@ -102,9 +106,17 @@ export function useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, 
                     // Convert the note's original duration into real-world duration
                     const realWorldDuration = note.duration / playbackRate;
 
+                    const drumVoice = isDrumTrack ? getAdtofDrumVoice(note.midi) : null;
+                    // ADTOF pitch values identify drum classes, while smplr's
+                    // The dedicated drum sampler accepts a sample name such as "kick".
+                    // Never fall back to a piano pitch for an unknown drum note.
+                    if (isDrumTrack && !drumVoice) return;
+
                     synthRef.current.start({
-                        note: note.midi,
-                        velocity: Math.round((note.velocity !== undefined ? note.velocity : 0.8) * 127),
+                        note: drumVoice ? drumVoice.sample : note.midi,
+                        velocity: drumVoice
+                            ? getDrumPlaybackVelocity(note, drumVoice)
+                            : Math.round((note.velocity !== undefined ? note.velocity : 0.8) * 127),
                         time: audioCtxRef.current.currentTime + realWorldDelay,
                         duration: realWorldDuration
                     });
@@ -112,7 +124,7 @@ export function useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, 
                 }
             }
         });
-    }, [progress, isPlaying, isMidiMode, activeBpm, originalBpm, parsedMidiStems, trackName, audioCtxRef, mutedTracks, soloedTracks]);
+    }, [progress, isPlaying, isMidiMode, activeBpm, originalBpm, parsedMidiStems, trackName, audioCtxRef, synthRef, mutedTracks, soloedTracks, isDrumTrack]);
 
     // 3. Clear scheduled notes when pausing
     useEffect(() => {

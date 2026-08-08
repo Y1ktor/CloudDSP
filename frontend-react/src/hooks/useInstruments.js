@@ -14,18 +14,20 @@ export function useInstruments() {
     const globalSynthRef = React.useRef(null);
     const guitarSynthRef = React.useRef(null);
     const bassSynthRef = React.useRef(null);
+    const drumSynthRef = React.useRef(null);
 
     React.useEffect(() => {
         return () => {
-            if (globalSynthRef.current) {
+            [globalSynthRef, guitarSynthRef, bassSynthRef, drumSynthRef].forEach((synthRef) => {
+                if (!synthRef.current) return;
                 try {
-                    globalSynthRef.current.stop();
-                } catch (e) {
+                    synthRef.current.stop();
+                } catch {
                     // Ignore
                 }
-            }
+            });
         };
-    }, []);
+    }, [globalSynthRef, guitarSynthRef, bassSynthRef, drumSynthRef]);
 
-    return { globalSynthRef, guitarSynthRef, bassSynthRef };
+    return { globalSynthRef, guitarSynthRef, bassSynthRef, drumSynthRef };
 }

@@ -3,6 +3,9 @@ import TimelineRuler from './TimelineRuler';
 import { useMidiEditorOperations } from '../../hooks/useMidiEditorOperations';
 import { useMidiExport } from '../../hooks/useMidiExport';
 import { usePlayheadScroll } from '../../hooks/usePlayheadScroll';
+import { ADTOF_DRUM_VOICES, getAdtofDrumVoice, getAdtofDrumVoiceIndex, getDrumPlaybackVelocity } from '../../utils/DrumMidi';
+
+const DRUM_EDITOR_ROW_HEIGHT = 56;
 
 /**
  * MidiEditorPopup Component
@@ -100,6 +103,7 @@ export default function MidiEditorPopup({
     const popupTimelineRef = useRef(null);
     const pianoScrollRef = useRef(null);
     const gridScrollRef = useRef(null);
+    const isAdtofDrum = parsedMidiStems?.[trackName]?.isAdtofDrum === true;
     const isMidiPending = midiStatus === 'processing' || midiStatus === 'loading';
     const isMidiFailed = midiStatus === 'failed';
     const midiPendingLabel = midiStatus === 'loading'
@@ -111,12 +115,17 @@ export default function MidiEditorPopup({
     // Track drag state
 
 
-    // Local audition logic for piano keys/notes
+    // ADTOF uses General MIDI pitches as class labels. The drum sampler instead
+    // expects its named one-shot sample (kick, snare, mid-tom, and so on).
     const auditionNote = (note) => {
         if (isMidiMode && synthRef && synthRef.current && audioCtxRef.current) {
+            const drumVoice = isAdtofDrum ? getAdtofDrumVoice(note.midi) : null;
+            if (isAdtofDrum && !drumVoice) return;
             synthRef.current.start({
-                note: note.midi,
-                velocity: Math.round((note.velocity !== undefined ? note.velocity : 0.8) * 127),
+                note: drumVoice ? drumVoice.sample : note.midi,
+                velocity: drumVoice
+                    ? getDrumPlaybackVelocity(note, drumVoice)
+                    : Math.round((note.velocity !== undefined ? note.velocity : 0.8) * 127),
                 time: audioCtxRef.current.currentTime,
                 duration: 0.5 // Short audition
             });
@@ -178,9 +187,14 @@ export default function MidiEditorPopup({
         setIsRevertConfirmationOpen(false);
     };
     
-    // Center scroll on C4 (MIDI 60) when opened
+    // Center melodic editors on C4. ADTOF drum editors only have five lanes.
     React.useEffect(() => {
         if (trackName && gridScrollRef.current) {
+            if (isAdtofDrum) {
+                gridScrollRef.current.scrollTop = 0;
+                if (pianoScrollRef.current) pianoScrollRef.current.scrollTop = 0;
+                return;
+            }
             // C4 is 67 rows down from the top (127 - 60)
             const c4TopPx = 67 * popupRowHeight;
             const containerHeight = gridScrollRef.current.clientHeight;
@@ -193,7 +207,7 @@ export default function MidiEditorPopup({
                 pianoScrollRef.current.scrollTop = targetScrollTop;
             }
         }
-    }, [trackName, popupRowHeight]); // Only run when popup opens (trackName changes)
+    }, [trackName, popupRowHeight, isAdtofDrum]); // Only run when popup opens (trackName changes)
 
     // Call the new operations hook
     const {
@@ -223,6 +237,8 @@ export default function MidiEditorPopup({
         parsedBeatsPerBar,
         popupPixelsPerBar,
         popupRowHeight,
+        isDrumMidi: isAdtofDrum,
+        drumRowHeight: DRUM_EDITOR_ROW_HEIGHT,
         auditionNote
     });
 
@@ -247,6 +263,19 @@ export default function MidiEditorPopup({
 
     // Render the piano keyboard column with realistic styling
     const renderPianoKeys = () => {
+        if (isAdtofDrum) {
+            return ADTOF_DRUM_VOICES.map((voice) => (
+                <div key={voice.id} style={{
+                    height: `${DRUM_EDITOR_ROW_HEIGHT}px`, boxSizing: 'border-box', display: 'flex',
+                    alignItems: 'center', padding: '0 8px', color: voice.color, backgroundColor: '#1a1a1a',
+                    borderBottom: '1px solid #3a3a3a', borderLeft: `3px solid ${voice.color}`,
+                    fontSize: '12px', fontWeight: '700', userSelect: 'none'
+                }}>
+                    {voice.label}
+                </div>
+            ));
+        }
+
         const keys = [];
         for (let i = 127; i >= 0; i--) {
             const isBlackKey = [1, 3, 6, 8, 10].includes(i % 12);
@@ -314,8 +343,15 @@ export default function MidiEditorPopup({
             const noteDurationBars = noteDurationBeats / parsedBeatsPerBar;
             const widthPx = Math.max(2, noteDurationBars * popupPixelsPerBar);
 
-            // Midi pitch 0-127. 127 is top (0px), 0 is bottom
-            const topPx = (127 - note.midi) * popupRowHeight;
+            const drumVoice = isAdtofDrum ? getAdtofDrumVoice(note.midi) : null;
+            if (isAdtofDrum && !drumVoice) return null;
+
+            // Melodic MIDI uses the complete pitch range. ADTOF drum classes
+            // get one fixed named row each.
+            const topPx = drumVoice
+                ? getAdtofDrumVoiceIndex(note.midi) * DRUM_EDITOR_ROW_HEIGHT
+                : (127 - note.midi) * popupRowHeight;
+            const noteRowHeight = drumVoice ? DRUM_EDITOR_ROW_HEIGHT : popupRowHeight;
 
             // Map velocity (0-1) continuously across an HSL color spectrum (Muted / Greyish Heatmap)
             const v = note.velocity !== undefined ? Math.max(0.01, note.velocity) : 0.8;
@@ -330,7 +366,9 @@ export default function MidiEditorPopup({
             const lightness = Math.round(45 + (v * 10)); 
             
             const isDisabled = note.velocity !== undefined && note.velocity <= 0.015;
-            const noteColor = isDisabled ? '#555' : `hsl(${Math.round(hue)}, ${saturation}%, ${lightness}%)`;
+            const noteColor = isDisabled
+                ? '#555'
+                : drumVoice ? drumVoice.color : `hsl(${Math.round(hue)}, ${saturation}%, ${lightness}%)`;
 
             const isSelected = selectedNoteIndices.has(index);
 
@@ -353,7 +391,7 @@ export default function MidiEditorPopup({
                         left: `${leftPx}px`,
                         width: `${widthPx}px`,
                         top: `${topPx}px`,
-                        height: `${popupRowHeight}px`,
+                        height: `${noteRowHeight}px`,
                         backgroundColor: noteColor,
                         borderRadius: '2px',
                         boxShadow: isSelected ? '0 0 0 1px rgba(255,255,255,0.6), 0 0 4px rgba(255,255,255,0.4)' : '0 0 2px rgba(0,0,0,0.5)',
@@ -364,7 +402,7 @@ export default function MidiEditorPopup({
                         opacity: isDisabled && !isSelected ? 0.5 : 1,
                         zIndex: isSelected ? 10 : 1
                     }}
-                    title={`Pitch: ${note.name} (${note.midi}) | Velocity: ${Math.round((note.velocity || 0) * 100)}%`}
+                    title={`${drumVoice?.label || `Pitch: ${note.name} (${note.midi})`} | Velocity: ${Math.round((note.velocity || 0) * 100)}%`}
                 >
                     {/* Left Resize Handle */}
                     <div
@@ -391,8 +429,9 @@ export default function MidiEditorPopup({
         });
     };
 
-    // 128 rows * popupRowHeight total height
-    const gridHeight = 128 * popupRowHeight;
+    const gridHeight = isAdtofDrum
+        ? ADTOF_DRUM_VOICES.length * DRUM_EDITOR_ROW_HEIGHT
+        : 128 * popupRowHeight;
     
     // Scale the playhead position to match the popup's local zoom level
     const popupPlayheadX = Math.round((playheadX / pixelsPerBar) * popupPixelsPerBar);
@@ -471,8 +510,13 @@ export default function MidiEditorPopup({
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <h3 style={{ margin: 0, color: '#fff', textTransform: 'capitalize', fontSize: '24px' }}>
-                        MIDI Editor: {trackName}
+                        {isAdtofDrum ? 'Drum Editor' : 'MIDI Editor'}: {trackName}
                     </h3>
+                    {isAdtofDrum && (
+                        <span style={{ color: '#9fa8da', fontSize: '12px', fontWeight: '600' }}>
+                            ADTOF kit: Kick · Snare · Tom · Hi-hat · Cymbal
+                        </span>
+                    )}
                     {(isMidiPending || isMidiFailed) && (
                         <span style={{
                             color: isMidiFailed ? '#ff9a9a' : '#f5c451', background: isMidiFailed ? 'rgba(155, 45, 45, 0.22)' : 'rgba(224, 168, 0, 0.16)',
@@ -758,7 +802,7 @@ export default function MidiEditorPopup({
                             style={{ width: '80px', cursor: 'pointer' }}
                         />
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} title="Vertical Zoom">
+                    {!isAdtofDrum && <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} title="Vertical Zoom">
                         <svg viewBox="0 0 24 24" width="16" height="16" fill="#aaa">
                             <path d="M12 2L8 6h3v12H8l4 4 4-4h-3V6h3z"/>
                         </svg>
@@ -769,7 +813,7 @@ export default function MidiEditorPopup({
                             onChange={(e) => setPopupRowHeight(Number(e.target.value))}
                             style={{ width: '80px', cursor: 'pointer' }}
                         />
-                    </div>
+                    </div>}
                 </div>
             </div>
 
@@ -783,7 +827,7 @@ export default function MidiEditorPopup({
                 display: 'flex',
                 flexDirection: 'row'
             }}>
-                {/* Left Column: Piano Keys */}
+                {/* Left Column: piano keys, or named ADTOF drum lanes */}
                 <div style={{ width: '60px', flexShrink: 0, display: 'flex', flexDirection: 'column', backgroundColor: '#111' }}>
                     {/* Empty top left corner to match the 30px TimelineRuler */}
                     <div style={{ height: '30px', backgroundColor: '#1a1a1a', borderBottom: '1px solid #333', borderRight: '1px solid #222', flexShrink: 0 }} />
@@ -880,11 +924,11 @@ export default function MidiEditorPopup({
                         height: `${gridHeight}px`,
                         marginTop: '0px',
                         cursor: isModifierHeld ? 'crosshair' : 'default',
-                        backgroundSize: `${popupPixelsPerBar}px 100%, ${popupPixelsPerBar / parsedBeatsPerBar}px 100%, 100% ${popupRowHeight}px`,
+                        backgroundSize: `${popupPixelsPerBar}px 100%, ${popupPixelsPerBar / parsedBeatsPerBar}px 100%, 100% ${isAdtofDrum ? DRUM_EDITOR_ROW_HEIGHT : popupRowHeight}px`,
                         backgroundImage: `
                             linear-gradient(to right, transparent ${popupPixelsPerBar - 1}px, rgba(255,255,255,0.1) ${popupPixelsPerBar}px),
                             linear-gradient(to right, transparent ${(popupPixelsPerBar / parsedBeatsPerBar) - 1}px, rgba(255,255,255,0.03) ${popupPixelsPerBar / parsedBeatsPerBar}px),
-                            linear-gradient(to bottom, transparent ${popupRowHeight - 1}px, rgba(255,255,255,0.05) ${popupRowHeight}px)
+                            linear-gradient(to bottom, transparent ${(isAdtofDrum ? DRUM_EDITOR_ROW_HEIGHT : popupRowHeight) - 1}px, rgba(255,255,255,0.05) ${isAdtofDrum ? DRUM_EDITOR_ROW_HEIGHT : popupRowHeight}px)
                         `
                     }}>
                         {/* Drag Highlight Row or Replication Projections */}
@@ -898,7 +942,17 @@ export default function MidiEditorPopup({
                                         if (!noteToClone) return null;
                                         
                                         const projTime = Math.max(0, orig.originalTime + noteDragState.deltaTime);
-                                        const projMidi = Math.max(0, Math.min(127, orig.originalMidi + noteDragState.deltaPitch));
+                                        const projMidi = isAdtofDrum
+                                            ? (() => {
+                                                const sourceIndex = getAdtofDrumVoiceIndex(orig.originalMidi);
+                                                if (sourceIndex < 0) return orig.originalMidi;
+                                                const targetIndex = Math.max(0, Math.min(
+                                                    ADTOF_DRUM_VOICES.length - 1,
+                                                    sourceIndex + (noteDragState.drumVoiceDelta || 0)
+                                                ));
+                                                return ADTOF_DRUM_VOICES[targetIndex].midi;
+                                            })()
+                                            : Math.max(0, Math.min(127, orig.originalMidi + noteDragState.deltaPitch));
                                         
                                         const noteStartBeats = projTime * (activeBpm / 60);
                                         const noteStartBars = noteStartBeats / parsedBeatsPerBar;
@@ -908,7 +962,10 @@ export default function MidiEditorPopup({
                                         const noteDurationBars = noteDurationBeats / parsedBeatsPerBar;
                                         const widthPx = Math.max(2, noteDurationBars * popupPixelsPerBar);
 
-                                        const topPx = (127 - projMidi) * popupRowHeight;
+                                        const projectedVoice = isAdtofDrum ? getAdtofDrumVoice(projMidi) : null;
+                                        const topPx = projectedVoice
+                                            ? getAdtofDrumVoiceIndex(projMidi) * DRUM_EDITOR_ROW_HEIGHT
+                                            : (127 - projMidi) * popupRowHeight;
 
                                         const v = noteToClone.velocity !== undefined ? Math.max(0.01, noteToClone.velocity) : 0.8;
                                         // Hue: Purple(280) -> Blue -> Cyan -> Green -> Yellow -> Red(0)
@@ -924,8 +981,8 @@ export default function MidiEditorPopup({
                                                 left: `${leftPx}px`,
                                                 width: `${widthPx}px`,
                                                 top: `${topPx}px`,
-                                                height: `${popupRowHeight}px`,
-                                                backgroundColor: noteColor,
+                                                height: `${projectedVoice ? DRUM_EDITOR_ROW_HEIGHT : popupRowHeight}px`,
+                                                backgroundColor: projectedVoice ? `${projectedVoice.color}66` : noteColor,
                                                 border: '1px solid rgba(255,255,255,0.4)',
                                                 borderRadius: '2px',
                                                 boxSizing: 'border-box',
@@ -939,14 +996,17 @@ export default function MidiEditorPopup({
                                 const clickedNote = notes[noteDragState.clickedNoteIndex];
                                 if (!clickedNote) return null;
                                 
-                                const topPx = (127 - clickedNote.midi) * popupRowHeight;
+                                const clickedVoice = isAdtofDrum ? getAdtofDrumVoice(clickedNote.midi) : null;
+                                const topPx = clickedVoice
+                                    ? getAdtofDrumVoiceIndex(clickedNote.midi) * DRUM_EDITOR_ROW_HEIGHT
+                                    : (127 - clickedNote.midi) * popupRowHeight;
                                 return (
                                     <div style={{
                                         position: 'absolute',
                                         left: 0,
                                         right: 0,
                                         top: `${topPx}px`,
-                                        height: `${popupRowHeight}px`,
+                                        height: `${clickedVoice ? DRUM_EDITOR_ROW_HEIGHT : popupRowHeight}px`,
                                         backgroundColor: 'rgba(255, 255, 255, 0.1)',
                                         pointerEvents: 'none',
                                         zIndex: 0

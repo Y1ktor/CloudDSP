@@ -1,13 +1,14 @@
 import React from 'react';
-import { SplendidGrandPiano, Soundfont } from 'smplr';
+import { Sampler, SplendidGrandPiano, Soundfont } from 'smplr';
 import { parseMidiFile } from '../utils/MidiParser';
+import { ADTOF_DRUM_SAMPLER_OPTIONS } from '../utils/DrumMidi';
 
 /**
  * Fetches and parses generated MIDI files as their presigned URLs arrive.
  * Tempo is intentionally not inferred from MIDI headers: the durable backend
  * job owns tempo selection and passes it to the editor separately.
  */
-export function useMidiManager(midiUrls, jobId, timeSignature, audioCtxRef, globalSynthRef, guitarSynthRef, bassSynthRef) {
+export function useMidiManager(midiUrls, midiStates, jobId, timeSignature, audioCtxRef, globalSynthRef, guitarSynthRef, bassSynthRef, drumSynthRef) {
     const [parsedMidiStems, setParsedMidiStems] = React.useState({});
     const [originalMidiStems, setOriginalMidiStems] = React.useState({});
     const [isMidiLoading, setIsMidiLoading] = React.useState(false);
@@ -62,6 +63,16 @@ export function useMidiManager(midiUrls, jobId, timeSignature, audioCtxRef, glob
             if (!bassSynthRef.current) {
                 bassSynthRef.current = new Soundfont(audioCtxRef.current, { instrument: 'acoustic_bass' });
             }
+            if (entriesToLoad.some(([track]) => track === 'drums') && !drumSynthRef.current) {
+                // Begin fetching the five ADTOF drum samples while the MIDI
+                // file is downloading, so first playback does not fall back
+                // to a piano or require the full TR-808 sample collection.
+                const drumSampler = Sampler(audioCtxRef.current, ADTOF_DRUM_SAMPLER_OPTIONS);
+                drumSampler.ready
+                    .then(() => console.info('CloudDSP drum samples are ready.'))
+                    .catch((error) => console.error('CloudDSP drum sample load failed:', error));
+                drumSynthRef.current = drumSampler;
+            }
 
             const parsedUpdates = {};
             const originalUpdates = {};
@@ -75,8 +86,10 @@ export function useMidiManager(midiUrls, jobId, timeSignature, audioCtxRef, glob
                     }
 
                     const midiBytes = await response.arrayBuffer();
-                    parsedUpdates[track] = await parseMidiFile(midiBytes.slice(0), timeSignature);
-                    originalUpdates[track] = await parseMidiFile(midiBytes.slice(0), timeSignature);
+                    const isAdtofDrum = midiStates?.[track]?.extractor === 'adtof'
+                        || track === 'drums';
+                    parsedUpdates[track] = await parseMidiFile(midiBytes.slice(0), timeSignature, { isAdtofDrum });
+                    originalUpdates[track] = await parseMidiFile(midiBytes.slice(0), timeSignature, { isAdtofDrum });
                     loadedUrlsRef.current.set(track, url);
                     console.log(`Parsed backend MIDI for ${track}.`);
                 } catch (error) {
@@ -102,7 +115,7 @@ export function useMidiManager(midiUrls, jobId, timeSignature, audioCtxRef, glob
         };
 
         fetchAndParse();
-    }, [midiUrls, jobId, timeSignature, audioCtxRef, globalSynthRef, guitarSynthRef, bassSynthRef]);
+    }, [midiUrls, midiStates, jobId, timeSignature, audioCtxRef, globalSynthRef, guitarSynthRef, bassSynthRef, drumSynthRef]);
 
     return { parsedMidiStems, setParsedMidiStems, originalMidiStems, isMidiLoading };
 }

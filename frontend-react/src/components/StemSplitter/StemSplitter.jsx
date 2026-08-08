@@ -13,6 +13,7 @@ import { useMidiManager } from '../../hooks/useMidiManager';
 import { useGlobalShortcuts } from '../../hooks/useGlobalShortcuts';
 import { useUndoHistory } from '../../hooks/useUndoHistory';
 import { usePlayheadScroll } from '../../hooks/usePlayheadScroll';
+import { ADTOF_DRUM_VOICES } from '../../utils/DrumMidi';
 
 function MidiScheduler({ trackName, activeBpm, originalBpm, progress, isPlaying, parsedMidiStems, audioCtxRef, synthRef, isMidiMode, mutedTracks, soloedTracks }) {
     useMidiSynth(audioCtxRef, progress, isPlaying, parsedMidiStems, trackName, activeBpm, originalBpm, synthRef, isMidiMode, mutedTracks, soloedTracks);
@@ -88,7 +89,7 @@ export default function StemSplitter({
     };
 
     // 1. Instruments
-    const { globalSynthRef, guitarSynthRef, bassSynthRef } = useInstruments();
+    const { globalSynthRef, guitarSynthRef, bassSynthRef, drumSynthRef } = useInstruments();
 
     // 2. Audio Player
     const audioEngine = useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks, sourceUrl, jobId);
@@ -96,7 +97,8 @@ export default function StemSplitter({
 
     // 3. MIDI Manager
     const { parsedMidiStems, setParsedMidiStems, originalMidiStems, isMidiLoading } = useMidiManager(
-        midiUrls, jobId, audioEngine.timeSignature, audioEngine.audioCtxRef, globalSynthRef, guitarSynthRef, bassSynthRef
+        midiUrls, midiStates, jobId, audioEngine.timeSignature, audioEngine.audioCtxRef,
+        globalSynthRef, guitarSynthRef, bassSynthRef, drumSynthRef
     );
 
     const backendTempoBpm = Number(jobTempo?.bpm);
@@ -161,7 +163,7 @@ export default function StemSplitter({
         toggleSolo: audioEngine.toggleSolo,
         toggleMute: audioEngine.toggleMute,
         editorOpenTrack,
-        selectedTrack,
+        selectedTrack: selectedTrack?.startsWith('drums:') ? 'drums' : selectedTrack,
         handleUndoMidi
     });
 
@@ -194,6 +196,28 @@ export default function StemSplitter({
         if (stemUrls) Object.assign(tr, stemUrls);
         return tr;
     }, [file, audioEngine.originalUrl, sourceUrl, stemUrls]);
+
+    // ADTOF emits a single drum MIDI file, but its five fixed note classes
+    // represent distinct instruments. The audio stays on the parent row while
+    // the client renders a dedicated MIDI lane for each class.
+    const timelineRows = React.useMemo(() => (
+        Object.entries(tracksToRender).flatMap(([trackName, url]) => {
+            const stemRow = { id: trackName, trackName, url, kind: 'stem' };
+            if (trackName !== 'drums' || !parsedMidiStems[trackName]?.isAdtofDrum) {
+                return [stemRow];
+            }
+
+            return [
+                stemRow,
+                ...ADTOF_DRUM_VOICES.map((drumVoice) => ({
+                    id: `drums:${drumVoice.id}`,
+                    trackName: 'drums',
+                    kind: 'drum-lane',
+                    drumVoice
+                }))
+            ];
+        })
+    ), [tracksToRender, parsedMidiStems]);
 
     const [pixelsPerBar, setPixelsPerBar] = React.useState(100);
     const parsedBeatsPerBar = parseInt(audioEngine.timeSignature.split('/')[0], 10) || 4;
@@ -538,7 +562,7 @@ export default function StemSplitter({
                             <TrackList 
                                 pixelsPerBar={pixelsPerBar}
                                 setPixelsPerBar={setPixelsPerBar}
-                                tracksToRender={tracksToRender}
+                                timelineRows={timelineRows}
                                 audioRefs={audioEngine.audioRefs}
                                 duration={audioEngine.duration}
                                 setDuration={audioEngine.setDuration}
@@ -594,7 +618,7 @@ export default function StemSplitter({
                                     
                                     {/* Track Contents */}
                                     <TrackGrid 
-                                        tracksToRender={tracksToRender}
+                                        timelineRows={timelineRows}
                                         parsedMidiStems={parsedMidiStems}
                                         midiStatusByTrack={midiStatusByTrack}
                                         pixelsPerBar={pixelsPerBar}
@@ -621,6 +645,7 @@ export default function StemSplitter({
                 let synthRefToUse = globalSynthRef;
                 if (trackName === 'guitar') synthRefToUse = guitarSynthRef;
                 if (trackName === 'bass') synthRefToUse = bassSynthRef;
+                if (parsedMidiStems[trackName]?.isAdtofDrum) synthRefToUse = drumSynthRef;
 
                 return (
                     <MidiScheduler
@@ -676,6 +701,7 @@ export default function StemSplitter({
                 synthRef={
                     editorOpenTrack === 'guitar' ? guitarSynthRef :
                     editorOpenTrack === 'bass' ? bassSynthRef :
+                    parsedMidiStems[editorOpenTrack]?.isAdtofDrum ? drumSynthRef :
                     globalSynthRef
                 }
                 isMidiMode={!!activeMidiTracks[editorOpenTrack]}

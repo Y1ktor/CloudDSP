@@ -1,4 +1,5 @@
 import { Midi } from '@tonejs/midi';
+import { isAdtofDrumMidi } from './DrumMidi';
 
 /**
  * MidiParser.js
@@ -14,9 +15,13 @@ import { Midi } from '@tonejs/midi';
  * 
  * @param {ArrayBuffer | string} midiInput - The MIDI file as an ArrayBuffer, or a URL to a local MIDI file.
  * @param {string} timeSignature - The time signature string (e.g., "4/4", "3/4").
- * @returns {Promise<Object>} An object containing bpm, totalBars, duration, and the parsed midi object.
+ * @param {Object} options - Parsing context supplied by the durable job state.
+ * @param {boolean} options.isAdtofDrum - Whether the backend used ADTOF for this MIDI file.
+ * @returns {Promise<Object>} An object containing bpm, totalBars, duration,
+ * and the parsed MIDI object. ADTOF drum files are additionally tagged so
+ * callers can render a drum grid instead of a piano roll.
  */
-export async function parseMidiFile(midiInput, timeSignature = "4/4") {
+export async function parseMidiFile(midiInput, timeSignature = "4/4", { isAdtofDrum = false } = {}) {
     let midi;
     
     // Support either a URL string for local testing, or a raw ArrayBuffer from S3/File upload
@@ -55,6 +60,9 @@ export async function parseMidiFile(midiInput, timeSignature = "4/4") {
         totalBars,
         durationInSeconds,
         totalBeats,
+        // Do not classify a melodic file that happens to contain one of these
+        // pitches as drums. The durable extractor state is authoritative.
+        isAdtofDrum: isAdtofDrum && isAdtofDrumMidi(midi),
         midiData: midi // Raw parsed Tone.js Midi object for rendering later
     };
 }

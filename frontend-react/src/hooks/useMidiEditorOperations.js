@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { ADTOF_DRUM_VOICES, getAdtofDrumVoiceIndex } from '../utils/DrumMidi';
 
 /**
  * useMidiEditorOperations
@@ -36,6 +37,8 @@ export function useMidiEditorOperations({
     parsedBeatsPerBar,
     popupPixelsPerBar,
     popupRowHeight,
+    isDrumMidi = false,
+    drumRowHeight = 56,
     auditionNote
 }) {
     // Drag selection state
@@ -223,7 +226,12 @@ export function useMidiEditorOperations({
         const beatRegionIdx = Math.floor(rawTime / beatDuration);
         const time = beatRegionIdx * beatDuration;
 
-        const pitch = Math.max(0, Math.min(127, 127 - Math.floor(gridY / popupRowHeight)));
+        const drumVoice = isDrumMidi
+            ? ADTOF_DRUM_VOICES[Math.max(0, Math.min(ADTOF_DRUM_VOICES.length - 1, Math.floor(gridY / drumRowHeight)))]
+            : null;
+        const pitch = drumVoice
+            ? drumVoice.midi
+            : Math.max(0, Math.min(127, 127 - Math.floor(gridY / popupRowHeight)));
         
         // length is exactly one beat
         const duration = beatDuration;
@@ -249,9 +257,13 @@ export function useMidiEditorOperations({
         const noteDurationBars = noteDurationBeats / parsedBeatsPerBar;
         const widthPx = Math.max(2, noteDurationBars * popupPixelsPerBar);
 
-        const topPx = (127 - note.midi) * popupRowHeight;
+        const drumVoiceIndex = isDrumMidi ? getAdtofDrumVoiceIndex(note.midi) : -1;
+        const topPx = isDrumMidi && drumVoiceIndex >= 0
+            ? drumVoiceIndex * drumRowHeight
+            : (127 - note.midi) * popupRowHeight;
+        const rowHeight = isDrumMidi ? drumRowHeight : popupRowHeight;
         
-        return { index, left: leftPx, top: topPx, right: leftPx + widthPx, bottom: topPx + popupRowHeight };
+        return { index, left: leftPx, top: topPx, right: leftPx + widthPx, bottom: topPx + rowHeight };
     };
 
     const handleGridMouseDown = (e) => {
@@ -297,6 +309,14 @@ export function useMidiEditorOperations({
             let deltaTime = deltaBeats / (activeBpm / 60);
 
             const deltaPitch = -Math.round(deltaY / popupRowHeight);
+            const drumVoiceDelta = Math.round(deltaY / drumRowHeight);
+            const moveMidi = (midi) => {
+                if (!isDrumMidi) return Math.max(0, Math.min(127, midi + deltaPitch));
+                const voiceIndex = getAdtofDrumVoiceIndex(midi);
+                if (voiceIndex < 0) return midi;
+                const targetIndex = Math.max(0, Math.min(ADTOF_DRUM_VOICES.length - 1, voiceIndex + drumVoiceDelta));
+                return ADTOF_DRUM_VOICES[targetIndex].midi;
+            };
 
             const snapThresholdPx = 6;
             const snapThresholdTime = (snapThresholdPx / popupPixelsPerBar) * parsedBeatsPerBar / (activeBpm / 60);
@@ -309,7 +329,7 @@ export function useMidiEditorOperations({
             if (action === 'move') {
                 const clickedOriginal = noteDragState.originalNotes.find(n => n.index === noteDragState.clickedNoteIndex);
                 if (clickedOriginal) {
-                    const targetPitch = clickedOriginal.originalMidi + deltaPitch;
+                    const targetPitch = moveMidi(clickedOriginal.originalMidi);
                     const rawNewTime = clickedOriginal.originalTime + deltaTime;
                     const noteDuration = notes[clickedOriginal.index].duration;
 
@@ -363,7 +383,7 @@ export function useMidiEditorOperations({
                             note.midi = orig.originalMidi;
                         } else {
                             note.time = Math.max(0, orig.originalTime + deltaTime);
-                            note.midi = Math.max(0, Math.min(127, orig.originalMidi + deltaPitch));
+                            note.midi = moveMidi(orig.originalMidi);
                         }
                     }
                 });
@@ -371,6 +391,7 @@ export function useMidiEditorOperations({
                 noteDragState.isReplicating = isReplicating;
                 noteDragState.deltaTime = deltaTime;
                 noteDragState.deltaPitch = deltaPitch;
+                noteDragState.drumVoiceDelta = drumVoiceDelta;
             } else if (action === 'resize-right') {
                 noteDragState.originalNotes.forEach(orig => {
                     const note = notes[orig.index];
@@ -456,7 +477,7 @@ export function useMidiEditorOperations({
         setSelectedNoteIndices(newSelection);
     };
 
-    const handleGridMouseUp = (e) => {
+    const handleGridMouseUp = () => {
         if (noteDragState) {
             if (!noteDragState.hasMoved && noteDragState.wasShiftHeldAtStart && selectedNoteIndices.has(noteDragState.clickedNoteIndex)) {
                 // If it was just a shift+click without moving, toggle the selection off
@@ -472,7 +493,17 @@ export function useMidiEditorOperations({
                         const noteToClone = notes[orig.index];
                         if (noteToClone) {
                             const newTime = Math.max(0, orig.originalTime + noteDragState.deltaTime);
-                            const newMidi = Math.max(0, Math.min(127, orig.originalMidi + noteDragState.deltaPitch));
+                            const newMidi = isDrumMidi
+                                ? (() => {
+                                    const voiceIndex = getAdtofDrumVoiceIndex(orig.originalMidi);
+                                    if (voiceIndex < 0) return orig.originalMidi;
+                                    const targetIndex = Math.max(0, Math.min(
+                                        ADTOF_DRUM_VOICES.length - 1,
+                                        voiceIndex + (noteDragState.drumVoiceDelta || 0)
+                                    ));
+                                    return ADTOF_DRUM_VOICES[targetIndex].midi;
+                                })()
+                                : Math.max(0, Math.min(127, orig.originalMidi + noteDragState.deltaPitch));
                             
                             track.addNote({
                                 midi: newMidi,

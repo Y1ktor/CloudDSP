@@ -1,30 +1,15 @@
 /**
  * TrackList.jsx
- * 
- * Left column of the timeline.
- * Handles zoom control and track console rendering (Mute/Solo buttons and track names).
+ *
+ * Fixed timeline console. Drum lanes are MIDI-only child rows; their parent
+ * drum stem retains the audio, mute, solo, and MIDI-playback controls.
  */
 import React from 'react';
 
-/**
- * TrackList
- * 
- * @param {Object} props - Component props
- * @param {number} props.pixelsPerBar - Current zoom level
- * @param {Function} props.setPixelsPerBar - Zoom level setter
- * @param {Object} props.tracksToRender - Dictionary of track names to URLs
- * @param {React.MutableRefObject} props.audioRefs - Ref holding all HTML5 audio elements
- * @param {number} props.duration - Total track duration in seconds
- * @param {Function} props.setDuration - Setter for duration
- * @param {Function} props.toggleMute - Mute toggle handler
- * @param {Object} props.mutedTracks - Dictionary of muted tracks
- * @param {Function} props.toggleSolo - Solo toggle handler
- * @param {Object} props.soloedTracks - Dictionary of soloed tracks
- */
 export default function TrackList({
     pixelsPerBar,
     setPixelsPerBar,
-    tracksToRender,
+    timelineRows,
     audioRefs,
     duration,
     setDuration,
@@ -40,91 +25,87 @@ export default function TrackList({
 }) {
     return (
         <div style={{ width: '210px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '3px' }}>
-            {/* Timeline Header Left Spacer (Zoom Control) */}
-            <div style={{ 
-                height: '30px', background: '#333', borderRadius: '4px',
-                display: 'flex', alignItems: 'center', padding: '0 10px', gap: '8px'
+            <div style={{
+                height: '30px', background: '#333', borderRadius: '4px', display: 'flex', alignItems: 'center',
+                padding: '0 10px', gap: '8px'
             }}>
                 <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px', fontWeight: 'bold', fontFamily: 'monospace' }}>{'<>'}</span>
-                <input 
-                    type="range" 
-                    min="30" max="300" 
-                    value={pixelsPerBar} 
-                    onChange={(e) => setPixelsPerBar(Number(e.target.value))}
+                <input
+                    type="range" min="30" max="300" value={pixelsPerBar}
+                    onChange={(event) => setPixelsPerBar(Number(event.target.value))}
                     style={{ flexGrow: 1, cursor: 'pointer', height: '2px', accentColor: '#4f94d4' }}
                 />
             </div>
-            
-            {/* Track Consoles */}
-            {Object.entries(tracksToRender).map(([trackName, url]) => (
-                <div 
-                    key={trackName} 
-                    onClick={() => setSelectedTrack(selectedTrack === trackName ? null : trackName)}
-                    onDoubleClick={() => onDoubleClickTrack(trackName)}
-                    style={{ 
-                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', 
-                        background: selectedTrack === trackName ? '#444' : '#333', 
-                        padding: '0 15px', borderRadius: '4px',
-                        height: '60px', boxSizing: 'border-box',
-                        cursor: 'pointer',
-                        userSelect: 'none',
-                        transition: 'background-color 0.2s'
-                    }}
-                >
-                    <audio 
-                        ref={el => audioRefs.current[trackName] = el}
-                        src={url}
-                        preload="auto"
-                        crossOrigin="anonymous"
-                        onLoadedMetadata={(e) => {
-                            if (duration === 0) setDuration(e.target.duration);
+
+            {timelineRows.map((row) => {
+                const isDrumLane = row.kind === 'drum-lane';
+                const trackName = row.trackName;
+                if (isDrumLane) {
+                    return (
+                        <div
+                            key={row.id}
+                            onClick={() => setSelectedTrack(selectedTrack === row.id ? null : row.id)}
+                            onDoubleClick={() => onDoubleClickTrack(trackName)}
+                            style={{
+                                height: '60px', boxSizing: 'border-box', display: 'flex', alignItems: 'center',
+                                padding: '0 15px 0 31px', cursor: 'pointer', userSelect: 'none',
+                                background: selectedTrack === row.id ? '#3f4655' : '#2b2b2b',
+                                borderLeft: `3px solid ${row.drumVoice.color}`, borderRadius: '4px',
+                                transition: 'background-color 0.2s'
+                            }}
+                            title={`ADTOF ${row.drumVoice.label} lane — double-click to edit the drum kit MIDI`}
+                        >
+                            <span style={{ color: row.drumVoice.color, fontWeight: '700', fontSize: '13px' }}>
+                                {row.drumVoice.label}
+                            </span>
+                        </div>
+                    );
+                }
+
+                return (
+                    <div
+                        key={row.id}
+                        onClick={() => setSelectedTrack(selectedTrack === row.id ? null : row.id)}
+                        onDoubleClick={() => onDoubleClickTrack(trackName)}
+                        style={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            background: selectedTrack === row.id ? '#444' : '#333', padding: '0 15px',
+                            borderRadius: '4px', height: '60px', boxSizing: 'border-box', cursor: 'pointer',
+                            userSelect: 'none', transition: 'background-color 0.2s'
                         }}
-                    />
-                    
-                    <div style={{ color: '#fff', fontWeight: 'bold', textTransform: 'capitalize', width: '80px' }}>
-                        {trackName}
+                    >
+                        <audio
+                            ref={(element) => { audioRefs.current[trackName] = element; }}
+                            src={row.url} preload="auto" crossOrigin="anonymous"
+                            onLoadedMetadata={(event) => {
+                                if (duration === 0) setDuration(event.target.duration);
+                            }}
+                        />
+                        <div style={{ color: '#fff', fontWeight: 'bold', textTransform: 'capitalize', width: '80px' }}>
+                            {trackName}
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                            {trackName !== 'Original' && (
+                                <button onClick={(event) => { event.stopPropagation(); toggleMidiMode?.(trackName); }} style={{
+                                    height: '24px', padding: '0 8px', background: 'transparent',
+                                    color: activeMidiTracks[trackName] ? '#4CAF50' : '#aaa',
+                                    border: `1px solid ${activeMidiTracks[trackName] ? '#4CAF50' : '#555'}`,
+                                    boxShadow: activeMidiTracks[trackName] ? '0 0 8px rgba(76, 175, 80, 0.5)' : 'none',
+                                    borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold'
+                                }} title="Toggle MIDI synthesis playback">MIDI</button>
+                            )}
+                            <button onClick={(event) => { event.stopPropagation(); toggleMute(trackName); }} style={{
+                                width: '24px', height: '24px', background: mutedTracks[trackName] ? '#e53935' : '#555',
+                                color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold'
+                            }} title="Mute">M</button>
+                            <button onClick={(event) => { event.stopPropagation(); toggleSolo(trackName); }} style={{
+                                width: '24px', height: '24px', background: soloedTracks[trackName] ? '#e0a800' : '#555',
+                                color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold'
+                            }} title="Solo">S</button>
+                        </div>
                     </div>
-                    
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                        {trackName !== 'Original' && (
-                            <button onClick={(e) => { e.stopPropagation(); if(toggleMidiMode) toggleMidiMode(trackName); }} style={{
-                                height: '24px', padding: '0 8px',
-                                background: 'transparent',
-                                color: activeMidiTracks[trackName] ? '#4CAF50' : '#aaa', 
-                                border: `1px solid ${activeMidiTracks[trackName] ? '#4CAF50' : '#555'}`, 
-                                boxShadow: activeMidiTracks[trackName] ? '0 0 8px rgba(76, 175, 80, 0.5)' : 'none',
-                                borderRadius: '4px',
-                                cursor: 'pointer', fontSize: '11px', fontWeight: 'bold',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                transition: 'all 0.2s'
-                            }} title="Toggle MIDI Synthesis Playback">
-                                MIDI
-                            </button>
-                        )}
-                        <button onClick={(e) => { e.stopPropagation(); toggleMute(trackName); }} style={{
-                            width: '24px', height: '24px',
-                            background: mutedTracks[trackName] ? '#e53935' : '#555',
-                            color: 'white', border: 'none', borderRadius: '4px', 
-                            cursor: 'pointer', fontSize: '11px', fontWeight: 'bold',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            transition: 'background-color 0.2s'
-                        }} title="Mute">
-                            M
-                        </button>
-                        <button onClick={(e) => { e.stopPropagation(); toggleSolo(trackName); }} style={{
-                            width: '24px', height: '24px',
-                            background: soloedTracks[trackName] ? '#e0a800' : '#555',
-                            color: soloedTracks[trackName] ? '#fff' : 'white', 
-                            border: 'none', borderRadius: '4px', 
-                            cursor: 'pointer', fontSize: '11px', fontWeight: 'bold',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            transition: 'background-color 0.2s'
-                        }} title="Solo">
-                            S
-                        </button>
-                    </div>
-                </div>
-            ))}
+                );
+            })}
         </div>
     );
 }
