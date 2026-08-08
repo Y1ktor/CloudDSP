@@ -40,7 +40,11 @@ low-latency notification mechanism, not durable result storage.
    `job_updated` WebSocket notification.
 7. The frontend responds to a notification by calling `GET /jobs/{job_id}`.
    That API generates fresh presigned URLs from stored S3 keys and returns the
-   complete current snapshot.
+   complete current snapshot, including the original-upload URL.
+8. The frontend calls `GET /jobs` to show a user's saved-job library. The API
+   queries the `user_id-updated_at-index` using the authenticated Cognito
+   subject, then the browser opens one job through the owner-checked detail
+   endpoint.
 
 Store S3 keys and status in DynamoDB; never store presigned URLs as the
 authoritative artifact value. URLs expire and must be generated when a job is
@@ -77,7 +81,8 @@ token.
     drag interactions.
 - `/src/DSP/src/Cloud/` — Lambda handlers, Batch entry points, and cloud DSP
   scripts.
-  - `job_api.py` — authenticated job creation and snapshot API Lambda.
+  - `job_api.py` — authenticated job creation, saved-job library, and snapshot
+    API Lambda.
   - `BatchDemucs.py` — Demucs Batch entry point and downstream MIDI handoff.
   - `LambdaMIDIBasicPitch.py` — pitched-stem MIDI extraction Lambda.
   - `LambdaMIDIADTOF.py` — drum MIDI extraction Lambda.

@@ -4,6 +4,7 @@ import TimelineRuler from './TimelineRuler';
 import TrackList from './TrackList';
 import TrackGrid from './TrackGrid';
 import MidiEditorPopup from './MidiEditorPopup';
+import PreviousJobs from './PreviousJobs';
 
 import { useAudioMultiTrackPlayer } from '../../hooks/AudioMultiTrackPlayer';
 import { useMidiSynth } from '../../hooks/useMidiSynth';
@@ -45,6 +46,7 @@ function MidiScheduler({ trackName, activeBpm, originalBpm, progress, isPlaying,
  * @param {Object} props.midiStates - Per-stem durable MIDI extraction states
  * @param {Object} props.jobTempo - Backend-selected master tempo for the active job
  * @param {string} props.jobId - Durable job ID used to reset tempo between uploads
+ * @param {string} props.sourceUrl - Presigned URL for the saved job's original upload
  * @param {string} props.errorMsg - Any error messages to display
  * @param {Function} props.setErrorMsg - State setter for errors
  * @param {Function} props.executeStemSplit - Master function in App.jsx to create and upload a job
@@ -54,6 +56,8 @@ export default function StemSplitter({
     fileName, setFileName,
     splitMode, setSplitMode,
     isSplitting, statusMessage, stemUrls, midiUrls, midiStates, jobTempo, jobId, errorMsg, setErrorMsg,
+    sourceUrl, previousJobs, isPreviousJobsLoading, previousJobsError,
+    onSelectPreviousJob, onRefreshPreviousJobs,
     executeStemSplit, executeLinkExtraction, beginNewUpload
 }) {
     const [showSigMenu, setShowSigMenu] = React.useState(false);
@@ -87,7 +91,7 @@ export default function StemSplitter({
     const { globalSynthRef, guitarSynthRef, bassSynthRef } = useInstruments();
 
     // 2. Audio Player
-    const audioEngine = useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks);
+    const audioEngine = useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks, sourceUrl, jobId);
     const { setBpm, setOriginalBpm } = audioEngine;
 
     // 3. MIDI Manager
@@ -115,6 +119,15 @@ export default function StemSplitter({
         }
         appliedTempoRef.current = { jobId, bpm: hasDeterminedTempo ? backendTempoBpm : null };
     }, [jobId, hasDeterminedTempo, backendTempoBpm, setBpm, setOriginalBpm]);
+
+    React.useEffect(() => {
+        // A restored job must not retain MIDI-mode toggles or an open editor
+        // from the job that was previously displayed in this workspace.
+        setActiveMidiTracks({});
+        setMidiStateBeforeEditor({});
+        setEditorOpenTrack(null);
+        setSelectedTrack(null);
+    }, [jobId]);
     const midiStatusByTrack = React.useMemo(() => {
         return Object.keys(stemUrls || {}).reduce((statuses, trackName) => {
             if (parsedMidiStems[trackName]) {
@@ -173,10 +186,14 @@ export default function StemSplitter({
     const tracksToRender = React.useMemo(() => {
         const tr = {};
         if (file && audioEngine.originalUrl) tr['Original'] = audioEngine.originalUrl;
+        else if (sourceUrl) tr['Original'] = sourceUrl;
+        // Retain this fallback for incomplete legacy jobs created before the
+        // Job API returned original uploads. New and restored jobs use the
+        // real source audio above, never a duplicate stem.
         else if (!file && stemUrls && Object.keys(stemUrls).length > 0) tr['Original'] = stemUrls[Object.keys(stemUrls)[0]];
         if (stemUrls) Object.assign(tr, stemUrls);
         return tr;
-    }, [file, audioEngine.originalUrl, stemUrls]);
+    }, [file, audioEngine.originalUrl, sourceUrl, stemUrls]);
 
     const [pixelsPerBar, setPixelsPerBar] = React.useState(100);
     const parsedBeatsPerBar = parseInt(audioEngine.timeSignature.split('/')[0], 10) || 4;
@@ -308,6 +325,15 @@ export default function StemSplitter({
                 executeLinkExtraction={executeLinkExtraction}
                 file={file}
                 errorMsg={errorMsg}
+            />
+
+            <PreviousJobs
+                jobs={previousJobs}
+                activeJobId={jobId}
+                isLoading={isPreviousJobsLoading}
+                error={previousJobsError}
+                onSelect={onSelectPreviousJob}
+                onRefresh={onRefreshPreviousJobs}
             />
 
             {/* Dynamic Results Area */}

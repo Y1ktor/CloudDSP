@@ -15,6 +15,7 @@ import {
 const JOB_API_URL = import.meta.env.VITE_JOB_API_URL?.replace(/\/$/, '');
 const WEBSOCKET_URL = import.meta.env.VITE_WEBSOCKET_URL;
 const POLL_INTERVAL_MS = 5_000;
+const WEBSOCKET_HEARTBEAT_INTERVAL_MS = 120_000;
 const RECONNECT_MAX_DELAY_MS = 30_000;
 const JOB_REFRESH_BACKOFF_INITIAL_MS = 5_000;
 const JOB_REFRESH_BACKOFF_MAX_MS = 60_000;
@@ -30,6 +31,29 @@ function getStoredJobs(storageKey) {
 
 function isJobPending(job) {
     return job && !['completed', 'failed'].includes(job.status);
+}
+
+function hasTerminalMidiArtifacts(job) {
+    /*
+     * A top-level ``completed`` status is normally sufficient, but the
+     * browser must keep fetching until the snapshot actually contains every
+     * stem's terminal MIDI state and a usable URL for each successful result.
+     * This protects the workspace from a missed WebSocket hint or a stale
+     * eventually-consistent API read at the exact time Batch finishes.
+     */
+    const stems = job?.stems || {};
+    const midi = job?.midi || {};
+    const stemNames = Object.keys(stems);
+    if (stemNames.length === 0) return false;
+    return stemNames.every((stemName) => {
+        const artifact = midi[stemName];
+        if (artifact?.status === 'failed') return true;
+        return artifact?.status === 'ready' && Boolean(artifact.url);
+    });
+}
+
+function needsJobRefresh(job) {
+    return !job || isJobPending(job) || !hasTerminalMidiArtifacts(job);
 }
 
 function messageForJob(job, fallback) {
@@ -60,6 +84,9 @@ function preserveReadyArtifactUrls(previous, snapshot) {
      */
     if (!previous) return snapshot;
     const result = { ...snapshot };
+    if (snapshot.original_url && previous.original_url) {
+        result.original_url = previous.original_url;
+    }
     for (const collectionName of ['stems', 'midi']) {
         const previousArtifacts = previous[collectionName] || {};
         const nextArtifacts = snapshot[collectionName] || {};
@@ -112,12 +139,17 @@ export default function App() {
     const [activeJobId, setActiveJobId] = useState(null);
     const [jobSnapshots, setJobSnapshots] = useState({});
     const [isUploading, setIsUploading] = useState(false);
+    const [previousJobs, setPreviousJobs] = useState([]);
+    const [isPreviousJobsLoading, setIsPreviousJobsLoading] = useState(false);
+    const [previousJobsError, setPreviousJobsError] = useState('');
 
     const socketRef = useRef(null);
     const shouldReconnectRef = useRef(false);
     const reconnectTimerRef = useRef(null);
     const reconnectAttemptsRef = useRef(0);
+    const heartbeatTimerRef = useRef(null);
     const activeJobIdsRef = useRef([]);
+    const subscribedJobIdsRef = useRef(new Set());
     const jobSnapshotsRef = useRef({});
     const jobRefreshInFlightRef = useRef(new Set());
     const jobRefreshBackoffRef = useRef(new Map());
@@ -161,12 +193,14 @@ export default function App() {
             setActiveJobIds([]);
             setActiveJobId(null);
             setJobSnapshots({});
+            subscribedJobIdsRef.current.clear();
             return;
         }
         const restoredJobIds = getStoredJobs(storageKey);
         setActiveJobIds(restoredJobIds);
         setActiveJobId(restoredJobIds.at(-1) || null);
         setJobSnapshots({});
+        subscribedJobIdsRef.current = new Set(restoredJobIds);
         jobRefreshInFlightRef.current.clear();
         jobRefreshBackoffRef.current.clear();
     }, [storageKey]);
@@ -189,6 +223,37 @@ export default function App() {
         return response;
     }, []);
 
+    const fetchPreviousJobs = useCallback(async () => {
+        if (!authUsername) {
+            setPreviousJobs([]);
+            setPreviousJobsError('');
+            return [];
+        }
+
+        setIsPreviousJobsLoading(true);
+        setPreviousJobsError('');
+        try {
+            const response = await authenticatedFetch('/jobs');
+            const payload = await response.json();
+            if (!response.ok) {
+                throw new Error(payload.error || `Could not load previous jobs (${response.status}).`);
+            }
+            const jobs = Array.isArray(payload.jobs) ? payload.jobs : [];
+            setPreviousJobs(jobs);
+            return jobs;
+        } catch (error) {
+            console.warn('Could not load previous CloudDSP jobs:', error);
+            setPreviousJobsError(error.message || 'Could not load previous jobs.');
+            return [];
+        } finally {
+            setIsPreviousJobsLoading(false);
+        }
+    }, [authUsername, authenticatedFetch]);
+
+    useEffect(() => {
+        fetchPreviousJobs();
+    }, [fetchPreviousJobs]);
+
     const fetchJobSnapshot = useCallback(async (jobId, { showError = false, force = false } = {}) => {
         const inFlight = jobRefreshInFlightRef.current;
         const retryState = jobRefreshBackoffRef.current.get(jobId);
@@ -209,6 +274,18 @@ export default function App() {
                 if (previous && Number(previous.revision || 0) > Number(snapshot.revision || 0)) return current;
                 return { ...current, [jobId]: preserveReadyArtifactUrls(previous, snapshot) };
             });
+            setPreviousJobs((current) => current.map((job) => (
+                job.job_id === jobId
+                    ? {
+                        ...job,
+                        source_filename: snapshot.source_filename || job.source_filename,
+                        status: snapshot.status || job.status,
+                        stem_mode: snapshot.stem_mode || job.stem_mode,
+                        tempo: snapshot.tempo || job.tempo,
+                        updated_at: snapshot.updated_at || job.updated_at,
+                    }
+                    : job
+            )));
             return snapshot;
         } catch (error) {
             const status = Number(error.status);
@@ -235,8 +312,11 @@ export default function App() {
     }, [authenticatedFetch]);
 
     const subscribeToJobs = useCallback((socket, jobIds = activeJobIdsRef.current) => {
+        jobIds.filter(Boolean).forEach((jobId) => subscribedJobIdsRef.current.add(jobId));
         if (socket?.readyState !== WebSocket.OPEN) return;
-        jobIds.forEach((jobId) => socket.send(JSON.stringify({ action: 'subscribe', job_id: jobId })));
+        subscribedJobIdsRef.current.forEach((jobId) => {
+            socket.send(JSON.stringify({ action: 'subscribe', job_id: jobId }));
+        });
     }, []);
 
     const connectWebSocket = useCallback(async () => {
@@ -266,6 +346,12 @@ export default function App() {
         socket.onopen = () => {
             reconnectAttemptsRef.current = 0;
             subscribeToJobs(socket);
+            window.clearInterval(heartbeatTimerRef.current);
+            heartbeatTimerRef.current = window.setInterval(() => {
+                if (socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({ action: 'heartbeat' }));
+                }
+            }, WEBSOCKET_HEARTBEAT_INTERVAL_MS);
             console.log('CloudDSP WebSocket connected and subscribed to active jobs.');
         };
         socket.onmessage = (event) => {
@@ -284,6 +370,8 @@ export default function App() {
         };
         socket.onerror = () => console.warn('CloudDSP WebSocket transport error.');
         socket.onclose = () => {
+            window.clearInterval(heartbeatTimerRef.current);
+            heartbeatTimerRef.current = null;
             socketRef.current = null;
             if (!shouldReconnectRef.current) return;
             const delay = Math.min(1_000 * (2 ** reconnectAttemptsRef.current), RECONNECT_MAX_DELAY_MS);
@@ -298,6 +386,8 @@ export default function App() {
         return () => {
             shouldReconnectRef.current = false;
             window.clearTimeout(reconnectTimerRef.current);
+            window.clearInterval(heartbeatTimerRef.current);
+            heartbeatTimerRef.current = null;
             socketRef.current?.close();
             socketRef.current = null;
         };
@@ -308,10 +398,11 @@ export default function App() {
     }, [activeJobIds, subscribeToJobs]);
 
     useEffect(() => {
-        if (!authUsername || activeJobIds.length === 0) return undefined;
+        if (!authUsername || (!activeJobId && activeJobIds.length === 0)) return undefined;
         const refreshPendingJobs = () => {
-            activeJobIds
-                .filter((jobId) => !jobSnapshotsRef.current[jobId] || isJobPending(jobSnapshotsRef.current[jobId]))
+            const trackedJobIds = new Set([...activeJobIds, activeJobId].filter(Boolean));
+            [...trackedJobIds]
+                .filter((jobId) => needsJobRefresh(jobSnapshotsRef.current[jobId]))
                 .forEach((jobId) => fetchJobSnapshot(jobId));
         };
         refreshPendingJobs();
@@ -319,7 +410,7 @@ export default function App() {
             refreshPendingJobs();
         }, POLL_INTERVAL_MS);
         return () => window.clearInterval(timer);
-    }, [activeJobIds, authUsername, fetchJobSnapshot]);
+    }, [activeJobId, activeJobIds, authUsername, fetchJobSnapshot]);
 
     useEffect(() => {
         if (!currentJob) return;
@@ -331,6 +422,24 @@ export default function App() {
         setActiveJobId(null);
         setErrorMsg('');
         setStatusMessage('Ready to upload audio.');
+    };
+
+    const openPreviousJob = async (selectedJob) => {
+        const jobId = selectedJob?.job_id;
+        if (!jobId) return;
+
+        setErrorMsg('');
+        setStemFile(null);
+        setStemFileName(selectedJob.source_filename || 'Saved CloudDSP job');
+        setActiveJobId(jobId);
+        setActiveJobIds((current) => [...new Set([...current, jobId])]);
+        setStatusMessage('Loading saved job artifacts…');
+        subscribeToJobs(socketRef.current, [jobId]);
+
+        const snapshot = await fetchJobSnapshot(jobId, { showError: true, force: true });
+        if (snapshot) {
+            setStemFileName(snapshot.source_filename || selectedJob.source_filename || 'Saved CloudDSP job');
+        }
     };
 
     const executeStemSplit = async () => {
@@ -369,6 +478,17 @@ export default function App() {
                 ...current,
                 [job.job_id]: { job_id: job.job_id, status: job.status, revision: job.revision, stems: {}, midi: {} },
             }));
+            setPreviousJobs((current) => [
+                {
+                    job_id: job.job_id,
+                    source_filename: stemFile.name,
+                    status: job.status,
+                    stem_mode: splitMode,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                },
+                ...current.filter((existingJob) => existingJob.job_id !== job.job_id),
+            ]);
             subscribeToJobs(socketRef.current, [job.job_id]);
 
             setStatusMessage('Uploading audio to the secure job location…');
@@ -422,6 +542,12 @@ export default function App() {
         midiStates,
         jobTempo: currentJob?.tempo,
         jobId: currentJob?.job_id || activeJobId,
+        sourceUrl: currentJob?.original_url,
+        previousJobs,
+        isPreviousJobsLoading,
+        previousJobsError,
+        onSelectPreviousJob: openPreviousJob,
+        onRefreshPreviousJobs: fetchPreviousJobs,
         errorMsg,
         setErrorMsg,
         executeStemSplit,

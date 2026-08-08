@@ -52,7 +52,7 @@ flowchart LR
     Connections["DynamoDB Connections<br/>temporary subscriptions"]
 
     Browser <-->|"sign up / sign in<br/>ID token"| Cognito
-    Browser -->|"POST /jobs, GET /jobs/id<br/>Bearer ID token"| HttpApi
+    Browser -->|"POST /jobs, GET /jobs, GET /jobs/id<br/>Bearer ID token"| HttpApi
     HttpApi --> JobApi
     JobApi <--> Jobs
     JobApi -->|"presigned PUT URL"| Browser
@@ -147,8 +147,10 @@ APIs, so the token is validated when each connection is established.
 ### CloudDSPJobs
 
 The Jobs table uses **job_id** as its partition key. It has the
-**user_id-updated_at-index** global secondary index for a future recent-jobs
-view. It is on-demand, encrypted, protected by point-in-time recovery, and
+**user_id-updated_at-index** global secondary index for the saved-jobs library.
+`GET /jobs` queries that index with the authenticated Cognito subject and
+orders results by most recently updated; it never accepts a caller-provided
+user ID. It is on-demand, encrypted, protected by point-in-time recovery, and
 uses **expires_at** for TTL cleanup.
 
 An illustrative item:
@@ -268,14 +270,24 @@ metadata will make S3 reject the upload.
 ### Read job snapshot
 
 **GET /jobs/{job_id}** returns only an authorized job. It removes internal
-source bucket/key and TTL fields. Each persisted **s3_key** becomes a fresh
-presigned **url**, and each **bpm_key** becomes a fresh **bpm_url**. Download
-URLs are valid for one hour by default. The top-level **tempo** object is the
-backend-selected master tempo; it is returned directly and never requires a
-client to download or vote on BPM artifacts.
+source bucket/key and TTL fields. It returns **original_url** for the original
+private upload. Each persisted **s3_key** becomes a fresh presigned **url**,
+and each **bpm_key** becomes a fresh **bpm_url**. Download URLs are valid for
+one hour by default. The top-level **tempo** object is the backend-selected
+master tempo; it is returned directly and never requires a client to download
+or vote on BPM artifacts.
 
 The frontend retains job IDs, not presigned URLs. It requests a new snapshot
 after a reload, a notification, polling, or a download-link expiry.
+
+### List saved jobs
+
+**GET /jobs** returns a compact `jobs` list for the current authenticated user,
+newest first. A list item has `job_id`, `source_filename`, `status`,
+`stem_mode`, `created_at`, `updated_at`, and the current top-level `tempo`.
+It intentionally contains no S3 keys or URLs. When a user selects an item,
+the browser calls **GET /jobs/{job_id}** to receive the original track, stems,
+MIDI artifacts, and master BPM in one owner-checked snapshot.
 
 ### WebSocket messages
 

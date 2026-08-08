@@ -2,8 +2,9 @@
 
 ``POST /jobs`` creates the DynamoDB record before the browser uploads audio
 and returns a presigned PUT URL for ``uploads/{job_id}/{filename}``.
-``GET /jobs/{job_id}`` returns the stored state with fresh presigned artifact
-URLs.  Workers store S3 keys, rather than expiring URLs, in the job record.
+``GET /jobs`` lists the authenticated user's recent jobs. ``GET /jobs/{job_id}``
+returns the stored state with fresh presigned source and artifact URLs. Workers
+store S3 keys, rather than expiring URLs, in the job record.
 
 An API Gateway JWT authorizer must be attached before deployment.  This
 handler uses the authenticated ``sub`` claim as the job owner and never trusts
@@ -20,10 +21,12 @@ from pathlib import PurePath
 from typing import Any
 
 import boto3
+from boto3.dynamodb.conditions import Key
 
 
 VALID_STEM_MODES = {"2-stems", "4-stems", "6-stems"}
 DEFAULT_JOB_TTL_DAYS = 7
+USER_JOBS_INDEX_NAME = "user_id-updated_at-index"
 
 _jobs = boto3.resource("dynamodb").Table(os.environ["JOBS_TABLE_NAME"])
 _s3 = boto3.client("s3")
@@ -186,13 +189,19 @@ def presigned_get_url(bucket: str, key: str) -> str:
 
 
 def artifact_snapshot(item: dict[str, Any]) -> dict[str, Any]:
-    """Return a browser-safe job view, replacing artifact keys with fresh URLs."""
+    """Return a browser-safe job view, replacing stored keys with fresh URLs."""
     output_bucket = os.environ["PROCESSED_AUDIO_BUCKET_NAME"]
     result = {
         key: value
         for key, value in item.items()
         if key not in {"input_bucket", "input_key", "expires_at"}
     }
+    input_bucket = item.get("input_bucket")
+    input_key = item.get("input_key")
+    if input_bucket and input_key:
+        # The original upload remains private. Its URL is generated only after
+        # the authenticated caller has passed the ownership check in get_job.
+        result["original_url"] = presigned_get_url(input_bucket, input_key)
     for collection_name in ("stems", "midi"):
         artifacts = item.get(collection_name) or {}
         rendered: dict[str, dict[str, Any]] = {}
@@ -209,12 +218,67 @@ def artifact_snapshot(item: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def job_list_item(item: dict[str, Any]) -> dict[str, Any]:
+    """Render the compact, non-sensitive item used by the saved-jobs library."""
+    return {
+        "job_id": item["job_id"],
+        "source_filename": item.get("source_filename", "Untitled audio"),
+        "status": item.get("status", "unknown"),
+        "stem_mode": item.get("stem_mode"),
+        "tempo": item.get("tempo"),
+        "created_at": item.get("created_at"),
+        "updated_at": item.get("updated_at"),
+    }
+
+
+def job_is_retained(item: dict[str, Any]) -> bool:
+    """Hide records whose retention window has elapsed before TTL removes them."""
+    expires_at = item.get("expires_at")
+    if expires_at is None:
+        return True
+    try:
+        return int(expires_at) > int(time.time())
+    except (TypeError, ValueError):
+        # A malformed legacy TTL must not be disclosed through the library.
+        return False
+
+
+def list_jobs(user_id: str) -> dict[str, list[dict[str, Any]]]:
+    """List every non-expired job owned by one authenticated Cognito subject.
+
+    ``user_id`` comes exclusively from the JWT authorizer.  Querying the GSI
+    avoids a table scan and returns the most recently updated jobs first.
+    DynamoDB pages query results at roughly 1 MB, so continue until the caller
+    has the complete history retained by the table's TTL policy.
+    """
+    query = {
+        "IndexName": os.environ.get("USER_JOBS_INDEX_NAME", USER_JOBS_INDEX_NAME),
+        "KeyConditionExpression": Key("user_id").eq(user_id),
+        "ScanIndexForward": False,
+    }
+    jobs: list[dict[str, Any]] = []
+    while True:
+        page = _jobs.query(**query)
+        jobs.extend(
+            job_list_item(item)
+            for item in page.get("Items", [])
+            if job_is_retained(item)
+        )
+        last_evaluated_key = page.get("LastEvaluatedKey")
+        if not last_evaluated_key:
+            break
+        query["ExclusiveStartKey"] = last_evaluated_key
+
+    print(f"Listed {len(jobs)} jobs for authenticated user {user_id}.")
+    return {"jobs": jobs}
+
+
 def get_job(event: dict[str, Any], user_id: str) -> dict[str, Any]:
     job_id = event.get("pathParameters", {}).get("job_id")
     if not isinstance(job_id, str) or not job_id:
         raise RequestError(400, "job_id is required.")
     item = _jobs.get_item(Key={"job_id": job_id}).get("Item")
-    if not item:
+    if not item or not job_is_retained(item):
         raise RequestError(404, "Job not found.")
     if item.get("user_id") != user_id:
         # Do not reveal whether a job ID belongs to another user.
@@ -223,13 +287,15 @@ def get_job(event: dict[str, Any], user_id: str) -> dict[str, Any]:
 
 
 def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
-    """Handle ``POST /jobs`` and ``GET /jobs/{job_id}`` HTTP API requests."""
+    """Handle authenticated CloudDSP job API requests."""
     route_key = event.get("routeKey")
     print(f"Received Job API route: {route_key}")
     try:
         user_id = authenticated_user_id(event)
         if route_key == "POST /jobs":
             return response(201, create_job(event, user_id))
+        if route_key == "GET /jobs":
+            return response(200, list_jobs(user_id))
         if route_key == "GET /jobs/{job_id}":
             return response(200, get_job(event, user_id))
         raise RequestError(404, "Route not found.")

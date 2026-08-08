@@ -13,9 +13,11 @@ import React, { useState, useEffect, useRef } from 'react';
  * 
  * @param {Object} stemUrls - Dictionary of track names to their audio URLs (e.g., { 'vocals': 'url', 'drums': 'url' })
  * @param {File} file - The original user-uploaded File object.
+ * @param {string|null} sourceUrl - Presigned original-audio URL for a restored job.
+ * @param {string|null} jobId - Durable job identity used to reset a restored workspace.
  * @returns {Object} An object containing all playback state, refs, and controller functions.
  */
-export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}) {
+export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, sourceUrl = null, jobId = null) {
     const audioRefs = useRef({});
     const audioCtxRef = useRef(null);
     const sourceNodesRef = useRef({});
@@ -50,26 +52,30 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}) 
     }, [file]);
 
     useEffect(() => {
-        // A new local upload must not inherit preloading state from the last job.
+        // A new local upload or restored job must not inherit preloading state
+        // from the workspace that was previously displayed.
         preloadedTracksRef.current.clear();
-    }, [file]);
+    }, [file, jobId]);
     
     const stemTrackSignature = Object.keys(stemUrls || {}).sort().join('|');
 
-    // Reset only for a new source file or a changed set of stem tracks. Presigned
+    // Reset only for a new source file, saved job, or a changed set of stem tracks. Presigned
     // URLs refresh whenever the browser reads a job snapshot, so depending on
     // the URL object itself would interrupt playback while MIDI results arrive.
     useEffect(() => {
+        Object.values(audioRefs.current).forEach((audio) => audio?.pause());
         setIsPlaying(false);
         setProgress(0);
         setDuration(0);
         setMutedTracks(stemTrackSignature ? { Original: true } : {});
         setSoloedTracks({});
-    }, [file, stemTrackSignature]);
+    }, [file, jobId, stemTrackSignature]);
+
+    const playableOriginalUrl = originalUrl || sourceUrl;
 
     useEffect(() => {
         const tracksToPreload = [
-            ...(originalUrl ? ['Original'] : []),
+            ...(playableOriginalUrl ? ['Original'] : []),
             ...Object.keys(stemUrls || {}),
         ];
         const frame = window.requestAnimationFrame(() => {
@@ -84,7 +90,7 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}) 
             });
         });
         return () => window.cancelAnimationFrame(frame);
-    }, [originalUrl, stemTrackSignature, stemUrls]);
+    }, [playableOriginalUrl, stemTrackSignature, stemUrls]);
 
     /**
      * Toggles play/pause for all loaded audio tracks simultaneously.

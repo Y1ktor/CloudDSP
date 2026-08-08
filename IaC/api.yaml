@@ -128,6 +128,10 @@ Resources:
               - Effect: Allow
                 Action:
                   - s3:GetObject
+                Resource: !Sub '${UploadsBucketArn}/uploads/*'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
                 Resource: !Sub '${ProcessedAudioBucketArn}/*'
 
   JobApiFunction:
@@ -196,6 +200,15 @@ Resources:
     Properties:
       ApiId: !Ref JobHttpApi
       RouteKey: 'POST /jobs'
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JobApiJwtAuthorizer
+      Target: !Join ['/', ['integrations', !Ref JobApiIntegration]]
+
+  ListJobsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref JobHttpApi
+      RouteKey: 'GET /jobs'
       AuthorizationType: JWT
       AuthorizerId: !Ref JobApiJwtAuthorizer
       Target: !Join ['/', ['integrations', !Ref JobApiIntegration]]
