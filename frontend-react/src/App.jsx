@@ -20,15 +20,6 @@ const RECONNECT_MAX_DELAY_MS = 30_000;
 const JOB_REFRESH_BACKOFF_INITIAL_MS = 5_000;
 const JOB_REFRESH_BACKOFF_MAX_MS = 60_000;
 
-function getStoredJobs(storageKey) {
-    try {
-        const parsed = JSON.parse(sessionStorage.getItem(storageKey) || '[]');
-        return Array.isArray(parsed) ? parsed.filter((value) => typeof value === 'string') : [];
-    } catch {
-        return [];
-    }
-}
-
 function isJobPending(job) {
     return job && !['completed', 'failed'].includes(job.status);
 }
@@ -135,7 +126,6 @@ export default function App() {
     const [errorMsg, setErrorMsg] = useState('');
     const [authSession, setAuthSession] = useState(null);
     const [authLoading, setAuthLoading] = useState(isCognitoConfigured);
-    const [activeJobIds, setActiveJobIds] = useState([]);
     const [activeJobId, setActiveJobId] = useState(null);
     const [jobSnapshots, setJobSnapshots] = useState({});
     const [isUploading, setIsUploading] = useState(false);
@@ -148,8 +138,7 @@ export default function App() {
     const reconnectTimerRef = useRef(null);
     const reconnectAttemptsRef = useRef(0);
     const heartbeatTimerRef = useRef(null);
-    const activeJobIdsRef = useRef([]);
-    const subscribedJobIdsRef = useRef(new Set());
+    const activeJobIdRef = useRef(null);
     const jobSnapshotsRef = useRef({});
     const jobRefreshInFlightRef = useRef(new Set());
     const jobRefreshBackoffRef = useRef(new Map());
@@ -160,11 +149,9 @@ export default function App() {
     const midiUrls = useMemo(() => urlsForReadyArtifacts(currentJob?.midi), [currentJob]);
     const midiStates = currentJob?.midi || {};
     const isSplitting = isUploading || isJobPending(currentJob);
-    const storageKey = authSession ? `clouddsp.activeJobs.${authSession.username}` : null;
-
     useEffect(() => {
-        activeJobIdsRef.current = activeJobIds;
-    }, [activeJobIds]);
+        activeJobIdRef.current = activeJobId;
+    }, [activeJobId]);
 
     useEffect(() => {
         jobSnapshotsRef.current = jobSnapshots;
@@ -188,26 +175,22 @@ export default function App() {
         restoreSession();
     }, [restoreSession]);
 
+    // The durable account-scoped Job API is the only source of job history.
+    // Do not restore a browser-local job queue after a reload: deleted jobs
+    // would otherwise be polled forever and bypass the library's ownership
+    // filtering. The currently open job remains React state for this tab only.
     useEffect(() => {
-        if (!storageKey) {
-            setActiveJobIds([]);
+        if (authUsername) {
+            // One-time migration cleanup for frontend versions that persisted
+            // active jobs before the account-backed job library existed.
+            sessionStorage.removeItem(`clouddsp.activeJobs.${authUsername}`);
+        } else {
             setActiveJobId(null);
             setJobSnapshots({});
-            subscribedJobIdsRef.current.clear();
-            return;
+            jobRefreshInFlightRef.current.clear();
+            jobRefreshBackoffRef.current.clear();
         }
-        const restoredJobIds = getStoredJobs(storageKey);
-        setActiveJobIds(restoredJobIds);
-        setActiveJobId(restoredJobIds.at(-1) || null);
-        setJobSnapshots({});
-        subscribedJobIdsRef.current = new Set(restoredJobIds);
-        jobRefreshInFlightRef.current.clear();
-        jobRefreshBackoffRef.current.clear();
-    }, [storageKey]);
-
-    useEffect(() => {
-        if (storageKey) sessionStorage.setItem(storageKey, JSON.stringify(activeJobIds));
-    }, [activeJobIds, storageKey]);
+    }, [authUsername]);
 
     const authenticatedFetch = useCallback(async (path, options = {}) => {
         if (!JOB_API_URL) throw new Error('VITE_JOB_API_URL is not configured.');
@@ -289,7 +272,20 @@ export default function App() {
             return snapshot;
         } catch (error) {
             const status = Number(error.status);
-            if (status === 429 || status >= 500) {
+            if (status === 404) {
+                // A job may have expired or been removed in another browser.
+                // It cannot become valid on a later poll, so drop it from the
+                // active workspace instead of retrying indefinitely.
+                setJobSnapshots((current) => {
+                    const remaining = { ...current };
+                    delete remaining[jobId];
+                    return remaining;
+                });
+                setActiveJobId((current) => current === jobId ? null : current);
+                void fetchPreviousJobs();
+                jobRefreshBackoffRef.current.delete(jobId);
+                console.info(`Removed unavailable CloudDSP job ${jobId} from the active workspace.`);
+            } else if (status === 429 || status >= 500) {
                 const attempts = (retryState?.attempts || 0) + 1;
                 const delay = Math.min(
                     JOB_REFRESH_BACKOFF_INITIAL_MS * (2 ** (attempts - 1)),
@@ -309,14 +305,12 @@ export default function App() {
         } finally {
             inFlight.delete(jobId);
         }
-    }, [authenticatedFetch]);
+    }, [authenticatedFetch, fetchPreviousJobs]);
 
-    const subscribeToJobs = useCallback((socket, jobIds = activeJobIdsRef.current) => {
-        jobIds.filter(Boolean).forEach((jobId) => subscribedJobIdsRef.current.add(jobId));
+    const subscribeToActiveJob = useCallback((socket, jobId = activeJobIdRef.current) => {
+        if (!jobId) return;
         if (socket?.readyState !== WebSocket.OPEN) return;
-        subscribedJobIdsRef.current.forEach((jobId) => {
-            socket.send(JSON.stringify({ action: 'subscribe', job_id: jobId }));
-        });
+        socket.send(JSON.stringify({ action: 'subscribe', job_id: jobId }));
     }, []);
 
     const connectWebSocket = useCallback(async () => {
@@ -345,7 +339,7 @@ export default function App() {
 
         socket.onopen = () => {
             reconnectAttemptsRef.current = 0;
-            subscribeToJobs(socket);
+            subscribeToActiveJob(socket);
             window.clearInterval(heartbeatTimerRef.current);
             heartbeatTimerRef.current = window.setInterval(() => {
                 if (socket.readyState === WebSocket.OPEN) {
@@ -357,7 +351,7 @@ export default function App() {
         socket.onmessage = (event) => {
             try {
                 const message = JSON.parse(event.data);
-                if (message.type === 'job_updated' && message.job_id) {
+                if (message.type === 'job_updated' && message.job_id === activeJobIdRef.current) {
                     // Notifications are hints, but they should bypass a prior
                     // polling backoff so completed artifacts hydrate promptly.
                     fetchJobSnapshot(message.job_id, { showError: true, force: true });
@@ -378,7 +372,7 @@ export default function App() {
             reconnectAttemptsRef.current += 1;
             reconnectTimerRef.current = window.setTimeout(() => connectWebSocket(), delay);
         };
-    }, [authUsername, fetchJobSnapshot, subscribeToJobs]);
+    }, [authUsername, fetchJobSnapshot, subscribeToActiveJob]);
 
     useEffect(() => {
         shouldReconnectRef.current = Boolean(authUsername && WEBSOCKET_URL);
@@ -394,23 +388,22 @@ export default function App() {
     }, [authUsername, connectWebSocket]);
 
     useEffect(() => {
-        subscribeToJobs(socketRef.current, activeJobIds);
-    }, [activeJobIds, subscribeToJobs]);
+        subscribeToActiveJob(socketRef.current, activeJobId);
+    }, [activeJobId, subscribeToActiveJob]);
 
     useEffect(() => {
-        if (!authUsername || (!activeJobId && activeJobIds.length === 0)) return undefined;
+        if (!authUsername || !activeJobId) return undefined;
         const refreshPendingJobs = () => {
-            const trackedJobIds = new Set([...activeJobIds, activeJobId].filter(Boolean));
-            [...trackedJobIds]
-                .filter((jobId) => needsJobRefresh(jobSnapshotsRef.current[jobId]))
-                .forEach((jobId) => fetchJobSnapshot(jobId));
+            if (needsJobRefresh(jobSnapshotsRef.current[activeJobId])) {
+                fetchJobSnapshot(activeJobId);
+            }
         };
         refreshPendingJobs();
         const timer = window.setInterval(() => {
             refreshPendingJobs();
         }, POLL_INTERVAL_MS);
         return () => window.clearInterval(timer);
-    }, [activeJobId, activeJobIds, authUsername, fetchJobSnapshot]);
+    }, [activeJobId, authUsername, fetchJobSnapshot]);
 
     useEffect(() => {
         if (!currentJob) return;
@@ -420,6 +413,7 @@ export default function App() {
 
     const beginNewUpload = () => {
         setActiveJobId(null);
+        setJobSnapshots({});
         setErrorMsg('');
         setStatusMessage('Ready to upload audio.');
     };
@@ -432,9 +426,8 @@ export default function App() {
         setStemFile(null);
         setStemFileName(selectedJob.source_filename || 'Saved CloudDSP job');
         setActiveJobId(jobId);
-        setActiveJobIds((current) => [...new Set([...current, jobId])]);
         setStatusMessage('Loading saved job artifacts…');
-        subscribeToJobs(socketRef.current, [jobId]);
+        subscribeToActiveJob(socketRef.current, jobId);
 
         const snapshot = await fetchJobSnapshot(jobId, { showError: true, force: true });
         if (snapshot) {
@@ -472,7 +465,6 @@ export default function App() {
                 throw new Error('The job API returned an incomplete upload contract.');
             }
 
-            setActiveJobIds((current) => [...new Set([...current, job.job_id])]);
             setActiveJobId(job.job_id);
             setJobSnapshots((current) => ({
                 ...current,
@@ -489,7 +481,7 @@ export default function App() {
                 },
                 ...current.filter((existingJob) => existingJob.job_id !== job.job_id),
             ]);
-            subscribeToJobs(socketRef.current, [job.job_id]);
+            subscribeToActiveJob(socketRef.current, job.job_id);
 
             setStatusMessage('Uploading audio to the secure job location…');
             const uploadResponse = await fetch(job.upload_url, {
