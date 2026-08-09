@@ -2,6 +2,8 @@
 
 ``POST /jobs`` creates the DynamoDB record before the browser uploads audio
 and returns a presigned PUT URL for ``uploads/{job_id}/{filename}``.
+``POST /jobs/link`` creates the same durable record and asynchronously invokes
+the yt-dlp ingestion Lambda, which writes that input key itself.
 ``GET /jobs`` lists the authenticated user's recent jobs. ``GET /jobs/{job_id}``
 returns the stored state with fresh presigned source and artifact URLs. Workers
 store S3 keys, rather than expiring URLs, in the job record.
@@ -12,6 +14,7 @@ a user ID supplied by the browser.
 """
 
 import json
+import ipaddress
 import os
 import time
 import uuid
@@ -19,6 +22,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import PurePath
 from typing import Any
+from urllib.parse import urlsplit
 
 import boto3
 from boto3.dynamodb.conditions import Key
@@ -30,6 +34,7 @@ USER_JOBS_INDEX_NAME = "user_id-updated_at-index"
 
 _jobs = boto3.resource("dynamodb").Table(os.environ["JOBS_TABLE_NAME"])
 _s3 = boto3.client("s3")
+_lambda = boto3.client("lambda")
 
 
 class RequestError(Exception):
@@ -102,6 +107,31 @@ def safe_filename(value: Any) -> str:
     if len(filename) > 255:
         raise RequestError(400, "filename must be at most 255 characters.")
     return filename
+
+
+def safe_media_url(value: Any) -> str:
+    """Accept one absolute source URL for the yt-dlp ingestion worker."""
+    if not isinstance(value, str) or not value.strip():
+        raise RequestError(400, "source_url is required.")
+    if len(value) > 2_048:
+        raise RequestError(400, "source_url is too long.")
+    parsed = urlsplit(value)
+    if parsed.scheme not in {"https", "http"} or not parsed.hostname:
+        raise RequestError(400, "source_url must be an absolute HTTP or HTTPS URL.")
+    if parsed.username or parsed.password:
+        raise RequestError(400, "source_url must not contain credentials.")
+    if parsed.hostname.lower() == "localhost":
+        raise RequestError(400, "source_url must not target localhost.")
+    try:
+        address = ipaddress.ip_address(parsed.hostname)
+    except ValueError:
+        # A hostname is valid, but the Lambda's network controls must block
+        # private destinations if it resolves to one at request time.
+        pass
+    else:
+        if not address.is_global:
+            raise RequestError(400, "source_url must not target a private or reserved IP address.")
+    return value
 
 
 def configured_int(name: str, default: int, minimum: int = 1) -> int:
@@ -180,6 +210,90 @@ def create_job(event: dict[str, Any], user_id: str) -> dict[str, Any]:
     }
 
 
+def create_link_job(event: dict[str, Any], user_id: str) -> dict[str, Any]:
+    """Create a durable job and hand source ingestion to the yt-dlp Lambda.
+
+    The linked URL stays in the asynchronous invocation payload rather than in
+    DynamoDB.  The table therefore continues to store only durable processing
+    state and S3 keys, not a potentially sensitive query string.
+    """
+    function_arn = os.environ.get("YTDLP_FUNCTION_ARN")
+    if not function_arn:
+        raise RequestError(503, "Linked-source ingestion is not deployed.")
+
+    payload = parse_json_body(event)
+    source_url = safe_media_url(payload.get("source_url"))
+    stem_mode = payload.get("stem_mode", "6-stems")
+    if stem_mode not in VALID_STEM_MODES:
+        raise RequestError(400, "stem_mode must be 2-stems, 4-stems, or 6-stems.")
+
+    job_id = str(uuid.uuid4())
+    # The final title is not known until yt-dlp reads the media metadata. The
+    # S3 key must nevertheless be decided before invocation so Batch can use
+    # the identical durable key and no extra S3 routing rule is required.
+    input_key = f"uploads/{job_id}/linked-audio.wav"
+    created_at = utc_now()
+    expires_at = int(time.time()) + configured_int(
+        "JOB_TTL_DAYS", DEFAULT_JOB_TTL_DAYS
+    ) * 24 * 60 * 60
+    job = {
+        "job_id": job_id,
+        "user_id": user_id,
+        "status": "source_ingestion",
+        "input_bucket": os.environ["UPLOADS_BUCKET_NAME"],
+        "input_key": input_key,
+        "source_filename": "linked-audio.wav",
+        "source_content_type": "audio/wav",
+        "source_type": "yt-dlp",
+        "stem_mode": stem_mode,
+        "stems": {},
+        "midi": {},
+        "revision": 1,
+        "created_at": created_at,
+        "updated_at": created_at,
+        "expires_at": expires_at,
+    }
+    _jobs.put_item(Item=job, ConditionExpression="attribute_not_exists(job_id)")
+
+    try:
+        invocation = _lambda.invoke(
+            FunctionName=function_arn,
+            InvocationType="Event",
+            Payload=json.dumps({"job_id": job_id, "source_url": source_url}).encode("utf-8"),
+        )
+        if invocation.get("StatusCode") not in {202, 200}:
+            raise RuntimeError(f"Unexpected asynchronous invocation response: {invocation}")
+    except Exception as error:
+        # The job remains visible to its owner with a terminal reason rather
+        # than leaving a source_ingestion entry that cannot make progress.
+        _jobs.update_item(
+            Key={"job_id": job_id},
+            UpdateExpression="SET #status = :failed, #error = :error, #updated_at = :updated_at ADD #revision :one",
+            ExpressionAttributeNames={
+                "#status": "status",
+                "#error": "error",
+                "#updated_at": "updated_at",
+                "#revision": "revision",
+            },
+            ExpressionAttributeValues={
+                ":failed": "failed",
+                ":error": f"Could not start linked-source ingestion: {error}"[:1_000],
+                ":updated_at": utc_now(),
+                ":one": 1,
+            },
+        )
+        print(f"Could not invoke yt-dlp for job {job_id}: {error}")
+        raise RequestError(503, "Could not start linked-source ingestion.") from error
+
+    print(f"Created linked-source job {job_id} for authenticated user {user_id}.")
+    return {
+        "job_id": job_id,
+        "status": job["status"],
+        "revision": job["revision"],
+        "input_key": input_key,
+    }
+
+
 def presigned_get_url(bucket: str, key: str) -> str:
     return _s3.generate_presigned_url(
         ClientMethod="get_object",
@@ -198,9 +312,17 @@ def artifact_snapshot(item: dict[str, Any]) -> dict[str, Any]:
     }
     input_bucket = item.get("input_bucket")
     input_key = item.get("input_key")
-    if input_bucket and input_key:
+    linked_source_failed_before_upload = (
+        item.get("source_type") == "yt-dlp"
+        and item.get("status") == "failed"
+        and not item.get("source_uploaded")
+    )
+    if input_bucket and input_key and not linked_source_failed_before_upload:
         # The original upload remains private. Its URL is generated only after
         # the authenticated caller has passed the ownership check in get_job.
+        # A linked source that failed before its first S3 upload deliberately
+        # has no original URL: signing the predetermined missing key produces
+        # a misleading S3 403 in the browser.
         result["original_url"] = presigned_get_url(input_bucket, input_key)
     for collection_name in ("stems", "midi"):
         artifacts = item.get(collection_name) or {}
@@ -294,6 +416,8 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         user_id = authenticated_user_id(event)
         if route_key == "POST /jobs":
             return response(201, create_job(event, user_id))
+        if route_key == "POST /jobs/link":
+            return response(202, create_link_job(event, user_id))
         if route_key == "GET /jobs":
             return response(200, list_jobs(user_id))
         if route_key == "GET /jobs/{job_id}":

@@ -29,16 +29,24 @@ export default function ControlBar({
     executeLinkExtraction,
     file,
     errorMsg,
-    handleLinkSet
 }) {
     const [showLinkPopup, setShowLinkPopup] = React.useState(false);
     const [linkInput, setLinkInput] = React.useState('');
+    const [isSubmittingLink, setIsSubmittingLink] = React.useState(false);
 
-    const handleLinkSubmit = () => {
-        if (!linkInput) return;
-        handleLinkSet(linkInput);
-        setShowLinkPopup(false);
-        setLinkInput(''); // clear the input after submission
+    const handleLinkSubmit = async () => {
+        const sourceUrl = linkInput.trim();
+        if (!sourceUrl || isSubmittingLink) return;
+        setIsSubmittingLink(true);
+        try {
+            const started = await executeLinkExtraction(sourceUrl);
+            if (started) {
+                setShowLinkPopup(false);
+                setLinkInput('');
+            }
+        } finally {
+            setIsSubmittingLink(false);
+        }
     };
 
     return (
@@ -81,6 +89,18 @@ export default function ControlBar({
                                         fontSize: '14px', outline: 'none'
                                     }}
                                 />
+                                <button
+                                    type="button"
+                                    onClick={handleLinkSubmit}
+                                    disabled={!linkInput.trim() || isSubmittingLink}
+                                    style={{
+                                        background: !linkInput.trim() || isSubmittingLink ? '#555' : '#4CAF50', color: 'white',
+                                        border: 'none', borderRadius: '6px', padding: '0 15px', fontSize: '13px', fontWeight: 'bold',
+                                        cursor: !linkInput.trim() || isSubmittingLink ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap',
+                                    }}
+                                >
+                                    {isSubmittingLink ? 'Starting…' : 'Extract & Split'}
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -112,18 +132,15 @@ export default function ControlBar({
                 </div>
 
                 <button 
-                    onClick={() => {
-                        if (file) executeStemSplit();
-                        else if (fileName && fileName.startsWith('http')) executeLinkExtraction(fileName);
-                    }}
-                    disabled={isSplitting || (!file && (!fileName || !fileName.startsWith('http')))}
+                    onClick={() => file && executeStemSplit()}
+                    disabled={isSplitting || !file}
                     style={{
-                        background: isSplitting ? '#555' : ((!file && (!fileName || !fileName.startsWith('http'))) ? '#555' : '#4CAF50'),
+                        background: isSplitting || !file ? '#555' : '#4CAF50',
                         color: 'white',
                         border: 'none',
                         padding: '8px 16px',
                         borderRadius: '4px',
-                        cursor: isSplitting || (!file && (!fileName || !fileName.startsWith('http'))) ? 'not-allowed' : 'pointer',
+                        cursor: isSplitting || !file ? 'not-allowed' : 'pointer',
                         fontWeight: 'bold',
                         transition: 'background-color 0.2s',
                         fontSize: '13px'

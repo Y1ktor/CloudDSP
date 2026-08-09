@@ -46,11 +46,16 @@ function hasTerminalMidiArtifacts(job) {
 }
 
 function needsJobRefresh(job) {
+    // A failed ingestion/worker job is terminal even when it never produced
+    // stems or MIDI. Continuing to poll it makes the browser look as if it is
+    // still waiting for results that cannot arrive.
+    if (job?.status === 'failed') return false;
     return !job || isJobPending(job) || !hasTerminalMidiArtifacts(job);
 }
 
 function messageForJob(job, fallback) {
     if (!job) return fallback;
+    if (job.status === 'source_ingestion') return 'Downloading audio from the linked source…';
     if (job.status === 'upload_pending') return 'Upload complete. Waiting for AWS Batch capacity…';
     if (job.status === 'stem_processing') return 'AWS Batch is separating stems…';
     if (job.status === 'midi_processing') return 'Stems are ready. MIDI extraction is still running…';
@@ -595,8 +600,78 @@ export default function App() {
         }
     };
 
-    const executeLinkExtraction = () => {
-        setErrorMsg('Link ingestion is not part of the durable job API yet. Download the audio locally, then upload it here.');
+    const executeLinkExtraction = async (sourceUrl) => {
+        const trimmedSourceUrl = typeof sourceUrl === 'string' ? sourceUrl.trim() : '';
+        try {
+            const parsedUrl = new URL(trimmedSourceUrl);
+            if (!['http:', 'https:'].includes(parsedUrl.protocol) || !parsedUrl.hostname) {
+                throw new Error('Paste a complete HTTP or HTTPS media URL.');
+            }
+        } catch (error) {
+            setErrorMsg(error.message || 'Paste a complete HTTP or HTTPS media URL.');
+            return false;
+        }
+        if (!authSession) {
+            setErrorMsg('Sign in before extracting audio from a link.');
+            return false;
+        }
+
+        beginNewUpload();
+        setStemFile(null);
+        setStemFileName(trimmedSourceUrl);
+        setIsUploading(true);
+        setErrorMsg('');
+        setStatusMessage('Creating a linked-source processing job…');
+        try {
+            const response = await authenticatedFetch('/jobs/link', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    source_url: trimmedSourceUrl,
+                    stem_mode: splitMode,
+                }),
+            });
+            const job = await response.json();
+            if (!response.ok) {
+                throw new Error(job.error || `Could not create a linked-source job (${response.status}).`);
+            }
+            if (!job.job_id) {
+                throw new Error('The job API returned an incomplete linked-source job.');
+            }
+
+            setActiveJobId(job.job_id);
+            setJobSnapshots((current) => ({
+                ...current,
+                [job.job_id]: {
+                    job_id: job.job_id,
+                    status: job.status || 'source_ingestion',
+                    revision: job.revision || 1,
+                    stems: {},
+                    midi: {},
+                },
+            }));
+            setPreviousJobs((current) => [
+                {
+                    job_id: job.job_id,
+                    source_filename: trimmedSourceUrl,
+                    status: job.status || 'source_ingestion',
+                    stem_mode: splitMode,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                },
+                ...current.filter((existingJob) => existingJob.job_id !== job.job_id),
+            ]);
+            subscribeToActiveJob(socketRef.current, job.job_id);
+            setStatusMessage('Downloading audio from the linked source…');
+            await fetchJobSnapshot(job.job_id, { showError: true, force: true });
+            return true;
+        } catch (error) {
+            console.error('CloudDSP linked-source ingestion request failed:', error);
+            setErrorMsg(error.message || 'Failed to start linked-source extraction.');
+            return false;
+        } finally {
+            setIsUploading(false);
+        }
     };
 
     const handleSignIn = async (email, password) => {
@@ -630,7 +705,16 @@ export default function App() {
         midiStates,
         jobTempo: currentJob?.tempo,
         jobId: currentJob?.job_id || activeJobId,
-        sourceUrl: currentJob?.original_url,
+        // A linked source has no object until ingestion uploads its durable
+        // input key. The Job API omits original_url after a pre-upload failure;
+        // retain the status check as a client-side guard against a stale API
+        // snapshot so the audio loader never requests a known-missing key.
+        sourceUrl: currentJob?.status === 'source_ingestion'
+            || (currentJob?.source_type === 'yt-dlp'
+                && currentJob?.status === 'failed'
+                && !currentJob?.source_uploaded)
+            ? null
+            : currentJob?.original_url,
         isRestoringHistoryJob,
         isHistoryJob,
         errorMsg,

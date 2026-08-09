@@ -67,6 +67,19 @@ Parameters:
     Default: latest
     Description: ECR tag or digest suffix for the Demucs image.
 
+  YtDlpImageTag:
+    Type: String
+    Default: latest
+    Description: ECR tag or digest suffix for the durable yt-dlp ingestion image.
+
+  YtDlpProxyUrl:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: >-
+      Optional residential proxy URL for yt-dlp, including credentials when
+      required by the provider. Leave empty to use direct egress.
+
   DeployProcessingWorkers:
     Type: String
     Default: 'false'
@@ -75,8 +88,8 @@ Parameters:
       - 'true'
     Description: >-
       Set false for the bootstrap deployment that creates ECR repositories.
-      Push the Basic Pitch, ADTOF, and Demucs images, then update the stack
-      with true to create the Lambda and Batch processing workers.
+      Push the Basic Pitch, ADTOF, Demucs, and yt-dlp images, then update the
+      stack with true to create the Lambda and Batch processing workers.
 
   GpuInstanceTypes:
     Type: CommaDelimitedList
@@ -177,6 +190,28 @@ Resources:
         UserConnectionsIndexName: !GetAtt RealtimeStack.Outputs.UserConnectionsIndexName
         WebSocketApiId: !GetAtt RealtimeStack.Outputs.WebSocketApiId
 
+  YtDlpIngestionStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: CreateProcessingWorkers
+    Properties:
+      TemplateURL: !Sub 'https://${TemplateBucketName}.s3.${AWS::Region}.amazonaws.com/${TemplatePrefix}ingestion.yaml'
+      Parameters:
+        ProjectName: !Ref ProjectName
+        EnvironmentName: !Ref EnvironmentName
+        YtDlpImageUri: !Sub
+          - '${RepositoryUri}:${ImageTag}'
+          - RepositoryUri: !GetAtt FoundationStack.Outputs.YtDlpRepositoryUri
+            ImageTag: !Ref YtDlpImageTag
+        UploadsBucketName: !GetAtt FoundationStack.Outputs.UploadsBucketName
+        UploadsBucketArn: !GetAtt FoundationStack.Outputs.UploadsBucketArn
+        JobsTableName: !GetAtt JobsStack.Outputs.JobsTableName
+        JobsTableArn: !GetAtt JobsStack.Outputs.JobsTableArn
+        ConnectionsTableName: !GetAtt RealtimeStack.Outputs.ConnectionsTableName
+        ConnectionsTableArn: !GetAtt RealtimeStack.Outputs.ConnectionsTableArn
+        UserConnectionsIndexName: !GetAtt RealtimeStack.Outputs.UserConnectionsIndexName
+        WebSocketApiId: !GetAtt RealtimeStack.Outputs.WebSocketApiId
+        YtDlpProxyUrl: !Ref YtDlpProxyUrl
+
   ProcessingStack:
     Type: AWS::CloudFormation::Stack
     Condition: CreateProcessingWorkers
@@ -223,6 +258,10 @@ Resources:
         AllowedFrontendOrigins: !Join [',', !Ref AllowedFrontendOrigins]
         CognitoUserPoolIssuer: !GetAtt AuthStack.Outputs.UserPoolIssuer
         CognitoBrowserClientId: !GetAtt AuthStack.Outputs.BrowserClientId
+        YtDlpFunctionArn: !If
+          - CreateProcessingWorkers
+          - !GetAtt YtDlpIngestionStack.Outputs.YtDlpFunctionArn
+          - ''
 
 Outputs:
   UploadsBucketName:
@@ -271,3 +310,8 @@ Outputs:
     Condition: CreateProcessingWorkers
     Description: ADTOF extraction Lambda ARN.
     Value: !GetAtt MidiLambdasStack.Outputs.ADTOFLambdaArn
+
+  YtDlpIngestionLambdaArn:
+    Condition: CreateProcessingWorkers
+    Description: Durable yt-dlp source-ingestion Lambda ARN.
+    Value: !GetAtt YtDlpIngestionStack.Outputs.YtDlpFunctionArn

@@ -390,13 +390,6 @@ export default function StemSplitter({
 
     usePlayheadScroll(scrollContainerRef, playheadX, audioEngine.isPlaying);
 
-    const handleLinkSet = (url) => {
-        setFile(null);
-        setFileName(url);
-        beginNewUpload();
-        setErrorMsg("");
-    };
-
     return (
         <div style={{
             background: '#333',
@@ -419,7 +412,6 @@ export default function StemSplitter({
             <ControlBar 
                 isSplitting={isSplitting}
                 handleFileUpload={handleFileUpload}
-                handleLinkSet={handleLinkSet}
                 fileName={fileName}
                 splitMode={splitMode}
                 setSplitMode={setSplitMode}

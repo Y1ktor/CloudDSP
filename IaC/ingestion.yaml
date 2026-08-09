@@ -1,0 +1,198 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  CloudDSP linked-source ingestion. Runs yt-dlp in a Lambda container, writes
+  the durable job input key in the uploads bucket, then lets the existing S3
+  EventBridge rule submit the Demucs Batch workload.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: clouddsp
+    AllowedPattern: '^[A-Za-z][A-Za-z0-9-]{0,31}$'
+
+  EnvironmentName:
+    Type: String
+    Default: dev
+    AllowedPattern: '^[a-z][a-z0-9-]{0,15}$'
+
+  YtDlpImageUri:
+    Type: String
+    Description: ECR image URI for the yt-dlp Lambda image.
+
+  YtDlpProxyUrl:
+    Type: String
+    NoEcho: true
+    Description: >-
+      Optional residential proxy URL supplied by the root stack. Leave empty
+      to allow direct egress.
+
+  UploadsBucketName:
+    Type: String
+    Description: Source-upload bucket name from the foundation component.
+
+  UploadsBucketArn:
+    Type: String
+    Description: Source-upload bucket ARN from the foundation component.
+
+  JobsTableName:
+    Type: String
+    Description: Durable jobs table name from the jobs component.
+
+  JobsTableArn:
+    Type: String
+    Description: Durable jobs table ARN from the jobs component.
+
+  ConnectionsTableName:
+    Type: String
+    Description: WebSocket connection registry table name from the realtime component.
+
+  ConnectionsTableArn:
+    Type: String
+    Description: WebSocket connection registry table ARN from the realtime component.
+
+  UserConnectionsIndexName:
+    Type: String
+    Default: user_id-last_seen_at-index
+    Description: Connection-table index used for job-update notifications.
+
+  WebSocketApiId:
+    Type: String
+    Description: API Gateway WebSocket API ID from the realtime component.
+
+  YtDlpMemoryMiB:
+    Type: Number
+    Default: 3008
+    MinValue: 1024
+    MaxValue: 3008
+    Description: Memory allocated to the yt-dlp Lambda.
+
+  YtDlpTimeoutSeconds:
+    Type: Number
+    Default: 900
+    MinValue: 1
+    MaxValue: 900
+    Description: Maximum source-download and conversion duration.
+
+  YtDlpEphemeralStorageMiB:
+    Type: Number
+    Default: 4096
+    MinValue: 512
+    MaxValue: 10240
+    Description: Storage for the downloaded source plus its converted WAV output.
+
+  MaxSourceDurationSeconds:
+    Type: Number
+    Default: 480
+    MinValue: 1
+    MaxValue: 3600
+    Description: Maximum media duration accepted by yt-dlp.
+
+Resources:
+  YtDlpIngestionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ProjectName}-${EnvironmentName}-YtDlpIngestion'
+      RetentionInDays: 30
+
+  YtDlpIngestionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${EnvironmentName}-YtDlpIngestionRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: !Sub '${ProjectName}-${EnvironmentName}-YtDlpWriteDurableInput'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # HeadObject returns a useful 404 for an absent retry target
+              # only when the caller can list the relevant key prefix.
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !Ref UploadsBucketArn
+                Condition:
+                  StringLike:
+                    s3:prefix:
+                      - uploads/*
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub '${UploadsBucketArn}/uploads/*'
+        - PolicyName: !Sub '${ProjectName}-${EnvironmentName}-YtDlpUpdateJobs'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                Resource: !Ref JobsTableArn
+        - PolicyName: !Sub '${ProjectName}-${EnvironmentName}-YtDlpNotifySubscribers'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:Query
+                Resource: !Sub '${ConnectionsTableArn}/index/*'
+              - Effect: Allow
+                Action:
+                  - execute-api:ManageConnections
+                Resource: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApiId}/${EnvironmentName}/POST/@connections/*'
+
+  YtDlpIngestionFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: YtDlpIngestionLogGroup
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${EnvironmentName}-YtDlpIngestion'
+      Description: Downloads a linked source into a durable CloudDSP uploads key.
+      PackageType: Image
+      Architectures:
+        - x86_64
+      Role: !GetAtt YtDlpIngestionRole.Arn
+      Code:
+        ImageUri: !Ref YtDlpImageUri
+      MemorySize: !Ref YtDlpMemoryMiB
+      Timeout: !Ref YtDlpTimeoutSeconds
+      EphemeralStorage:
+        Size: !Ref YtDlpEphemeralStorageMiB
+      Environment:
+        Variables:
+          UPLOADS_BUCKET_NAME: !Ref UploadsBucketName
+          JOBS_TABLE_NAME: !Ref JobsTableName
+          CONNECTIONS_TABLE_NAME: !Ref ConnectionsTableName
+          USER_CONNECTIONS_INDEX_NAME: !Ref UserConnectionsIndexName
+          WEBSOCKET_API_URL: !Sub 'https://${WebSocketApiId}.execute-api.${AWS::Region}.amazonaws.com/${EnvironmentName}'
+          MAX_SOURCE_DURATION_SECONDS: !Ref MaxSourceDurationSeconds
+          PROXY_URL: !Ref YtDlpProxyUrl
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Component
+          Value: ingestion
+        - Key: Worker
+          Value: yt-dlp
+
+Outputs:
+  YtDlpFunctionArn:
+    Description: ARN invoked by the Job API for linked-source ingestion.
+    Value: !GetAtt YtDlpIngestionFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-YtDlpFunctionArn'
+
+  YtDlpFunctionName:
+    Description: Name of the durable yt-dlp ingestion Lambda.
+    Value: !Ref YtDlpIngestionFunction
+    Export:
+      Name: !Sub '${AWS::StackName}-YtDlpFunctionName'

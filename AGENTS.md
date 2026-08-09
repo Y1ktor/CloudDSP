@@ -44,7 +44,17 @@ low-latency notification mechanism, not durable result storage.
 8. The frontend calls `GET /jobs` to show a user's saved-job library. The API
    queries the `user_id-updated_at-index` using the authenticated Cognito
    subject, then the browser opens one job through the owner-checked detail
-   endpoint.
+   endpoint. The library is the source of history; never restore an old local
+  job queue from browser storage.
+
+For a linked media source, `POST /jobs/link` creates the same job first and
+asynchronously invokes yt-dlp. The ingestion Lambda writes only the durable
+`uploads/{job_id}/linked-audio.wav` input key, with `job-id` and `stem-mode`
+metadata. That write triggers the same S3 → EventBridge → Batch path as a
+browser presigned upload. The React link modal calls this endpoint directly;
+it waits for the job to leave `source_ingestion` before fetching the original
+audio URL, then keeps polling/subscribing while Batch produces stems and MIDI.
+Do not add a second direct Batch submission path.
 
 Store S3 keys and status in DynamoDB; never store presigned URLs as the
 authoritative artifact value. URLs expire and must be generated when a job is
@@ -60,14 +70,16 @@ token.
 
 ### WebSocket lifecycle
 
-- On socket open or reconnect, the client sends `subscribe` for every active
-  `job_id`.
+- On socket open or reconnect, the client sends `subscribe` for the one job
+  currently open in the workspace.
 - The WebSocket handler verifies job ownership, records the temporary
   connection/subscription, and acknowledges the current job revision.
-- The client sends a heartbeat every 2–4 minutes. Heartbeats keep the socket
+- The client sends a heartbeat every two minutes. Heartbeats keep the socket
   active and detect failure; they are not the artifact-retrieval mechanism.
-- While work is pending, the frontend also polls `GET /jobs/{job_id}` with
-  backoff. A missed notification must never leave a track permanently pending.
+- While work is pending or an expected MIDI URL is absent, the frontend also
+  polls `GET /jobs/{job_id}` every five seconds, with retry backoff for 429/5xx
+  responses. A missed notification must never leave a track permanently
+  pending.
 - Connection records are short-lived and TTL-backed. Do not write a connection
   ID into source or stem metadata as a durable callback destination.
 
@@ -77,8 +89,14 @@ token.
   - `src/auth/cognito.js` and `src/components/AuthPanel.jsx` — browser-only
     Cognito User Pool authentication.
   - `src/components/StemSplitter/` — stem grid, MIDI status, and popup editor.
-  - `src/hooks/` — audio scheduling, MIDI parsing/editing, undo history, and
+  - `src/hooks/AudioMultiTrackPlayer.js` — shared Web Audio transport. It
+    decodes source/stem files into `AudioBuffer`s and starts all tracks against
+    one `AudioContext` clock; do not reintroduce independent HTML `<audio>`
+    elements for stem playback.
+  - `src/hooks/` — MIDI parsing/editing, undo history, audio scheduling, and
     drag interactions.
+  - `src/utils/DrumMidi.js` — the canonical ADTOF five-voice General MIDI,
+    sampler, visual, and mute/solo mapping.
 - `/src/DSP/src/Cloud/` — Lambda handlers, Batch entry points, and cloud DSP
   scripts.
   - `job_api.py` — authenticated job creation, saved-job library, and snapshot
@@ -90,9 +108,21 @@ token.
     helpers. Container images must copy this module alongside their handler.
   - `websocket_handler.py` and `websocket_authorizer.py` — authenticated
     subscription/heartbeat lifecycle and Cognito ID-token verification.
+  - `lambdazip/` — deployable ZIP artifacts for `job_api`, the WebSocket
+    handler, and the WebSocket authorizer. Upload these files to the artifact
+    bucket; image Lambdas are published from ECR instead.
+  - `LambdaYtDlp.py` — durable linked-source ingestion Lambda. It is invoked
+    only by the Job API, not by a WebSocket route, and writes the job's input
+    key in the uploads bucket.
+  - `LambdaMIDIMadmom.py` is a retained prototype; it is not wired into the
+    durable Job API workflow. Do not use its connection-ID callback design for
+    new work.
 - `/src/DSP/docker/` — deployment Dockerfiles.
   - `stem_split/` runs Demucs in AWS Batch on GPU.
-  - `basic_pitch/` and `adtof/` are Lambda container images.
+  - `basic_pitch/`, `adtof/`, and `yt-dlp/` are Lambda container images used
+    by the deployed pipeline. The yt-dlp image must copy
+    `cloud_job_workflow.py` with its handler. `madmom/` remains an unprovisioned
+    prototype image.
 - `/IaC/` — componentized CloudFormation templates.
   - `foundation.yaml` — S3 buckets, ECR repositories, CORS, and EventBridge
     delivery from uploads.
@@ -101,6 +131,12 @@ token.
   - `realtime.yaml` — WebSocket API, subscription/heartbeat handler, and
     ephemeral connection registry.
   - `midi-lambdas.yaml` — Basic Pitch and ADTOF image Lambdas and their role.
+  - `ingestion.yaml` — the yt-dlp image Lambda, its least-privilege role, and
+    public-media download limits. Its optional `YtDlpProxyUrl` root parameter
+    reaches the worker only as `PROXY_URL`; never commit a proxy URL or
+    credentials in a template. Its Docker image contains Deno plus the
+    version-matched yt-dlp EJS solver and curl-cffi browser impersonation for
+    current YouTube challenge handling.
   - `processing.yaml` — EventBridge-to-Batch target, GPU Demucs resources, and
     processing permissions.
   - `network.yaml` — private GPU Batch subnets, NAT egress, security group, and
@@ -151,9 +187,10 @@ Docker image before local testing.
   `websocket_authorizer`) before deployment. The authorizer package must also
   contain the dependencies in `requirements-websocket-authorizer.txt`; build
   native dependencies for Lambda's `arm64` Linux runtime.
-- Build and publish Basic Pitch and ADTOF Lambda images for `linux/amd64`/
-  Lambda `x86_64`, and publish the Demucs GPU image before creating or updating
-  the processing stack.
+- Build and publish Basic Pitch, ADTOF, and yt-dlp Lambda images for
+  `linux/amd64`/Lambda `x86_64`, and publish the Demucs GPU image before
+  creating or updating the processing stack. A changed yt-dlp handler requires
+  a rebuilt image: an existing ECR tag still contains its old code.
 
 ## 4. Infrastructure Rules
 
@@ -181,7 +218,9 @@ Docker image before local testing.
   bucket/key values; read `stem-mode` and other object metadata inside the
   container with `HeadObject`.
 - The current Lambda container images are built for `linux/amd64`; configure
-  their Lambda architecture as `x86_64`.
+  their Lambda architecture as `x86_64`. The yt-dlp Lambda intentionally is
+  not in the Batch VPC so it can download public media; it needs its own
+  duration, temporary-storage, and URL-validation limits.
 - Lambda memory also determines CPU allocation. Benchmark Basic Pitch and ADTOF
   at realistic audio lengths before changing memory defaults. `/tmp` storage is
   independent of CPU and should be sized only for the downloaded stem and
@@ -195,6 +234,14 @@ Docker image before local testing.
 - **Respect React render cycles.** Do not drive high-frequency audio/playhead
   updates through React state. Use refs and `useLayoutEffect`/direct DOM work
   where appropriate.
+- **Audio transport is Web Audio.** Fetch and decode each current source/stem
+  URL once, cap concurrent downloads, and preserve a usable URL across polling
+  snapshots. Schedule every `AudioBufferSourceNode` at the same future context
+  time and use per-track `GainNode`s for immediate mute/solo/MIDI replacement.
+  New transport code must keep MIDI scheduling aligned to that same start time.
+- **History is server-backed.** The selected saved job is held in React state
+  only. On reload, fetch the authenticated account's job library; do not cache
+  job IDs, artifacts, or presigned URLs in session/local storage.
 - **Immutable MIDI data.** Deep-clone `@tonejs/midi` structures before editing;
   never mutate globally shared MIDI data or undo-history snapshots.
 - Treat `job_id` as the correlation key across upload, Batch, stem, MIDI, API,

@@ -56,6 +56,13 @@ Parameters:
     Type: String
     Description: Cognito public browser client ID accepted by the JWT authorizer.
 
+  YtDlpFunctionArn:
+    Type: String
+    Default: ''
+    Description: >-
+      Optional durable yt-dlp ingestion Lambda ARN. Leave empty during the
+      bootstrap deployment before the image worker exists.
+
   AllowedFrontendOrigins:
     Type: CommaDelimitedList
     Default: http://localhost:5173
@@ -74,6 +81,9 @@ Parameters:
     MinValue: 60
     MaxValue: 86400
     Description: Lifetime of stem and MIDI download presigned URLs.
+
+Conditions:
+  HasYtDlpFunction: !Not [!Equals [!Ref YtDlpFunctionArn, '']]
 
 Resources:
   JobApiLogGroup:
@@ -133,6 +143,17 @@ Resources:
                 Action:
                   - s3:GetObject
                 Resource: !Sub '${ProcessedAudioBucketArn}/*'
+        - !If
+          - HasYtDlpFunction
+          - PolicyName: !Sub '${ProjectName}-${EnvironmentName}-JobApiInvokeYtDlp'
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - lambda:InvokeFunction
+                  Resource: !Ref YtDlpFunctionArn
+          - !Ref AWS::NoValue
 
   JobApiFunction:
     Type: AWS::Lambda::Function
@@ -156,6 +177,7 @@ Resources:
           PROCESSED_AUDIO_BUCKET_NAME: !Ref ProcessedAudioBucketName
           UPLOAD_URL_EXPIRY_SECONDS: !Ref UploadUrlExpirySeconds
           DOWNLOAD_URL_EXPIRY_SECONDS: !Ref DownloadUrlExpirySeconds
+          YTDLP_FUNCTION_ARN: !Ref YtDlpFunctionArn
 
   JobHttpApi:
     Type: AWS::ApiGatewayV2::Api
@@ -200,6 +222,15 @@ Resources:
     Properties:
       ApiId: !Ref JobHttpApi
       RouteKey: 'POST /jobs'
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JobApiJwtAuthorizer
+      Target: !Join ['/', ['integrations', !Ref JobApiIntegration]]
+
+  CreateLinkedJobRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref JobHttpApi
+      RouteKey: 'POST /jobs/link'
       AuthorizationType: JWT
       AuthorizerId: !Ref JobApiJwtAuthorizer
       Target: !Join ['/', ['integrations', !Ref JobApiIntegration]]
