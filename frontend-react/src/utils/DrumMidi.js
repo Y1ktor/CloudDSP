@@ -6,9 +6,9 @@
  * defines the pitches in this order: [35, 38, 47, 42, 49].
  */
 export const ADTOF_DRUM_VOICES = Object.freeze([
-    { id: 'kick', label: 'Kick', midi: 35, sample: 'kick', color: '#e57373', velocityScale: 1.2 },
-    { id: 'snare', label: 'Snare', midi: 38, sample: 'snare', color: '#ffb74d' },
-    { id: 'tom', label: 'Tom', midi: 47, sample: 'mid-tom', color: '#81c784' },
+    { id: 'kick', label: 'Kick', midi: 35, sample: 'kick', color: '#e57373', velocityScale: 1.35 },
+    { id: 'snare', label: 'Snare', midi: 38, sample: 'snare', color: '#ffb74d', velocityScale: 1.18 },
+    { id: 'tom', label: 'Tom', midi: 47, sample: 'mid-tom', color: '#81c784', velocityScale: 0.7 },
     { id: 'hihat', label: 'Hi-hats', midi: 42, sample: 'hihat-close', color: '#64b5f6', velocityScale: 0.55 },
     { id: 'cymbal', label: 'Cymbal', midi: 49, sample: 'cymbal', color: '#ba68c8' },
 ]);

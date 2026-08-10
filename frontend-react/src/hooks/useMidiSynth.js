@@ -1,12 +1,30 @@
 import React, { useRef, useEffect } from 'react';
-import { Sampler, SplendidGrandPiano } from 'smplr';
 import {
-    ADTOF_DRUM_SAMPLER_OPTIONS,
     getAdtofDrumVoice,
     getDrumPlaybackVelocity,
+    getDrumVoiceTrackId,
     getMidiNotes,
     isDrumVoiceAudible
 } from '../utils/DrumMidi';
+import { gainDbToSmplrOutputVolume, getMelodicPlaybackVelocity } from '../utils/MidiPlayback';
+
+function forEachSynthRef(synthRef, isDrumTrack, callback) {
+    if (isDrumTrack) {
+        synthRef?.forEach?.(callback);
+        return;
+    }
+    if (synthRef) callback(synthRef);
+}
+
+function stopSynths(synthRef, isDrumTrack) {
+    forEachSynthRef(synthRef, isDrumTrack, (candidateRef) => {
+        try {
+            candidateRef?.current?.stop();
+        } catch {
+            // A sampler can be mid-disposal during an unmount.
+        }
+    });
+}
 
 /**
  * useMidiSynth
@@ -21,13 +39,15 @@ import {
  * @param {string} trackName - The name of the specific track this synth is bound to (e.g. 'piano', 'bass').
  * @param {number} activeBpm - The current user-adjusted BPM of the master timeline.
  * @param {number} originalBpm - The master original BPM determined by the project, used to calculate playbackRate.
- * @param {React.MutableRefObject<Object>} synthRef - Global reference to the initialized smplr instrument.
+ * @param {React.MutableRefObject|Map} synthRef - Per-track synth ref, or per-voice refs for an ADTOF kit.
  * @param {boolean} isMidiMode - Whether MIDI synthesis is currently active for this track.
  * @param {Object} mutedTracks - Dictionary of muted tracks.
  * @param {Object} soloedTracks - Dictionary of soloed audio tracks.
  * @param {Object} drumMutedVoices - Dictionary of muted ADTOF MIDI lanes.
  * @param {Object} drumSoloedVoices - Dictionary of soloed ADTOF MIDI lanes.
  * @param {number|null} transportStartTime - Scheduled AudioContext time for the shared stem transport.
+ * @param {number} trackGainDb - Parent track gain, shared by stem audio and MIDI output.
+ * @param {Object} drumVoiceGainsDb - Independent gain values for individual ADTOF drum lanes.
  */
 export function useMidiSynth(
     audioCtxRef,
@@ -43,51 +63,49 @@ export function useMidiSynth(
     soloedTracks = {},
     drumMutedVoices = {},
     drumSoloedVoices = {},
-    transportStartTime = null
+    transportStartTime = null,
+    trackGainDb = 0,
+    drumVoiceGainsDb = {}
 ) {
     const scheduledNotesRef = useRef(new Set());
     const isDrumTrack = parsedMidiStems?.[trackName]?.isAdtofDrum === true;
 
-    // 1. Initialize instrument when MIDI mode is enabled (now just ensures it exists)
+    // The MIDI loader constructs isolated synth outputs before its parsed MIDI
+    // becomes available. Keep each output at the same dB gain as its console
+    // row; unlike velocity scaling, this also preserves positive gain on notes
+    // whose source MIDI velocity is already 127.
     useEffect(() => {
-        if (isMidiMode) {
-            // Context and synth are now initialized globally during MIDI fetch
-            // But just in case:
-            if (!audioCtxRef.current) {
-                const AudioContext = window.AudioContext || window.webkitAudioContext;
-                audioCtxRef.current = new AudioContext();
+        forEachSynthRef(synthRef, isDrumTrack, (candidateRef, voiceId) => {
+            const voiceTrackId = isDrumTrack
+                ? getDrumVoiceTrackId(trackName, voiceId)
+                : null;
+            const voiceGainDb = voiceTrackId ? Number(drumVoiceGainsDb[voiceTrackId]) || 0 : 0;
+            const totalGainDb = (Number(trackGainDb) || 0) + voiceGainDb;
+            if (candidateRef?.current?.output) {
+                candidateRef.current.output.volume = gainDbToSmplrOutputVolume(totalGainDb);
             }
-            if (!synthRef.current) {
-                synthRef.current = isDrumTrack
-                    ? Sampler(audioCtxRef.current, ADTOF_DRUM_SAMPLER_OPTIONS)
-                    : new SplendidGrandPiano(audioCtxRef.current);
-            }
-        } else {
-            if (synthRef.current) {
-                synthRef.current.stop(); // Stop all ringing notes but keep the instance alive!
-            }
-        }
-    }, [isMidiMode, audioCtxRef, synthRef, isDrumTrack]);
+        });
+    }, [synthRef, isDrumTrack, trackName, trackGainDb, drumVoiceGainsDb]);
+
+    useEffect(() => {
+        if (!isMidiMode) stopSynths(synthRef, isDrumTrack);
+    }, [isMidiMode, synthRef, isDrumTrack]);
 
     // A scheduled one-shot cannot be selectively cancelled in smplr. Stop the
     // kit and rebuild the short scheduler window whenever a drum lane's M/S
     // state changes, so the console responds immediately and correctly.
     useEffect(() => {
-        if (!isDrumTrack || !synthRef.current) return;
+        if (!isDrumTrack) return;
         scheduledNotesRef.current.clear();
-        synthRef.current.stop();
+        stopSynths(synthRef, true);
     }, [isDrumTrack, synthRef, drumMutedVoices, drumSoloedVoices]);
 
     // Cleanup memory when the editor is completely closed (component unmounts)
     useEffect(() => {
         return () => {
-            if (synthRef.current) {
-                synthRef.current.stop();
-                // We NO LONGER set it to null here, because it's a global ref owned by StemSplitter
-                // which allows it to instantly load when other tracks are opened.
-            }
+            stopSynths(synthRef, isDrumTrack);
         };
-    }, [synthRef]);
+    }, [synthRef, isDrumTrack]);
 
     const prevProgressRef = useRef(progress);
 
@@ -99,17 +117,17 @@ export function useMidiSynth(
         // If the playhead jumped significantly (e.g. > 500ms), clear memory and stop ringing notes
         if (Math.abs(delta) > 0.5) {
             scheduledNotesRef.current.clear();
-            if (synthRef.current) synthRef.current.stop();
+            stopSynths(synthRef, isDrumTrack);
         }
 
-        if (!isMidiMode || !isPlaying || !synthRef.current || !parsedMidiStems || !parsedMidiStems[trackName] || !originalBpm) return;
+        if (!isMidiMode || !isPlaying || !synthRef || !parsedMidiStems || !parsedMidiStems[trackName] || !originalBpm) return;
         
         const hasSolos = Object.values(soloedTracks).some(val => val);
         const shouldBeMuted = hasSolos ? !soloedTracks[trackName] : !!mutedTracks[trackName];
 
         if (shouldBeMuted) {
             // Stop any currently playing notes if we just got muted/unsoloed while playing
-            synthRef.current.stop();
+            stopSynths(synthRef, isDrumTrack);
             return;
         }
 
@@ -155,11 +173,16 @@ export function useMidiSynth(
                         drumSoloedVoices
                     )) return;
 
-                    synthRef.current.start({
+                    const noteSynthRef = drumVoice
+                        ? synthRef.get?.(drumVoice.id)
+                        : synthRef;
+                    if (!noteSynthRef?.current) return;
+
+                    noteSynthRef.current.start({
                         note: drumVoice ? drumVoice.sample : note.midi,
                         velocity: drumVoice
                             ? getDrumPlaybackVelocity(note, drumVoice)
-                            : Math.round((note.velocity !== undefined ? note.velocity : 0.8) * 127),
+                            : getMelodicPlaybackVelocity(note, trackName),
                         time: audioCtxRef.current.currentTime + transportLeadSeconds + realWorldDelay,
                         duration: realWorldDuration
                     });
@@ -182,16 +205,16 @@ export function useMidiSynth(
         isDrumTrack,
         drumMutedVoices,
         drumSoloedVoices,
-        transportStartTime
+        transportStartTime,
+        trackGainDb,
+        drumVoiceGainsDb
     ]);
 
     // 3. Clear scheduled notes when pausing
     useEffect(() => {
         if (!isPlaying) {
             scheduledNotesRef.current.clear();
-            if (synthRef.current) {
-                synthRef.current.stop(); // Stop immediately on pause
-            }
+            stopSynths(synthRef, isDrumTrack);
         }
-    }, [isPlaying, synthRef]);
+    }, [isPlaying, synthRef, isDrumTrack]);
 }

@@ -52,9 +52,12 @@ asynchronously invokes yt-dlp. The ingestion Lambda writes only the durable
 `uploads/{job_id}/linked-audio.wav` input key, with `job-id` and `stem-mode`
 metadata. That write triggers the same S3 → EventBridge → Batch path as a
 browser presigned upload. The React link modal calls this endpoint directly;
-it waits for the job to leave `source_ingestion` before fetching the original
-audio URL, then keeps polling/subscribing while Batch produces stems and MIDI.
-Do not add a second direct Batch submission path.
+it waits for the job to publish `original_url` before fetching audio, then
+keeps polling/subscribing while Batch produces stems and MIDI. The Job API
+returns that URL only after the durable input exists. A yt-dlp job which fails
+before upload deliberately has no `original_url`; never make the browser GET
+its predetermined but missing S3 key. Do not add a second direct Batch
+submission path.
 
 Store S3 keys and status in DynamoDB; never store presigned URLs as the
 authoritative artifact value. URLs expire and must be generated when a job is
@@ -136,7 +139,11 @@ token.
     reaches the worker only as `PROXY_URL`; never commit a proxy URL or
     credentials in a template. Its Docker image contains Deno plus the
     version-matched yt-dlp EJS solver and curl-cffi browser impersonation for
-    current YouTube challenge handling.
+    current YouTube challenge handling. The Python handler must convert a
+    configured browser name such as `chrome` to yt-dlp's `ImpersonateTarget`;
+    the CLI string alone causes an assertion at Lambda startup. The image uses
+    the Python 3.12/Amazon Linux 2023 Lambda base because current Deno cannot
+    run on the older Python 3.11/Amazon Linux 2 glibc.
   - `processing.yaml` — EventBridge-to-Batch target, GPU Demucs resources, and
     processing permissions.
   - `network.yaml` — private GPU Batch subnets, NAT egress, security group, and
@@ -191,6 +198,14 @@ Docker image before local testing.
   `linux/amd64`/Lambda `x86_64`, and publish the Demucs GPU image before
   creating or updating the processing stack. A changed yt-dlp handler requires
   a rebuilt image: an existing ECR tag still contains its old code.
+- Lambda asynchronous invocations are at-least-once. The yt-dlp handler may
+  mark only a `source_ingestion` job failed; retries of an already failed job
+  must return a successful skipped result. Once S3 accepts its WAV, record
+  `source_uploaded=true` without overwriting a Batch status that may have
+  advanced concurrently.
+- A changed ZIP file at the same S3 key does not reliably replace Lambda code.
+  Upload `job_api.zip` under a new key and update `JobApiCodeS3Key` when
+  deploying Job API changes.
 
 ## 4. Infrastructure Rules
 

@@ -96,7 +96,8 @@ export default function TrackGrid({
                         onClick={() => setSelectedTrack(selectedTrack === row.id ? null : row.id)}
                         onDoubleClick={() => onDoubleClickTrack(row.trackName)}
                         style={{
-                            height: '60px', position: 'relative', overflow: 'hidden', boxSizing: 'border-box',
+                            height: '78px',
+                            position: 'relative', overflow: 'hidden', boxSizing: 'border-box',
                             borderBottom: '1px solid rgba(255,255,255,0.05)',
                             backgroundColor: selectedTrack === row.id
                                 ? 'rgba(255, 255, 255, 0.08)'

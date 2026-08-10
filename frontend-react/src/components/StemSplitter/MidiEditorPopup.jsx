@@ -11,6 +11,7 @@ import {
     getDrumVoiceTrackId,
     isDrumVoiceAudible
 } from '../../utils/DrumMidi';
+import { getMelodicPlaybackVelocity } from '../../utils/MidiPlayback';
 
 const DRUM_EDITOR_ROW_HEIGHT = 56;
 
@@ -133,7 +134,7 @@ export default function MidiEditorPopup({
     // ADTOF uses General MIDI pitches as class labels. The drum sampler instead
     // expects its named one-shot sample (kick, snare, mid-tom, and so on).
     const auditionNote = (note) => {
-        if (isMidiMode && synthRef && synthRef.current && audioCtxRef.current) {
+        if (isMidiMode && synthRef && audioCtxRef.current) {
             const drumVoice = isAdtofDrum ? getAdtofDrumVoice(note.midi) : null;
             if (isAdtofDrum && !drumVoice) return;
             if (isAdtofDrum && !isDrumVoiceAudible(
@@ -142,11 +143,15 @@ export default function MidiEditorPopup({
                 drumMutedVoices,
                 drumSoloedVoices
             )) return;
-            synthRef.current.start({
+            const noteSynthRef = drumVoice
+                ? synthRef.get?.(drumVoice.id)
+                : synthRef;
+            if (!noteSynthRef?.current) return;
+            noteSynthRef.current.start({
                 note: drumVoice ? drumVoice.sample : note.midi,
                 velocity: drumVoice
                     ? getDrumPlaybackVelocity(note, drumVoice)
-                    : Math.round((note.velocity !== undefined ? note.velocity : 0.8) * 127),
+                    : getMelodicPlaybackVelocity(note, trackName),
                 time: audioCtxRef.current.currentTime,
                 duration: 0.5 // Short audition
             });

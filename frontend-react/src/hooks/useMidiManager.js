@@ -1,14 +1,67 @@
 import React from 'react';
 import { Sampler, SplendidGrandPiano, Soundfont } from 'smplr';
 import { parseMidiFile } from '../utils/MidiParser';
-import { ADTOF_DRUM_SAMPLER_OPTIONS } from '../utils/DrumMidi';
+import {
+    ADTOF_DRUM_SAMPLE_BUFFERS,
+    ADTOF_DRUM_SAMPLER_OPTIONS,
+    ADTOF_DRUM_VOICES
+} from '../utils/DrumMidi';
+
+function createMelodicSynth(audioContext, trackName) {
+    if (trackName === 'guitar') {
+        return new Soundfont(audioContext, { instrument: 'acoustic_guitar_nylon' });
+    }
+    if (trackName === 'bass') {
+        return new Soundfont(audioContext, { instrument: 'acoustic_bass' });
+    }
+    return new SplendidGrandPiano(audioContext);
+}
+
+function ensureMelodicSynth(midiSynthRefs, audioContext, trackName) {
+    const existingRef = midiSynthRefs.current.get(trackName);
+    if (existingRef?.current) return existingRef;
+
+    const synthRef = { current: createMelodicSynth(audioContext, trackName) };
+    midiSynthRefs.current.set(trackName, synthRef);
+    return synthRef;
+}
+
+function ensureDrumVoiceSynths(drumVoiceSynthRefs, audioContext, trackName) {
+    const existingRefs = drumVoiceSynthRefs.current.get(trackName);
+    if (existingRefs) return existingRefs;
+
+    const voiceSynthRefs = new Map();
+    ADTOF_DRUM_VOICES.forEach((voice) => {
+        const sampler = Sampler(audioContext, {
+            ...ADTOF_DRUM_SAMPLER_OPTIONS,
+            // A separate sampler output per voice lets Kick, Snare, and the
+            // other ADTOF classes have independent, click-free dB gain.
+            buffers: { [voice.sample]: ADTOF_DRUM_SAMPLE_BUFFERS[voice.sample] },
+        });
+        sampler.ready.catch((error) => {
+            console.error(`[CloudDSP] Drum sample load failed for '${voice.label}':`, error);
+        });
+        voiceSynthRefs.set(voice.id, { current: sampler });
+    });
+    drumVoiceSynthRefs.current.set(trackName, voiceSynthRefs);
+    return voiceSynthRefs;
+}
 
 /**
- * Fetches and parses generated MIDI files as their presigned URLs arrive.
+ * Fetches and parses generated MIDI files as their presigned URLs arrive, and
+ * initializes one isolated MIDI output per track (or per ADTOF drum class).
  * Tempo is intentionally not inferred from MIDI headers: the durable backend
  * job owns tempo selection and passes it to the editor separately.
  */
-export function useMidiManager(midiUrls, midiStates, jobId, timeSignature, audioCtxRef, globalSynthRef, guitarSynthRef, bassSynthRef, drumSynthRef) {
+export function useMidiManager(
+    midiUrls,
+    midiStates,
+    jobId,
+    timeSignature,
+    audioCtxRef,
+    midiSynthRefs,
+    drumVoiceSynthRefs
+) {
     const [parsedMidiStems, setParsedMidiStems] = React.useState({});
     const [originalMidiStems, setOriginalMidiStems] = React.useState({});
     const [isMidiLoading, setIsMidiLoading] = React.useState(false);
@@ -54,25 +107,16 @@ export function useMidiManager(midiUrls, midiStates, jobId, timeSignature, audio
                 const AudioContext = window.AudioContext || window.webkitAudioContext;
                 audioCtxRef.current = new AudioContext();
             }
-            if (!globalSynthRef.current) {
-                globalSynthRef.current = new SplendidGrandPiano(audioCtxRef.current);
-            }
-            if (!guitarSynthRef.current) {
-                guitarSynthRef.current = new Soundfont(audioCtxRef.current, { instrument: 'acoustic_guitar_nylon' });
-            }
-            if (!bassSynthRef.current) {
-                bassSynthRef.current = new Soundfont(audioCtxRef.current, { instrument: 'acoustic_bass' });
-            }
-            if (entriesToLoad.some(([track]) => track === 'drums') && !drumSynthRef.current) {
-                // Begin fetching the five ADTOF drum samples while the MIDI
-                // file is downloading, so first playback does not fall back
-                // to a piano or require the full TR-808 sample collection.
-                const drumSampler = Sampler(audioCtxRef.current, ADTOF_DRUM_SAMPLER_OPTIONS);
-                drumSampler.ready
-                    .then(() => console.info('CloudDSP drum samples are ready.'))
-                    .catch((error) => console.error('CloudDSP drum sample load failed:', error));
-                drumSynthRef.current = drumSampler;
-            }
+            entriesToLoad.forEach(([track]) => {
+                if (track === 'drums') {
+                    // Begin loading the five small ADTOF samples while MIDI is
+                    // downloading. They are split by voice so each lane has an
+                    // independent output fader instead of sharing one kit bus.
+                    ensureDrumVoiceSynths(drumVoiceSynthRefs, audioCtxRef.current, track);
+                } else {
+                    ensureMelodicSynth(midiSynthRefs, audioCtxRef.current, track);
+                }
+            });
 
             const parsedUpdates = {};
             const originalUpdates = {};
@@ -123,7 +167,7 @@ export function useMidiManager(midiUrls, midiStates, jobId, timeSignature, audio
         };
 
         fetchAndParse();
-    }, [midiUrls, midiStates, jobId, timeSignature, audioCtxRef, globalSynthRef, guitarSynthRef, bassSynthRef, drumSynthRef]);
+    }, [midiUrls, midiStates, jobId, timeSignature, audioCtxRef, midiSynthRefs, drumVoiceSynthRefs]);
 
     return { parsedMidiStems, setParsedMidiStems, originalMidiStems, isMidiLoading };
 }

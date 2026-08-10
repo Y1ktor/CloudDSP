@@ -50,6 +50,8 @@ Resources:
             AllowedOrigins: !Ref AllowedFrontendOrigins
             ExposedHeaders:
               - ETag
+              - Content-Length
+              - Content-Range
             MaxAge: 3000
       LifecycleConfiguration:
         Rules:
@@ -101,6 +103,8 @@ Resources:
             AllowedOrigins: !Ref AllowedFrontendOrigins
             ExposedHeaders:
               - ETag
+              - Content-Length
+              - Content-Range
             MaxAge: 3000
       LifecycleConfiguration:
         Rules:

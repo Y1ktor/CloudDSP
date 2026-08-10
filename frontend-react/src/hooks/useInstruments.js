@@ -3,31 +3,36 @@ import React from 'react';
 /**
  * useInstruments Hook
  * 
- * Initializes and manages the lifecycle of the Web Audio API synthesizers used 
- * for MIDI playback. Instantiates specific instrument plugins (like the `smplr` 
- * SplendidGrandPiano, acoustic_guitar_nylon, and acoustic_bass) into stable React refs 
- * so they persist across renders without causing memory leaks.
+ * Owns the persistent smplr instances used for MIDI playback. Every melodic
+ * stem receives its own synth ref, and every ADTOF drum voice receives its own
+ * sampler ref. That routing keeps the console's per-track and per-drum-lane
+ * gain controls independent.
  * 
  * @returns {Object} Object containing the initialized synthesizer refs
  */
 export function useInstruments() {
-    const globalSynthRef = React.useRef(null);
-    const guitarSynthRef = React.useRef(null);
-    const bassSynthRef = React.useRef(null);
-    const drumSynthRef = React.useRef(null);
+    const midiSynthRefs = React.useRef(new Map());
+    const drumVoiceSynthRefs = React.useRef(new Map());
 
     React.useEffect(() => {
+        const melodicSynthRefs = midiSynthRefs.current;
+        const drumSynthRefs = drumVoiceSynthRefs.current;
         return () => {
-            [globalSynthRef, guitarSynthRef, bassSynthRef, drumSynthRef].forEach((synthRef) => {
-                if (!synthRef.current) return;
+            const stopSynth = (synthRef) => {
+                if (!synthRef?.current) return;
                 try {
                     synthRef.current.stop();
                 } catch {
                     // Ignore
                 }
+            };
+
+            melodicSynthRefs.forEach(stopSynth);
+            drumSynthRefs.forEach((voiceSynthRefs) => {
+                voiceSynthRefs.forEach(stopSynth);
             });
         };
-    }, [globalSynthRef, guitarSynthRef, bassSynthRef, drumSynthRef]);
+    }, []);
 
-    return { globalSynthRef, guitarSynthRef, bassSynthRef, drumSynthRef };
+    return { midiSynthRefs, drumVoiceSynthRefs };
 }

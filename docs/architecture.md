@@ -87,10 +87,10 @@ flowchart LR
 | Area | Resources and code | Responsibility |
 | --- | --- | --- |
 | Browser | **frontend-react**, **App.jsx**, StemSplitter components | Authenticates, creates jobs, uploads audio, hydrates job snapshots, reconnects WebSockets, polls pending/partial jobs, exposes the account-backed history modal, and renders/edits audio and MIDI. |
-| Browser transport | **AudioMultiTrackPlayer.js**, **useMidiSynth.js** | Fetches and decodes the current original/stems into `AudioBuffer`s, starts all ready tracks from one AudioContext time, applies immediate per-track gain/mute/solo, and aligns MIDI scheduling with that start time. |
+| Browser transport | **AudioMultiTrackPlayer.js**, **useMidiSynth.js**, **useMidiManager.js** | Fetches and decodes the current original/stems into `AudioBuffer`s, starts all ready tracks from one AudioContext time, applies immediate per-track gain/mute/solo, and aligns isolated MIDI output buses with that same start time. |
 | Authentication | **IaC/auth.yaml**, Cognito User Pool | Provides email/password accounts and ID tokens. There is no Cognito Identity Pool and no browser AWS credentials. |
 | Job API | **IaC/api.yaml**, **job_api.py** | Creates durable upload or linked-source jobs, invokes yt-dlp for a linked source, enforces ownership, and renders stored artifact keys as fresh signed downloads. |
-| Link ingestion | **IaC/ingestion.yaml**, **LambdaYtDlp.py** | Downloads a validated public media URL through the optional residential `PROXY_URL`, with Deno/EJS challenge solving and Chrome impersonation, converts it to WAV, and writes the job's existing input key in the private uploads bucket. The normal S3/EventBridge route then starts Batch. |
+| Link ingestion | **IaC/ingestion.yaml**, **LambdaYtDlp.py** | Downloads a validated public media URL through the optional residential `PROXY_URL`, with Deno/EJS challenge solving and typed curl-cffi Chrome impersonation, converts it to WAV, and writes the job's existing input key in the private uploads bucket. The normal S3/EventBridge route then starts Batch. |
 | Jobs store | **IaC/jobs.yaml**, CloudDSPJobs | Stores the job owner, requested mode, state, artifact keys, error, revision, and expiry. |
 | Source storage | Foundation uploads bucket | Holds original user audio and publishes Object Created events to EventBridge. |
 | Event routing | Processing EventBridge rule | Matches the uploads prefix and submits a GPU Batch job with source bucket/key overrides. |
@@ -222,7 +222,7 @@ job TTL and privacy policy before production data is stored long term.
 | **stem_processing** | Demucs has validated the job and is processing it. |
 | **midi_processing** | Stems are durable and at least one MIDI extractor is queued or processing. |
 | **completed** | All MIDI states are ready. |
-| **failed** | The Batch job failed, or MIDI work reached a terminal set with a failure. |
+| **failed** | A source-ingestion, Batch, or terminal MIDI failure. A yt-dlp failure before S3 upload has no original audio artifact. |
 
 Every durable mutation increments **revision**. It is a monotonic version hint,
 not a sequence that must be received without gaps. Clients may fetch the same
@@ -309,22 +309,25 @@ yt-dlp writes `audio/wav` at the returned key with `job-id`, `stem-mode`, and
 rule, so it starts the same Demucs Batch worker as a normal presigned upload.
 There is no parallel direct-Batch route.
 
-The Job API can generate an `original_url` for the durable key before that
-object exists. The React client therefore displays source-ingestion progress
-but does not request the original audio until the job has left
-`source_ingestion`. From `upload_pending` onward, yt-dlp has uploaded the WAV:
-the browser downloads and decodes the original track while it continues to
-wait for Batch stem and MIDI updates.
+The Job API generates `original_url` only when source audio is known to exist.
+After yt-dlp's S3 upload, it records `source_uploaded=true` as it advances the
+job to `upload_pending`; if Batch advances first, yt-dlp records that flag
+without overwriting Batch's newer status. A linked-source job that fails before
+upload deliberately has no `original_url`, preventing a browser request for its
+predetermined-but-missing private S3 key. From `upload_pending` onward, the
+browser downloads and decodes the original track while it continues to wait for
+Batch stem and MIDI updates.
 
 ### Read job snapshot
 
 **GET /jobs/{job_id}** returns only an authorized job. It removes internal
-source bucket/key and TTL fields. It returns **original_url** for the original
-private upload. Each persisted **s3_key** becomes a fresh presigned **url**,
-and each **bpm_key** becomes a fresh **bpm_url**. Download URLs are valid for
-one hour by default. The top-level **tempo** object is the backend-selected
-master tempo; it is returned directly and never requires a client to download
-or vote on BPM artifacts.
+source bucket/key and TTL fields. It returns **original_url** for an available
+original upload, but deliberately omits it for a yt-dlp job that failed before
+uploading source audio. Each persisted **s3_key** becomes a fresh presigned
+**url**, and each **bpm_key** becomes a fresh **bpm_url**. Download URLs are
+valid for one hour by default. The top-level **tempo** object is the
+backend-selected master tempo; it is returned directly and never requires a
+client to download or vote on BPM artifacts.
 
 The frontend retains job IDs, not presigned URLs. It requests a new snapshot
 after a reload, a notification, polling, or a download-link expiry.
@@ -494,6 +497,41 @@ loop, and tempo changes rebuild or update the shared transport rather than
 allowing individual tracks to drift. MIDI synthesis receives the same scheduled
 transport start time, so its first notes align with the decoded audio.
 
+### Mixing and output buses
+
+CloudDSP has one shared `AudioContext` and one shared transport clock, but it
+does **not** mix every sound through one shared track fader. “Separate buses”
+means separate Web Audio output paths that finally converge at
+`AudioContext.destination`:
+
+~~~text
+Decoded source/stem: AudioBufferSourceNode -> track GainNode -> destination
+Generated melodic MIDI: smplr instrument -> its OutputChannel -> destination
+Generated drum MIDI: one sampler per drum voice -> that voice OutputChannel -> destination
+~~~
+
+The track dB control is deliberately applied to both representations of a
+track. For a normal stem, `AudioMultiTrackPlayer` converts the value to linear
+gain and sets that stem's `GainNode`. `useMidiSynth` applies the same dB value
+to the corresponding smplr `OutputChannel`. Therefore switching a track to
+MIDI mode replaces the audible audio stem with a synthesised version at the
+same console gain; the audio source itself is ramped to zero while MIDI mode is
+enabled. The buses remain sample-synchronised because both are scheduled on the
+same `AudioContext`, not because they share an audio node.
+
+Every melodic MIDI track owns its own synth output. ADTOF drum MIDI is more
+granular: Kick, Snare, Tom, Hi-hats, and Cymbal each own a one-sample sampler
+and output bus. The parent **Drums** fader applies to the drum-audio stem and
+to all five MIDI outputs. A child drum fader applies only to that child MIDI
+output; its effective output level is the parent dB value plus the child dB
+value. Child rows have no corresponding audio stem, so their faders never
+alter the mixed `drums.wav` audio.
+
+The MIDI buses use output gain rather than altering MIDI note velocity. This
+allows positive gain to remain effective for notes already at MIDI velocity
+127, while retaining the original MIDI velocities for the piano roll and MIDI
+export.
+
 This choice trades browser memory for reliability: a long job keeps decoded
 PCM for every displayed track. The UI therefore limits download concurrency and
 does not repeatedly download an artifact merely because a fresh URL arrived.
@@ -515,9 +553,10 @@ parsing, display, editing, and playback:
 | 49 | Cymbal | `cymbal` | default |
 
 The main Drums row is collapsed by default. Expanding it exposes MIDI-only
-subtracks with independent mute/solo controls; these do not mute the parent
-drum-audio stem. The popup drum editor exposes the same per-voice controls and
-uses the compact five-sample 808 kit rather than a piano soundfont.
+subtracks with independent mute, solo, and ±12 dB gain controls; these do not
+mute or otherwise alter the parent drum-audio stem. The popup drum editor
+exposes the same per-voice mute/solo controls and uses the compact five-sample
+808 kit rather than a piano soundfont.
 
 Generated melodic MIDI uses a separate playback-only balance: guitar is 2.00x
 and piano is 0.60x. These scales affect both transport playback and popup-note
@@ -591,6 +630,14 @@ egress, while Batch's private VPC remains scoped to processing. It enforces an
 eight-minute media-duration limit by default and cleans its
 `/tmp/clouddsp-ytdlp/{job_id}` directory after every invocation.
 
+The image uses the Python 3.12 Amazon Linux 2023 Lambda base because current
+Deno requires a newer glibc than the Python 3.11 Amazon Linux 2 base. The
+handler pins yt-dlp and supplies Deno, `yt-dlp-ejs`, and `curl-cffi`. The
+`YTDLP_IMPERSONATE` operator setting is parsed into yt-dlp's Python
+`ImpersonateTarget` type before constructing `YoutubeDL`; passing the CLI
+string directly is invalid in the embedded API. HTTP 403 from a media host is a
+host/proxy/authentication issue, not an S3 or Batch failure.
+
 An existing ECR image must be rebuilt and pushed after any handler or Docker
 change. CloudFormation only pulls an image; it does not rebuild source code.
 
@@ -653,7 +700,9 @@ created from an image tag that does not exist yet.
 1. Upload the nested templates and ZIP Lambda artifacts to the template and
    artifact buckets. `TemplatePrefix` must be empty when YAML files are at the
    template bucket root, or include the trailing slash when they are under a
-   folder.
+   folder. For a Job API code change, upload the ZIP under a new key and update
+   the root stack's `JobApiCodeS3Key`; overwriting an object at the same key is
+   not a reliable Lambda deployment signal.
 2. Create the root stack with **DeployProcessingWorkers=false**. This creates
    Foundation (including ECR), Jobs, Auth, Network, Realtime, and the Job API;
    it intentionally skips the image-based MIDI Lambdas and Batch processing
@@ -700,7 +749,7 @@ origins in **AllowedFrontendOrigins** before release.
 | Expired artifact URL | API generates a new URL from stored key; the frontend replaces cached URLs before their safety window expires. | Refresh the job snapshot without reprocessing audio. |
 | Stem/audio fetch stalls | Browser transport waits for all currently displayed tracks to decode and logs the failing track. | Inspect the exact S3 request and confirm the bucket CORS origin, GET/HEAD methods, and URL validity. |
 | Worker exception caught in code | Batch/Lambda persists job or MIDI failure before notifying. | UI can display a job/stem error. |
-| Linked-source ingestion failure | yt-dlp marks only a still-`source_ingestion` job failed before notifying. | A late retry cannot overwrite a newer Batch state. |
+| Linked-source ingestion failure | yt-dlp marks only a still-`source_ingestion` job failed before notifying; an asynchronous retry of that terminal job returns `skipped`. | A late retry cannot overwrite a newer Batch state or produce repeated Lambda errors. |
 | EventBridge cannot submit Batch | Retries for up to one hour, at most 24 attempts, then writes to processing SQS DLQ. | Requires operational inspection/redrive. |
 | Stale socket | Disconnect, GoneException, or TTL cleanup removes its record. | Durable state is unaffected. |
 

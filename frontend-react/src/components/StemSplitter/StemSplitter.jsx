@@ -4,6 +4,7 @@ import TimelineRuler from './TimelineRuler';
 import TrackList from './TrackList';
 import TrackGrid from './TrackGrid';
 import MidiEditorPopup from './MidiEditorPopup';
+import DownloadPopup from './DownloadPopup';
 
 import { useAudioMultiTrackPlayer } from '../../hooks/AudioMultiTrackPlayer';
 import { useMidiSynth } from '../../hooks/useMidiSynth';
@@ -13,6 +14,24 @@ import { useGlobalShortcuts } from '../../hooks/useGlobalShortcuts';
 import { useUndoHistory } from '../../hooks/useUndoHistory';
 import { usePlayheadScroll } from '../../hooks/usePlayheadScroll';
 import { ADTOF_DRUM_VOICES, getDrumVoiceTrackId } from '../../utils/DrumMidi';
+
+function filenameFromDownloadUrl(url, fallbackName) {
+    try {
+        const pathname = new URL(url).pathname;
+        const filename = pathname.split('/').filter(Boolean).at(-1);
+        return filename ? decodeURIComponent(filename) : fallbackName;
+    } catch {
+        return fallbackName;
+    }
+}
+
+function projectFolderName(filename) {
+    const withoutExtension = String(filename || '').replace(/\.[^./\\]+$/, '').trim();
+    const safeName = withoutExtension
+        .replace(/[<>:"/\\|?*]/g, '_')
+        .replace(/\p{Cc}/gu, '_');
+    return safeName || 'CloudDSP project';
+}
 
 function MidiScheduler({
     trackName,
@@ -28,7 +47,9 @@ function MidiScheduler({
     soloedTracks,
     drumMutedVoices,
     drumSoloedVoices,
-    transportStartTime
+    transportStartTime,
+    trackGainDb,
+    drumVoiceGainsDb
 }) {
     useMidiSynth(
         audioCtxRef,
@@ -44,7 +65,9 @@ function MidiScheduler({
         soloedTracks,
         drumMutedVoices,
         drumSoloedVoices,
-        transportStartTime
+        transportStartTime,
+        trackGainDb,
+        drumVoiceGainsDb
     );
     return null;
 }
@@ -99,6 +122,9 @@ export default function StemSplitter({
     const [expandedDrumTracks, setExpandedDrumTracks] = React.useState({});
     const [drumMutedVoices, setDrumMutedVoices] = React.useState({});
     const [drumSoloedVoices, setDrumSoloedVoices] = React.useState({});
+    const [drumVoiceGainsDb, setDrumVoiceGainsDb] = React.useState({});
+    const [isDownloadOpen, setIsDownloadOpen] = React.useState(false);
+    const [selectedDownloadArtifactIds, setSelectedDownloadArtifactIds] = React.useState(new Set());
 
     const handleOpenEditor = (trackName) => {
         setMidiStateBeforeEditor(prev => ({ ...prev, [trackName]: !!activeMidiTracks[trackName] }));
@@ -135,8 +161,19 @@ export default function StemSplitter({
         setDrumSoloedVoices(prev => ({ ...prev, [voiceTrackId]: !prev[voiceTrackId] }));
     };
 
+    const setDrumVoiceGainDb = (trackName, voiceId, decibels) => {
+        const voiceTrackId = getDrumVoiceTrackId(trackName, voiceId);
+        const numericValue = Number(decibels);
+        setDrumVoiceGainsDb((previous) => ({
+            ...previous,
+            [voiceTrackId]: Number.isFinite(numericValue)
+                ? Math.max(-12, Math.min(12, numericValue))
+                : 0,
+        }));
+    };
+
     // 1. Instruments
-    const { globalSynthRef, guitarSynthRef, bassSynthRef, drumSynthRef } = useInstruments();
+    const { midiSynthRefs, drumVoiceSynthRefs } = useInstruments();
 
     // 2. Audio Player
     const audioEngine = useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks, sourceUrl, jobId);
@@ -145,8 +182,29 @@ export default function StemSplitter({
     // 3. MIDI Manager
     const { parsedMidiStems, setParsedMidiStems, originalMidiStems, isMidiLoading } = useMidiManager(
         midiUrls, midiStates, jobId, audioEngine.timeSignature, audioEngine.audioCtxRef,
-        globalSynthRef, guitarSynthRef, bassSynthRef, drumSynthRef
+        midiSynthRefs, drumVoiceSynthRefs
     );
+
+    // Original audio has no generated MIDI. Restrict the global switch to the
+    // tracks whose MIDI is fully parsed so it never mutes a stem that is still
+    // waiting for an extraction result.
+    const midiCapableTrackNames = React.useMemo(
+        () => Object.keys(parsedMidiStems),
+        [parsedMidiStems]
+    );
+    const isGlobalMidiEnabled = midiCapableTrackNames.length > 0
+        && midiCapableTrackNames.every((trackName) => activeMidiTracks[trackName]);
+    const toggleGlobalMidiMode = React.useCallback(() => {
+        if (midiCapableTrackNames.length === 0) return;
+        const shouldEnable = !isGlobalMidiEnabled;
+        setActiveMidiTracks((previous) => {
+            const next = { ...previous };
+            midiCapableTrackNames.forEach((trackName) => {
+                next[trackName] = shouldEnable;
+            });
+            return next;
+        });
+    }, [isGlobalMidiEnabled, midiCapableTrackNames]);
 
     const backendTempoBpm = Number(jobTempo?.bpm);
     const hasBackendTempo = Number.isFinite(backendTempoBpm) && backendTempoBpm > 0;
@@ -179,6 +237,7 @@ export default function StemSplitter({
         setExpandedDrumTracks({});
         setDrumMutedVoices({});
         setDrumSoloedVoices({});
+        setDrumVoiceGainsDb({});
     }, [jobId]);
     const midiStatusByTrack = React.useMemo(() => {
         return Object.keys(stemUrls || {}).reduce((statuses, trackName) => {
@@ -236,14 +295,6 @@ export default function StemSplitter({
         handleUndoMidi
     });
 
-    React.useEffect(() => {
-        return () => {
-            if (globalSynthRef.current) {
-                try { globalSynthRef.current.stop(); } catch (e) { }
-            }
-        };
-    }, [globalSynthRef]);
-
     const handleFileUpload = (e) => {
         const uploadedFile = e.target.files[0];
         if (uploadedFile) {
@@ -265,6 +316,52 @@ export default function StemSplitter({
         if (stemUrls) Object.assign(tr, stemUrls);
         return tr;
     }, [file, sourceUrl, stemUrls]);
+
+    const downloadRootFolderName = React.useMemo(
+        () => projectFolderName(file?.name || fileName),
+        [file, fileName]
+    );
+    const downloadArtifacts = React.useMemo(() => {
+        const rootPath = downloadRootFolderName;
+        const artifacts = [];
+        const originalFilename = file?.name || filenameFromDownloadUrl(sourceUrl, fileName || 'original-audio.wav');
+
+        if (file instanceof Blob) {
+            artifacts.push({
+                id: 'original', group: 'original', filename: originalFilename, file,
+                archivePath: `${rootPath}/${originalFilename}`,
+            });
+        } else if (sourceUrl) {
+            artifacts.push({
+                id: 'original', group: 'original', filename: originalFilename, url: sourceUrl,
+                archivePath: `${rootPath}/${originalFilename}`,
+            });
+        }
+
+        Object.entries(stemUrls || {}).forEach(([stemName, url]) => {
+            if (!url) return;
+            const filename = filenameFromDownloadUrl(url, `${stemName}.wav`);
+            artifacts.push({
+                id: `stem:${stemName}`, group: 'stems', filename, url,
+                archivePath: `${rootPath}/stems/${filename}`,
+            });
+        });
+        Object.entries(midiUrls || {}).forEach(([stemName, url]) => {
+            if (!url) return;
+            const filename = filenameFromDownloadUrl(url, `${stemName}.mid`);
+            artifacts.push({
+                id: `midi:${stemName}`, group: 'midi', filename, url,
+                archivePath: `${rootPath}/midi/${filename}`,
+            });
+        });
+        return artifacts;
+    }, [downloadRootFolderName, file, fileName, sourceUrl, stemUrls, midiUrls]);
+
+    const openDownloadPopup = () => {
+        if (downloadArtifacts.length === 0) return;
+        setSelectedDownloadArtifactIds(new Set(downloadArtifacts.map((artifact) => artifact.id)));
+        setIsDownloadOpen(true);
+    };
 
     // ADTOF emits a single drum MIDI file, but its five fixed note classes
     // represent distinct instruments. The audio stays on the parent row and
@@ -517,7 +614,28 @@ export default function StemSplitter({
                                 }
                             </div>
 
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '30px' }}>
+                            <button
+                                type="button"
+                                onClick={toggleGlobalMidiMode}
+                                disabled={midiCapableTrackNames.length === 0}
+                                aria-pressed={isGlobalMidiEnabled}
+                                title={midiCapableTrackNames.length === 0
+                                    ? 'MIDI playback becomes available as tracks finish processing'
+                                    : `${isGlobalMidiEnabled ? 'Disable' : 'Enable'} MIDI synthesis for all ready tracks`}
+                                style={{
+                                    height: '24px', padding: '0 8px', marginLeft: '12px',
+                                    background: 'transparent',
+                                    color: isGlobalMidiEnabled ? '#4CAF50' : '#aaa',
+                                    border: `1px solid ${isGlobalMidiEnabled ? '#4CAF50' : '#555'}`,
+                                    boxShadow: isGlobalMidiEnabled ? '0 0 8px rgba(76, 175, 80, 0.5)' : 'none',
+                                    borderRadius: '4px',
+                                    cursor: midiCapableTrackNames.length === 0 ? 'not-allowed' : 'pointer',
+                                    fontSize: '11px', fontWeight: 'bold',
+                                    opacity: midiCapableTrackNames.length === 0 ? 0.55 : 1,
+                                }}
+                            >MIDI</button>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '18px' }}>
                                 <span className="bpm-label" style={{ color: '#fff', fontSize: '14px', fontWeight: 'bold' }}>BPM:</span>
                                 <div style={{ 
                                     background: 'linear-gradient(180deg, #2A3644 0%, #1B232D 100%)',
@@ -603,12 +721,19 @@ export default function StemSplitter({
 
                             <div style={{ flexGrow: 1 }} /> {/* Pushes download button to the right */}
 
-                            <button style={{
-                                background: '#444', color: '#ccc', border: '1px solid #555', 
-                                padding: '6px 14px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px',
-                                fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px',
-                                boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
-                            }}>
+                            <button
+                                type="button"
+                                onClick={openDownloadPopup}
+                                disabled={downloadArtifacts.length === 0}
+                                title={downloadArtifacts.length === 0 ? 'No project files are available to download yet' : 'Choose project files to download'}
+                                style={{
+                                    background: downloadArtifacts.length === 0 ? '#333' : '#444', color: downloadArtifacts.length === 0 ? '#777' : '#ccc', border: '1px solid #555',
+                                    padding: '6px 14px', borderRadius: '4px', fontSize: '12px',
+                                    fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px',
+                                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)', opacity: downloadArtifacts.length === 0 ? 0.65 : 1,
+                                    cursor: downloadArtifacts.length === 0 ? 'not-allowed' : 'pointer',
+                                }}
+                            >
                                 <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
                                     <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
                                 </svg>
@@ -641,6 +766,10 @@ export default function StemSplitter({
                                 mutedTracks={audioEngine.mutedTracks}
                                 toggleSolo={audioEngine.toggleSolo}
                                 soloedTracks={audioEngine.soloedTracks}
+                                trackGainsDb={audioEngine.trackGainsDb}
+                                setTrackGainDb={audioEngine.setTrackGainDb}
+                                drumVoiceGainsDb={drumVoiceGainsDb}
+                                setDrumVoiceGainDb={setDrumVoiceGainDb}
                                 selectedTrack={selectedTrack}
                                 setSelectedTrack={setSelectedTrack}
                                 onDoubleClickTrack={handleOpenEditor}
@@ -716,12 +845,21 @@ export default function StemSplitter({
                 `}</style>
             </div>
 
+            {isDownloadOpen && (
+                <DownloadPopup
+                    rootFolderName={downloadRootFolderName}
+                    artifacts={downloadArtifacts}
+                    selectedArtifactIds={selectedDownloadArtifactIds}
+                    setSelectedArtifactIds={setSelectedDownloadArtifactIds}
+                    onClose={() => setIsDownloadOpen(false)}
+                />
+            )}
+
             {/* Background MIDI Schedulers */}
             {Object.keys(parsedMidiStems).map(trackName => {
-                let synthRefToUse = globalSynthRef;
-                if (trackName === 'guitar') synthRefToUse = guitarSynthRef;
-                if (trackName === 'bass') synthRefToUse = bassSynthRef;
-                if (parsedMidiStems[trackName]?.isAdtofDrum) synthRefToUse = drumSynthRef;
+                const synthRefToUse = parsedMidiStems[trackName]?.isAdtofDrum
+                    ? drumVoiceSynthRefs.current.get(trackName)
+                    : midiSynthRefs.current.get(trackName);
 
                 return (
                     <MidiScheduler
@@ -740,6 +878,8 @@ export default function StemSplitter({
                         drumMutedVoices={drumMutedVoices}
                         drumSoloedVoices={drumSoloedVoices}
                         transportStartTime={audioEngine.transportStartTime}
+                        trackGainDb={audioEngine.trackGainsDb[trackName] ?? 0}
+                        drumVoiceGainsDb={drumVoiceGainsDb}
                     />
                 );
             })}
@@ -782,10 +922,9 @@ export default function StemSplitter({
                 progress={audioEngine.progress}
                 fileName={fileName}
                 synthRef={
-                    editorOpenTrack === 'guitar' ? guitarSynthRef :
-                    editorOpenTrack === 'bass' ? bassSynthRef :
-                    parsedMidiStems[editorOpenTrack]?.isAdtofDrum ? drumSynthRef :
-                    globalSynthRef
+                    parsedMidiStems[editorOpenTrack]?.isAdtofDrum
+                        ? drumVoiceSynthRefs.current.get(editorOpenTrack)
+                        : midiSynthRefs.current.get(editorOpenTrack)
                 }
                 isMidiMode={!!activeMidiTracks[editorOpenTrack]}
                 setIsMidiMode={() => toggleMidiMode(editorOpenTrack)}

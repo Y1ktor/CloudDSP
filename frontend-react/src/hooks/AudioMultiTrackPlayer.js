@@ -8,6 +8,7 @@
  * AudioContext time instead.
  */
 import React from 'react';
+import { clampTrackGainDb, dbToLinearGain } from '../utils/MidiPlayback';
 
 const START_LEAD_SECONDS = 0.08;
 const MIX_RAMP_SECONDS = 0.005;
@@ -71,12 +72,14 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
     const mutedTracksRef = React.useRef({});
     const soloedTracksRef = React.useRef({});
     const activeMidiTracksRef = React.useRef(activeMidiTracks);
+    const trackGainsDbRef = React.useRef({});
 
     const [isPlaying, setIsPlaying] = React.useState(false);
     const [progress, setProgress] = React.useState(0);
     const [duration, setDuration] = React.useState(0);
     const [mutedTracks, setMutedTracks] = React.useState({});
     const [soloedTracks, setSoloedTracks] = React.useState({});
+    const [trackGainsDb, setTrackGainsDb] = React.useState({});
     const [isCycling, setIsCycling] = React.useState(false);
     const [cycleRegion, setCycleRegion] = React.useState({ startBar: 0, endBar: 2 });
     const [bpm, setBpm] = React.useState(120.0);
@@ -117,7 +120,12 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
         return Math.min(duration || Infinity, transportOffsetRef.current + elapsed * transportRateRef.current);
     };
 
-    const applyMixState = (nextMuted = mutedTracksRef.current, nextSoloed = soloedTracksRef.current, nextMidi = activeMidiTracksRef.current) => {
+    const applyMixState = (
+        nextMuted = mutedTracksRef.current,
+        nextSoloed = soloedTracksRef.current,
+        nextMidi = activeMidiTracksRef.current,
+        nextGainsDb = trackGainsDbRef.current
+    ) => {
         const context = audioCtxRef.current;
         if (!context) return;
         const hasSolo = Object.values(nextSoloed).some(Boolean);
@@ -125,7 +133,7 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
         gainNodesRef.current.forEach((gainNode, trackName) => {
             const shouldMute = nextMidi[trackName]
                 || (hasSolo ? !nextSoloed[trackName] : Boolean(nextMuted[trackName]));
-            const targetGain = shouldMute ? 0 : 1;
+            const targetGain = shouldMute ? 0 : dbToLinearGain(nextGainsDb[trackName]);
             gainNode.gain.cancelScheduledValues(now);
             gainNode.gain.setValueAtTime(gainNode.gain.value, now);
             gainNode.gain.linearRampToValueAtTime(targetGain, now + MIX_RAMP_SECONDS);
@@ -224,8 +232,10 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
             : {};
         mutedTracksRef.current = nextMuted;
         soloedTracksRef.current = {};
+        trackGainsDbRef.current = {};
         setMutedTracks(nextMuted);
         setSoloedTracks({});
+        setTrackGainsDb({});
         setDuration(0);
         setAudioLoadState({});
     // Deliberately reset only at a durable source boundary, not when each
@@ -422,6 +432,16 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
         applyMixState(undefined, nextSoloed);
     };
 
+    const setTrackGainDb = (trackName, decibels) => {
+        const nextGainsDb = {
+            ...trackGainsDbRef.current,
+            [trackName]: clampTrackGainDb(decibels),
+        };
+        trackGainsDbRef.current = nextGainsDb;
+        setTrackGainsDb(nextGainsDb);
+        applyMixState(undefined, undefined, undefined, nextGainsDb);
+    };
+
     const handleBpmMouseDown = (event, mode) => {
         event.preventDefault();
         dragStateRef.current = { isDragging: true, mode, startY: event.clientY, startBpm: bpm };
@@ -465,6 +485,7 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
         duration,
         mutedTracks,
         soloedTracks,
+        trackGainsDb,
         isCycling,
         setIsCycling,
         cycleRegion,
@@ -478,6 +499,7 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
         handleSeek,
         toggleMute,
         toggleSolo,
+        setTrackGainDb,
         handleBpmMouseDown,
         setBpm,
         setOriginalBpm,
