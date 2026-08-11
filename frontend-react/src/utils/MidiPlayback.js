@@ -30,7 +30,7 @@ export function gainDbToSmplrOutputVolume(decibels) {
  * original Demucs stem audio or write a different velocity into exported MIDI.
  */
 const MELODIC_TRACK_VELOCITY_SCALES = Object.freeze({
-    guitar: 2.0,
+    guitar: 1.3,
     piano: 0.6,
 });
 

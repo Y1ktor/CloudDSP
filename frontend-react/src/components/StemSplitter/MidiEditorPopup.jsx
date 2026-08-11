@@ -1,8 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import TimelineRuler from './TimelineRuler';
+import TransportPlayheadLine from './TransportPlayheadLine';
 import { useMidiEditorOperations } from '../../hooks/useMidiEditorOperations';
 import { useMidiExport } from '../../hooks/useMidiExport';
-import { usePlayheadScroll } from '../../hooks/usePlayheadScroll';
+import { useTransportPlayhead } from '../../hooks/useTransportPlayhead';
+import { useTimelineViewport } from '../../hooks/useTimelineViewport';
 import {
     ADTOF_DRUM_VOICES,
     getAdtofDrumVoice,
@@ -14,6 +16,197 @@ import {
 import { getMelodicPlaybackVelocity } from '../../utils/MidiPlayback';
 
 const DRUM_EDITOR_ROW_HEIGHT = 56;
+
+function DrumVoiceGainSlider({ value = 0, onChange, ariaLabel }) {
+    const gainDb = Number.isFinite(Number(value)) ? Number(value) : 0;
+    const progress = Math.max(0, Math.min(100, ((gainDb + 12) / 24) * 100));
+
+    return (
+        <label style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '3px', cursor: 'pointer' }}>
+            <input
+                className="drum-editor-gain-slider"
+                type="range"
+                min="-12"
+                max="12"
+                step="0.1"
+                value={gainDb}
+                onChange={(event) => onChange?.(Number(event.target.value))}
+                aria-label={ariaLabel}
+                style={{ flexGrow: 1, minWidth: 0, '--drum-editor-gain-progress': `${progress}%` }}
+            />
+            <span style={{ width: '31px', color: '#bac4d2', fontFamily: 'monospace', fontSize: '8px', textAlign: 'right' }}>
+                {`${gainDb >= 0 ? '+' : ''}${gainDb.toFixed(1)}`}
+            </span>
+        </label>
+    );
+}
+
+function lowerBoundByTime(notes, time) {
+    let low = 0;
+    let high = notes.length;
+    while (low < high) {
+        const middle = Math.floor((low + high) / 2);
+        if (notes[middle].time < time) low = middle + 1;
+        else high = middle;
+    }
+    return low;
+}
+
+function upperBoundByTime(notes, time) {
+    let low = 0;
+    let high = notes.length;
+    while (low < high) {
+        const middle = Math.floor((low + high) / 2);
+        if (notes[middle].time <= time) low = middle + 1;
+        else high = middle;
+    }
+    return low;
+}
+
+/**
+ * Render only the note events that can intersect the popup viewport. The
+ * source MIDI array deliberately remains in its original order: editing,
+ * undo, and export all address notes by that array index. A separately sorted
+ * index gives the renderer O(log n + visible notes) work instead of scanning a
+ * whole song whenever an unrelated transport/readout render occurs.
+ */
+const VisibleMidiEditorNotes = React.memo(function VisibleMidiEditorNotes({
+    midiData,
+    midiRevision,
+    isAdtofDrum,
+    activeBpm,
+    parsedBeatsPerBar,
+    popupPixelsPerBar,
+    popupRowHeight,
+    visibleRange,
+    selectedNoteIndices,
+    noteDragState,
+    onNoteMouseDown,
+    onNoteContextMenu,
+}) {
+    const indexedNotes = React.useMemo(() => {
+        // `midiRevision` changes whenever an editor operation replaces the
+        // top-level parsed-MIDI state, even though the nested MIDI instance is
+        // intentionally mutated in place.
+        const notes = midiRevision ? (midiData?.tracks?.[0]?.notes || []) : [];
+        let maxDuration = 0;
+        const indexed = [];
+
+        notes.forEach((note, index) => {
+            const time = Number(note?.time);
+            if (!Number.isFinite(time) || time < 0) return;
+            const duration = Number(note?.duration);
+            if (Number.isFinite(duration) && duration > maxDuration) {
+                maxDuration = duration;
+            }
+            indexed.push({ note, index, time });
+        });
+
+        indexed.sort((left, right) => left.time - right.time || left.index - right.index);
+        return { notes: indexed, maxDuration };
+    // MIDI editor operations intentionally replace the top-level MIDI-state
+    // object after mutating note instances. Depend on that revision so the
+    // time index is rebuilt after an edit, undo, or revert.
+    }, [midiData, midiRevision]);
+
+    const visibleNotes = React.useMemo(() => {
+        const { notes, maxDuration } = indexedNotes;
+        if (notes.length === 0) return [];
+
+        const pixelsPerSecond = (Number(activeBpm) / 60 / Number(parsedBeatsPerBar))
+            * Number(popupPixelsPerBar);
+        if (!Number.isFinite(pixelsPerSecond) || pixelsPerSecond <= 0) return notes;
+
+        const startPx = Math.max(0, Number(visibleRange?.startPx) || 0);
+        const endPx = Number(visibleRange?.endPx);
+        const overscanPx = Math.max(0, Number(visibleRange?.overscanPx) || 0);
+        if (!Number.isFinite(endPx) || endPx <= startPx) return notes;
+
+        // Retain a long note which begins before the viewport but extends into
+        // it. The maximum source duration turns that into one binary-search
+        // range rather than a scan of every earlier note.
+        const startTime = Math.max(0, ((startPx - overscanPx) / pixelsPerSecond) - maxDuration);
+        const endTime = (endPx + overscanPx) / pixelsPerSecond;
+        return notes.slice(
+            lowerBoundByTime(notes, startTime),
+            upperBoundByTime(notes, endTime),
+        );
+    }, [activeBpm, indexedNotes, parsedBeatsPerBar, popupPixelsPerBar, visibleRange]);
+
+    if (visibleNotes.length === 0) return null;
+
+    const pixelsPerSecond = (activeBpm / 60 / parsedBeatsPerBar) * popupPixelsPerBar;
+    return visibleNotes.map(({ note, index }) => {
+        const leftPx = (Number(note.time) || 0) * pixelsPerSecond;
+        const widthPx = Math.max(2, (Number(note.duration) || 0) * pixelsPerSecond);
+        const drumVoice = isAdtofDrum ? getAdtofDrumVoice(note.midi) : null;
+        if (isAdtofDrum && !drumVoice) return null;
+
+        const topPx = drumVoice
+            ? getAdtofDrumVoiceIndex(note.midi) * DRUM_EDITOR_ROW_HEIGHT
+            : (127 - note.midi) * popupRowHeight;
+        const noteRowHeight = drumVoice ? DRUM_EDITOR_ROW_HEIGHT : popupRowHeight;
+        const velocity = note.velocity !== undefined ? Math.max(0.01, note.velocity) : 0.8;
+        const hue = 280 - (velocity * 280);
+        const saturation = Math.round(35 + (velocity * 15));
+        const lightness = Math.round(45 + (velocity * 10));
+        const isDisabled = note.velocity !== undefined && note.velocity <= 0.015;
+        const noteColor = isDisabled
+            ? '#555'
+            : drumVoice ? drumVoice.color : `hsl(${Math.round(hue)}, ${saturation}%, ${lightness}%)`;
+        const isSelected = selectedNoteIndices.has(index);
+
+        return (
+            <div
+                key={`popup-note-${index}`}
+                draggable={false}
+                onDragStart={(event) => event.preventDefault()}
+                onMouseDown={(event) => onNoteMouseDown(index, event, 'move')}
+                onContextMenu={(event) => onNoteContextMenu(index, event)}
+                style={{
+                    position: 'absolute',
+                    left: `${leftPx}px`,
+                    width: `${widthPx}px`,
+                    top: `${topPx}px`,
+                    height: `${noteRowHeight}px`,
+                    backgroundColor: noteColor,
+                    borderRadius: '2px',
+                    // Box shadows force expensive paint for every note. Keep
+                    // the stronger affordance only on the small selected set.
+                    boxShadow: isSelected ? '0 0 0 1px rgba(255,255,255,0.6), 0 0 4px rgba(255,255,255,0.4)' : 'none',
+                    border: isSelected ? '1px solid rgba(255,255,255,0.6)' : '1px solid rgba(255,255,255,0.2)',
+                    boxSizing: 'border-box',
+                    userSelect: 'none',
+                    cursor: noteDragState && noteDragState.action !== 'move' ? 'ew-resize' : 'move',
+                    opacity: isDisabled && !isSelected ? 0.5 : 1,
+                    zIndex: isSelected ? 10 : 1,
+                }}
+                title={`${drumVoice?.label || `Pitch: ${note.name} (${note.midi})`} | Velocity: ${Math.round((note.velocity || 0) * 100)}%`}
+            >
+                <div
+                    onMouseDown={(event) => {
+                        event.stopPropagation();
+                        onNoteMouseDown(index, event, 'resize-left');
+                    }}
+                    style={{
+                        position: 'absolute', top: 0, bottom: 0, left: '-4px', width: '8px',
+                        cursor: 'ew-resize', zIndex: 10,
+                    }}
+                />
+                <div
+                    onMouseDown={(event) => {
+                        event.stopPropagation();
+                        onNoteMouseDown(index, event, 'resize-right');
+                    }}
+                    style={{
+                        position: 'absolute', top: 0, bottom: 0, right: '-4px', width: '8px',
+                        cursor: 'ew-resize', zIndex: 10,
+                    }}
+                />
+            </div>
+        );
+    });
+});
 
 /**
  * MidiEditorPopup Component
@@ -56,14 +249,15 @@ const DRUM_EDITOR_ROW_HEIGHT = 56;
  * @param {Object} props.drumSoloedVoices - Dictionary of soloed ADTOF drum MIDI lanes
  * @param {Function} props.toggleDrumMute - Callback to toggle one ADTOF drum MIDI lane
  * @param {Function} props.toggleDrumSolo - Callback to solo one ADTOF drum MIDI lane
+ * @param {Object} props.drumVoiceGainsDb - Per-voice ADTOF MIDI output gain in dB
+ * @param {Function} props.setDrumVoiceGainDb - Setter for one ADTOF voice gain
  * @param {number} props.activeBpm - The current user-adjusted master BPM
- * @param {number} props.originalBpm - The detected original master BPM of the song
  * @param {number} props.parsedBeatsPerBar - Derived variable representing number of beats in a bar
  * @param {Function} props.handleSeek - Callback to seek playback to a specific percentage (0-1)
  * @param {Object} props.parsedMidiStems - The master dictionary containing parsed `@tonejs/midi` class instances
  * @param {Function} props.setParsedMidiStems - State setter for the master MIDI dictionary, used to trigger re-renders
  * @param {React.MutableRefObject} props.audioCtxRef - Reference to the global Web Audio context
- * @param {number} props.progress - The current playback time in seconds
+ * @param {React.MutableRefObject} props.transportRef - Shared audio-clock transport state
  * @param {React.MutableRefObject} props.synthRef - Reference to the `smplr` instrument for the current track to use for auditioning
  * @param {boolean} props.isMidiMode - Whether MIDI synthesis playback is active for this track
  * @param {Function} props.setIsMidiMode - Callback to toggle MIDI synthesis mode for this track
@@ -98,15 +292,16 @@ export default function MidiEditorPopup({
     drumSoloedVoices = {},
     toggleDrumMute,
     toggleDrumSolo,
+    drumVoiceGainsDb = {},
+    setDrumVoiceGainDb,
     activeBpm,
-    originalBpm,
     parsedBeatsPerBar,
     handleSeek,
     parsedMidiStems,
     midiStatus,
     setParsedMidiStems,
     audioCtxRef,
-    progress,
+    transportRef,
     synthRef,
     isMidiMode,
     setIsMidiMode,
@@ -119,6 +314,9 @@ export default function MidiEditorPopup({
     const popupTimelineRef = useRef(null);
     const pianoScrollRef = useRef(null);
     const gridScrollRef = useRef(null);
+    const popupTimelinePlayheadRef = useRef(null);
+    const popupRulerPlayheadRef = useRef(null);
+    const [popupVisibleTimelineRange, setPopupGridScrollContainer] = useTimelineViewport(gridScrollRef);
     const isAdtofDrum = parsedMidiStems?.[trackName]?.isAdtofDrum === true;
     const isMidiPending = midiStatus === 'processing' || midiStatus === 'loading';
     const isMidiFailed = midiStatus === 'failed';
@@ -297,34 +495,41 @@ export default function MidiEditorPopup({
 
                 return (
                     <div key={voice.id} style={{
-                        height: `${DRUM_EDITOR_ROW_HEIGHT}px`, boxSizing: 'border-box', display: 'flex',
-                        alignItems: 'center', justifyContent: 'space-between', gap: '4px', padding: '0 7px',
+                        height: `${DRUM_EDITOR_ROW_HEIGHT}px`, boxSizing: 'border-box', display: 'flex', flexDirection: 'column',
+                        justifyContent: 'center', gap: '1px', padding: '4px 7px',
                         color: voice.color, backgroundColor: '#1a1a1a', borderBottom: '1px solid #3a3a3a',
                         borderLeft: `3px solid ${voice.color}`, fontSize: '12px', fontWeight: '700', userSelect: 'none'
                     }}>
-                        <span>{voice.label}</span>
-                        <div style={{ display: 'flex', gap: '3px' }}>
-                            <button
-                                type="button"
-                                onClick={() => toggleDrumMute?.(trackName, voice.id)}
-                                style={{
-                                    width: '21px', height: '21px', padding: 0, border: 'none', borderRadius: '3px',
-                                    background: isMuted ? '#e53935' : '#444', color: '#fff', cursor: 'pointer',
-                                    fontSize: '10px', fontWeight: 'bold'
-                                }}
-                                title={`Mute ${voice.label} MIDI`}
-                            >M</button>
-                            <button
-                                type="button"
-                                onClick={() => toggleDrumSolo?.(trackName, voice.id)}
-                                style={{
-                                    width: '21px', height: '21px', padding: 0, border: 'none', borderRadius: '3px',
-                                    background: isSoloed ? '#e0a800' : '#444', color: '#fff', cursor: 'pointer',
-                                    fontSize: '10px', fontWeight: 'bold'
-                                }}
-                                title={`Solo ${voice.label} MIDI`}
-                            >S</button>
+                        <div style={{ display: 'flex', alignItems: 'center', width: '100%', minHeight: '21px' }}>
+                            <span style={{ flexGrow: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{voice.label}</span>
+                            <div style={{ display: 'flex', gap: '3px' }}>
+                                <button
+                                    type="button"
+                                    onClick={() => toggleDrumMute?.(trackName, voice.id)}
+                                    style={{
+                                        width: '21px', height: '21px', padding: 0, border: 'none', borderRadius: '3px',
+                                        background: isMuted ? '#e53935' : '#444', color: '#fff', cursor: 'pointer',
+                                        fontSize: '10px', fontWeight: 'bold'
+                                    }}
+                                    title={`Mute ${voice.label} MIDI`}
+                                >M</button>
+                                <button
+                                    type="button"
+                                    onClick={() => toggleDrumSolo?.(trackName, voice.id)}
+                                    style={{
+                                        width: '21px', height: '21px', padding: 0, border: 'none', borderRadius: '3px',
+                                        background: isSoloed ? '#e0a800' : '#444', color: '#fff', cursor: 'pointer',
+                                        fontSize: '10px', fontWeight: 'bold'
+                                    }}
+                                    title={`Solo ${voice.label} MIDI`}
+                                >S</button>
+                            </div>
                         </div>
+                        <DrumVoiceGainSlider
+                            value={drumVoiceGainsDb[voiceTrackId] ?? 0}
+                            onChange={(gainDb) => setDrumVoiceGainDb?.(trackName, voice.id, gainDb)}
+                            ariaLabel={`${voice.label} MIDI gain in decibels`}
+                        />
                     </div>
                 );
             });
@@ -377,124 +582,47 @@ export default function MidiEditorPopup({
         return keys;
     };
 
-    // Helper to render full 128 key space notes
-    const renderFullMidiNotes = () => {
-        if (!parsedMidiStems) return null;
-        const stemData = parsedMidiStems[trackName];
-        if (!stemData || !stemData.midiData || !stemData.midiData.tracks || stemData.midiData.tracks.length === 0) {
-            return null;
-        }
+    // `useMidiEditorOperations` intentionally returns current-state handlers.
+    // Keep a stable bridge for the memoised virtual note layer so a throttled
+    // transport/readout render does not invalidate every visible note.
+    const noteMouseDownRef = useRef(handleNoteMouseDown);
+    noteMouseDownRef.current = handleNoteMouseDown;
+    const handleVisibleNoteMouseDown = React.useCallback((index, event, action) => {
+        noteMouseDownRef.current?.(index, event, action);
+    }, []);
+    const handleVisibleNoteContextMenu = React.useCallback((index, event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setSelectedNoteIndices((previous) => (
+            previous.has(index) ? previous : new Set([index])
+        ));
+        setContextMenu({ x: event.clientX, y: event.clientY, isNoteSelected: true });
+    }, []);
 
-        const notes = stemData.midiData.tracks[0].notes;
-        if (notes.length === 0) return null;
-
-        return notes.map((note, index) => {
-            const noteStartBeats = note.time * (activeBpm / 60);
-            const noteStartBars = noteStartBeats / parsedBeatsPerBar;
-            const leftPx = noteStartBars * popupPixelsPerBar;
-
-            const noteDurationBeats = note.duration * (activeBpm / 60);
-            const noteDurationBars = noteDurationBeats / parsedBeatsPerBar;
-            const widthPx = Math.max(2, noteDurationBars * popupPixelsPerBar);
-
-            const drumVoice = isAdtofDrum ? getAdtofDrumVoice(note.midi) : null;
-            if (isAdtofDrum && !drumVoice) return null;
-
-            // Melodic MIDI uses the complete pitch range. ADTOF drum classes
-            // get one fixed named row each.
-            const topPx = drumVoice
-                ? getAdtofDrumVoiceIndex(note.midi) * DRUM_EDITOR_ROW_HEIGHT
-                : (127 - note.midi) * popupRowHeight;
-            const noteRowHeight = drumVoice ? DRUM_EDITOR_ROW_HEIGHT : popupRowHeight;
-
-            // Map velocity (0-1) continuously across an HSL color spectrum (Muted / Greyish Heatmap)
-            const v = note.velocity !== undefined ? Math.max(0.01, note.velocity) : 0.8;
-            
-            // Hue: Purple(280) -> Blue -> Cyan -> Green -> Yellow -> Red(0)
-            const hue = 280 - (v * 280); 
-            
-            // Saturation: Muted with more gray
-            const saturation = Math.round(35 + (v * 15)); 
-            
-            // Lightness: Slightly darker to prevent bright neon colors
-            const lightness = Math.round(45 + (v * 10)); 
-            
-            const isDisabled = note.velocity !== undefined && note.velocity <= 0.015;
-            const noteColor = isDisabled
-                ? '#555'
-                : drumVoice ? drumVoice.color : `hsl(${Math.round(hue)}, ${saturation}%, ${lightness}%)`;
-
-            const isSelected = selectedNoteIndices.has(index);
-
-            return (
-                <div 
-                    key={`popup-note-${index}`}
-                    draggable={false}
-                    onDragStart={(e) => e.preventDefault()}
-                    onMouseDown={(e) => handleNoteMouseDown(index, e, 'move')}
-                    onContextMenu={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        if (!selectedNoteIndices.has(index)) {
-                            setSelectedNoteIndices(new Set([index]));
-                        }
-                        setContextMenu({ x: e.clientX, y: e.clientY, isNoteSelected: true });
-                    }}
-                    style={{
-                        position: 'absolute',
-                        left: `${leftPx}px`,
-                        width: `${widthPx}px`,
-                        top: `${topPx}px`,
-                        height: `${noteRowHeight}px`,
-                        backgroundColor: noteColor,
-                        borderRadius: '2px',
-                        boxShadow: isSelected ? '0 0 0 1px rgba(255,255,255,0.6), 0 0 4px rgba(255,255,255,0.4)' : '0 0 2px rgba(0,0,0,0.5)',
-                        border: isSelected ? '1px solid rgba(255,255,255,0.6)' : '1px solid rgba(255,255,255,0.2)',
-                        boxSizing: 'border-box',
-                        userSelect: 'none',
-                        cursor: noteDragState && noteDragState.action !== 'move' ? 'ew-resize' : 'move',
-                        opacity: isDisabled && !isSelected ? 0.5 : 1,
-                        zIndex: isSelected ? 10 : 1
-                    }}
-                    title={`${drumVoice?.label || `Pitch: ${note.name} (${note.midi})`} | Velocity: ${Math.round((note.velocity || 0) * 100)}%`}
-                >
-                    {/* Left Resize Handle */}
-                    <div
-                        onMouseDown={(e) => { e.stopPropagation(); handleNoteMouseDown(index, e, 'resize-left'); }}
-                        style={{
-                            position: 'absolute',
-                            top: 0, bottom: 0, left: '-4px', width: '8px',
-                            cursor: 'ew-resize',
-                            zIndex: 10
-                        }}
-                    />
-                    {/* Right Resize Handle */}
-                    <div
-                        onMouseDown={(e) => { e.stopPropagation(); handleNoteMouseDown(index, e, 'resize-right'); }}
-                        style={{
-                            position: 'absolute',
-                            top: 0, bottom: 0, right: '-4px', width: '8px',
-                            cursor: 'ew-resize',
-                            zIndex: 10
-                        }}
-                    />
-                </div>
-            );
-        });
-    };
+    const editorMidiData = parsedMidiStems?.[trackName]?.midiData;
 
     const gridHeight = isAdtofDrum
         ? ADTOF_DRUM_VOICES.length * DRUM_EDITOR_ROW_HEIGHT
         : 128 * popupRowHeight;
     
     // Scale the playhead position to match the popup's local zoom level
-    const popupPlayheadX = Math.round((playheadX / pixelsPerBar) * popupPixelsPerBar);
+    const popupPlayheadX = (playheadX / pixelsPerBar) * popupPixelsPerBar;
 
-    usePlayheadScroll(gridScrollRef, popupPlayheadX, isPlaying);
+    useTransportPlayhead({
+        audioCtxRef,
+        transportRef,
+        isPlaying,
+        pixelsPerBar: popupPixelsPerBar,
+        bpm: activeBpm,
+        beatsPerBar: parsedBeatsPerBar,
+        playheadRefs: [popupTimelinePlayheadRef, popupRulerPlayheadRef],
+        scrollContainerRef: gridScrollRef,
+        enabled: Boolean(trackName) && duration > 0,
+    });
 
     // Keep every hook above this point unconditional. The popup remains mounted
-    // while closed, and returning before usePlayheadScroll would change hook
-    // order as soon as a double-click selects a track.
+    // while closed, so returning earlier would change hook order as soon as a
+    // double-click selects a track.
     if (!trackName) return null;
 
     return (
@@ -507,6 +635,53 @@ export default function MidiEditorPopup({
             flexDirection: 'column',
             padding: '20px'
         }}>
+            <style>{`
+                .drum-editor-gain-slider {
+                    --drum-editor-gain-progress: 50%;
+                    appearance: none;
+                    -webkit-appearance: none;
+                    -moz-appearance: none;
+                    width: 100%;
+                    height: 3px;
+                    margin: 0;
+                    border: 0;
+                    border-radius: 999px;
+                    background: linear-gradient(90deg, #4f94d4 0%, #4f94d4 var(--drum-editor-gain-progress), #505a67 var(--drum-editor-gain-progress), #505a67 100%);
+                    cursor: pointer;
+                }
+                .drum-editor-gain-slider::-webkit-slider-runnable-track {
+                    height: 3px;
+                    border-radius: 999px;
+                    background: transparent;
+                }
+                .drum-editor-gain-slider::-webkit-slider-thumb {
+                    appearance: none;
+                    -webkit-appearance: none;
+                    width: 10px;
+                    height: 10px;
+                    margin-top: -3.5px;
+                    border: 1px solid #9fb7cd;
+                    border-radius: 50%;
+                    background: #e5edf5;
+                    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+                }
+                .drum-editor-gain-slider::-moz-range-track {
+                    height: 3px;
+                    border: 0;
+                    border-radius: 999px;
+                    background: transparent;
+                }
+                .drum-editor-gain-slider::-moz-range-progress { background: transparent; }
+                .drum-editor-gain-slider::-moz-range-thumb {
+                    width: 8px;
+                    height: 8px;
+                    border: 1px solid #9fb7cd;
+                    border-radius: 50%;
+                    background: #e5edf5;
+                    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+                }
+                .drum-editor-gain-slider:focus-visible { outline: 2px solid #70b4ef; outline-offset: 2px; }
+            `}</style>
             {isRevertConfirmationOpen && (
                 <div
                     role="presentation"
@@ -896,7 +1071,7 @@ export default function MidiEditorPopup({
 
                 {/* Right Column: Scrollable Grid */}
                 <div 
-                    ref={gridScrollRef}
+                    ref={setPopupGridScrollContainer}
                     style={{ flexGrow: 1, overflow: 'auto', position: 'relative' }}
                     onScroll={handleGridScroll}
                 >
@@ -922,20 +1097,13 @@ export default function MidiEditorPopup({
                             position: 'relative' 
                         }}
                     >
-                        {/* Time Indicator (Playhead) */}
+                    {/* Time Indicator (Playhead) */}
                     {duration > 0 && (
-                        <div style={{
-                            position: 'absolute',
-                            left: `${popupPlayheadX}px`,
-                            transform: 'translateX(-50%)',
-                            top: '15px',
-                            bottom: 0,
-                            width: '1px',
-                            backgroundColor: '#fff',
-                            zIndex: 10,
-                            pointerEvents: 'none',
-                            boxShadow: '0 0 4px rgba(255, 255, 255, 0.5)'
-                        }} />
+                        <TransportPlayheadLine
+                            playheadRef={popupTimelinePlayheadRef}
+                            fallbackX={popupPlayheadX}
+                            isPlaying={isPlaying}
+                        />
                     )}
 
                     {/* Ruler */}
@@ -953,6 +1121,9 @@ export default function MidiEditorPopup({
                             setIsPlayheadHovered={setIsPlayheadHovered}
                             isPlayheadHovered={isPlayheadHovered}
                             playheadX={popupPlayheadX}
+                            playheadElementRef={popupRulerPlayheadRef}
+                            isPlayheadExternallyDriven={isPlaying}
+                            visibleRange={popupVisibleTimelineRange}
                             activeBpm={activeBpm}
                             parsedBeatsPerBar={parsedBeatsPerBar}
                             handleSeek={handleSeek}
@@ -1069,7 +1240,20 @@ export default function MidiEditorPopup({
                             })()
                         )}
 
-                        {renderFullMidiNotes()}
+                        <VisibleMidiEditorNotes
+                            midiData={editorMidiData}
+                            midiRevision={parsedMidiStems}
+                            isAdtofDrum={isAdtofDrum}
+                            activeBpm={activeBpm}
+                            parsedBeatsPerBar={parsedBeatsPerBar}
+                            popupPixelsPerBar={popupPixelsPerBar}
+                            popupRowHeight={popupRowHeight}
+                            visibleRange={popupVisibleTimelineRange}
+                            selectedNoteIndices={selectedNoteIndices}
+                            noteDragState={noteDragState}
+                            onNoteMouseDown={handleVisibleNoteMouseDown}
+                            onNoteContextMenu={handleVisibleNoteContextMenu}
+                        />
                         
                         {/* Drag Selection Rectangle */}
                         {isDraggingSelection && selectionRect && (

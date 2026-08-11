@@ -1,4 +1,23 @@
 import React from 'react';
+import { Midi } from '@tonejs/midi';
+
+function restoreOriginalMidiSnapshot(snapshot) {
+    if (!snapshot?.binarySnapshot) return null;
+    const { binarySnapshot, ...metadata } = snapshot;
+    return {
+        ...metadata,
+        // Midi parsing does not mutate its input, but make a fresh copy so an
+        // editor operation can never share a mutable byte view with the
+        // immutable revert source.
+        midiData: new Midi(binarySnapshot.slice(0)),
+    };
+}
+
+function originalMidiMetadata(snapshot) {
+    if (!snapshot) return {};
+    const { binarySnapshot: _binarySnapshot, ...metadata } = snapshot;
+    return metadata;
+}
 
 /**
  * useUndoHistory Hook
@@ -11,7 +30,8 @@ import React from 'react';
  * 
  * @param {Object} parsedMidiStems - Dictionary of currently active MIDI stems
  * @param {Function} setParsedMidiStems - State setter to trigger React re-renders upon undo
- * @param {Object} originalMidiStems - Dictionary of immutable original MIDI parses used for full revert
+ * @param {Object} originalMidiStems - Dictionary of compact immutable MIDI
+ * binary snapshots used for full revert
  * @returns {Object} Object containing the undo stacks and controller functions
  */
 export function useUndoHistory(parsedMidiStems, setParsedMidiStems, originalMidiStems) {
@@ -39,9 +59,12 @@ export function useUndoHistory(parsedMidiStems, setParsedMidiStems, originalMidi
             const lastSnapshot = trackStack.pop();
             
             if (originalMidiStems[trackName]) {
+                // An undo snapshot represents the already-edited MIDI state,
+                // so preserve the stable metadata from the original snapshot
+                // but restore the specific historical note data.
                 const restoredData = {
-                    ...originalMidiStems[trackName],
-                    midiData: new (originalMidiStems[trackName].midiData.constructor)(lastSnapshot)
+                    ...originalMidiMetadata(originalMidiStems[trackName]),
+                    midiData: new Midi(lastSnapshot),
                 };
                 
                 setParsedMidiStems(prevStems => ({
@@ -59,12 +82,10 @@ export function useUndoHistory(parsedMidiStems, setParsedMidiStems, originalMidi
         
         pushUndoState(trackName);
         
-        // Re-clone the original by serializing it back to binary and re-parsing
-        const binaryBuffer = originalMidiStems[trackName].midiData.toArray();
-        const restoredData = {
-            ...originalMidiStems[trackName],
-            midiData: new (originalMidiStems[trackName].midiData.constructor)(binaryBuffer) 
-        };
+        // Reconstruct only on demand. Holding bytes instead of an additional
+        // Tone.js graph keeps completed multi-stem jobs much smaller in memory.
+        const restoredData = restoreOriginalMidiSnapshot(originalMidiStems[trackName]);
+        if (!restoredData) return;
         
         setParsedMidiStems(prev => ({
             ...prev,

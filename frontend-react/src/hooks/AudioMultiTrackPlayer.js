@@ -12,7 +12,16 @@ import { clampTrackGainDb, dbToLinearGain } from '../utils/MidiPlayback';
 
 const START_LEAD_SECONDS = 0.08;
 const MIX_RAMP_SECONDS = 0.005;
-const DOWNLOAD_CONCURRENCY = 2;
+// `decodeAudioData` temporarily needs both the encoded bytes and its decoded
+// PCM output. The hook owns one queue across *all* source-descriptor updates,
+// so stems that arrive in separate snapshots cannot start independent decode
+// queues and create a Safari memory spike.
+// The only React consumer is a whole-second text readout. Keep that state at
+// one Hz; every-frame positioning comes from transportRef and never needs a
+// workspace render.
+const PROGRESS_COMMIT_INTERVAL_MS = 1000;
+const MEBIBYTE = 1024 * 1024;
+const AUDIO_MEMORY_WARNING_BYTES = 512 * MEBIBYTE;
 
 function localFileKey(file) {
     return `file:${file.name}:${file.size}:${file.lastModified}`;
@@ -35,16 +44,13 @@ function remoteAudioKey(url) {
     }
 }
 
-async function mapWithConcurrency(items, concurrency, mapper) {
-    let nextIndex = 0;
-    const worker = async () => {
-        while (nextIndex < items.length) {
-            const item = items[nextIndex];
-            nextIndex += 1;
-            await mapper(item);
-        }
-    };
-    await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
+function audioBufferByteLength(buffer) {
+    if (!buffer) return 0;
+    return buffer.length * buffer.numberOfChannels * Float32Array.BYTES_PER_ELEMENT;
+}
+
+function formatMebibytes(bytes) {
+    return `${(bytes / MEBIBYTE).toFixed(1)} MiB`;
 }
 
 /**
@@ -60,15 +66,36 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
     const bufferKeysRef = React.useRef(new Map());
     const gainNodesRef = React.useRef(new Map());
     const sourcesRef = React.useRef(new Map());
-    const loadControllersRef = React.useRef(new Set());
+    const loadControllersRef = React.useRef(new Map());
     const inFlightKeysRef = React.useRef(new Map());
+    const inFlightAudioBytesRef = React.useRef(new Map());
     const currentDescriptorsRef = React.useRef({});
     const expectedTracksRef = React.useRef([]);
     const loadGenerationRef = React.useRef(0);
+    const loadSequenceRef = React.useRef(0);
+    const loadQueueRef = React.useRef(Promise.resolve());
+    const isMountedRef = React.useRef(true);
+    const durationRef = React.useRef(0);
     const transportStartTimeRef = React.useRef(null);
     const transportOffsetRef = React.useRef(0);
     const transportRateRef = React.useRef(1);
     const isPlayingRef = React.useRef(false);
+    const transportPositionRef = React.useRef(0);
+    // Direct visual and MIDI scheduler consumers must read this ref instead of
+    // subscribing to a React update for every animation frame.
+    const transportRef = React.useRef({
+        position: 0,
+        offset: 0,
+        startTime: null,
+        rate: 1,
+        isPlaying: false,
+        revision: 0,
+    });
+    const lastProgressCommitRef = React.useRef(0);
+    const stopPlaybackRef = React.useRef(null);
+    const schedulePlaybackRef = React.useRef(null);
+    const peakDecodedAudioBytesRef = React.useRef(0);
+    const memoryWarningGenerationRef = React.useRef(null);
     const mutedTracksRef = React.useRef({});
     const soloedTracksRef = React.useRef({});
     const activeMidiTracksRef = React.useRef(activeMidiTracks);
@@ -76,7 +103,7 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
 
     const [isPlaying, setIsPlaying] = React.useState(false);
     const [progress, setProgress] = React.useState(0);
-    const [duration, setDuration] = React.useState(0);
+    const [duration, setDurationState] = React.useState(0);
     const [mutedTracks, setMutedTracks] = React.useState({});
     const [soloedTracks, setSoloedTracks] = React.useState({});
     const [trackGainsDb, setTrackGainsDb] = React.useState({});
@@ -87,7 +114,23 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
     const [timeSignature, setTimeSignature] = React.useState('4/4');
     const [audioLoadState, setAudioLoadState] = React.useState({});
     const [transportStartTime, setTransportStartTime] = React.useState(null);
+    const [audioMemoryMetrics, setAudioMemoryMetrics] = React.useState({
+        decodedBytes: 0,
+        inFlightBytes: 0,
+        peakDecodedBytes: 0,
+        decodedTrackCount: 0,
+    });
     const dragStateRef = React.useRef({ isDragging: false, mode: null, startY: 0, startBpm: 0 });
+
+    // Register this before the loading effects. React Strict Mode tears down
+    // and recreates effects in development; the next load pass must see the
+    // player as mounted rather than treating every request as stale.
+    React.useEffect(() => {
+        isMountedRef.current = true;
+        return () => {
+            isMountedRef.current = false;
+        };
+    }, []);
 
     const sourceDescriptors = React.useMemo(() => {
         const descriptors = {};
@@ -104,6 +147,73 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
     const sourceTrackSignature = Object.keys(sourceDescriptors).sort().join('|');
     currentDescriptorsRef.current = sourceDescriptors;
 
+    const setDuration = React.useCallback((nextDuration) => {
+        setDurationState((currentDuration) => {
+            const resolvedDuration = typeof nextDuration === 'function'
+                ? nextDuration(currentDuration)
+                : nextDuration;
+            const safeDuration = Number.isFinite(resolvedDuration) && resolvedDuration > 0
+                ? resolvedDuration
+                : 0;
+            durationRef.current = safeDuration;
+            return safeDuration;
+        });
+    }, []);
+
+    const updateTransportSnapshot = (nextValues, incrementRevision = false) => {
+        Object.assign(transportRef.current, nextValues);
+        if (incrementRevision) transportRef.current.revision += 1;
+        transportPositionRef.current = transportRef.current.position;
+    };
+
+    const updateTransportPosition = (position) => {
+        const safePosition = Number.isFinite(position) ? Math.max(0, position) : 0;
+        transportRef.current.position = safePosition;
+        transportPositionRef.current = safePosition;
+        return safePosition;
+    };
+
+    const commitProgress = (position, force = false) => {
+        const safePosition = updateTransportPosition(position);
+        const now = performance.now();
+        if (force || now - lastProgressCommitRef.current >= PROGRESS_COMMIT_INTERVAL_MS) {
+            lastProgressCommitRef.current = now;
+            if (isMountedRef.current) setProgress(safePosition);
+        }
+        return safePosition;
+    };
+
+    const publishAudioMemoryMetrics = (reason) => {
+        let decodedBytes = 0;
+        buffersRef.current.forEach((buffer) => {
+            decodedBytes += audioBufferByteLength(buffer);
+        });
+        const inFlightBytes = Array.from(inFlightAudioBytesRef.current.values())
+            .reduce((total, value) => total + value, 0);
+        peakDecodedAudioBytesRef.current = Math.max(peakDecodedAudioBytesRef.current, decodedBytes);
+        const nextMetrics = {
+            decodedBytes,
+            inFlightBytes,
+            peakDecodedBytes: peakDecodedAudioBytesRef.current,
+            decodedTrackCount: buffersRef.current.size,
+        };
+        if (isMountedRef.current) setAudioMemoryMetrics(nextMetrics);
+        console.info(
+            `[CloudDSP] Audio memory (${reason}): ${formatMebibytes(decodedBytes)} decoded across `
+            + `${buffersRef.current.size} track(s), ${formatMebibytes(inFlightBytes)} temporary.`,
+        );
+        if (
+            decodedBytes >= AUDIO_MEMORY_WARNING_BYTES
+            && memoryWarningGenerationRef.current !== loadGenerationRef.current
+        ) {
+            memoryWarningGenerationRef.current = loadGenerationRef.current;
+            console.warn(
+                `[CloudDSP] Decoded audio buffers use ${formatMebibytes(decodedBytes)}. `
+                + 'This project retains full PCM buffers to keep stem playback sample-synchronized.',
+            );
+        }
+    };
+
     const ensureAudioContext = () => {
         if (!audioCtxRef.current) {
             const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -112,13 +222,19 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
         return audioCtxRef.current;
     };
 
-    const currentTransportPosition = () => {
+    const currentTransportPosition = React.useCallback(() => {
         const context = audioCtxRef.current;
         const startTime = transportStartTimeRef.current;
         if (!isPlayingRef.current || !context || startTime === null) return transportOffsetRef.current;
         const elapsed = Math.max(0, context.currentTime - startTime);
-        return Math.min(duration || Infinity, transportOffsetRef.current + elapsed * transportRateRef.current);
-    };
+        return Math.min(durationRef.current || Infinity, transportOffsetRef.current + elapsed * transportRateRef.current);
+    }, []);
+
+    const getTransportPosition = React.useCallback(() => {
+        const position = currentTransportPosition();
+        updateTransportPosition(position);
+        return position;
+    }, [currentTransportPosition]);
 
     const applyMixState = (
         nextMuted = mutedTracksRef.current,
@@ -156,6 +272,9 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
             source.onended = null;
             try { source.stop(); } catch { /* Source may already be stopped. */ }
             try { source.disconnect(); } catch { /* Source may already be disconnected. */ }
+            // Source nodes can otherwise keep their large AudioBuffer alive
+            // until the engine's next native graph cleanup pass.
+            try { source.buffer = null; } catch { /* A stopped source may reject this in older engines. */ }
         });
         sourcesRef.current.clear();
     };
@@ -171,8 +290,16 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
         setTransportStartTime(null);
         isPlayingRef.current = false;
         setIsPlaying(false);
-        setProgress(transportOffsetRef.current);
+        updateTransportSnapshot({
+            position: transportOffsetRef.current,
+            offset: transportOffsetRef.current,
+            startTime: null,
+            rate: transportRateRef.current,
+            isPlaying: false,
+        }, true);
+        commitProgress(transportOffsetRef.current, true);
     };
+    stopPlaybackRef.current = stopPlayback;
 
     const schedulePlayback = (offset) => {
         const context = ensureAudioContext();
@@ -181,9 +308,16 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
         const masterTrack = buffersRef.current.has('Original') ? 'Original' : trackNames[0];
 
         stopActiveSources();
-        transportOffsetRef.current = Math.max(0, Math.min(offset, duration));
+        transportOffsetRef.current = Math.max(0, Math.min(offset, durationRef.current));
         transportStartTimeRef.current = startTime;
         setTransportStartTime(startTime);
+        updateTransportSnapshot({
+            position: transportOffsetRef.current,
+            offset: transportOffsetRef.current,
+            startTime,
+            rate: transportRateRef.current,
+            isPlaying: true,
+        }, true);
 
         trackNames.forEach((trackName) => {
             const buffer = buffersRef.current.get(trackName);
@@ -201,7 +335,14 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
                     setTransportStartTime(null);
                     isPlayingRef.current = false;
                     setIsPlaying(false);
-                    setProgress(0);
+                    updateTransportSnapshot({
+                        position: 0,
+                        offset: 0,
+                        startTime: null,
+                        rate: transportRateRef.current,
+                        isPlaying: false,
+                    }, true);
+                    commitProgress(0, true);
                 };
             }
             source.start(startTime, transportOffsetRef.current);
@@ -211,8 +352,9 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
         applyMixState();
         isPlayingRef.current = true;
         setIsPlaying(true);
-        setProgress(transportOffsetRef.current);
+        commitProgress(transportOffsetRef.current, true);
     };
+    schedulePlaybackRef.current = schedulePlayback;
 
     // A new upload or saved job must never reuse a prior job's buffers or
     // transport state. Source additions within the same job retain already
@@ -222,9 +364,12 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
         stopPlayback(true);
         buffersRef.current.clear();
         bufferKeysRef.current.clear();
-        loadControllersRef.current.forEach((controller) => controller.abort());
+        loadControllersRef.current.forEach(({ controller }) => controller.abort());
         loadControllersRef.current.clear();
         inFlightKeysRef.current.clear();
+        inFlightAudioBytesRef.current.clear();
+        peakDecodedAudioBytesRef.current = 0;
+        memoryWarningGenerationRef.current = null;
         gainNodesRef.current.forEach((gainNode) => gainNode.disconnect());
         gainNodesRef.current.clear();
         const nextMuted = sourceTrackSignature.includes('Original') && sourceTrackSignature !== 'Original'
@@ -238,6 +383,12 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
         setTrackGainsDb({});
         setDuration(0);
         setAudioLoadState({});
+        setAudioMemoryMetrics({
+            decodedBytes: 0,
+            inFlightBytes: 0,
+            peakDecodedBytes: 0,
+            decodedTrackCount: 0,
+        });
     // Deliberately reset only at a durable source boundary, not when each
     // individual stem arrives during one active processing job.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -255,42 +406,96 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
 
     React.useEffect(() => {
         const loadGeneration = loadGenerationRef.current;
+
+        // A stem can disappear while it is downloading (for example when a
+        // user leaves a history job). Abort it before it reaches the decoder;
+        // File.arrayBuffer() itself is not abortable, so the load also checks
+        // this state again immediately before decoding.
+        loadControllersRef.current.forEach((entry, loadToken) => {
+            const currentDescriptor = sourceDescriptors[entry.trackName];
+            if (!currentDescriptor || currentDescriptor.key !== entry.key) {
+                entry.controller.abort();
+                loadControllersRef.current.delete(loadToken);
+                inFlightAudioBytesRef.current.delete(loadToken);
+                if (inFlightKeysRef.current.get(entry.trackName) === entry.key) {
+                    inFlightKeysRef.current.delete(entry.trackName);
+                }
+            }
+        });
+
         const entriesToLoad = Object.entries(sourceDescriptors).filter(([trackName, descriptor]) => (
             bufferKeysRef.current.get(trackName) !== descriptor.key
             && inFlightKeysRef.current.get(trackName) !== descriptor.key
         ));
 
+        let releasedTrack = false;
         bufferKeysRef.current.forEach((_, trackName) => {
             if (!sourceDescriptors[trackName]) {
+                const activeSource = sourcesRef.current.get(trackName);
+                if (activeSource) {
+                    activeSource.onended = null;
+                    try { activeSource.stop(); } catch { /* Already stopped. */ }
+                    try { activeSource.disconnect(); } catch { /* Already disconnected. */ }
+                    try { activeSource.buffer = null; } catch { /* Older engines may reject it. */ }
+                    sourcesRef.current.delete(trackName);
+                }
                 buffersRef.current.delete(trackName);
                 bufferKeysRef.current.delete(trackName);
                 gainNodesRef.current.get(trackName)?.disconnect();
                 gainNodesRef.current.delete(trackName);
-                setAudioLoadState((current) => {
-                    const { [trackName]: _removedTrack, ...remaining } = current;
-                    return remaining;
-                });
+                releasedTrack = true;
+                if (isMountedRef.current) {
+                    setAudioLoadState((current) => {
+                        const { [trackName]: _removedTrack, ...remaining } = current;
+                        return remaining;
+                    });
+                }
             }
         });
+        if (releasedTrack) publishAudioMemoryMetrics('released removed track');
 
         if (entriesToLoad.length === 0) return undefined;
 
         entriesToLoad.forEach(([trackName, descriptor]) => {
             inFlightKeysRef.current.set(trackName, descriptor.key);
-            setAudioLoadState((current) => ({ ...current, [trackName]: 'loading' }));
+            if (isMountedRef.current) {
+                setAudioLoadState((current) => ({ ...current, [trackName]: 'loading' }));
+            }
         });
 
         const loadTrack = async ([trackName, descriptor]) => {
             const controller = new AbortController();
-            loadControllersRef.current.add(controller);
+            const loadToken = `${loadGeneration}:${trackName}:${loadSequenceRef.current += 1}`;
+            loadControllersRef.current.set(loadToken, {
+                controller,
+                trackName,
+                key: descriptor.key,
+            });
+            let audioBytes = null;
+            let trackedTemporaryBytes = false;
+            const isCurrentLoad = () => (
+                isMountedRef.current
+                && !controller.signal.aborted
+                && loadGeneration === loadGenerationRef.current
+                && currentDescriptorsRef.current[trackName]?.key === descriptor.key
+                && inFlightKeysRef.current.get(trackName) === descriptor.key
+            );
             try {
-                let audioBytes;
+                // Queued work may no longer belong to the displayed job by
+                // the time the single-file loader reaches it.
+                if (!isCurrentLoad()) return;
                 if (descriptor.kind === 'file') {
                     console.info(`[CloudDSP] Starting local audio decode for '${trackName}'.`);
                     audioBytes = await descriptor.source.arrayBuffer();
                 } else {
                     console.info(`[CloudDSP] Starting S3 audio download for '${trackName}'.`);
-                    const response = await fetch(descriptor.source, { signal: controller.signal });
+                    // The decoded AudioBuffer is the intentional current-job
+                    // cache. Do not also retain the encoded S3 response in the
+                    // browser's HTTP memory cache.
+                    const response = await fetch(descriptor.source, {
+                        signal: controller.signal,
+                        cache: 'no-store',
+                    });
                     if (!response.ok) {
                         throw new Error(`S3 audio request failed (HTTP ${response.status}).`);
                     }
@@ -298,34 +503,62 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
                     console.info(`[CloudDSP] S3 audio download complete for '${trackName}' (${audioBytes.byteLength} bytes).`);
                 }
 
+                // Never decode bytes for a stale job or an unmounted player.
+                // Safari cannot abort decodeAudioData once it starts, so this
+                // guard avoids a particularly expensive orphaned decode.
+                if (!isCurrentLoad()) return;
+                inFlightAudioBytesRef.current.set(loadToken, audioBytes.byteLength);
+                trackedTemporaryBytes = true;
+                publishAudioMemoryMetrics(`downloaded '${trackName}'`);
+
                 const context = ensureAudioContext();
                 const audioBuffer = await context.decodeAudioData(audioBytes);
-                if (
-                    controller.signal.aborted
-                    || loadGeneration !== loadGenerationRef.current
-                    || currentDescriptorsRef.current[trackName]?.key !== descriptor.key
-                ) return;
+                // Drop the raw encoded copy as soon as Web Audio has produced
+                // PCM. This makes the lifetime explicit for Safari's GC.
+                audioBytes = null;
+                inFlightAudioBytesRef.current.delete(loadToken);
+                trackedTemporaryBytes = false;
+                if (!isCurrentLoad()) return;
                 buffersRef.current.set(trackName, audioBuffer);
                 bufferKeysRef.current.set(trackName, descriptor.key);
                 ensureTrackGain(trackName, context);
                 setDuration((currentDuration) => Math.max(currentDuration, audioBuffer.duration));
-                setAudioLoadState((current) => ({ ...current, [trackName]: 'ready' }));
+                if (isMountedRef.current) {
+                    setAudioLoadState((current) => ({ ...current, [trackName]: 'ready' }));
+                }
+                publishAudioMemoryMetrics(`decoded '${trackName}'`);
                 console.info(`[CloudDSP] Audio decode complete for '${trackName}'; ready for synchronized playback.`);
             } catch (error) {
-                if (controller.signal.aborted || error.name === 'AbortError') return;
+                if (controller.signal.aborted || error?.name === 'AbortError') return;
                 console.error(`[CloudDSP] Could not prepare '${trackName}' for playback:`, error);
-                setAudioLoadState((current) => ({ ...current, [trackName]: 'failed' }));
+                if (isCurrentLoad()) {
+                    setAudioLoadState((current) => ({ ...current, [trackName]: 'failed' }));
+                }
             } finally {
-                loadControllersRef.current.delete(controller);
+                // The ArrayBuffer is intentionally not kept in a ref. Clear
+                // both local and diagnostic references on every exit path.
+                audioBytes = null;
+                if (trackedTemporaryBytes || inFlightAudioBytesRef.current.has(loadToken)) {
+                    inFlightAudioBytesRef.current.delete(loadToken);
+                    publishAudioMemoryMetrics(`finished '${trackName}'`);
+                }
+                loadControllersRef.current.delete(loadToken);
                 if (inFlightKeysRef.current.get(trackName) === descriptor.key) {
                     inFlightKeysRef.current.delete(trackName);
                 }
             }
         };
 
-        void mapWithConcurrency(entriesToLoad, DOWNLOAD_CONCURRENCY, loadTrack);
+        // Do not create one "concurrency = 1" worker per snapshot. Each
+        // snapshot can add a new stem while an older snapshot still has a
+        // queued decode, so all work must append to this one persistent chain.
+        entriesToLoad.forEach((entry) => {
+            loadQueueRef.current = loadQueueRef.current
+                .catch(() => undefined)
+                .then(() => loadTrack(entry));
+        });
         return undefined;
-    }, [sourceDescriptors, jobId]);
+    }, [sourceDescriptors, jobId, setDuration]);
 
     React.useEffect(() => {
         activeMidiTracksRef.current = activeMidiTracks;
@@ -341,18 +574,30 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
             transportStartTimeRef.current = context.currentTime;
             setTransportStartTime(context.currentTime);
             sourcesRef.current.forEach((source) => source.playbackRate.setValueAtTime(rate, context.currentTime));
-            setProgress(offset);
+            updateTransportSnapshot({
+                position: offset,
+                offset,
+                startTime: context.currentTime,
+                rate,
+                isPlaying: true,
+            }, true);
+            commitProgress(offset, true);
+        } else {
+            updateTransportSnapshot({ rate });
         }
         transportRateRef.current = rate;
-    }, [bpm, originalBpm]);
+    }, [bpm, originalBpm, currentTransportPosition]);
 
     React.useEffect(() => {
         if (!isPlaying) return undefined;
         let frameId;
         const updateProgress = () => {
             const position = currentTransportPosition();
-            if (duration && position >= duration) {
-                stopPlayback(true);
+            // This write is intentionally cheap and does not render React.
+            // Direct playhead and scheduler consumers read it on every frame.
+            commitProgress(position);
+            if (durationRef.current && position >= durationRef.current) {
+                stopPlaybackRef.current?.(true);
                 return;
             }
 
@@ -361,22 +606,62 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
                 const cycleEnd = (cycleRegion.endBar * beatsPerBar) / (bpm / 60);
                 const cycleStart = (cycleRegion.startBar * beatsPerBar) / (bpm / 60);
                 if (position >= cycleEnd) {
-                    schedulePlayback(cycleStart);
+                    schedulePlaybackRef.current?.(cycleStart);
                     frameId = requestAnimationFrame(updateProgress);
                     return;
                 }
             }
 
-            setProgress(position);
             frameId = requestAnimationFrame(updateProgress);
         };
         frameId = requestAnimationFrame(updateProgress);
         return () => cancelAnimationFrame(frameId);
-    }, [isPlaying, duration, isCycling, cycleRegion, bpm, timeSignature]);
+    }, [isPlaying, duration, isCycling, cycleRegion, bpm, timeSignature, currentTransportPosition]);
 
-    React.useEffect(() => () => {
-        stopPlayback(true);
-        gainNodesRef.current.forEach((gainNode) => gainNode.disconnect());
+    const markPlayerUnmounted = () => {
+        isMountedRef.current = false;
+        loadGenerationRef.current += 1;
+    };
+
+    const releaseAudioResources = () => {
+        loadControllersRef.current.forEach(({ controller }) => controller.abort());
+        loadControllersRef.current.clear();
+        inFlightKeysRef.current.clear();
+        inFlightAudioBytesRef.current.clear();
+        stopActiveSources();
+        buffersRef.current.clear();
+        bufferKeysRef.current.clear();
+        gainNodesRef.current.forEach((gainNode) => {
+            try { gainNode.disconnect(); } catch { /* Already disconnected. */ }
+        });
+        gainNodesRef.current.clear();
+        transportStartTimeRef.current = null;
+        transportOffsetRef.current = 0;
+        isPlayingRef.current = false;
+        updateTransportSnapshot({
+            position: 0,
+            offset: 0,
+            startTime: null,
+            rate: transportRateRef.current,
+            isPlaying: false,
+        }, true);
+        const context = audioCtxRef.current;
+        audioCtxRef.current = null;
+        if (context && context.state !== 'closed') {
+            void context.close().catch(() => {
+                // Browsers may already be tearing down the context.
+            });
+        }
+    };
+
+    React.useEffect(() => {
+        return () => {
+            // Cancel stale work before it can enter Safari's decoder and close
+            // the context on an actual workspace unmount so native Web Audio
+            // allocations are eligible for release immediately.
+            markPlayerUnmounted();
+            releaseAudioResources();
+        };
     // Refs intentionally keep this cleanup stable across renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -406,12 +691,19 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
     };
 
     const seekTo = (time) => {
-        const clampedTime = Math.max(0, Math.min(Number(time) || 0, duration));
+        const clampedTime = Math.max(0, Math.min(Number(time) || 0, durationRef.current));
         if (isPlayingRef.current) {
             schedulePlayback(clampedTime);
         } else {
             transportOffsetRef.current = clampedTime;
-            setProgress(clampedTime);
+            updateTransportSnapshot({
+                position: clampedTime,
+                offset: clampedTime,
+                startTime: null,
+                rate: transportRateRef.current,
+                isPlaying: false,
+            }, true);
+            commitProgress(clampedTime, true);
         }
     };
 
@@ -480,6 +772,9 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
 
     return {
         audioCtxRef,
+        transportRef,
+        transportPositionRef,
+        getTransportPosition,
         isPlaying,
         progress,
         duration,
@@ -506,6 +801,7 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
         originalBpm,
         formatTime,
         audioLoadState,
+        audioMemoryMetrics,
         isAudioReady,
         transportStartTime,
     };

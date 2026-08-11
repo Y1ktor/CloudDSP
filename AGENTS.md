@@ -9,6 +9,10 @@ services. The durable processing architecture is documented in
 [`docs/architecture.md`](docs/architecture.md); update that document whenever
 a public API, event payload, persistence model, or infrastructure boundary
 changes.
+Browser transport, Safari performance, and memory-lifecycle decisions are
+documented in [`docs/browser-performance.md`](docs/browser-performance.md).
+Update both documents whenever the audio-clock, scheduler, virtual timeline,
+or sampled-instrument lifecycle changes.
 
 ### Technology
 
@@ -93,9 +97,21 @@ token.
     Cognito User Pool authentication.
   - `src/components/StemSplitter/` — stem grid, MIDI status, and popup editor.
   - `src/hooks/AudioMultiTrackPlayer.js` — shared Web Audio transport. It
-    decodes source/stem files into `AudioBuffer`s and starts all tracks against
-    one `AudioContext` clock; do not reintroduce independent HTML `<audio>`
+    serializes fetch/decode work, owns current `AudioBuffer`s, and publishes a
+    ref-based audio-clock transport. It starts all tracks against one
+    `AudioContext` clock; do not reintroduce independent HTML `<audio>`
     elements for stem playback.
+  - `src/hooks/useTransportPlayhead.js` and `useTimelineViewport.js` — direct
+    transform-based playhead and tile-quantized static-timeline virtualization.
+    They are intentionally outside the React per-frame state path.
+  - `src/hooks/useMidiSynth.js` — fixed-interval, audio-clock look-ahead MIDI
+    scheduler. It must never scan all notes from a visual-progress render.
+  - `src/hooks/useMidiManager.js` and `useInstruments.js` — stable-S3-key MIDI
+    loading, compact original-MIDI snapshots, and lazy smplr allocation and
+    disposal. Do not construct sampled instruments merely when a MIDI URL
+    arrives. MIDI parse and instrument construction use persistent bounded
+    queues, and `dispose()` rather than only `stop()` is required when a
+    track/job no longer needs an instrument.
   - `src/hooks/` — MIDI parsing/editing, undo history, audio scheduling, and
     drag interactions.
   - `src/utils/DrumMidi.js` — the canonical ADTOF five-voice General MIDI,
@@ -153,6 +169,8 @@ token.
   criteria for the durable job architecture.
 - `/docs/architecture.md` — complete component, data-flow, deployment, and
   security reference for the implemented architecture.
+- `/docs/browser-performance.md` — browser transport, Safari memory, virtual
+  timeline, MIDI scheduler, and performance-debugging reference.
 
 ## 3. Local Setup and Validation
 
@@ -246,19 +264,39 @@ Docker image before local testing.
 - **Never commit secrets.** Do not hardcode AWS credentials, API keys, proxy
   addresses, or deployment-specific endpoints. Use CloudFormation parameters,
   environment variables, or local ignored configuration.
-- **Respect React render cycles.** Do not drive high-frequency audio/playhead
-  updates through React state. Use refs and `useLayoutEffect`/direct DOM work
-  where appropriate.
+- **Respect React render cycles.** Never drive audio position, MIDI scheduling,
+  auto-scroll, or a playhead through a `setState()` on every animation frame.
+  `AudioMultiTrackPlayer.transportRef` is the authoritative visual/scheduler
+  clock; `useTransportPlayhead` owns direct transform writes, and React only
+  receives a low-frequency whole-second readout state. Do not reintroduce the heuristic
+  `usePlayheadScroll` recovery loop.
+- **Keep timeline work viewport-bounded.** Large MIDI files must be rendered
+  through the tile-quantized visible range, memoized rows, and simple note
+  paint. Avoid per-note shadows, off-screen DOM nodes, or full-note scans in a
+  scroll/playback callback. When a scroll surface can be conditionally mounted,
+  give `useTimelineViewport` its returned callback ref: changing a mutable
+  `ref.current` after an effect ran does not attach its scroll observer. Mount
+  the popup editor only while it is open, and do not keep the occluded main MIDI
+  grid mounted behind it.
 - **Audio transport is Web Audio.** Fetch and decode each current source/stem
-  URL once, cap concurrent downloads, and preserve a usable URL across polling
-  snapshots. Schedule every `AudioBufferSourceNode` at the same future context
-  time and use per-track `GainNode`s for immediate mute/solo/MIDI replacement.
-  New transport code must keep MIDI scheduling aligned to that same start time.
+  URL once, serialize complete fetch/decode operations, and preserve a usable
+  URL across polling snapshots. Schedule every `AudioBufferSourceNode` at the
+  same future context time and use per-track `GainNode`s for immediate
+  mute/solo/MIDI replacement. New transport code must keep MIDI scheduling
+  aligned to that same start time, cancel stale loads, and release raw/dead
+  buffers promptly. Do not start separate decode queues when a polling snapshot
+  adds one more artifact. The decoded/application representation is the cache;
+  do not retain duplicate raw S3 responses in a browser HTTP cache.
+- **Stable artifact identity.** Presigned URL query strings are disposable.
+  Cache/download/parse S3 objects by stable host plus decoded path, not the full
+  URL, otherwise polling replays expensive work and inflates browser memory.
 - **History is server-backed.** The selected saved job is held in React state
   only. On reload, fetch the authenticated account's job library; do not cache
   job IDs, artifacts, or presigned URLs in session/local storage.
-- **Immutable MIDI data.** Deep-clone `@tonejs/midi` structures before editing;
-  never mutate globally shared MIDI data or undo-history snapshots.
+- **MIDI edit snapshots.** Preserve the original MIDI as an immutable compact
+  binary snapshot and never mutate it or an undo snapshot. The active editable
+  Tone.js instance may be changed only with a new top-level state object so the
+  renderer, scheduler, and undo system rebuild their derived indexes safely.
 - Treat `job_id` as the correlation key across upload, Batch, stem, MIDI, API,
   and WebSocket code. Do not use a WebSocket connection ID for this purpose.
 - Persist a completed artifact to DynamoDB before sending `job_updated`.

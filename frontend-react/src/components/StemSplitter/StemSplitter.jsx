@@ -5,6 +5,7 @@ import TrackList from './TrackList';
 import TrackGrid from './TrackGrid';
 import MidiEditorPopup from './MidiEditorPopup';
 import DownloadPopup from './DownloadPopup';
+import TransportPlayheadLine from './TransportPlayheadLine';
 
 import { useAudioMultiTrackPlayer } from '../../hooks/AudioMultiTrackPlayer';
 import { useMidiSynth } from '../../hooks/useMidiSynth';
@@ -12,7 +13,8 @@ import { useInstruments } from '../../hooks/useInstruments';
 import { useMidiManager } from '../../hooks/useMidiManager';
 import { useGlobalShortcuts } from '../../hooks/useGlobalShortcuts';
 import { useUndoHistory } from '../../hooks/useUndoHistory';
-import { usePlayheadScroll } from '../../hooks/usePlayheadScroll';
+import { useTransportPlayhead } from '../../hooks/useTransportPlayhead';
+import { useTimelineViewport } from '../../hooks/useTimelineViewport';
 import { ADTOF_DRUM_VOICES, getDrumVoiceTrackId } from '../../utils/DrumMidi';
 
 function filenameFromDownloadUrl(url, fallbackName) {
@@ -33,27 +35,26 @@ function projectFolderName(filename) {
     return safeName || 'CloudDSP project';
 }
 
-function MidiScheduler({
+const MidiScheduler = React.memo(function MidiScheduler({
     trackName,
     activeBpm,
     originalBpm,
-    progress,
     isPlaying,
     parsedMidiStems,
     audioCtxRef,
+    transportRef,
     synthRef,
     isMidiMode,
     mutedTracks,
     soloedTracks,
     drumMutedVoices,
     drumSoloedVoices,
-    transportStartTime,
     trackGainDb,
     drumVoiceGainsDb
 }) {
     useMidiSynth(
         audioCtxRef,
-        progress,
+        0,
         isPlaying,
         parsedMidiStems,
         trackName,
@@ -65,12 +66,13 @@ function MidiScheduler({
         soloedTracks,
         drumMutedVoices,
         drumSoloedVoices,
-        transportStartTime,
+        null,
         trackGainDb,
-        drumVoiceGainsDb
+        drumVoiceGainsDb,
+        transportRef,
     );
     return null;
-}
+});
 
 /**
  * StemSplitter Component (Orchestrator)
@@ -126,27 +128,6 @@ export default function StemSplitter({
     const [isDownloadOpen, setIsDownloadOpen] = React.useState(false);
     const [selectedDownloadArtifactIds, setSelectedDownloadArtifactIds] = React.useState(new Set());
 
-    const handleOpenEditor = (trackName) => {
-        setMidiStateBeforeEditor(prev => ({ ...prev, [trackName]: !!activeMidiTracks[trackName] }));
-        setEditorOpenTrack(trackName);
-        if (!activeMidiTracks[trackName]) {
-            setActiveMidiTracks(prev => ({ ...prev, [trackName]: true }));
-        }
-    };
-
-    const handleCloseEditor = () => {
-        if (editorOpenTrack) {
-            if (!midiStateBeforeEditor[editorOpenTrack]) {
-                setActiveMidiTracks(prev => ({ ...prev, [editorOpenTrack]: false }));
-            }
-        }
-        setEditorOpenTrack(null);
-    };
-
-    const toggleMidiMode = (trackName) => {
-        setActiveMidiTracks(prev => ({ ...prev, [trackName]: !prev[trackName] }));
-    };
-
     const toggleDrumSubtracks = (trackName) => {
         setExpandedDrumTracks(prev => ({ ...prev, [trackName]: !prev[trackName] }));
     };
@@ -173,17 +154,59 @@ export default function StemSplitter({
     };
 
     // 1. Instruments
-    const { midiSynthRefs, drumVoiceSynthRefs } = useInstruments();
+    const {
+        midiSynthRefs,
+        drumVoiceSynthRefs,
+        releaseInstrument,
+        resetInstruments,
+    } = useInstruments();
 
     // 2. Audio Player
     const audioEngine = useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks, sourceUrl, jobId);
     const { setBpm, setOriginalBpm } = audioEngine;
 
     // 3. MIDI Manager
-    const { parsedMidiStems, setParsedMidiStems, originalMidiStems, isMidiLoading } = useMidiManager(
+    const {
+        parsedMidiStems,
+        setParsedMidiStems,
+        originalMidiStems,
+        isMidiLoading,
+        ensurePlaybackInstrument,
+        releasePlaybackInstrument,
+    } = useMidiManager(
         midiUrls, midiStates, jobId, audioEngine.timeSignature, audioEngine.audioCtxRef,
-        midiSynthRefs, drumVoiceSynthRefs
+        midiSynthRefs, drumVoiceSynthRefs, releaseInstrument, resetInstruments
     );
+
+    const setMidiMode = React.useCallback((trackName, enabled) => {
+        if (!trackName) return;
+        if (enabled) {
+            // Instantiating sampled instruments is intentionally demand-driven:
+            // merely receiving a MIDI file must not allocate its sample bank.
+            if (!ensurePlaybackInstrument(trackName)) return;
+        } else {
+            releasePlaybackInstrument(trackName);
+        }
+        setActiveMidiTracks((previous) => ({ ...previous, [trackName]: enabled }));
+    }, [ensurePlaybackInstrument, releasePlaybackInstrument]);
+
+    const handleOpenEditor = React.useCallback((trackName) => {
+        const wasMidiEnabled = Boolean(activeMidiTracks[trackName]);
+        setMidiStateBeforeEditor((previous) => ({ ...previous, [trackName]: wasMidiEnabled }));
+        setEditorOpenTrack(trackName);
+        if (!wasMidiEnabled) setMidiMode(trackName, true);
+    }, [activeMidiTracks, setMidiMode]);
+
+    const handleCloseEditor = React.useCallback(() => {
+        if (editorOpenTrack && !midiStateBeforeEditor[editorOpenTrack]) {
+            setMidiMode(editorOpenTrack, false);
+        }
+        setEditorOpenTrack(null);
+    }, [editorOpenTrack, midiStateBeforeEditor, setMidiMode]);
+
+    const toggleMidiMode = React.useCallback((trackName) => {
+        setMidiMode(trackName, !activeMidiTracks[trackName]);
+    }, [activeMidiTracks, setMidiMode]);
 
     // Original audio has no generated MIDI. Restrict the global switch to the
     // tracks whose MIDI is fully parsed so it never mutes a stem that is still
@@ -197,14 +220,8 @@ export default function StemSplitter({
     const toggleGlobalMidiMode = React.useCallback(() => {
         if (midiCapableTrackNames.length === 0) return;
         const shouldEnable = !isGlobalMidiEnabled;
-        setActiveMidiTracks((previous) => {
-            const next = { ...previous };
-            midiCapableTrackNames.forEach((trackName) => {
-                next[trackName] = shouldEnable;
-            });
-            return next;
-        });
-    }, [isGlobalMidiEnabled, midiCapableTrackNames]);
+        midiCapableTrackNames.forEach((trackName) => setMidiMode(trackName, shouldEnable));
+    }, [isGlobalMidiEnabled, midiCapableTrackNames, setMidiMode]);
 
     const backendTempoBpm = Number(jobTempo?.bpm);
     const hasBackendTempo = Number.isFinite(backendTempoBpm) && backendTempoBpm > 0;
@@ -401,13 +418,33 @@ export default function StemSplitter({
 
     const dynamicDuration = audioEngine.originalBpm && audioEngine.duration ? audioEngine.duration * (audioEngine.originalBpm / audioEngine.bpm) : audioEngine.duration;
     const dynamicProgress = audioEngine.originalBpm && audioEngine.progress ? audioEngine.progress * (audioEngine.originalBpm / audioEngine.bpm) : audioEngine.progress;
-    const playheadX = Math.round((audioEngine.progress * (activeBpm / 60) / parsedBeatsPerBar) * pixelsPerBar);
+    // React only receives a throttled position for text/readout compatibility.
+    // The transport hook below moves the visual playhead every frame directly
+    // from AudioContext time, without rebuilding this component tree.
+    const playheadX = (audioEngine.progress * (activeBpm / 60) / parsedBeatsPerBar) * pixelsPerBar;
 
     const [isPlayheadHovered, setIsPlayheadHovered] = React.useState(false);
     const playheadDragRef = React.useRef({ isDragging: false });
     const cycleDragRef = React.useRef({ isDragging: false, mode: 'move', initialX: 0, initialStart: 0, initialEnd: 0 });
     const timelineRef = React.useRef(null);
     const scrollContainerRef = React.useRef(null);
+    const timelinePlayheadRef = React.useRef(null);
+    const rulerPlayheadRef = React.useRef(null);
+    const [visibleTimelineRange, setTimelineScrollContainer] = useTimelineViewport(scrollContainerRef);
+
+    useTransportPlayhead({
+        audioCtxRef: audioEngine.audioCtxRef,
+        transportRef: audioEngine.transportRef,
+        isPlaying: audioEngine.isPlaying,
+        pixelsPerBar,
+        bpm: activeBpm,
+        beatsPerBar: parsedBeatsPerBar,
+        playheadRefs: [timelinePlayheadRef, rulerPlayheadRef],
+        scrollContainerRef,
+        // The modal owns its own direct playhead while open; do not animate
+        // the fully occluded workspace timeline in parallel.
+        enabled: audioEngine.duration > 0 && !editorOpenTrack,
+    });
 
     React.useEffect(() => {
         const handleMouseMove = (e) => {
@@ -484,8 +521,6 @@ export default function StemSplitter({
             window.removeEventListener('mouseup', handleMouseUp);
         };
     }, [activeBpm, pixelsPerBar, totalBars, parsedBeatsPerBar, audioEngine.handleSeek, audioEngine.setCycleRegion]);
-
-    usePlayheadScroll(scrollContainerRef, playheadX, audioEngine.isPlaying);
 
     return (
         <div style={{
@@ -783,23 +818,16 @@ export default function StemSplitter({
                             />
                             
                             {/* RIGHT COLUMN: Timeline Canvas (Scrollable) */}
-                            <div ref={scrollContainerRef} style={{ flexGrow: 1, overflowX: 'auto', paddingBottom: '10px', scrollBehavior: 'auto' }}>
+                            <div ref={setTimelineScrollContainer} style={{ flexGrow: 1, overflowX: 'auto', paddingBottom: '10px', scrollBehavior: 'auto' }}>
                                 <div ref={timelineRef} style={{ minWidth: `${pixelsPerBar * totalBars}px`, display: 'flex', flexDirection: 'column', gap: '3px', position: 'relative' }}>
                                     
                                     {/* Time Indicator (Playhead) */}
                                     {audioEngine.duration > 0 && (
-                                        <div style={{
-                                            position: 'absolute',
-                                            left: `${playheadX}px`,
-                                            transform: 'translateX(-50%)',
-                                            top: '15px',
-                                            bottom: 0,
-                                            width: '1px',
-                                            backgroundColor: '#fff',
-                                            zIndex: 10,
-                                            pointerEvents: 'none',
-                                            boxShadow: '0 0 4px rgba(255, 255, 255, 0.5)'
-                                        }} />
+                                        <TransportPlayheadLine
+                                            playheadRef={timelinePlayheadRef}
+                                            fallbackX={playheadX}
+                                            isPlaying={audioEngine.isPlaying}
+                                        />
                                     )}
 
                                     {/* Timeline Header Right (Time Bar) */}
@@ -816,13 +844,19 @@ export default function StemSplitter({
                                         setIsPlayheadHovered={setIsPlayheadHovered}
                                         isPlayheadHovered={isPlayheadHovered}
                                         playheadX={playheadX}
+                                        playheadElementRef={rulerPlayheadRef}
+                                        isPlayheadExternallyDriven={audioEngine.isPlaying}
+                                        visibleRange={visibleTimelineRange}
                                         activeBpm={activeBpm}
                                         parsedBeatsPerBar={parsedBeatsPerBar}
                                         handleSeek={audioEngine.handleSeek}
                                     />
                                     
-                                    {/* Track Contents */}
-                                    <TrackGrid 
+                                    {/* The popup is modal. Its own virtual piano roll is
+                                        the only useful note surface while open, so release
+                                        the occluded workspace grid instead of updating two
+                                        dense note renderers during an edit. */}
+                                    {!editorOpenTrack && <TrackGrid
                                         timelineRows={timelineRows}
                                         parsedMidiStems={parsedMidiStems}
                                         midiStatusByTrack={midiStatusByTrack}
@@ -832,7 +866,8 @@ export default function StemSplitter({
                                         selectedTrack={selectedTrack}
                                         setSelectedTrack={setSelectedTrack}
                                         onDoubleClickTrack={handleOpenEditor}
-                                    />
+                                        visibleRange={visibleTimelineRange}
+                                    />}
                                 </div>
                             </div>
                         </div>
@@ -867,25 +902,26 @@ export default function StemSplitter({
                         trackName={trackName}
                         activeBpm={activeBpm}
                         originalBpm={audioEngine.originalBpm}
-                        progress={audioEngine.progress}
                         isPlaying={audioEngine.isPlaying}
                         parsedMidiStems={parsedMidiStems}
                         audioCtxRef={audioEngine.audioCtxRef}
+                        transportRef={audioEngine.transportRef}
                         synthRef={synthRefToUse}
                         isMidiMode={!!activeMidiTracks[trackName]}
                         mutedTracks={audioEngine.mutedTracks}
                         soloedTracks={audioEngine.soloedTracks}
                         drumMutedVoices={drumMutedVoices}
                         drumSoloedVoices={drumSoloedVoices}
-                        transportStartTime={audioEngine.transportStartTime}
                         trackGainDb={audioEngine.trackGainsDb[trackName] ?? 0}
                         drumVoiceGainsDb={drumVoiceGainsDb}
                     />
                 );
             })}
 
-            {/* MIDI Editor Pop-up Window */}
-            <MidiEditorPopup 
+            {/* Mount the expensive editing surface only while it is visible.
+                A closed popup has no reason to retain keyboard listeners,
+                selection state, or a MIDI-note virtual index. */}
+            {editorOpenTrack && <MidiEditorPopup
                 trackName={editorOpenTrack} 
                 onClose={handleCloseEditor} 
                 duration={audioEngine.duration}
@@ -911,15 +947,16 @@ export default function StemSplitter({
                 drumSoloedVoices={drumSoloedVoices}
                 toggleDrumMute={toggleDrumMute}
                 toggleDrumSolo={toggleDrumSolo}
+                drumVoiceGainsDb={drumVoiceGainsDb}
+                setDrumVoiceGainDb={setDrumVoiceGainDb}
                 activeBpm={activeBpm}
-                originalBpm={audioEngine.originalBpm}
                 parsedBeatsPerBar={parsedBeatsPerBar}
                 handleSeek={audioEngine.handleSeek}
                 parsedMidiStems={parsedMidiStems}
                 midiStatus={midiStatusByTrack[editorOpenTrack]}
                 setParsedMidiStems={setParsedMidiStems}
                 audioCtxRef={audioEngine.audioCtxRef}
-                progress={audioEngine.progress}
+                transportRef={audioEngine.transportRef}
                 fileName={fileName}
                 synthRef={
                     parsedMidiStems[editorOpenTrack]?.isAdtofDrum
@@ -932,7 +969,7 @@ export default function StemSplitter({
                 handleUndoMidi={() => handleUndoMidi(editorOpenTrack)}
                 pushUndoState={() => pushUndoState(editorOpenTrack)}
                 undoStackLength={undoStacks[editorOpenTrack] ? undoStacks[editorOpenTrack].length : 0}
-            />
+            />}
         </div>
     );
 }

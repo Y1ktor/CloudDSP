@@ -34,6 +34,9 @@ cause an already-produced result to disappear.
 - Use one browser-side Web Audio transport for source and stem playback. All
   audible tracks must start against one `AudioContext` clock; independent
   `HTMLAudioElement` clocks are not a DAW transport.
+- Keep the audio clock, visual playhead, MIDI scheduling, and React UI on
+  separate performance paths. A browser frame drop may skip a visual position,
+  but must never trigger a transport, scroll, or MIDI recovery jump.
 
 ## System context
 
@@ -87,7 +90,7 @@ flowchart LR
 | Area | Resources and code | Responsibility |
 | --- | --- | --- |
 | Browser | **frontend-react**, **App.jsx**, StemSplitter components | Authenticates, creates jobs, uploads audio, hydrates job snapshots, reconnects WebSockets, polls pending/partial jobs, exposes the account-backed history modal, and renders/edits audio and MIDI. |
-| Browser transport | **AudioMultiTrackPlayer.js**, **useMidiSynth.js**, **useMidiManager.js** | Fetches and decodes the current original/stems into `AudioBuffer`s, starts all ready tracks from one AudioContext time, applies immediate per-track gain/mute/solo, and aligns isolated MIDI output buses with that same start time. |
+| Browser transport | **AudioMultiTrackPlayer.js**, **useTransportPlayhead.js**, **useTimelineViewport.js**, **useMidiSynth.js**, **useMidiManager.js** | Serializes audio/MIDI decode work, retains only current bounded `AudioBuffer`s and one editable MIDI graph per artifact, exposes an audio-clock transport ref for direct visual/MIDI consumers, renders only viewport-local timeline data, applies immediate gain/mute/solo, and aligns isolated MIDI output buses with the same start time. |
 | Authentication | **IaC/auth.yaml**, Cognito User Pool | Provides email/password accounts and ID tokens. There is no Cognito Identity Pool and no browser AWS credentials. |
 | Job API | **IaC/api.yaml**, **job_api.py** | Creates durable upload or linked-source jobs, invokes yt-dlp for a linked source, enforces ownership, and renders stored artifact keys as fresh signed downloads. |
 | Link ingestion | **IaC/ingestion.yaml**, **LambdaYtDlp.py** | Downloads a validated public media URL through the optional residential `PROXY_URL`, with Deno/EJS challenge solving and typed curl-cffi Chrome impersonation, converts it to WAV, and writes the job's existing input key in the private uploads bucket. The normal S3/EventBridge route then starts Batch. |
@@ -468,19 +471,27 @@ the account-backed `GET /jobs` library is the durable history mechanism.
   on each poll; the client accepts the new URL before the old one is within one
   minute of expiry. Opening a history item explicitly replaces URLs with a
   fresh snapshot.
-- MIDI edit operations deep-clone tonejs MIDI data before mutation so track
-  state and undo snapshots remain immutable. High-frequency playhead work is
-  kept out of normal React state where possible.
+- The browser compares artifact URLs by stable S3 host/path, not the expiring
+  presigned query string. Polling a job therefore cannot re-download/reparse an
+  unchanged MIDI object. The loader keeps one editable Tone.js graph and a
+  compact immutable MIDI byte snapshot for Revert/Undo rather than two parsed
+  graphs. High-frequency playhead work is never driven by React state: React
+  receives a one-Hz text-readout position, while direct DOM transforms follow
+  the shared audio clock.
 
 ### Browser audio and MIDI transport
 
 The source file is shown immediately after selection and can be decoded for
 local playback while processing is pending. Every original/stem that is
-currently displayed is then fetched from its presigned URL (two downloads at a
-time), decoded with `decodeAudioData`, and retained as an `AudioBuffer`. A
-stable cache key uses the S3 host/path rather than the presigned query string,
-because signatures change every snapshot even though the immutable object has
-not.
+currently displayed is then fetched from its presigned URL, one complete
+fetch-and-decode operation at a time. This bounds the period where both encoded
+bytes and decoded PCM exist. It is decoded with `decodeAudioData` and retained
+as an `AudioBuffer`. A stable cache key uses the S3 host/path rather than the
+presigned query string, because signatures change every snapshot even though
+the immutable object has not. Stale history-job work is aborted before decode;
+raw encoded buffers are released after decode, and fetch bypasses the browser
+HTTP memory cache because the decoded buffer is the intentional current-job
+cache.
 
 Play is enabled only after every currently displayed audio track is decoded.
 `AudioMultiTrackPlayer` creates an `AudioBufferSourceNode` per track and
@@ -496,6 +507,35 @@ track is muted by default once separated stems are available. Pause, seek,
 loop, and tempo changes rebuild or update the shared transport rather than
 allowing individual tracks to drift. MIDI synthesis receives the same scheduled
 transport start time, so its first notes align with the decoded audio.
+
+The transport publishes `{ position, offset, startTime, rate, isPlaying,
+revision }` through a ref every animation frame. React commits a whole-second
+display position at one Hz only. `useTransportPlayhead` reads that ref, moves
+the line and ruler triangle with `translate3d`, and follows the viewport
+deterministically after the line reaches its centre. It never treats delayed
+rendering as a manual seek. Automatic scrolling advances in two-pixel steps;
+the line still moves smoothly every frame. Static `TrackGrid`, ruler marks, and
+the popup note layer receive a tile-quantized viewport range, time-sort their
+notes, and binary-search to mount only nearby notes/bars with overscan. Normal
+notes avoid per-note shadows. The popup uses the same direct playhead logic,
+does not animate the hidden workspace below it, and is unmounted while closed.
+While the modal is open, its own piano roll is the only mounted note surface;
+the occluded workspace grid is not updated for an editor drag.
+
+The main workspace timeline is conditionally mounted only once a job has
+artifacts to display. `useTimelineViewport` therefore exposes a callback ref
+that records the mounted scroll element in state and installs its scroll/resize
+observers at that point; a later mutation of `ref.current` alone would leave
+the range stuck on its initial tile. The same callback-ref contract is used by
+the popup timeline, while the original mutable ref remains available for
+imperative transport scrolling.
+
+`useMidiSynth` is an audio-clock look-ahead scheduler, not a playhead render
+subscriber. It indexes sorted notes when MIDI data changes, then wakes every
+40 ms to schedule only notes in the next 250 ms. A transport revision resets
+the cursor by binary search for play, pause, seek, cycle restart, and tempo
+changes. This preserves deterministic MIDI timing without scanning every note
+on every browser frame.
 
 ### Mixing and output buses
 
@@ -533,10 +573,24 @@ allows positive gain to remain effective for notes already at MIDI velocity
 export.
 
 This choice trades browser memory for reliability: a long job keeps decoded
-PCM for every displayed track. The UI therefore limits download concurrency and
-does not repeatedly download an artifact merely because a fresh URL arrived.
-If a source fails to fetch, check the processed-bucket CORS rule for the exact
-frontend origin and the browser network request before changing transport code.
+PCM for every displayed track. `audioMemoryMetrics` exposes decoded bytes,
+temporary bytes, peak decoded bytes, and current track count for Safari
+diagnostics. Full PCM has a linear cost of `seconds × sample rate × channels ×
+4 bytes`; one original plus six four-minute 44.1 kHz stereo tracks is about
+565 MiB before native decoder overhead. The UI does not repeatedly download an
+artifact merely because a fresh URL arrived. If a source fails to fetch, check
+the processed-bucket CORS rule for the exact frontend origin and the browser
+network request before changing transport code.
+
+MIDI parsing does not allocate a sampled instrument. `useMidiManager` uses a
+persistent serial queue for MIDI fetch/parse and instrument construction, so a
+history snapshot or central MIDI toggle cannot begin several large decodes at
+once. It creates an instrument only when MIDI mode is enabled or the
+corresponding editor opens; piano loading is constrained to pitches present in
+the track and guitar/bass use the lower-footprint FluidR3 soundfont kit.
+Disabling MIDI disposes its smplr graph/sample ownership, and a job change
+disposes every old instrument. This is mandatory: `stop()` alone is
+insufficient to release sampled-instrument resources.
 
 ### ADTOF drum representation
 
@@ -779,9 +833,11 @@ Some production hardening remains:
    Define archival/deletion UX and retention policy before treating the current
    seven-day TTL as a customer-facing guarantee.
 6. **Browser memory:** decoded `AudioBuffer` transport avoids cross-browser
-   drift but grows with stem count and track duration. Benchmark realistic
-   multi-minute projects and consider a streaming/chunked transport only if
-   memory becomes a product constraint.
+   drift but grows with stem count and track duration. Monitor the built-in
+   decoded-buffer metrics separately from Safari process memory, sampled
+   instruments, and DOM nodes. Benchmark realistic multi-minute projects and
+   move to a streaming/chunked or server-generated preview-stem transport if
+   long-form audio becomes a product requirement.
 7. **Cost and availability:** benchmark Lambda memory settings and real audio
    duration, tune Batch capacity, and revisit the single-NAT design before a
    highly available production launch.

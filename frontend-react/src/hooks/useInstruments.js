@@ -1,5 +1,29 @@
 import React from 'react';
 
+function disposeSynth(synthRef) {
+    const synth = synthRef?.current;
+    if (!synth) return;
+
+    try {
+        // smplr instruments own scheduled callbacks, output nodes, and decoded
+        // sample buffers. `stop()` alone leaves all of those resources alive.
+        if (typeof synth.dispose === 'function') {
+            synth.dispose();
+        } else {
+            synth.stop?.();
+        }
+    } catch {
+        // A pending load or an already-disposed smplr instrument may reject a
+        // second teardown. The owning map is still cleared below.
+    }
+    synthRef.current = null;
+}
+
+function disposeSynthMap(synthRefs) {
+    synthRefs.forEach(disposeSynth);
+    synthRefs.clear();
+}
+
 /**
  * useInstruments Hook
  * 
@@ -14,25 +38,36 @@ export function useInstruments() {
     const midiSynthRefs = React.useRef(new Map());
     const drumVoiceSynthRefs = React.useRef(new Map());
 
-    React.useEffect(() => {
-        const melodicSynthRefs = midiSynthRefs.current;
-        const drumSynthRefs = drumVoiceSynthRefs.current;
-        return () => {
-            const stopSynth = (synthRef) => {
-                if (!synthRef?.current) return;
-                try {
-                    synthRef.current.stop();
-                } catch {
-                    // Ignore
-                }
-            };
+    const releaseInstrument = React.useCallback((trackName) => {
+        const melodicRef = midiSynthRefs.current.get(trackName);
+        if (melodicRef) {
+            disposeSynth(melodicRef);
+            midiSynthRefs.current.delete(trackName);
+        }
 
-            melodicSynthRefs.forEach(stopSynth);
-            drumSynthRefs.forEach((voiceSynthRefs) => {
-                voiceSynthRefs.forEach(stopSynth);
-            });
-        };
+        const drumRefs = drumVoiceSynthRefs.current.get(trackName);
+        if (drumRefs) {
+            disposeSynthMap(drumRefs);
+            drumVoiceSynthRefs.current.delete(trackName);
+        }
     }, []);
 
-    return { midiSynthRefs, drumVoiceSynthRefs };
+    const resetInstruments = React.useCallback(() => {
+        disposeSynthMap(midiSynthRefs.current);
+        drumVoiceSynthRefs.current.forEach(disposeSynthMap);
+        drumVoiceSynthRefs.current.clear();
+    }, []);
+
+    React.useEffect(() => {
+        return () => {
+            resetInstruments();
+        };
+    }, [resetInstruments]);
+
+    return {
+        midiSynthRefs,
+        drumVoiceSynthRefs,
+        releaseInstrument,
+        resetInstruments,
+    };
 }
