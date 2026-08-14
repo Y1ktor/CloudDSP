@@ -60,7 +60,7 @@ export default function PreviousJobs({
                 aria-modal="true"
                 aria-label="Previous jobs"
                 style={{
-                    width: 'min(680px, 100%)', maxHeight: 'min(620px, calc(100vh - 40px))', overflow: 'hidden',
+                    width: 'min(680px, 100%)', minHeight: '220px', maxHeight: 'min(620px, calc(100vh - 40px))', overflow: 'hidden',
                     background: '#292929', border: '1px solid #555f6d', borderRadius: '7px', padding: '16px',
                     boxShadow: '0 18px 50px rgba(0, 0, 0, 0.6)', display: 'flex', flexDirection: 'column',
                 }}
@@ -103,7 +103,7 @@ export default function PreviousJobs({
                     <div style={{ color: '#999', fontSize: '12px' }}>No saved processing jobs for this account yet.</div>
                 )}
                 {jobs.length > 0 && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '7px', overflowY: 'auto', paddingRight: '2px' }}>
+                    <div style={{ display: 'flex', flex: '1 1 auto', flexDirection: 'column', gap: '7px', minHeight: 0, overflowY: 'auto', paddingRight: '2px' }}>
                         {jobs.map((job) => {
                             const isActive = job.job_id === activeJobId;
                             const isTerminal = ['completed', 'failed'].includes(job.status);
@@ -113,25 +113,27 @@ export default function PreviousJobs({
                                 <div
                                     key={job.job_id}
                                     style={{
+                                        width: '100%', minHeight: '66px', flex: '0 0 auto', boxSizing: 'border-box',
                                         background: isActive ? '#264d38' : '#353535', color: '#e8e8e8',
                                         border: `1px solid ${isActive ? '#61b680' : '#555'}`, borderRadius: '4px', overflow: 'hidden',
                                     }}
                                 >
-                                    <div style={{ display: 'flex', alignItems: 'stretch' }}>
+                                    <div style={{ display: 'flex', width: '100%', minHeight: '64px', alignItems: 'stretch' }}>
                                         <button
                                             type="button"
                                             onClick={() => onSelect(job)}
                                             aria-pressed={isActive}
                                             title={`Open ${job.source_filename || 'saved track'}`}
                                             style={{
-                                                minWidth: 0, flex: 1, textAlign: 'left', padding: '10px 12px', background: 'transparent',
-                                                color: '#e8e8e8', border: 0, cursor: 'pointer',
+                                                display: 'block', minWidth: 0, minHeight: '64px', flex: '1 1 auto', boxSizing: 'border-box',
+                                                textAlign: 'left', padding: '11px 13px', background: 'transparent', color: '#e8e8e8',
+                                                border: 0, cursor: 'pointer',
                                             }}
                                         >
-                                            <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '13px', fontWeight: '700' }}>
+                                            <div style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '14px', fontWeight: '700', lineHeight: 1.25 }}>
                                                 {job.source_filename || 'Untitled audio'}
                                             </div>
-                                            <div style={{ color: isActive ? '#bfe6ca' : '#aaa', fontSize: '11px', marginTop: '3px' }}>
+                                            <div style={{ display: 'block', color: isActive ? '#bfe6ca' : '#aaa', fontSize: '12px', marginTop: '5px', lineHeight: 1.25 }}>
                                                 {statusLabel(job.status)} · {formatUpdatedAt(job.updated_at)}
                                             </div>
                                         </button>
@@ -142,7 +144,7 @@ export default function PreviousJobs({
                                             aria-label={`Delete ${job.source_filename || 'saved track'}`}
                                             title={isTerminal ? 'Delete this job and all of its files' : 'Only completed or failed jobs can be deleted'}
                                             style={{
-                                                width: '42px', flexShrink: 0, border: 0, borderLeft: '1px solid #555',
+                                                width: '46px', minHeight: '64px', flex: '0 0 46px', border: 0, borderLeft: '1px solid #555',
                                                 background: 'transparent', color: isTerminal ? '#e69292' : '#777',
                                                 cursor: isTerminal && !isDeleting ? 'pointer' : 'not-allowed', opacity: isDeleting ? 0.6 : 1,
                                             }}
