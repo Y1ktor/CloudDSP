@@ -15,7 +15,20 @@ function statusLabel(status) {
  * Modal job library for durable jobs owned by the authenticated browser user.
  * Selecting an item only fetches its snapshot; it never starts a new DSP job.
  */
-export default function PreviousJobs({ isOpen, onClose, jobs = [], activeJobId, isLoading, error, onSelect, onRefresh }) {
+export default function PreviousJobs({
+    isOpen,
+    onClose,
+    jobs = [],
+    activeJobId,
+    isLoading,
+    error,
+    onSelect,
+    onRefresh,
+    onDelete,
+    deletingJobId,
+}) {
+    const [pendingDeletion, setPendingDeletion] = React.useState(null);
+
     React.useEffect(() => {
         if (!isOpen) return undefined;
         const handleKeyDown = (event) => {
@@ -24,6 +37,10 @@ export default function PreviousJobs({ isOpen, onClose, jobs = [], activeJobId, 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [isOpen, onClose]);
+
+    React.useEffect(() => {
+        if (!isOpen) setPendingDeletion(null);
+    }, [isOpen]);
 
     if (!isOpen) return null;
 
@@ -89,26 +106,83 @@ export default function PreviousJobs({ isOpen, onClose, jobs = [], activeJobId, 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '7px', overflowY: 'auto', paddingRight: '2px' }}>
                         {jobs.map((job) => {
                             const isActive = job.job_id === activeJobId;
+                            const isTerminal = ['completed', 'failed'].includes(job.status);
+                            const isDeleting = deletingJobId === job.job_id;
+                            const isDeletePending = pendingDeletion?.job_id === job.job_id;
                             return (
-                                <button
+                                <div
                                     key={job.job_id}
-                                    type="button"
-                                    onClick={() => onSelect(job)}
-                                    aria-pressed={isActive}
-                                    title={`Open ${job.source_filename || 'saved track'}`}
                                     style={{
-                                        width: '100%', textAlign: 'left', padding: '10px 12px', background: isActive ? '#264d38' : '#353535',
-                                        color: '#e8e8e8', border: `1px solid ${isActive ? '#61b680' : '#555'}`,
-                                        borderRadius: '4px', cursor: 'pointer',
+                                        background: isActive ? '#264d38' : '#353535', color: '#e8e8e8',
+                                        border: `1px solid ${isActive ? '#61b680' : '#555'}`, borderRadius: '4px', overflow: 'hidden',
                                     }}
                                 >
-                                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '13px', fontWeight: '700' }}>
-                                        {job.source_filename || 'Untitled audio'}
+                                    <div style={{ display: 'flex', alignItems: 'stretch' }}>
+                                        <button
+                                            type="button"
+                                            onClick={() => onSelect(job)}
+                                            aria-pressed={isActive}
+                                            title={`Open ${job.source_filename || 'saved track'}`}
+                                            style={{
+                                                minWidth: 0, flex: 1, textAlign: 'left', padding: '10px 12px', background: 'transparent',
+                                                color: '#e8e8e8', border: 0, cursor: 'pointer',
+                                            }}
+                                        >
+                                            <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '13px', fontWeight: '700' }}>
+                                                {job.source_filename || 'Untitled audio'}
+                                            </div>
+                                            <div style={{ color: isActive ? '#bfe6ca' : '#aaa', fontSize: '11px', marginTop: '3px' }}>
+                                                {statusLabel(job.status)} · {formatUpdatedAt(job.updated_at)}
+                                            </div>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setPendingDeletion(job)}
+                                            disabled={!isTerminal || isDeleting}
+                                            aria-label={`Delete ${job.source_filename || 'saved track'}`}
+                                            title={isTerminal ? 'Delete this job and all of its files' : 'Only completed or failed jobs can be deleted'}
+                                            style={{
+                                                width: '42px', flexShrink: 0, border: 0, borderLeft: '1px solid #555',
+                                                background: 'transparent', color: isTerminal ? '#e69292' : '#777',
+                                                cursor: isTerminal && !isDeleting ? 'pointer' : 'not-allowed', opacity: isDeleting ? 0.6 : 1,
+                                            }}
+                                        >
+                                            {isDeleting ? '…' : (
+                                                <svg aria-hidden="true" viewBox="0 0 24 24" width="17" height="17" fill="currentColor">
+                                                    <path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-3 6h12l-1 12H7L6 9Zm4 3v6h2v-6h-2Zm4 0v6h2v-6h-2Z" />
+                                                </svg>
+                                            )}
+                                        </button>
                                     </div>
-                                    <div style={{ color: isActive ? '#bfe6ca' : '#aaa', fontSize: '11px', marginTop: '3px' }}>
-                                        {statusLabel(job.status)} · {formatUpdatedAt(job.updated_at)}
-                                    </div>
-                                </button>
+                                    {isDeletePending && (
+                                        <div
+                                            role="alertdialog"
+                                            aria-label={`Delete ${job.source_filename || 'saved track'} confirmation`}
+                                            style={{ borderTop: '1px solid #555', padding: '10px 12px', background: 'rgba(0, 0, 0, 0.18)' }}
+                                        >
+                                            <div style={{ color: '#f0c4c4', fontSize: '12px', lineHeight: 1.45 }}>
+                                                Permanently delete this job, its original audio, stems, MIDI, and BPM data? This cannot be undone.
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '9px' }}>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setPendingDeletion(null)}
+                                                    disabled={isDeleting}
+                                                    style={{ padding: '5px 9px', border: '1px solid #666', borderRadius: '3px', background: '#3c3c3c', color: '#ddd', cursor: isDeleting ? 'wait' : 'pointer' }}
+                                                >Cancel</button>
+                                                <button
+                                                    type="button"
+                                                    onClick={async () => {
+                                                        const wasDeleted = await onDelete?.(job);
+                                                        if (wasDeleted) setPendingDeletion(null);
+                                                    }}
+                                                    disabled={isDeleting}
+                                                    style={{ padding: '5px 9px', border: '1px solid #a85f5f', borderRadius: '3px', background: '#7f3535', color: '#fff', cursor: isDeleting ? 'wait' : 'pointer' }}
+                                                >{isDeleting ? 'Deleting…' : 'Delete job'}</button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
                             );
                         })}
                     </div>

@@ -59,10 +59,10 @@ flowchart LR
     Connections["DynamoDB Connections<br/>temporary subscriptions"]
 
     Browser <-->|"sign up / sign in<br/>ID token"| Cognito
-    Browser -->|"POST /jobs, GET /jobs, GET /jobs/id<br/>Bearer ID token"| HttpApi
+    Browser -->|"POST /jobs, GET /jobs, DELETE /jobs/id<br/>Bearer ID token"| HttpApi
     HttpApi --> JobApi
     JobApi <--> Jobs
-    JobApi -->|"presigned PUT URL"| Browser
+    JobApi -->|"size-constrained presigned POST"| Browser
     JobApi -->|"async invoke job_id + source URL"| YtDlp
     Browser -->|"PUT uploads/job_id/file"| Uploads
     YtDlp -->|"PUT uploads/job_id/linked-audio.wav"| Uploads
@@ -92,7 +92,7 @@ flowchart LR
 | Browser | **frontend-react**, **App.jsx**, StemSplitter components | Authenticates, creates jobs, uploads audio, hydrates job snapshots, reconnects WebSockets, polls pending/partial jobs, exposes the account-backed history modal, and renders/edits audio and MIDI. |
 | Browser transport | **AudioMultiTrackPlayer.js**, **useTransportPlayhead.js**, **useTimelineViewport.js**, **useMidiSynth.js**, **useMidiManager.js** | Serializes audio/MIDI decode work, retains only current bounded `AudioBuffer`s and one editable MIDI graph per artifact, exposes an audio-clock transport ref for direct visual/MIDI consumers, renders only viewport-local timeline data, applies immediate gain/mute/solo, and aligns isolated MIDI output buses with the same start time. |
 | Authentication | **IaC/auth.yaml**, Cognito User Pool | Provides email/password accounts and ID tokens. There is no Cognito Identity Pool and no browser AWS credentials. |
-| Job API | **IaC/api.yaml**, **job_api.py** | Creates durable upload or linked-source jobs, invokes yt-dlp for a linked source, enforces ownership, and renders stored artifact keys as fresh signed downloads. |
+| Job API | **IaC/api.yaml**, **job_api.py** | Creates durable upload or linked-source jobs, invokes yt-dlp for a linked source, enforces ownership, renders stored artifact keys as fresh signed downloads, and permanently deletes terminal jobs at the owner's request. |
 | Link ingestion | **IaC/ingestion.yaml**, **LambdaYtDlp.py** | Downloads a validated public media URL through the optional residential `PROXY_URL`, with Deno/EJS challenge solving and typed curl-cffi Chrome impersonation, converts it to WAV, and writes the job's existing input key in the private uploads bucket. The normal S3/EventBridge route then starts Batch. |
 | Jobs store | **IaC/jobs.yaml**, CloudDSPJobs | Stores the job owner, requested mode, state, artifact keys, error, revision, and expiry. |
 | Source storage | Foundation uploads bucket | Holds original user audio and publishes Object Created events to EventBridge. |
@@ -110,17 +110,25 @@ flowchart LR
 
 The auth component creates a Cognito User Pool and a public browser app client.
 The browser uses **amazon-cognito-identity-js** through
-**src/auth/cognito.js**. **AuthPanel.jsx** implements registration,
-confirmation, sign-in, and sign-out.
+**src/auth/cognito.js**. **AuthPanel.jsx** provides a dismissible sign-in /
+sign-up dialog on the processing root route, then implements registration,
+confirmation, sign-in, and sign-out. A successful unconfirmed signup stores
+only its email and chosen display name in local storage. The user can close the
+dialog and continue navigating, then reopen it in verification-only mode after
+the email arrives. Passwords and confirmation codes are never persisted.
 
 The public app client ID may be placed in Vite environment configuration. It
 is an application identifier, not a secret. No Identity Pool exists, so a
 browser cannot receive AWS IAM credentials. Browser S3 access is limited to
 individual presigned URLs.
 
-The current template uses email/password login, verified email, a 12-character
-minimum password policy, 60-minute ID/access tokens, and a seven-day refresh
-token. Cognito uses the Lite tier by default.
+The current template uses verified email/password login with an 8-character
+minimum and at least one special symbol, 60-minute ID/access tokens, and a
+seven-day refresh token. During registration the browser writes the user's
+chosen `preferred_username` standard attribute and renders it after sign-in.
+It is a user-facing profile label only: the API and WebSocket authorization
+continue to identify the account exclusively by Cognito's immutable `sub`.
+Cognito uses the Lite tier by default.
 
 ### Job HTTP API
 
@@ -218,6 +226,15 @@ clock. The foundation stack currently expires noncurrent S3 versions, but not
 the current source/artifact version. Align current-object retention with the
 job TTL and privacy policy before production data is stored long term.
 
+Before TTL cleanup, the history modal exposes a destructive **Delete job**
+action only for `completed` and `failed` records. `DELETE /jobs/{job_id}`
+authenticates the owner, removes every S3 object version and delete marker
+under `uploads/{job_id}/`, `stems/{job_id}/`, and `midi/{job_id}/`, then
+conditionally removes the DynamoDB item. S3 cleanup occurs before the table
+delete so a failed storage operation leaves the durable record available for a
+retry. This operation is irreversible and deliberately rejects in-progress
+states, preventing a Batch or MIDI worker from racing a deletion.
+
 | Status | Meaning |
 | --- | --- |
 | **source_ingestion** | A linked-source job exists and yt-dlp is downloading/converting its source before it writes the uploads key. |
@@ -253,7 +270,8 @@ as proof that a job belongs to a user.
 {
   "filename": "song.wav",
   "stem_mode": "6-stems",
-  "content_type": "audio/wav"
+  "content_type": "audio/wav",
+  "size_bytes": 5242880
 }
 ~~~
 
@@ -266,18 +284,27 @@ is **6-stems**. The response is 201 and includes:
   "status": "upload_pending",
   "revision": 1,
   "input_key": "uploads/uuid/song.wav",
-  "upload_url": "https://presigned-put-url",
-  "upload_headers": {
+  "upload_url": "https://bucket.s3.region.amazonaws.com/",
+  "upload_fields": {
     "Content-Type": "audio/wav",
     "x-amz-meta-job-id": "uuid",
     "x-amz-meta-stem-mode": "6-stems"
-  }
+  },
+  "max_source_bytes": 268435456
 }
 ~~~
 
-The frontend must PUT the file to **upload_url** with every returned header.
-Those headers are part of the signature. Changing content type or omitting
-metadata will make S3 reject the upload.
+The frontend sends a multipart **POST** to **upload_url** with every returned
+`upload_fields` value and the file field. Those fields are part of the signed
+policy. It uses S3's `content-length-range` condition to enforce the 256 MiB
+source cap even if a caller bypasses the browser validation. The client also
+checks `File.size` before it creates a job, while Batch checks the actual S3
+`ContentLength` again before it downloads the object.
+
+Direct uploads support WAV, MP3, FLAC, M4A, AAC, OGG, Opus, AIFF, and WebM.
+The file picker and Job API enforce this extension/MIME allowlist; the Batch
+container performs the final FFprobe audio-stream check because a client can
+still mislabel file bytes. The maximum decoded duration is 500 seconds.
 
 ### Create linked-source job
 
@@ -291,8 +318,10 @@ uses this contract directly:
 }
 ~~~
 
-The Job API validates an absolute HTTP(S) URL, rejects embedded credentials,
-localhost, and literal private/reserved IPs, then creates a job in
+The Job API validates an absolute HTTP(S) URL and rejects embedded credentials,
+localhost, and literal private/reserved IPs. The ingestion Lambda repeats those
+checks and rejects hostnames that resolve to private/reserved addresses before
+yt-dlp contacts the host. It then creates a job in
 **source_ingestion** status. It invokes the yt-dlp Lambda asynchronously and
 returns 202 with the job ID and its fixed input key:
 
@@ -307,10 +336,14 @@ returns 202 with the job ID and its fixed input key:
 
 The URL is intentionally not stored in DynamoDB or returned from the job
 snapshot. The job API is the only CloudDSP role allowed to invoke ingestion.
-yt-dlp writes `audio/wav` at the returned key with `job-id`, `stem-mode`, and
-`source-type=yt-dlp` metadata. That S3 write matches the existing EventBridge
-rule, so it starts the same Demucs Batch worker as a normal presigned upload.
-There is no parallel direct-Batch route.
+yt-dlp performs a metadata-only request before download and requires a known
+duration no greater than 500 seconds. It rejects known/estimated encoded sizes
+over 256 MiB, caps unknown-size transfers with a progress hook, then normalizes
+the result to 44.1 kHz stereo 16-bit WAV and rejects an output over 128 MiB.
+It writes the resulting `audio/wav` at the returned key with `job-id`,
+`stem-mode`, `source-type=yt-dlp`, and size metadata. That S3 write matches the
+existing EventBridge rule, so it starts the same Demucs Batch worker as a
+normal presigned upload. There is no parallel direct-Batch route.
 
 The Job API generates `original_url` only when source audio is known to exist.
 After yt-dlp's S3 upload, it records `source_uploaded=true` as it advances the
@@ -343,6 +376,15 @@ newest first. A list item has `job_id`, `source_filename`, `status`,
 It intentionally contains no S3 keys or URLs. When a user selects an item,
 the browser calls **GET /jobs/{job_id}** to receive the original track, stems,
 MIDI artifacts, and master BPM in one owner-checked snapshot.
+
+### Delete saved job
+
+**DELETE /jobs/{job_id}** is available only to the authenticated job owner and
+only when the job status is `completed` or `failed`. It returns the deleted job
+ID and a count of removed S3 object versions. A missing job and a job owned by
+another account both return 404; a nonterminal job returns 409. The browser
+requires an explicit confirmation and removes a successful deletion from the
+open history list and current workspace immediately.
 
 ### WebSocket messages
 
@@ -404,7 +446,8 @@ The steps in detail:
    saved-job library. It does not restore an active-job queue from browser
    storage; a user explicitly opens a previous job from the history modal.
 2. For a local file, the client calls **POST /jobs**, records the returned job
-   ID locally, and uploads to exactly **uploads/{job_id}/{filename}**. For a
+   ID locally, and submits the file through the returned constrained S3 POST
+   form to exactly **uploads/{job_id}/{filename}**. For a
    linked source, it calls **POST /jobs/link**; the Job API asynchronously
    invokes yt-dlp, which writes `uploads/{job_id}/linked-audio.wav` itself.
 3. The S3 object metadata carries **job-id** and **stem-mode**. It provides an
@@ -625,7 +668,7 @@ rendering or React Server Components.
 
 | Bucket | Key format | Writer and reader |
 | --- | --- | --- |
-| uploads | **uploads/{job_id}/{filename}** | Browser writes with a presigned PUT; Batch reads. |
+| uploads | **uploads/{job_id}/{filename}** | Browser writes with a size-constrained presigned POST; Batch reads. |
 | uploads | **uploads/{job_id}/linked-audio.wav** | yt-dlp writes after a Job API invocation; Batch reads through the same event rule. |
 | processed audio | **stems/{job_id}/{stem}.wav** | Batch writes; browser reads through signed GET. |
 | processed audio | **midi/{job_id}/{stem}.mid** and **midi/{job_id}/{stem}_bpm.json** | MIDI Lambdas write; browser reads through signed GET. |
@@ -829,9 +872,9 @@ Some production hardening remains:
 4. **Deployment verification:** package zip dependencies and images in CI, then
    test real Cognito authentication, CORS, upload, Batch, MIDI, reconnect, and
    URL-expiry paths in a deployed environment.
-5. **History retention:** the user-job listing API and history modal are live.
-   Define archival/deletion UX and retention policy before treating the current
-   seven-day TTL as a customer-facing guarantee.
+5. **History retention:** users can permanently delete completed/failed jobs
+   and their job-scoped artifacts. Define archival and automatic current-object
+   retention before treating the seven-day TTL as a customer-facing guarantee.
 6. **Browser memory:** decoded `AudioBuffer` transport avoids cross-browser
    drift but grows with stem count and track duration. Monitor the built-in
    decoded-buffer metrics separately from Safari process memory, sampled

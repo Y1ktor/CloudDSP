@@ -91,6 +91,7 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
         isPlaying: false,
         revision: 0,
     });
+    const audioResumePromiseRef = React.useRef(null);
     const lastProgressCommitRef = React.useRef(0);
     const stopPlaybackRef = React.useRef(null);
     const schedulePlaybackRef = React.useRef(null);
@@ -215,11 +216,68 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
     };
 
     const ensureAudioContext = () => {
-        if (!audioCtxRef.current) {
+        if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
             const AudioContext = window.AudioContext || window.webkitAudioContext;
-            audioCtxRef.current = new AudioContext();
+            if (!AudioContext) {
+                throw new Error('This browser does not provide the Web Audio API.');
+            }
+            const context = new AudioContext();
+            // Safari creates contexts while background decoding is underway,
+            // but deliberately leaves them suspended until a direct user
+            // gesture authorizes audible output. Its non-standard
+            // "interrupted" state must also be resumed; Firefox generally
+            // never exposes that state.
+            context.addEventListener('statechange', () => {
+                console.info(`[CloudDSP] Web Audio context state: ${context.state}.`);
+            });
+            audioCtxRef.current = context;
+            audioResumePromiseRef.current = null;
+            console.info(`[CloudDSP] Created Web Audio context (state: ${context.state}).`);
         }
         return audioCtxRef.current;
+    };
+
+    const resumeAudioContext = async (reason) => {
+        const context = ensureAudioContext();
+        if (context.state === 'running') return context;
+
+        console.info(
+            `[CloudDSP] Resuming Web Audio context for ${reason} `
+            + `(current state: ${context.state}).`,
+        );
+        try {
+            // This call must originate from a user gesture in Safari. The
+            // play buttons additionally call `unlockAudio` on pointer-down so
+            // resume begins before React's later click handler runs. Reuse
+            // that pending promise from the subsequent click instead of
+            // issuing competing resume calls to WebKit.
+            if (!audioResumePromiseRef.current) {
+                audioResumePromiseRef.current = context.resume()
+                    .finally(() => {
+                        audioResumePromiseRef.current = null;
+                    });
+            }
+            await audioResumePromiseRef.current;
+        } catch (error) {
+            console.error('[CloudDSP] Safari/browser blocked Web Audio output:', error);
+            return null;
+        }
+
+        if (context.state !== 'running') {
+            console.error(
+                `[CloudDSP] Web Audio context did not enter the running state after ${reason} `
+                + `(state: ${context.state}).`,
+            );
+            return null;
+        }
+        return context;
+    };
+
+    const unlockAudio = () => {
+        // Do not await here: calling resume immediately in pointer-down keeps
+        // Safari's user-activation token intact. togglePlay later verifies
+        // that the same context is actually running before scheduling audio.
+        void resumeAudioContext('a direct playback gesture');
     };
 
     const currentTransportPosition = React.useCallback(() => {
@@ -303,6 +361,12 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
 
     const schedulePlayback = (offset) => {
         const context = ensureAudioContext();
+        if (context.state !== 'running') {
+            console.error(
+                `[CloudDSP] Refusing to schedule audio while Web Audio is ${context.state}.`,
+            );
+            return false;
+        }
         const trackNames = expectedTracksRef.current;
         const startTime = context.currentTime + START_LEAD_SECONDS;
         const masterTrack = buffersRef.current.has('Original') ? 'Original' : trackNames[0];
@@ -353,6 +417,11 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
         isPlayingRef.current = true;
         setIsPlaying(true);
         commitProgress(transportOffsetRef.current, true);
+        console.info(
+            `[CloudDSP] Scheduled ${sourcesRef.current.size} synchronized audio track(s) `
+            + `at ${startTime.toFixed(3)}s (offset ${transportOffsetRef.current.toFixed(3)}s).`,
+        );
+        return true;
     };
     schedulePlaybackRef.current = schedulePlayback;
 
@@ -681,11 +750,11 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
             return;
         }
 
-        const context = ensureAudioContext();
-        // Calling resume inside the click handler preserves Safari's user-
-        // gesture requirement. Source nodes are scheduled only after it is
-        // running, against one common future AudioContext time.
-        if (context.state === 'suspended') await context.resume();
+        // Source nodes are scheduled only after a verified running context.
+        // Safari can report "interrupted" as well as "suspended", so check
+        // every non-running state instead of handling only `suspended`.
+        const context = await resumeAudioContext('playback');
+        if (!context) return;
         applyMixState();
         schedulePlayback(transportOffsetRef.current);
     };
@@ -796,6 +865,7 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
         toggleSolo,
         setTrackGainDb,
         handleBpmMouseDown,
+        unlockAudio,
         setBpm,
         setOriginalBpm,
         originalBpm,

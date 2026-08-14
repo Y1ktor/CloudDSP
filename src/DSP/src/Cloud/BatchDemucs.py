@@ -8,8 +8,10 @@ integrity check.  After each durable state update the worker sends a small
 
 import argparse
 import json
+import math
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -33,6 +35,48 @@ except ImportError:
 
 
 VALID_STEM_MODES = {"2-stems", "4-stems", "6-stems"}
+DEFAULT_MAX_SOURCE_DURATION_SECONDS = 500
+DEFAULT_MAX_SOURCE_BYTES = 256 * 1024 * 1024
+
+
+def configured_positive_int(name: str, default: int) -> int:
+    """Read a positive worker size/duration limit from the environment."""
+    try:
+        value = int(os.environ.get(name, str(default)))
+    except ValueError as error:
+        raise ValueError(f"{name} must be an integer.") from error
+    if value < 1:
+        raise ValueError(f"{name} must be positive.")
+    return value
+
+
+def validate_source_audio(local_path: Path, maximum_duration: int) -> None:
+    """Reject spoofed/unsupported files and overlong audio before Demucs loads."""
+    result = subprocess.run(
+        [
+            "ffprobe", "-v", "error", "-select_streams", "a:0",
+            "-show_entries", "stream=codec_type:format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1", str(local_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    output = result.stdout.strip().splitlines()
+    if result.returncode != 0 or "audio" not in output:
+        raise ValueError("Input is not a supported audio file readable by FFmpeg.")
+    try:
+        duration = float(output[-1])
+    except (IndexError, ValueError) as error:
+        raise ValueError("Could not determine the input audio duration.") from error
+    if not math.isfinite(duration) or duration <= 0:
+        raise ValueError("Input audio must have a finite, positive duration.")
+    if duration > maximum_duration:
+        raise ValueError(
+            f"Input audio exceeds the {maximum_duration}-second duration limit."
+        )
+    print(f"Validated input audio: {duration:.2f} seconds (limit {maximum_duration}).")
 
 
 def download_from_s3(s3_client, bucket: str, key: str, local_path: Path) -> None:
@@ -167,7 +211,21 @@ def split_stems_cloud(input_bucket: str, output_bucket: str, file_key: str, fall
 
     try:
         print(f"Fetching metadata for durable input s3://{input_bucket}/{file_key}...")
-        metadata = s3_client.head_object(Bucket=input_bucket, Key=file_key).get("Metadata", {})
+        object_head = s3_client.head_object(Bucket=input_bucket, Key=file_key)
+        metadata = object_head.get("Metadata", {})
+        maximum_source_bytes = configured_positive_int(
+            "MAX_SOURCE_BYTES", DEFAULT_MAX_SOURCE_BYTES
+        )
+        object_size_bytes = int(object_head.get("ContentLength", 0))
+        if object_size_bytes < 1 or object_size_bytes > maximum_source_bytes:
+            raise ValueError(
+                f"Input object size ({object_size_bytes} bytes) exceeds the "
+                f"{maximum_source_bytes}-byte limit."
+            )
+        print(
+            f"Validated durable input size: {object_size_bytes} bytes "
+            f"(limit {maximum_source_bytes})."
+        )
         metadata_job_id = metadata.get("job-id")
         if metadata_job_id and metadata_job_id != job_id:
             raise ValueError("S3 job-id metadata does not match the upload key.")
@@ -181,6 +239,12 @@ def split_stems_cloud(input_bucket: str, output_bucket: str, file_key: str, fall
         local_input_path = base_tmp_dir / "input" / Path(file_key).name
         local_output_dir = base_tmp_dir / "output"
         download_from_s3(s3_client, input_bucket, file_key, local_input_path)
+        validate_source_audio(
+            local_input_path,
+            configured_positive_int(
+                "MAX_SOURCE_DURATION_SECONDS", DEFAULT_MAX_SOURCE_DURATION_SECONDS
+            ),
+        )
 
         model_name, arguments = select_demucs_arguments(mode, local_output_dir, local_input_path)
         print(f"Starting Demucs for job {job_id} using {mode} ({model_name}).")

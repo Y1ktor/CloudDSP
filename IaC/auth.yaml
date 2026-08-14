@@ -29,7 +29,7 @@ Parameters:
 
   PasswordMinimumLength:
     Type: Number
-    Default: 12
+    Default: 8
     MinValue: 8
     MaxValue: 99
     Description: Minimum password length for locally registered users.
@@ -56,10 +56,10 @@ Resources:
       Policies:
         PasswordPolicy:
           MinimumLength: !Ref PasswordMinimumLength
-          RequireLowercase: true
-          RequireNumbers: true
+          RequireLowercase: false
+          RequireNumbers: false
           RequireSymbols: true
-          RequireUppercase: true
+          RequireUppercase: false
           TemporaryPasswordValidityDays: 7
       Schema:
         - Name: email

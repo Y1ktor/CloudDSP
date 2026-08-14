@@ -27,18 +27,22 @@ or sampled-instrument lifecycle changes.
 DynamoDB is the source of truth for processing state. WebSockets are a
 low-latency notification mechanism, not durable result storage.
 
-1. The frontend calls `POST /jobs` with the requested stem mode and source file
-   information.
+1. The frontend accepts only WAV, MP3, FLAC, M4A, AAC, OGG, Opus, AIFF, and
+   WebM source files, checks the exact `File.size`, then calls `POST /jobs`
+   with the requested stem mode and source file information.
 2. The job API creates a DynamoDB item and returns a `job_id`, an input key, and
-   a presigned upload URL. Input keys use `uploads/{job_id}/filename.wav`.
-3. The browser uploads the audio to S3 with object metadata including
+   a size-constrained presigned **POST** upload contract. Input keys use
+   `uploads/{job_id}/filename`.
+3. The browser POSTs the audio to S3 with object metadata including
    `job-id` and `stem-mode`.
 4. S3 publishes an Object Created event to EventBridge. Its input transformer
    passes only dynamic event fields such as `INPUT_BUCKET` and `FILE_KEY` to
    the AWS Batch job.
-5. The Demucs container calls `HeadObject` to read S3 metadata, derives or
-   verifies the `job_id`, selects the requested stem mode, updates job state,
-   uploads stems under `stems/{job_id}/`, and invokes MIDI extractors directly.
+5. The Demucs container calls `HeadObject` to enforce the durable byte cap and
+   read S3 metadata, then uses FFprobe to enforce the duration/audio-stream
+   check before it starts GPU work. It derives or verifies the `job_id`, selects
+   the requested stem mode, updates job state, uploads stems under
+   `stems/{job_id}/`, and invokes MIDI extractors directly.
 6. Basic Pitch handles pitched stems and ADTOF handles drums. Each writes MIDI
    under `midi/{job_id}/`, updates the same DynamoDB job, and emits a small
    `job_updated` WebSocket notification.
@@ -49,7 +53,12 @@ low-latency notification mechanism, not durable result storage.
    queries the `user_id-updated_at-index` using the authenticated Cognito
    subject, then the browser opens one job through the owner-checked detail
    endpoint. The library is the source of history; never restore an old local
-  job queue from browser storage.
+   job queue from browser storage.
+9. A user can permanently remove a completed or failed history item with
+   `DELETE /jobs/{job_id}`. The Job API verifies the Cognito owner, deletes
+   all versions under that job's `uploads/`, `stems/`, and `midi/` prefixes,
+   then removes the DynamoDB record. Do not permit deletion while workers are
+   processing a job.
 
 For a linked media source, `POST /jobs/link` creates the same job first and
 asynchronously invokes yt-dlp. The ingestion Lambda writes only the durable
@@ -63,6 +72,14 @@ before upload deliberately has no `original_url`; never make the browser GET
 its predetermined but missing S3 key. Do not add a second direct Batch
 submission path.
 
+Source limits default to **500 seconds**, **256 MiB** for an uploaded or
+yt-dlp-downloaded encoded source, and **128 MiB** for yt-dlp's normalized
+44.1 kHz stereo PCM WAV. The yt-dlp worker fetches metadata before download,
+rejects known over-limit duration/size, caps unknown-size transfers with a
+progress hook, and validates its converted WAV before it can enter S3. Keep the
+browser hint, API POST policy, ingestion Lambda, and Batch checks aligned when
+changing these values.
+
 Store S3 keys and status in DynamoDB; never store presigned URLs as the
 authoritative artifact value. URLs expire and must be generated when a job is
 read.
@@ -74,6 +91,12 @@ Cognito ID token in `Authorization`. The WebSocket `$connect` authorizer uses
 the short-lived ID token in the WSS `token` query parameter because browser
 WebSockets cannot set arbitrary opening-handshake headers. Do not log that
 token.
+
+The profile username is stored in Cognito's `preferred_username` attribute and
+is only a display name. Authorization, job ownership, and WebSocket
+subscriptions must always use the immutable `sub` claim. A pending signup's
+email/display name may be stored in browser local storage solely to resume an
+email-confirmation dialog; never persist its password or verification code.
 
 ### WebSocket lifecycle
 
@@ -94,7 +117,8 @@ token.
 
 - `/frontend-react/` — Vite/React application.
   - `src/auth/cognito.js` and `src/components/AuthPanel.jsx` — browser-only
-    Cognito User Pool authentication.
+    Cognito User Pool authentication, including a resumable email-confirmation
+    dialog and the profile display name.
   - `src/components/StemSplitter/` — stem grid, MIDI status, and popup editor.
   - `src/hooks/AudioMultiTrackPlayer.js` — shared Web Audio transport. It
     serializes fetch/decode work, owns current `AudioBuffer`s, and publishes a
@@ -118,8 +142,8 @@ token.
     sampler, visual, and mute/solo mapping.
 - `/src/DSP/src/Cloud/` — Lambda handlers, Batch entry points, and cloud DSP
   scripts.
-  - `job_api.py` — authenticated job creation, saved-job library, and snapshot
-    API Lambda.
+  - `job_api.py` — authenticated job creation, saved-job library, snapshots,
+    and permanent terminal-job deletion API Lambda.
   - `BatchDemucs.py` — Demucs Batch entry point and downstream MIDI handoff.
   - `LambdaMIDIBasicPitch.py` — pitched-stem MIDI extraction Lambda.
   - `LambdaMIDIADTOF.py` — drum MIDI extraction Lambda.
@@ -222,7 +246,8 @@ Docker image before local testing.
   `source_uploaded=true` without overwriting a Batch status that may have
   advanced concurrently.
 - A changed ZIP file at the same S3 key does not reliably replace Lambda code.
-  Upload `job_api.zip` under a new key and update `JobApiCodeS3Key` when
+  Upload the Job API package under a new key (currently
+  `job_api-delete-history-20260813.zip`) and update `JobApiCodeS3Key` when
   deploying Job API changes.
 
 ## 4. Infrastructure Rules

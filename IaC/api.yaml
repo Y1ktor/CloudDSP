@@ -75,6 +75,15 @@ Parameters:
     MaxValue: 3600
     Description: Lifetime of a source-upload presigned URL.
 
+  MaxSourceBytes:
+    Type: Number
+    Default: 268435456
+    MinValue: 1
+    MaxValue: 1073741824
+    Description: >-
+      Maximum direct-browser source object size in bytes. The Job API encodes
+      this into the S3 presigned POST content-length-range policy.
+
   DownloadUrlExpirySeconds:
     Type: Number
     Default: 3600
@@ -124,6 +133,7 @@ Resources:
                   - dynamodb:PutItem
                   - dynamodb:Query
                   - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
                 Resource:
                   - !Ref JobsTableArn
                   - !Sub '${JobsTableArn}/index/*'
@@ -143,6 +153,20 @@ Resources:
                 Action:
                   - s3:GetObject
                 Resource: !Sub '${ProcessedAudioBucketArn}/*'
+              - Effect: Allow
+                Action:
+                  - s3:ListBucketVersions
+                Resource:
+                  - !Ref UploadsBucketArn
+                  - !Ref ProcessedAudioBucketArn
+              - Effect: Allow
+                Action:
+                  - s3:DeleteObject
+                  - s3:DeleteObjectVersion
+                Resource:
+                  - !Sub '${UploadsBucketArn}/uploads/*'
+                  - !Sub '${ProcessedAudioBucketArn}/stems/*'
+                  - !Sub '${ProcessedAudioBucketArn}/midi/*'
         - !If
           - HasYtDlpFunction
           - PolicyName: !Sub '${ProjectName}-${EnvironmentName}-JobApiInvokeYtDlp'
@@ -176,6 +200,7 @@ Resources:
           UPLOADS_BUCKET_NAME: !Ref UploadsBucketName
           PROCESSED_AUDIO_BUCKET_NAME: !Ref ProcessedAudioBucketName
           UPLOAD_URL_EXPIRY_SECONDS: !Ref UploadUrlExpirySeconds
+          MAX_SOURCE_BYTES: !Sub '${MaxSourceBytes}'
           DOWNLOAD_URL_EXPIRY_SECONDS: !Ref DownloadUrlExpirySeconds
           YTDLP_FUNCTION_ARN: !Ref YtDlpFunctionArn
 
@@ -190,6 +215,7 @@ Resources:
           - Authorization
           - Content-Type
         AllowMethods:
+          - DELETE
           - GET
           - OPTIONS
           - POST
@@ -249,6 +275,15 @@ Resources:
     Properties:
       ApiId: !Ref JobHttpApi
       RouteKey: 'GET /jobs/{job_id}'
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JobApiJwtAuthorizer
+      Target: !Join ['/', ['integrations', !Ref JobApiIntegration]]
+
+  DeleteJobRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref JobHttpApi
+      RouteKey: 'DELETE /jobs/{job_id}'
       AuthorizationType: JWT
       AuthorizerId: !Ref JobApiJwtAuthorizer
       Target: !Join ['/', ['integrations', !Ref JobApiIntegration]]

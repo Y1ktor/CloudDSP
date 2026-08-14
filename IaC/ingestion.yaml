@@ -82,10 +82,24 @@ Parameters:
 
   MaxSourceDurationSeconds:
     Type: Number
-    Default: 480
+    Default: 500
     MinValue: 1
     MaxValue: 3600
     Description: Maximum media duration accepted by yt-dlp.
+
+  MaxSourceDownloadBytes:
+    Type: Number
+    Default: 268435456
+    MinValue: 1
+    MaxValue: 1073741824
+    Description: Maximum encoded linked-media download size in bytes.
+
+  MaxConvertedWavBytes:
+    Type: Number
+    Default: 134217728
+    MinValue: 1
+    MaxValue: 1073741824
+    Description: Maximum normalized WAV size in bytes before yt-dlp uploads to S3.
 
 Resources:
   YtDlpIngestionLogGroup:
@@ -172,7 +186,9 @@ Resources:
           CONNECTIONS_TABLE_NAME: !Ref ConnectionsTableName
           USER_CONNECTIONS_INDEX_NAME: !Ref UserConnectionsIndexName
           WEBSOCKET_API_URL: !Sub 'https://${WebSocketApiId}.execute-api.${AWS::Region}.amazonaws.com/${EnvironmentName}'
-          MAX_SOURCE_DURATION_SECONDS: !Ref MaxSourceDurationSeconds
+          MAX_SOURCE_DURATION_SECONDS: !Sub '${MaxSourceDurationSeconds}'
+          MAX_SOURCE_DOWNLOAD_BYTES: !Sub '${MaxSourceDownloadBytes}'
+          MAX_CONVERTED_WAV_BYTES: !Sub '${MaxConvertedWavBytes}'
           PROXY_URL: !Ref YtDlpProxyUrl
       Tags:
         - Key: Project

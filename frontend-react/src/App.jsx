@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BrowserRouter, Link, Route, Routes, useLocation } from 'react-router-dom';
-import EqPage from './EqPage';
+import { BrowserRouter, Link, Navigate, Route, Routes } from 'react-router-dom';
 import AuthPanel from './components/AuthPanel';
 import StemSplitter from './components/StemSplitter/StemSplitter';
 import PreviousJobs from './components/StemSplitter/PreviousJobs';
+import './assets/css/styles.css';
 import {
     confirmSignUp,
     getCurrentSession,
@@ -21,6 +21,21 @@ const RECONNECT_MAX_DELAY_MS = 30_000;
 const JOB_REFRESH_BACKOFF_INITIAL_MS = 5_000;
 const JOB_REFRESH_BACKOFF_MAX_MS = 60_000;
 const PRESIGNED_URL_REFRESH_SAFETY_MS = 60_000;
+const MAX_SOURCE_UPLOAD_BYTES = 256 * 1024 * 1024;
+const PENDING_SIGN_UP_STORAGE_KEY = 'clouddsp.pendingSignUp';
+
+function readPendingSignUp() {
+    try {
+        const value = window.localStorage.getItem(PENDING_SIGN_UP_STORAGE_KEY);
+        if (!value) return null;
+        const pending = JSON.parse(value);
+        return typeof pending?.email === 'string' && pending.email
+            ? { email: pending.email, displayName: pending.displayName || '' }
+            : null;
+    } catch {
+        return null;
+    }
+}
 
 function isJobPending(job) {
     return job && !['completed', 'failed'].includes(job.status);
@@ -141,24 +156,16 @@ function preserveReadyArtifactUrls(previous, snapshot) {
 }
 
 function NavBar({ authProps }) {
-    const location = useLocation();
     const navStyle = {
-        background: '#222', padding: '15px 20px', display: 'flex', gap: '20px',
+        background: '#161b22', padding: '15px 20px', display: 'flex', gap: '20px',
         borderBottom: '1px solid #444', marginBottom: '40px', alignItems: 'center',
         boxShadow: '0 4px 12px rgba(0,0,0,0.3)', flexWrap: 'wrap',
     };
-    const getLinkStyle = (path) => ({
-        color: location.pathname === path ? '#fff' : '#aaa',
-        textDecoration: 'none', fontWeight: 'bold', padding: '8px 16px',
-        borderRadius: '4px', background: location.pathname === path ? '#4CAF50' : 'transparent',
-        transition: 'all 0.2s ease-in-out',
-    });
 
     return (
         <div style={navStyle}>
-            <div style={{ color: '#fff', fontWeight: '900', fontSize: '20px', marginRight: '20px', letterSpacing: '1px' }}>CloudDSP</div>
-            <Link to="/" style={getLinkStyle('/')}>Interactive EQ</Link>
-            <Link to="/stems" style={getLinkStyle('/stems')}>Stem Splitter</Link>
+            <Link to="/" style={{ color: '#fff', fontWeight: '900', fontSize: '20px', marginRight: '20px', letterSpacing: '1px', textDecoration: 'none' }}>CloudDSP</Link>
+            <span style={{ color: '#aebbc7', fontSize: '13px', fontWeight: '600' }}>Stem Splitter</span>
             <div style={{ marginLeft: 'auto' }}><AuthPanel {...authProps} /></div>
         </div>
     );
@@ -172,6 +179,7 @@ export default function App() {
     const [errorMsg, setErrorMsg] = useState('');
     const [authSession, setAuthSession] = useState(null);
     const [authLoading, setAuthLoading] = useState(isCognitoConfigured);
+    const [pendingSignUp, setPendingSignUp] = useState(readPendingSignUp);
     const [activeJobId, setActiveJobId] = useState(null);
     const [jobSnapshots, setJobSnapshots] = useState({});
     const [isUploading, setIsUploading] = useState(false);
@@ -179,6 +187,7 @@ export default function App() {
     const [isPreviousJobsLoading, setIsPreviousJobsLoading] = useState(false);
     const [previousJobsError, setPreviousJobsError] = useState('');
     const [isPreviousJobsOpen, setIsPreviousJobsOpen] = useState(false);
+    const [deletingJobId, setDeletingJobId] = useState(null);
     const [isRestoringHistoryJob, setIsRestoringHistoryJob] = useState(false);
     const [isHistoryJob, setIsHistoryJob] = useState(false);
 
@@ -191,6 +200,7 @@ export default function App() {
     const jobSnapshotsRef = useRef({});
     const jobRefreshInFlightRef = useRef(new Set());
     const jobRefreshBackoffRef = useRef(new Map());
+    const deletedJobIdsRef = useRef(new Set());
 
     const currentJob = activeJobId ? jobSnapshots[activeJobId] : null;
     const authUsername = authSession?.username;
@@ -244,6 +254,7 @@ export default function App() {
             setIsHistoryJob(false);
             jobRefreshInFlightRef.current.clear();
             jobRefreshBackoffRef.current.clear();
+            deletedJobIdsRef.current.clear();
         }
     }, [authUsername]);
 
@@ -276,7 +287,9 @@ export default function App() {
             if (!response.ok) {
                 throw new Error(payload.error || `Could not load previous jobs (${response.status}).`);
             }
-            const jobs = Array.isArray(payload.jobs) ? payload.jobs : [];
+            const jobs = (Array.isArray(payload.jobs) ? payload.jobs : []).filter(
+                (job) => !deletedJobIdsRef.current.has(job.job_id),
+            );
             setPreviousJobs(jobs);
             return jobs;
         } catch (error) {
@@ -533,6 +546,50 @@ export default function App() {
         await openPreviousJob(selectedJob);
     };
 
+    const deletePreviousJob = useCallback(async (selectedJob) => {
+        const jobId = selectedJob?.job_id;
+        if (!jobId) return false;
+
+        setDeletingJobId(jobId);
+        setPreviousJobsError('');
+        try {
+            console.info(`[CloudDSP] Requesting permanent deletion for job ${jobId}.`);
+            const response = await authenticatedFetch(`/jobs/${encodeURIComponent(jobId)}`, {
+                method: 'DELETE',
+            });
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(payload.error || `Could not delete job ${jobId} (${response.status}).`);
+            }
+
+            deletedJobIdsRef.current.add(jobId);
+            setPreviousJobs((current) => current.filter((job) => job.job_id !== jobId));
+            setJobSnapshots((current) => {
+                const remaining = { ...current };
+                delete remaining[jobId];
+                return remaining;
+            });
+            jobRefreshBackoffRef.current.delete(jobId);
+            if (activeJobIdRef.current === jobId) {
+                setActiveJobId(null);
+                setStemFile(null);
+                setStemFileName('No file loaded');
+                setIsRestoringHistoryJob(false);
+                setIsHistoryJob(false);
+                setErrorMsg('');
+                setStatusMessage('Job deleted. Select an audio file to begin.');
+            }
+            console.info(`[CloudDSP] Deleted job ${jobId} and ${payload.deleted_objects ?? 0} stored file version(s).`);
+            return true;
+        } catch (error) {
+            console.error(`[CloudDSP] Could not delete job ${jobId}:`, error);
+            setPreviousJobsError(error.message || 'Could not delete the job.');
+            return false;
+        } finally {
+            setDeletingJobId(null);
+        }
+    }, [authenticatedFetch]);
+
     const executeStemSplit = async () => {
         if (!stemFile) {
             setErrorMsg('Please select an audio file first.');
@@ -540,6 +597,10 @@ export default function App() {
         }
         if (!authSession) {
             setErrorMsg('Sign in before uploading audio.');
+            return;
+        }
+        if (!Number.isFinite(stemFile.size) || stemFile.size < 1 || stemFile.size > MAX_SOURCE_UPLOAD_BYTES) {
+            setErrorMsg('Audio files must be between 1 byte and 256 MiB.');
             return;
         }
 
@@ -554,12 +615,13 @@ export default function App() {
                 body: JSON.stringify({
                     filename: stemFile.name,
                     content_type: contentType,
+                    size_bytes: stemFile.size,
                     stem_mode: splitMode,
                 }),
             });
             const job = await response.json();
             if (!response.ok) throw new Error(job.error || `Could not create a job (${response.status}).`);
-            if (!job.job_id || !job.upload_url || !job.upload_headers) {
+            if (!job.job_id || !job.upload_url || (!job.upload_fields && !job.upload_headers)) {
                 throw new Error('The job API returned an incomplete upload contract.');
             }
 
@@ -582,13 +644,23 @@ export default function App() {
             subscribeToActiveJob(socketRef.current, job.job_id);
 
             setStatusMessage('Uploading audio to the secure job location…');
-            const uploadResponse = await fetch(job.upload_url, {
-                method: 'PUT',
-                headers: job.upload_headers,
-                body: stemFile,
-            });
+            const uploadResponse = job.upload_fields
+                ? await (async () => {
+                    const uploadForm = new FormData();
+                    Object.entries(job.upload_fields).forEach(([name, value]) => uploadForm.append(name, value));
+                    uploadForm.append('file', stemFile);
+                    return fetch(job.upload_url, { method: 'POST', body: uploadForm });
+                })()
+                // Compatibility only while a previously deployed Job API still
+                // returns the retired signed-PUT contract. Once the new API is
+                // live all direct uploads use the constrained POST policy.
+                : fetch(job.upload_url, {
+                    method: 'PUT',
+                    headers: job.upload_headers,
+                    body: stemFile,
+                });
             if (!uploadResponse.ok) {
-                throw new Error(`S3 upload failed (${uploadResponse.status}). Check the upload bucket CORS policy.`);
+                throw new Error(`S3 upload failed (${uploadResponse.status}). The file may exceed the 256 MiB limit or the upload policy may have expired.`);
             }
             setStatusMessage('Upload complete. Waiting for AWS Batch capacity…');
             await fetchJobSnapshot(job.job_id, { showError: true });
@@ -681,6 +753,35 @@ export default function App() {
         setStatusMessage('Signed in. Select an audio file to begin.');
     };
 
+    const savePendingSignUp = useCallback((pending) => {
+        setPendingSignUp(pending);
+        try {
+            if (pending) {
+                window.localStorage.setItem(PENDING_SIGN_UP_STORAGE_KEY, JSON.stringify(pending));
+            } else {
+                window.localStorage.removeItem(PENDING_SIGN_UP_STORAGE_KEY);
+            }
+        } catch (error) {
+            // The dialog remains usable if private browsing prevents persistent
+            // storage; it will simply not survive a page reload.
+            console.warn('Could not persist pending CloudDSP email verification:', error);
+        }
+    }, []);
+
+    const handleSignUp = async (email, password, displayName) => {
+        const result = await signUp(email, password, displayName);
+        if (!result.confirmed) {
+            savePendingSignUp({ email: email.trim(), displayName: displayName.trim() });
+        }
+        return result;
+    };
+
+    const handleConfirmSignUp = async (email, code) => {
+        const result = await confirmSignUp(email, code);
+        savePendingSignUp(null);
+        return result;
+    };
+
     const handleSignOut = () => {
         signOut();
         setAuthSession(null);
@@ -727,9 +828,10 @@ export default function App() {
     const authProps = {
         configured: isCognitoConfigured,
         session: authSession,
+        pendingVerification: pendingSignUp,
         onSignIn: handleSignIn,
-        onSignUp: signUp,
-        onConfirmSignUp: confirmSignUp,
+        onSignUp: handleSignUp,
+        onConfirmSignUp: handleConfirmSignUp,
         onSignOut: handleSignOut,
         onOpenHistory: openPreviousJobs,
     };
@@ -747,6 +849,8 @@ export default function App() {
                     error={previousJobsError}
                     onSelect={selectPreviousJob}
                     onRefresh={fetchPreviousJobs}
+                    onDelete={deletePreviousJob}
+                    deletingJobId={deletingJobId}
                 />
                 {!authLoading && (!JOB_API_URL || !WEBSOCKET_URL) && (
                     <div style={{ margin: '-24px 20px 20px', color: '#f5c451', fontSize: '13px' }}>
@@ -754,8 +858,8 @@ export default function App() {
                     </div>
                 )}
                 <Routes>
-                    <Route path="/" element={<EqPage />} />
-                    <Route path="/stems" element={<div style={{ display: 'flex', justifyContent: 'center' }}><StemSplitter {...stemProps} /></div>} />
+                    <Route path="/" element={<div style={{ display: 'flex', justifyContent: 'center' }}><StemSplitter {...stemProps} /></div>} />
+                    <Route path="/stems" element={<Navigate to="/" replace />} />
                 </Routes>
             </div>
         </BrowserRouter>

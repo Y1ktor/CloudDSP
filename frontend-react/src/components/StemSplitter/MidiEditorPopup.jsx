@@ -239,6 +239,7 @@ const VisibleMidiEditorNotes = React.memo(function VisibleMidiEditorNotes({
  * @param {Function} props.setIsPlayheadHovered - State setter for master playhead hover
  * @param {Function} props.handleGoToBeginning - Callback to seek playback to 0
  * @param {boolean} props.isPlaying - Global playback state
+ * @param {Function} props.unlockAudio - Starts Web Audio in the direct pointer gesture required by Safari
  * @param {Function} props.togglePlay - Callback to toggle global playback
  * @param {Function} props.toggleCycling - Callback to toggle global loop cycling
  * @param {Object} props.mutedTracks - Dictionary of muted track states
@@ -282,6 +283,7 @@ export default function MidiEditorPopup({
     setIsPlayheadHovered,
     handleGoToBeginning,
     isPlaying,
+    unlockAudio,
     togglePlay,
     toggleCycling,
     mutedTracks,
@@ -782,7 +784,11 @@ export default function MidiEditorPopup({
                         <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
                     </button>
 
-                    <button title="Play/Pause" onClick={togglePlay} style={{
+                    <button
+                        title="Play/Pause"
+                        onPointerDown={unlockAudio}
+                        onClick={togglePlay}
+                        style={{
                         background: 'transparent', color: 'white', border: 'none',
                         cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '0', opacity: 0.8
                     }}>

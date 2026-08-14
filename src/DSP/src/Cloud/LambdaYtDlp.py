@@ -11,9 +11,12 @@ from __future__ import annotations
 
 import json
 import ipaddress
+import math
 import os
 import re
 import shutil
+import socket
+import wave
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -28,9 +31,15 @@ from cloud_job_workflow import get_job, send_job_updated, utc_now
 
 INGESTION_STATUS = "source_ingestion"
 UPLOADED_STATUS = "upload_pending"
-DEFAULT_MAX_SOURCE_DURATION_SECONDS = 480
+DEFAULT_MAX_SOURCE_DURATION_SECONDS = 500
+DEFAULT_MAX_SOURCE_DOWNLOAD_BYTES = 256 * 1024 * 1024
+DEFAULT_MAX_CONVERTED_WAV_BYTES = 128 * 1024 * 1024
 MAX_DISPLAY_FILENAME_LENGTH = 255
 DEFAULT_BROWSER_IMPERSONATION = "chrome"
+
+
+class SourceSizeLimitError(ValueError):
+    """Raised before a linked source can consume unbounded Lambda storage."""
 
 
 def configured_positive_int(name: str, default: int) -> int:
@@ -61,9 +70,22 @@ def safe_source_url(value: Any) -> str:
     try:
         address = ipaddress.ip_address(parsed.hostname)
     except ValueError:
-        # DNS hostnames are allowed. The caller's network policy must still
-        # block access to private services through a hostname or DNS rebinding.
-        pass
+        # A public-looking hostname can still resolve to a private address.
+        # Reject it before yt-dlp gets the opportunity to contact internal
+        # services. DNS rebinding remains an egress-control concern, so this is
+        # a defense in depth rather than a substitute for restricted networking.
+        try:
+            resolved_addresses = {
+                result[4][0]
+                for result in socket.getaddrinfo(parsed.hostname, None, type=socket.SOCK_STREAM)
+            }
+        except socket.gaierror as error:
+            raise ValueError("source_url hostname could not be resolved.") from error
+        if not resolved_addresses:
+            raise ValueError("source_url hostname did not resolve to an address.")
+        for resolved_address in resolved_addresses:
+            if not ipaddress.ip_address(resolved_address).is_global:
+                raise ValueError("source_url hostname resolves to a private or reserved IP address.")
     else:
         if not address.is_global:
             raise ValueError("source_url must not target a private or reserved IP address.")
@@ -129,15 +151,22 @@ def source_already_uploaded(s3_client, bucket: str, key: str, job_id: str) -> bo
     return metadata.get("job-id") == job_id
 
 
-def set_source_filename(jobs_table, job_id: str, filename: str) -> dict[str, Any]:
-    """Record the downloaded title while preserving the ingestion state."""
+def set_source_filename(
+    jobs_table, job_id: str, filename: str, source_size_bytes: int
+) -> dict[str, Any]:
+    """Record the normalized WAV title and actual size before its S3 upload."""
     response = jobs_table.update_item(
         Key={"job_id": job_id},
-        UpdateExpression="SET #source_filename = :filename, #content_type = :content_type, #updated_at = :updated_at ADD #revision :one",
+        UpdateExpression=(
+            "SET #source_filename = :filename, #content_type = :content_type, "
+            "#source_size_bytes = :source_size_bytes, #updated_at = :updated_at "
+            "ADD #revision :one"
+        ),
         ConditionExpression="#status = :ingestion",
         ExpressionAttributeNames={
             "#source_filename": "source_filename",
             "#content_type": "source_content_type",
+            "#source_size_bytes": "source_size_bytes",
             "#updated_at": "updated_at",
             "#revision": "revision",
             "#status": "status",
@@ -145,6 +174,7 @@ def set_source_filename(jobs_table, job_id: str, filename: str) -> dict[str, Any
         ExpressionAttributeValues={
             ":filename": filename,
             ":content_type": "audio/wav",
+            ":source_size_bytes": source_size_bytes,
             ":updated_at": utc_now(),
             ":ingestion": INGESTION_STATUS,
             ":one": 1,
@@ -249,33 +279,134 @@ def fail_ingestion(jobs_table, connections_table, job_id: str, error: Exception)
     send_job_updated(connections_table, item, job_id, item.get("revision", 0))
 
 
+def as_positive_size(value: Any) -> int | None:
+    """Read yt-dlp's optional exact/approximate byte fields safely."""
+    if isinstance(value, bool):
+        return None
+    try:
+        size = int(value)
+    except (TypeError, ValueError):
+        return None
+    return size if size > 0 else None
+
+
+def selected_download_entries(info: dict[str, Any]) -> list[dict[str, Any]]:
+    """Find yt-dlp's selected format entries, retaining safe fallbacks."""
+    for key in ("requested_downloads", "requested_formats"):
+        entries = info.get(key)
+        if isinstance(entries, list):
+            selected = [entry for entry in entries if isinstance(entry, dict)]
+            if selected:
+                return selected
+    return [info]
+
+
+def validate_source_metadata(
+    info: dict[str, Any], maximum_duration: int, maximum_download_bytes: int
+) -> None:
+    """Reject known oversized media before yt-dlp starts its transfer."""
+    duration = info.get("duration")
+    if duration is not None:
+        try:
+            numeric_duration = float(duration)
+        except (TypeError, ValueError) as error:
+            raise ValueError("Linked media has an invalid duration.") from error
+        if not math.isfinite(numeric_duration) or numeric_duration <= 0:
+            raise ValueError("Linked media must have a finite, positive duration.")
+        if numeric_duration > maximum_duration:
+            raise ValueError(
+                f"Source audio exceeds the {maximum_duration}-second duration limit."
+            )
+    else:
+        # A hard time limit cannot be guaranteed if an extractor gives us no
+        # duration. Reject rather than permit an unbounded long source to use
+        # Lambda temporary storage and then GPU Batch capacity.
+        raise ValueError("Could not determine the linked media duration before download.")
+
+    entries = selected_download_entries(info)
+    sizes = [
+        as_positive_size(entry.get("filesize"))
+        or as_positive_size(entry.get("filesize_approx"))
+        for entry in entries
+    ]
+    if all(size is not None for size in sizes):
+        total_size = sum(size for size in sizes if size is not None)
+        print(
+            f"yt-dlp metadata reports {total_size} source bytes for {len(entries)} selected format(s); "
+            f"limit is {maximum_download_bytes}."
+        )
+        if total_size > maximum_download_bytes:
+            raise SourceSizeLimitError(
+                f"Linked media exceeds the {maximum_download_bytes}-byte download limit."
+            )
+    else:
+        # DASH/HLS and some providers do not publish a trustworthy size. Do
+        # not reject legitimate media on that basis; the progress hook below
+        # remains the authoritative limit while bytes stream to /tmp.
+        print(
+            "yt-dlp metadata has no complete source-size estimate; "
+            f"a {maximum_download_bytes}-byte transfer cap will be enforced."
+        )
+
+
+def validate_normalized_wav_duration(wav_path: Path, maximum_duration: int) -> float:
+    """Verify the normalized PCM output also respects the time cap."""
+    try:
+        with wave.open(str(wav_path), "rb") as wav_file:
+            frame_rate = wav_file.getframerate()
+            duration = wav_file.getnframes() / frame_rate if frame_rate else 0
+    except (OSError, wave.Error) as error:
+        raise ValueError("yt-dlp produced an invalid WAV file.") from error
+    if not math.isfinite(duration) or duration <= 0:
+        raise ValueError("Converted WAV must have a finite, positive duration.")
+    if duration > maximum_duration:
+        raise ValueError(
+            f"Converted WAV exceeds the {maximum_duration}-second duration limit."
+        )
+    return duration
+
+
 def download_to_wav(source_url: str, output_directory: Path) -> tuple[Path, str]:
-    """Download one non-playlist source and convert it to a local WAV file."""
+    """Preflight, size-limit, download, and normalize one non-playlist source."""
     maximum_duration = configured_positive_int(
         "MAX_SOURCE_DURATION_SECONDS", DEFAULT_MAX_SOURCE_DURATION_SECONDS
+    )
+    maximum_download_bytes = configured_positive_int(
+        "MAX_SOURCE_DOWNLOAD_BYTES", DEFAULT_MAX_SOURCE_DOWNLOAD_BYTES
+    )
+    maximum_wav_bytes = configured_positive_int(
+        "MAX_CONVERTED_WAV_BYTES", DEFAULT_MAX_CONVERTED_WAV_BYTES
+    )
+    print(
+        "yt-dlp intake limits: "
+        f"duration={maximum_duration}s, encoded-download={maximum_download_bytes} bytes, "
+        f"normalized-wav={maximum_wav_bytes} bytes."
     )
     output_directory.mkdir(parents=True, exist_ok=True)
     output_template = str(output_directory / "source.%(ext)s")
 
-    def reject_long_media(info: dict[str, Any], *, incomplete: bool) -> None:
-        duration = info.get("duration")
-        if duration is not None and duration > maximum_duration:
-            raise ValueError(
-                f"Source audio exceeds the {maximum_duration // 60}-minute duration limit."
+    def reject_oversized_transfer(status: dict[str, Any]) -> None:
+        downloaded_bytes = as_positive_size(status.get("downloaded_bytes"))
+        if downloaded_bytes and downloaded_bytes > maximum_download_bytes:
+            raise SourceSizeLimitError(
+                f"Linked media exceeds the {maximum_download_bytes}-byte download limit."
             )
-        return None
 
     options: dict[str, Any] = {
         "format": "bestaudio/best",
         "outtmpl": output_template,
-        "match_filter": reject_long_media,
         "noplaylist": True,
         "ffmpeg_location": "/usr/local/bin",
         # yt-dlp's EJS solver needs a JavaScript runtime for current YouTube
         # challenge handling. The Lambda image includes Deno and the default
         # yt-dlp package extra includes the matching yt-dlp-ejs scripts.
         "js_runtimes": {"deno": {"path": "/usr/local/bin/deno"}},
+        # Keep the largest accepted 500-second track around 84 MiB. Demucs
+        # does not benefit from preserving source multichannel/high-rate PCM.
         "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "wav"}],
+        "postprocessor_args": ["-ac", "2", "-ar", "44100", "-sample_fmt", "s16"],
+        "max_filesize": maximum_download_bytes,
+        "progress_hooks": [reject_oversized_transfer],
         "retries": 3,
         "fragment_retries": 3,
         "extractor_retries": 2,
@@ -302,9 +433,24 @@ def download_to_wav(source_url: str, output_directory: Path) -> tuple[Path, str]
     )
 
     try:
+        # Retrieve metadata before transferring media. This catches a known
+        # duration/size at the inexpensive extractor stage; a second extraction
+        # gets short-lived provider download URLs immediately before transfer.
+        with yt_dlp.YoutubeDL(options) as metadata_downloader:
+            metadata = metadata_downloader.extract_info(source_url, download=False)
+        if not isinstance(metadata, dict):
+            raise ValueError("yt-dlp did not return media metadata.")
+        validate_source_metadata(metadata, maximum_duration, maximum_download_bytes)
+
         with yt_dlp.YoutubeDL(options) as downloader:
             info = downloader.extract_info(source_url, download=True)
+    except SourceSizeLimitError:
+        raise
     except yt_dlp.utils.DownloadError as error:
+        if "max-filesize" in str(error).lower() or "maximum file size" in str(error).lower():
+            raise SourceSizeLimitError(
+                f"Linked media exceeds the {maximum_download_bytes}-byte download limit."
+            ) from error
         # Keep the persisted job error actionable without exposing source URLs,
         # proxy credentials, signed media URLs, or provider response bodies.
         if "HTTP Error 403" in str(error):
@@ -317,7 +463,18 @@ def download_to_wav(source_url: str, output_directory: Path) -> tuple[Path, str]
     wav_candidates = sorted(output_directory.glob("*.wav"))
     if not wav_candidates:
         raise FileNotFoundError("yt-dlp did not produce a WAV file.")
-    return wav_candidates[0], display_filename(info.get("title"))
+    wav_path = wav_candidates[0]
+    wav_size_bytes = wav_path.stat().st_size
+    if wav_size_bytes > maximum_wav_bytes:
+        raise SourceSizeLimitError(
+            f"Converted WAV exceeds the {maximum_wav_bytes}-byte output limit."
+        )
+    wav_duration = validate_normalized_wav_duration(wav_path, maximum_duration)
+    print(
+        f"yt-dlp produced normalized WAV ({wav_size_bytes} bytes, {wav_duration:.2f} seconds; "
+        f"size limit {maximum_wav_bytes}, duration limit {maximum_duration})."
+    )
+    return wav_path, display_filename(info.get("title"))
 
 
 def ingest_source(event: dict[str, Any]) -> dict[str, Any]:
@@ -368,9 +525,10 @@ def ingest_source(event: dict[str, Any]) -> dict[str, Any]:
         hostname = urlsplit(source_url).hostname or "unknown host"
         print(f"Downloading linked source for job {job_id} from host {hostname}.")
         wav_path, filename = download_to_wav(source_url, temporary_directory)
+        wav_size_bytes = wav_path.stat().st_size
         # Record the display title before the S3 event can start Batch. This
         # keeps a readable history entry even when Batch starts immediately.
-        item = set_source_filename(jobs_table, job_id, filename)
+        item = set_source_filename(jobs_table, job_id, filename, wav_size_bytes)
         send_job_updated(connections_table, item, job_id, item.get("revision", 0))
 
         print(f"Uploading converted source for job {job_id} to s3://{upload_bucket}/{input_key}.")
@@ -384,6 +542,7 @@ def ingest_source(event: dict[str, Any]) -> dict[str, Any]:
                     "job-id": job_id,
                     "stem-mode": str(job.get("stem_mode", "6-stems")),
                     "source-type": "yt-dlp",
+                    "source-size-bytes": str(wav_size_bytes),
                 },
             },
         )

@@ -53,7 +53,14 @@ export default function ControlBar({
         <>
             <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' }}>
                 <label htmlFor="stem-upload" className="upload-btn" style={{ margin: 0, cursor: isSplitting ? 'not-allowed' : 'pointer', opacity: isSplitting ? 0.5 : 1 }}>Browse...</label>
-                <input type="file" id="stem-upload" accept="audio/*" style={{ display: 'none' }} onChange={handleFileUpload} disabled={isSplitting} />
+                <input
+                    type="file"
+                    id="stem-upload"
+                    accept=".wav,.mp3,.flac,.m4a,.aac,.ogg,.opus,.aiff,.aif,.webm"
+                    style={{ display: 'none' }}
+                    onChange={handleFileUpload}
+                    disabled={isSplitting}
+                />
                 
                 <div id="file-name-container" onClick={() => !isSplitting && setShowLinkPopup(true)} style={{ flexGrow: 1, margin: 0, cursor: isSplitting ? 'not-allowed' : 'pointer' }} title="Click to paste a link">
                     <div id="file-name-display" style={{ color: (fileName === "No file loaded" || fileName === "Upload audio or paste a link") ? '#aaa' : '#fff' }}>
@@ -148,6 +155,9 @@ export default function ControlBar({
                 >
                     {isSplitting ? 'Processing...' : 'Upload & Split'}
                 </button>
+            </div>
+            <div style={{ color: '#8492a1', fontSize: '11px', marginTop: '-7px' }}>
+                Audio: WAV, MP3, FLAC, M4A, AAC, OGG, Opus, AIFF, or WebM · up to 256 MiB · up to 500 seconds.
             </div>
             
             {/* Error Message */}

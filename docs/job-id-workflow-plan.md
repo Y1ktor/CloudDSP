@@ -100,7 +100,7 @@ The existing presigned-upload endpoint can create the job. It returns:
 ```json
 {
   "job_id": "uuid",
-  "upload_url": "presigned PUT URL",
+  "upload_url": "size-constrained presigned POST URL",
   "input_key": "uploads/uuid/source.wav"
 }
 ```

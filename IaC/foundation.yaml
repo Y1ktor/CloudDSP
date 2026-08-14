@@ -46,6 +46,7 @@ Resources:
             AllowedMethods:
               - GET
               - HEAD
+              - POST
               - PUT
             AllowedOrigins: !Ref AllowedFrontendOrigins
             ExposedHeaders:

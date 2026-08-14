@@ -107,6 +107,20 @@ Parameters:
       Memory reserved for one Demucs job. The 14336 MiB default fits a
       g4dn.xlarge while leaving capacity for the ECS host.
 
+  MaxSourceDurationSeconds:
+    Type: Number
+    Default: 500
+    MinValue: 1
+    MaxValue: 3600
+    Description: Maximum decoded input-audio duration accepted before Demucs starts.
+
+  MaxSourceBytes:
+    Type: Number
+    Default: 268435456
+    MinValue: 1
+    MaxValue: 1073741824
+    Description: Maximum durable upload-object size accepted before Demucs downloads it.
+
 Resources:
   BatchEcsInstanceRole:
     Type: AWS::IAM::Role
@@ -266,6 +280,10 @@ Resources:
             Value: !Ref ADTOFLambdaArn
           - Name: WEBSOCKET_API_URL
             Value: !Sub 'https://${WebSocketApiId}.execute-api.${AWS::Region}.amazonaws.com/${EnvironmentName}'
+          - Name: MAX_SOURCE_DURATION_SECONDS
+            Value: !Sub '${MaxSourceDurationSeconds}'
+          - Name: MAX_SOURCE_BYTES
+            Value: !Sub '${MaxSourceBytes}'
         LogConfiguration:
           LogDriver: awslogs
           Options:

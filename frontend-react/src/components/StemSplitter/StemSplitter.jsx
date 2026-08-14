@@ -17,6 +17,16 @@ import { useTransportPlayhead } from '../../hooks/useTransportPlayhead';
 import { useTimelineViewport } from '../../hooks/useTimelineViewport';
 import { ADTOF_DRUM_VOICES, getDrumVoiceTrackId } from '../../utils/DrumMidi';
 
+const MAX_SOURCE_UPLOAD_BYTES = 256 * 1024 * 1024;
+const SUPPORTED_AUDIO_EXTENSIONS = new Set([
+    '.wav', '.mp3', '.flac', '.m4a', '.aac', '.ogg', '.opus', '.aiff', '.aif', '.webm',
+]);
+
+function sourceExtension(filename) {
+    const index = filename.lastIndexOf('.');
+    return index < 0 ? '' : filename.slice(index).toLowerCase();
+}
+
 function filenameFromDownloadUrl(url, fallbackName) {
     try {
         const pathname = new URL(url).pathname;
@@ -163,7 +173,12 @@ export default function StemSplitter({
 
     // 2. Audio Player
     const audioEngine = useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks, sourceUrl, jobId);
-    const { setBpm, setOriginalBpm } = audioEngine;
+    const {
+        setBpm,
+        setOriginalBpm,
+        handleSeek: handleAudioSeek,
+        setCycleRegion,
+    } = audioEngine;
 
     // 3. MIDI Manager
     const {
@@ -314,12 +329,24 @@ export default function StemSplitter({
 
     const handleFileUpload = (e) => {
         const uploadedFile = e.target.files[0];
-        if (uploadedFile) {
-            setFile(uploadedFile);
-            setFileName(uploadedFile.name);
-            beginNewUpload();
-            setErrorMsg("");
+        // ``accept`` controls only the operating system file-picker view. It
+        // is not validation, so check the actual selected File before it can
+        // create an upload job.
+        if (!uploadedFile) return;
+        if (!SUPPORTED_AUDIO_EXTENSIONS.has(sourceExtension(uploadedFile.name))) {
+            setErrorMsg('Choose WAV, MP3, FLAC, M4A, AAC, OGG, Opus, AIFF, or WebM audio.');
+            e.target.value = '';
+            return;
         }
+        if (!Number.isFinite(uploadedFile.size) || uploadedFile.size < 1 || uploadedFile.size > MAX_SOURCE_UPLOAD_BYTES) {
+            setErrorMsg('Choose an audio file no larger than 256 MiB.');
+            e.target.value = '';
+            return;
+        }
+        setFile(uploadedFile);
+        setFileName(uploadedFile.name);
+        beginNewUpload();
+        setErrorMsg("");
     };
 
     const tracksToRender = React.useMemo(() => {
@@ -432,7 +459,7 @@ export default function StemSplitter({
     const rulerPlayheadRef = React.useRef(null);
     const [visibleTimelineRange, setTimelineScrollContainer] = useTimelineViewport(scrollContainerRef);
 
-    useTransportPlayhead({
+    const { notifyManualSeek } = useTransportPlayhead({
         audioCtxRef: audioEngine.audioCtxRef,
         transportRef: audioEngine.transportRef,
         isPlaying: audioEngine.isPlaying,
@@ -441,10 +468,19 @@ export default function StemSplitter({
         beatsPerBar: parsedBeatsPerBar,
         playheadRefs: [timelinePlayheadRef, rulerPlayheadRef],
         scrollContainerRef,
+        resetKey: jobId,
         // The modal owns its own direct playhead while open; do not animate
         // the fully occluded workspace timeline in parallel.
         enabled: audioEngine.duration > 0 && !editorOpenTrack,
     });
+
+    const handleTimelineSeek = React.useCallback((event) => {
+        handleAudioSeek(event);
+        // Ruler scrubs carry viewport intent. Tell the transport whether the
+        // chosen position is left or right of the current view before the
+        // next animation frame decides whether to scroll the canvas.
+        notifyManualSeek();
+    }, [handleAudioSeek, notifyManualSeek]);
 
     React.useEffect(() => {
         const handleMouseMove = (e) => {
@@ -460,7 +496,7 @@ export default function StemSplitter({
                     newBar = Math.max(0, Math.min(newBar, totalBars));
                     
                     const newProgress = (newBar * parsedBeatsPerBar) / (activeBpm / 60);
-                    audioEngine.handleSeek({ target: { value: newProgress } });
+                    handleTimelineSeek({ target: { value: newProgress } });
                 }
             } else if (cycleDragRef.current.isDragging) {
                 const mode = cycleDragRef.current.mode;
@@ -481,7 +517,7 @@ export default function StemSplitter({
                         newEnd = totalBars;
                         newStart = totalBars - span;
                     }
-                    audioEngine.setCycleRegion({ startBar: newStart, endBar: newEnd });
+                    setCycleRegion({ startBar: newStart, endBar: newEnd });
                 } else if (mode === 'resize-left') {
                     let newStart = cycleDragRef.current.initialStart + snappedDeltaBars;
                     const minimumSpan = 1 / parsedBeatsPerBar;
@@ -489,7 +525,7 @@ export default function StemSplitter({
                     if (newStart > cycleDragRef.current.initialEnd - minimumSpan) {
                         newStart = cycleDragRef.current.initialEnd - minimumSpan;
                     }
-                    audioEngine.setCycleRegion({ startBar: newStart, endBar: cycleDragRef.current.initialEnd });
+                    setCycleRegion({ startBar: newStart, endBar: cycleDragRef.current.initialEnd });
                 } else if (mode === 'resize-right') {
                     let newEnd = cycleDragRef.current.initialEnd + snappedDeltaBars;
                     const minimumSpan = 1 / parsedBeatsPerBar;
@@ -497,7 +533,7 @@ export default function StemSplitter({
                     if (newEnd < cycleDragRef.current.initialStart + minimumSpan) {
                         newEnd = cycleDragRef.current.initialStart + minimumSpan;
                     }
-                    audioEngine.setCycleRegion({ startBar: cycleDragRef.current.initialStart, endBar: newEnd });
+                    setCycleRegion({ startBar: cycleDragRef.current.initialStart, endBar: newEnd });
                 }
             }
         };
@@ -520,7 +556,7 @@ export default function StemSplitter({
             window.removeEventListener('mousemove', handleMouseMove);
             window.removeEventListener('mouseup', handleMouseUp);
         };
-    }, [activeBpm, pixelsPerBar, totalBars, parsedBeatsPerBar, audioEngine.handleSeek, audioEngine.setCycleRegion]);
+    }, [activeBpm, pixelsPerBar, totalBars, parsedBeatsPerBar, handleTimelineSeek, setCycleRegion]);
 
     return (
         <div style={{
@@ -620,7 +656,11 @@ export default function StemSplitter({
                                 <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
                             </button>
 
-                            <button title="Play/Pause" onClick={audioEngine.togglePlay} style={{
+                            <button
+                                title="Play/Pause"
+                                onPointerDown={audioEngine.unlockAudio}
+                                onClick={audioEngine.togglePlay}
+                                style={{
                                 background: 'transparent', color: 'white', border: 'none',
                                 cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '0', opacity: 0.8
                             }}>
@@ -849,7 +889,7 @@ export default function StemSplitter({
                                         visibleRange={visibleTimelineRange}
                                         activeBpm={activeBpm}
                                         parsedBeatsPerBar={parsedBeatsPerBar}
-                                        handleSeek={audioEngine.handleSeek}
+                                        handleSeek={handleTimelineSeek}
                                     />
                                     
                                     {/* The popup is modal. Its own virtual piano roll is
@@ -937,6 +977,7 @@ export default function StemSplitter({
                 isPlayheadHovered={isPlayheadHovered}
                 handleGoToBeginning={audioEngine.handleGoToBeginning}
                 isPlaying={audioEngine.isPlaying}
+                unlockAudio={audioEngine.unlockAudio}
                 togglePlay={audioEngine.togglePlay}
                 toggleCycling={() => audioEngine.setIsCycling(!audioEngine.isCycling)}
                 mutedTracks={audioEngine.mutedTracks}

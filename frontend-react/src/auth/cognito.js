@@ -18,8 +18,21 @@ function getUserPool() {
 }
 
 function sessionDetails(user, session) {
+    const claims = session.getIdToken().decodePayload();
+    const profileName = typeof claims.preferred_username === 'string'
+        ? claims.preferred_username.trim()
+        : '';
+    const emailName = typeof claims.email === 'string'
+        ? claims.email.trim().split('@')[0]
+        : '';
     return {
         username: user.getUsername(),
+        // ``cognito:username`` may be an opaque UUID in a pool configured
+        // with email as the sign-in attribute. Never present that internal ID
+        // as the user's name. New accounts use preferred_username; older
+        // accounts fall back to the readable portion of their verified email.
+        displayName: profileName || emailName || 'there',
+        email: claims.email || '',
         idToken: session.getIdToken().getJwtToken(),
         expiresAt: session.getIdToken().getExpiration() * 1000,
     };
@@ -53,12 +66,15 @@ export function signIn(email, password) {
     });
 }
 
-export function signUp(email, password) {
+export function signUp(email, password, displayName) {
     return new Promise((resolve, reject) => {
         getUserPool().signUp(
             email.trim(),
             password,
-            [new CognitoUserAttribute({ Name: 'email', Value: email.trim() })],
+            [
+                new CognitoUserAttribute({ Name: 'email', Value: email.trim() }),
+                new CognitoUserAttribute({ Name: 'preferred_username', Value: displayName.trim() }),
+            ],
             [],
             (error, result) => {
                 if (error) {

@@ -1,12 +1,15 @@
 """Create and read durable CloudDSP processing jobs.
 
 ``POST /jobs`` creates the DynamoDB record before the browser uploads audio
-and returns a presigned PUT URL for ``uploads/{job_id}/{filename}``.
+and returns a size-constrained presigned POST contract for
+``uploads/{job_id}/{filename}``.
 ``POST /jobs/link`` creates the same durable record and asynchronously invokes
 the yt-dlp ingestion Lambda, which writes that input key itself.
 ``GET /jobs`` lists the authenticated user's recent jobs. ``GET /jobs/{job_id}``
-returns the stored state with fresh presigned source and artifact URLs. Workers
-store S3 keys, rather than expiring URLs, in the job record.
+returns the stored state with fresh presigned source and artifact URLs.
+``DELETE /jobs/{job_id}`` permanently removes one terminal job and all of its
+source, stem, MIDI, and tempo objects. Workers store S3 keys, rather than
+expiring URLs, in the job record.
 
 An API Gateway JWT authorizer must be attached before deployment.  This
 handler uses the authenticated ``sub`` claim as the job owner and never trusts
@@ -29,8 +32,22 @@ from boto3.dynamodb.conditions import Key
 
 
 VALID_STEM_MODES = {"2-stems", "4-stems", "6-stems"}
+TERMINAL_JOB_STATUSES = {"completed", "failed"}
 DEFAULT_JOB_TTL_DAYS = 7
 USER_JOBS_INDEX_NAME = "user_id-updated_at-index"
+DEFAULT_MAX_SOURCE_BYTES = 256 * 1024 * 1024
+SUPPORTED_AUDIO_MEDIA_TYPES = {
+    ".wav": ("audio/wav", {"audio/wav", "audio/x-wav", "audio/wave", "audio/vnd.wave"}),
+    ".mp3": ("audio/mpeg", {"audio/mpeg", "audio/mp3"}),
+    ".flac": ("audio/flac", {"audio/flac", "audio/x-flac"}),
+    ".m4a": ("audio/mp4", {"audio/mp4", "audio/x-m4a", "audio/m4a"}),
+    ".aac": ("audio/aac", {"audio/aac", "audio/x-aac"}),
+    ".ogg": ("audio/ogg", {"audio/ogg", "application/ogg"}),
+    ".opus": ("audio/ogg", {"audio/ogg", "audio/opus", "application/ogg"}),
+    ".aiff": ("audio/aiff", {"audio/aiff", "audio/x-aiff"}),
+    ".aif": ("audio/aiff", {"audio/aiff", "audio/x-aiff"}),
+    ".webm": ("audio/webm", {"audio/webm"}),
+}
 
 _jobs = boto3.resource("dynamodb").Table(os.environ["JOBS_TABLE_NAME"])
 _s3 = boto3.client("s3")
@@ -109,6 +126,39 @@ def safe_filename(value: Any) -> str:
     return filename
 
 
+def supported_source_content_type(filename: str, value: Any) -> str:
+    """Validate the browser's filename/type pair and return a canonical MIME type."""
+    extension = PurePath(filename).suffix.lower()
+    supported = SUPPORTED_AUDIO_MEDIA_TYPES.get(extension)
+    if not supported:
+        raise RequestError(
+            400,
+            "Supported audio files are WAV, MP3, FLAC, M4A, AAC, OGG, Opus, AIFF, and WebM.",
+        )
+
+    canonical_type, accepted_types = supported
+    if value in {None, "", "application/octet-stream"}:
+        # Browser MIME detection is inconsistent for audio containers. The
+        # extension whitelist decides the canonical S3 content type in that
+        # case; Batch still probes the decoded file before Demucs runs.
+        return canonical_type
+    if not isinstance(value, str) or len(value) > 255:
+        raise RequestError(400, "content_type must be a short string.")
+    content_type = value.split(";", 1)[0].strip().lower()
+    if content_type not in accepted_types:
+        raise RequestError(400, f"{extension} must be uploaded with an audio content type.")
+    return canonical_type
+
+
+def bounded_source_size(value: Any, maximum: int) -> int:
+    """Check the UI's exact File.size before issuing an S3 upload contract."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise RequestError(400, "size_bytes must be an integer.")
+    if value < 1 or value > maximum:
+        raise RequestError(400, f"Audio files must be between 1 byte and {maximum} bytes.")
+    return value
+
+
 def safe_media_url(value: Any) -> str:
     """Accept one absolute source URL for the yt-dlp ingestion worker."""
     if not isinstance(value, str) or not value.strip():
@@ -153,9 +203,9 @@ def create_job(event: dict[str, Any], user_id: str) -> dict[str, Any]:
     if stem_mode not in VALID_STEM_MODES:
         raise RequestError(400, "stem_mode must be 2-stems, 4-stems, or 6-stems.")
 
-    content_type = payload.get("content_type") or "application/octet-stream"
-    if not isinstance(content_type, str) or len(content_type) > 255:
-        raise RequestError(400, "content_type must be a short string.")
+    content_type = supported_source_content_type(filename, payload.get("content_type"))
+    maximum_source_bytes = configured_int("MAX_SOURCE_BYTES", DEFAULT_MAX_SOURCE_BYTES)
+    source_size_bytes = bounded_source_size(payload.get("size_bytes"), maximum_source_bytes)
 
     job_id = str(uuid.uuid4())
     input_key = f"uploads/{job_id}/{filename}"
@@ -171,6 +221,7 @@ def create_job(event: dict[str, Any], user_id: str) -> dict[str, Any]:
         "input_key": input_key,
         "source_filename": filename,
         "source_content_type": content_type,
+        "source_size_bytes": source_size_bytes,
         "stem_mode": stem_mode,
         "stems": {},
         "midi": {},
@@ -184,29 +235,34 @@ def create_job(event: dict[str, Any], user_id: str) -> dict[str, Any]:
         ConditionExpression="attribute_not_exists(job_id)",
     )
 
-    upload_url = _s3.generate_presigned_url(
-        ClientMethod="put_object",
-        Params={
-            "Bucket": job["input_bucket"],
-            "Key": input_key,
-            "ContentType": content_type,
-            "Metadata": {"job-id": job_id, "stem-mode": stem_mode},
+    upload_contract = _s3.generate_presigned_post(
+        Bucket=job["input_bucket"],
+        Key=input_key,
+        Fields={
+            "Content-Type": content_type,
+            "x-amz-meta-job-id": job_id,
+            "x-amz-meta-stem-mode": stem_mode,
         },
+        Conditions=[
+            {"Content-Type": content_type},
+            {"x-amz-meta-job-id": job_id},
+            {"x-amz-meta-stem-mode": stem_mode},
+            ["content-length-range", 1, maximum_source_bytes],
+        ],
         ExpiresIn=configured_int("UPLOAD_URL_EXPIRY_SECONDS", 300),
-        HttpMethod="PUT",
     )
-    print(f"Created job {job_id} for authenticated user {user_id}.")
+    print(
+        f"Created job {job_id} for authenticated user {user_id}; "
+        f"declared source size is {source_size_bytes} bytes (limit {maximum_source_bytes})."
+    )
     return {
         "job_id": job_id,
         "status": job["status"],
         "revision": job["revision"],
         "input_key": input_key,
-        "upload_url": upload_url,
-        "upload_headers": {
-            "Content-Type": content_type,
-            "x-amz-meta-job-id": job_id,
-            "x-amz-meta-stem-mode": stem_mode,
-        },
+        "upload_url": upload_contract["url"],
+        "upload_fields": upload_contract["fields"],
+        "max_source_bytes": maximum_source_bytes,
     }
 
 
@@ -396,7 +452,8 @@ def list_jobs(user_id: str) -> dict[str, list[dict[str, Any]]]:
 
 
 def get_job(event: dict[str, Any], user_id: str) -> dict[str, Any]:
-    job_id = event.get("pathParameters", {}).get("job_id")
+    path_parameters = event.get("pathParameters") or {}
+    job_id = path_parameters.get("job_id")
     if not isinstance(job_id, str) or not job_id:
         raise RequestError(400, "job_id is required.")
     item = _jobs.get_item(Key={"job_id": job_id}).get("Item")
@@ -406,6 +463,113 @@ def get_job(event: dict[str, Any], user_id: str) -> dict[str, Any]:
         # Do not reveal whether a job ID belongs to another user.
         raise RequestError(404, "Job not found.")
     return artifact_snapshot(item)
+
+
+def canonical_job_id(event: dict[str, Any]) -> str:
+    """Read and normalize the UUID used for a job-owned S3 prefix."""
+    path_parameters = event.get("pathParameters") or {}
+    job_id = path_parameters.get("job_id")
+    if not isinstance(job_id, str) or not job_id:
+        raise RequestError(400, "job_id is required.")
+    try:
+        return str(uuid.UUID(job_id))
+    except (AttributeError, ValueError) as error:
+        raise RequestError(400, "job_id must be a UUID.") from error
+
+
+def delete_s3_prefix_versions(bucket: str, prefix: str) -> int:
+    """Permanently delete every current and noncurrent version under a prefix.
+
+    Both audio buckets are versioned. Deleting only the current object would
+    leave the audio recoverable as a noncurrent version and would continue to
+    consume storage, so collect both object versions and delete markers first.
+    The job UUID prefix keeps this bounded to the authenticated user's one job.
+    """
+    versions: list[dict[str, str]] = []
+    key_marker: str | None = None
+    version_id_marker: str | None = None
+
+    while True:
+        request: dict[str, str] = {"Bucket": bucket, "Prefix": prefix}
+        if key_marker:
+            request["KeyMarker"] = key_marker
+        if version_id_marker:
+            request["VersionIdMarker"] = version_id_marker
+        page = _s3.list_object_versions(**request)
+        versions.extend(
+            {"Key": entry["Key"], "VersionId": entry["VersionId"]}
+            for entry in [*page.get("Versions", []), *page.get("DeleteMarkers", [])]
+        )
+        if not page.get("IsTruncated"):
+            break
+        key_marker = page.get("NextKeyMarker")
+        version_id_marker = page.get("NextVersionIdMarker")
+        if not key_marker:
+            raise RuntimeError(
+                f"S3 returned a truncated version listing without a continuation marker for {prefix}."
+            )
+
+    deleted_count = 0
+    for offset in range(0, len(versions), 1_000):
+        batch = versions[offset:offset + 1_000]
+        deletion = _s3.delete_objects(
+            Bucket=bucket,
+            Delete={"Objects": batch, "Quiet": True},
+        )
+        errors = deletion.get("Errors", [])
+        if errors:
+            failed_keys = ", ".join(error.get("Key", "unknown") for error in errors[:5])
+            raise RuntimeError(f"Could not delete S3 objects under {prefix}: {failed_keys}")
+        deleted_count += len(batch)
+    return deleted_count
+
+
+def delete_job(event: dict[str, Any], user_id: str) -> dict[str, Any]:
+    """Permanently delete one owned, terminal job and its job-scoped artifacts."""
+    job_id = canonical_job_id(event)
+    item = _jobs.get_item(Key={"job_id": job_id}, ConsistentRead=True).get("Item")
+    if not item or not job_is_retained(item) or item.get("user_id") != user_id:
+        # Keep the same response for absent and another user's jobs so a
+        # caller cannot enumerate jobs outside their account.
+        raise RequestError(404, "Job not found.")
+    if item.get("status") not in TERMINAL_JOB_STATUSES:
+        raise RequestError(409, "Only completed or failed jobs can be deleted.")
+
+    artifact_prefixes = (
+        (os.environ["UPLOADS_BUCKET_NAME"], f"uploads/{job_id}/"),
+        (os.environ["PROCESSED_AUDIO_BUCKET_NAME"], f"stems/{job_id}/"),
+        (os.environ["PROCESSED_AUDIO_BUCKET_NAME"], f"midi/{job_id}/"),
+    )
+    deleted_objects = 0
+    for bucket, prefix in artifact_prefixes:
+        deleted_here = delete_s3_prefix_versions(bucket, prefix)
+        deleted_objects += deleted_here
+        print(f"Deleted {deleted_here} versioned S3 object(s) from s3://{bucket}/{prefix}.")
+
+    try:
+        _jobs.delete_item(
+            Key={"job_id": job_id},
+            ConditionExpression="#user_id = :user_id AND #status IN (:completed, :failed)",
+            ExpressionAttributeNames={
+                "#user_id": "user_id",
+                "#status": "status",
+            },
+            ExpressionAttributeValues={
+                ":user_id": user_id,
+                ":completed": "completed",
+                ":failed": "failed",
+            },
+        )
+    except _jobs.meta.client.exceptions.ConditionalCheckFailedException as error:
+        # The job's artifacts have already been removed. Do not report a
+        # false success if its ownership or terminal status changed meanwhile.
+        raise RequestError(409, "Job changed while it was being deleted. Refresh the library.") from error
+
+    print(
+        f"Permanently deleted terminal job {job_id} for authenticated user {user_id}; "
+        f"removed {deleted_objects} S3 object version(s)."
+    )
+    return {"job_id": job_id, "deleted_objects": deleted_objects}
 
 
 def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
@@ -422,6 +586,8 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             return response(200, list_jobs(user_id))
         if route_key == "GET /jobs/{job_id}":
             return response(200, get_job(event, user_id))
+        if route_key == "DELETE /jobs/{job_id}":
+            return response(200, delete_job(event, user_id))
         raise RequestError(404, "Route not found.")
     except RequestError as error:
         return response(error.status_code, {"error": error.message})

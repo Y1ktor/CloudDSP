@@ -50,10 +50,13 @@ function updateElement(element, x) {
  * missed browser frame merely advances the next transform to the correct
  * audio-clock position instead of causing a React/scroll recovery cycle.
  *
- * Once the transport crosses the viewport centre, the playhead stays there
- * and the scroll viewport follows the timeline. The follow calculation has no
- * heuristic "seek" state: explicit seeks update the transport position and
- * are rendered on the next frame just like all other transport changes.
+ * A normal transport starts at the left and lets the playhead reach the
+ * viewport centre before scrolling the timeline. A manual ruler seek follows
+ * the same rule when it lands in the left half. When it lands in the right
+ * half, the viewport is deliberately held still so the user can see the
+ * playhead travel naturally to the right edge; it then makes one page shift
+ * and resumes the normal left-to-centre behaviour. This avoids a ruler click
+ * immediately snapping both canvas and playhead to the centre.
  */
 export function useTransportPlayhead({
     audioCtxRef,
@@ -64,10 +67,15 @@ export function useTransportPlayhead({
     beatsPerBar,
     playheadRefs = [],
     scrollContainerRef,
+    resetKey = null,
     enabled = true,
 }) {
     const configRef = React.useRef(null);
     const frameRef = React.useRef(null);
+    const followStateRef = React.useRef({
+        mode: 'follow',
+        rightHoldStartX: null,
+    });
 
     configRef.current = {
         audioCtxRef,
@@ -77,7 +85,62 @@ export function useTransportPlayhead({
         beatsPerBar,
         playheadRefs,
         scrollContainerRef,
+        resetKey,
         enabled,
+    };
+
+    React.useEffect(() => {
+        // A different durable job has a fresh timeline and scroll position;
+        // it must never inherit a right-side manual seek from the previous
+        // project.
+        followStateRef.current = { mode: 'follow', rightHoldStartX: null };
+    }, [resetKey]);
+
+    const updatePlaybackViewport = (container, x) => {
+        const viewportWidth = container.clientWidth;
+        if (!Number.isFinite(viewportWidth) || viewportWidth <= 0) return;
+
+        const maxScrollLeft = Math.max(0, container.scrollWidth - viewportWidth);
+        const state = followStateRef.current;
+        const currentScrollLeft = container.scrollLeft;
+        const relativeX = x - currentScrollLeft;
+
+        if (state.mode === 'slide-right') {
+            // A separate seek (for example, Go to Beginning) moved transport
+            // backwards while a prior right-side manual seek was pending.
+            // Return to the normal follow mode rather than retaining stale
+            // viewport intent.
+            if (state.rightHoldStartX !== null && x < state.rightHoldStartX - 1) {
+                state.mode = 'follow';
+                state.rightHoldStartX = null;
+            } else if (relativeX < viewportWidth) {
+                // The user deliberately sought into the right half. Keep the
+                // viewport stationary until the natural playhead motion uses
+                // the remaining right-side space.
+                return;
+            } else {
+                // The playhead reached the right edge. Page forward once so
+                // it appears at the left edge, then let normal centre-follow
+                // behaviour take over without a centre snap.
+                const pageScrollLeft = clamp(x, 0, maxScrollLeft);
+                if (Math.abs(currentScrollLeft - pageScrollLeft) >= MIN_SCROLL_DELTA_PX) {
+                    container.scrollLeft = pageScrollLeft;
+                }
+                state.mode = 'follow';
+                state.rightHoldStartX = null;
+                return;
+            }
+        }
+
+        // In normal left-to-centre mode, compare against the *current
+        // viewport*. Comparing x only with halfWidth assumes scrollLeft is
+        // zero and is the cause of the old post-seek centre jump.
+        if (relativeX >= viewportWidth / 2) {
+            const targetScrollLeft = clamp(x - viewportWidth / 2, 0, maxScrollLeft);
+            if (Math.abs(currentScrollLeft - targetScrollLeft) >= MIN_SCROLL_DELTA_PX) {
+                container.scrollLeft = targetScrollLeft;
+            }
+        }
     };
 
     const renderTransportPosition = React.useCallback(() => {
@@ -94,22 +157,39 @@ export function useTransportPlayhead({
 
         const container = config.scrollContainerRef?.current;
         if (container && config.transportRef?.current?.isPlaying) {
-            const halfWidth = container.clientWidth / 2;
-            const maxScrollLeft = Math.max(0, container.scrollWidth - container.clientWidth);
-            const targetScrollLeft = x > halfWidth
-                ? clamp(x - halfWidth, 0, maxScrollLeft)
-                : 0;
-
-            // Avoid a layout-affecting programmatic scroll for sub-pixel
-            // changes. This also prevents high-refresh displays from issuing
-            // two expensive scroll writes for the same visual pixel.
-            if (Math.abs(container.scrollLeft - targetScrollLeft) >= MIN_SCROLL_DELTA_PX) {
-                container.scrollLeft = targetScrollLeft;
-            }
+            updatePlaybackViewport(container, x);
         }
 
         return x;
     }, []);
+
+    const notifyManualSeek = React.useCallback(() => {
+        const config = configRef.current;
+        const container = config?.scrollContainerRef?.current;
+        if (container) {
+            const safeBpm = Number(config.bpm) || 120;
+            const safeBeatsPerBar = Number(config.beatsPerBar) || 4;
+            const safePixelsPerBar = Number(config.pixelsPerBar) || 100;
+            const position = positionFromTransport(config.transportRef, config.audioCtxRef);
+            const x = position * (safeBpm / 60) / safeBeatsPerBar * safePixelsPerBar;
+            const relativeX = x - container.scrollLeft;
+            const state = followStateRef.current;
+
+            if (relativeX > container.clientWidth / 2) {
+                state.mode = 'slide-right';
+                state.rightHoldStartX = x;
+                console.info('[CloudDSP] Manual timeline seek entered right-side slide mode.');
+            } else {
+                state.mode = 'follow';
+                state.rightHoldStartX = null;
+                console.info('[CloudDSP] Manual timeline seek entered left-to-centre follow mode.');
+            }
+        }
+
+        // Update paused playheads immediately. If playing, the selected mode
+        // above ensures this render does not recenter a right-side seek.
+        return renderTransportPosition();
+    }, [renderTransportPosition]);
 
     // Apply configuration, seeking, and paused-position changes immediately.
     // The animation loop below owns continuous playback updates.
@@ -141,5 +221,5 @@ export function useTransportPlayhead({
         };
     }, [enabled, isPlaying, renderTransportPosition]);
 
-    return renderTransportPosition;
+    return { renderTransportPosition, notifyManualSeek };
 }
