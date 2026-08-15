@@ -1,0 +1,255 @@
+.architecture-page {
+    width: min(1180px, calc(100vw - 40px));
+    box-sizing: border-box;
+    margin: 0 auto 68px;
+    padding: 32px;
+    border: 1px solid #293848;
+    border-radius: 10px;
+    background: radial-gradient(circle at 80% 0%, #203b4f 0, #121a23 36%, #10171f 100%);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, .25);
+    color: #e8edf4;
+}
+
+.architecture-hero {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 28px;
+    margin: 10px 0 30px;
+}
+
+.architecture-hero > div:first-child { min-width: 0; }
+
+.architecture-section-kicker,
+.architecture-node-eyebrow,
+.architecture-component-card-top > span:last-child {
+    color: #74c0ff;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+}
+
+.architecture-hero h1,
+.architecture-diagram-heading h2,
+.architecture-components-intro h2 {
+    margin: 8px 0 0;
+    color: #f5f8fb;
+    letter-spacing: -.025em;
+}
+
+.architecture-hero h1 {
+    max-width: 760px;
+    text-align: left;
+    font-size: clamp(30px, 4vw, 48px);
+    line-height: 1.04;
+}
+
+.architecture-hero p {
+    max-width: 710px;
+    margin: 14px 0 0;
+    color: #abb8c8;
+    font-size: 16px;
+    line-height: 1.55;
+}
+
+.architecture-icons-credit {
+    flex: 0 0 auto;
+    padding: 9px 12px;
+    border: 1px solid #405269;
+    border-radius: 5px;
+    color: #aacdf5;
+    font-size: 12px;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.architecture-icons-credit:hover { border-color: #6ea5d7; color: #e8f2ff; }
+
+.architecture-tabs {
+    display: flex;
+    width: max-content;
+    margin: 0 0 24px;
+    padding: 4px;
+    gap: 3px;
+    border: 1px solid #3e4d5e;
+    border-radius: 6px;
+    background: #18212b;
+}
+
+.architecture-tabs button {
+    padding: 8px 16px;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: #9eacba;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.architecture-tabs button:hover { color: #e9f2fa; }
+.architecture-tabs button.is-active { background: #295a83; color: #fff; box-shadow: inset 0 0 0 1px #4e98ce; }
+
+.architecture-diagram-shell,
+.architecture-components {
+    border: 1px solid #3a4756;
+    border-radius: 8px;
+    background: #18212b;
+    box-shadow: 0 18px 44px rgba(0, 0, 0, .22);
+}
+
+.architecture-diagram-shell { padding: 24px; }
+.architecture-diagram-heading,
+.architecture-components-intro {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 24px;
+}
+
+.architecture-diagram-heading h2,
+.architecture-components-intro h2 { font-size: 21px; }
+
+.architecture-legend {
+    display: flex;
+    gap: 14px;
+    color: #9dacbc;
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.architecture-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.architecture-legend-line { display: inline-block; width: 18px; height: 1px; background: #55a6dd; }
+.architecture-legend-line--dashed { background: repeating-linear-gradient(90deg, #c47bde 0 4px, transparent 4px 7px); }
+
+.architecture-diagram-scroll { overflow-x: auto; padding: 22px 0 4px; }
+.architecture-diagram { min-width: 1110px; }
+
+.architecture-lane-label {
+    margin: 12px 0 7px;
+    color: #8fa7ba;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}
+
+.architecture-lane {
+    display: grid;
+    grid-template-columns: 150px 48px 150px 48px 150px 48px 150px 48px 150px;
+    align-items: stretch;
+    padding: 14px;
+    border: 1px solid #354555;
+    border-radius: 6px;
+    background: #121a22;
+}
+
+.architecture-lane--processing { background: #152022; }
+.architecture-lane--delivery { background: #171c28; }
+
+.architecture-node {
+    display: flex;
+    min-height: 96px;
+    gap: 10px;
+    align-items: center;
+    padding: 11px;
+    border: 1px solid #435467;
+    border-radius: 5px;
+    background: #202c38;
+    box-sizing: border-box;
+}
+
+.architecture-node--client { border-color: #4f8aaf; background: #1a3040; }
+.architecture-service-icon { width: 42px; height: 42px; flex: 0 0 42px; object-fit: contain; }
+.architecture-node .architecture-service-icon { width: 36px; height: 36px; flex-basis: 36px; }
+
+.architecture-browser-icon {
+    display: grid;
+    width: 36px;
+    height: 36px;
+    flex: 0 0 36px;
+    place-items: center;
+    border: 1px solid #73bde9;
+    border-radius: 5px;
+    color: #bde6ff;
+    font-size: 29px;
+    font-weight: 300;
+    line-height: 1;
+}
+
+.architecture-browser-icon--small { width: 42px; height: 42px; flex-basis: 42px; }
+.architecture-node-title { margin-top: 3px; color: #f2f7fa; font-size: 13px; font-weight: 750; line-height: 1.2; }
+.architecture-node-detail { margin-top: 5px; color: #9eadba; font-size: 10px; line-height: 1.25; }
+
+.architecture-arrow {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    color: #66acd8;
+}
+
+.architecture-arrow span { max-width: 48px; margin-bottom: 4px; color: #90a4b5; font-size: 9px; line-height: 1.1; text-align: center; }
+.architecture-arrow i { font-size: 23px; font-style: normal; line-height: 1; }
+.architecture-arrow--dashed { color: #c789df; }
+.architecture-arrow--dashed i { border-bottom: 1px dashed #c789df; }
+
+.architecture-flow-notes {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-top: 22px;
+}
+
+.architecture-flow-notes p {
+    margin: 0;
+    padding: 11px 12px;
+    border-left: 2px solid #4f9dd4;
+    background: #1d2935;
+    color: #b9c6d3;
+    font-size: 12px;
+    line-height: 1.5;
+}
+.architecture-flow-notes b { color: #87caff; }
+
+.architecture-components { padding: 24px; }
+.architecture-components-intro p { max-width: 450px; margin: 0; color: #aab7c5; font-size: 13px; line-height: 1.55; }
+
+.architecture-component-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+    margin-top: 25px;
+}
+
+.architecture-component-card {
+    display: flex;
+    min-height: 252px;
+    flex-direction: column;
+    padding: 17px;
+    border: 1px solid #405063;
+    border-radius: 6px;
+    background: #202b37;
+}
+
+.architecture-component-card-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.architecture-component-card h3 { margin: 17px 0 9px; color: #f0f5f8; font-size: 16px; line-height: 1.25; }
+.architecture-component-card p { margin: 0; color: #b2bfca; font-size: 12px; line-height: 1.55; }
+.architecture-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; padding-top: 14px; }
+.architecture-tags span { padding: 4px 6px; border: 1px solid #4d6073; border-radius: 3px; color: #a9cdea; font-size: 10px; }
+
+@media (max-width: 760px) {
+    .architecture-page { width: min(100% - 24px, 1180px); padding: 18px; }
+    .architecture-hero,
+    .architecture-diagram-heading,
+    .architecture-components-intro { align-items: flex-start; flex-direction: column; }
+    .architecture-hero { margin-top: 0; }
+    .architecture-legend { flex-wrap: wrap; white-space: normal; }
+    .architecture-diagram-shell,
+    .architecture-components { padding: 16px; }
+    .architecture-flow-notes,
+    .architecture-component-grid { grid-template-columns: 1fr; }
+    .architecture-component-card { min-height: 0; }
+}

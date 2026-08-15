@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BrowserRouter, Link, Navigate, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Link, NavLink, Navigate, Route, Routes } from 'react-router-dom';
+import ArchitecturePage from './components/ArchitecturePage';
 import AuthPanel from './components/AuthPanel';
 import StemSplitter from './components/StemSplitter/StemSplitter';
 import PreviousJobs from './components/StemSplitter/PreviousJobs';
@@ -165,7 +166,15 @@ function NavBar({ authProps }) {
     return (
         <div style={navStyle}>
             <Link to="/" style={{ color: '#fff', fontWeight: '900', fontSize: '20px', marginRight: '20px', letterSpacing: '1px', textDecoration: 'none' }}>CloudDSP</Link>
-            <span style={{ color: '#aebbc7', fontSize: '13px', fontWeight: '600' }}>Stem Splitter</span>
+            <NavLink
+                to="/"
+                end
+                style={({ isActive }) => ({ color: isActive ? '#f3f8fd' : '#aebbc7', fontSize: '13px', fontWeight: '700', textDecoration: 'none' })}
+            >Studio</NavLink>
+            <NavLink
+                to="/architecture"
+                style={({ isActive }) => ({ color: isActive ? '#f3f8fd' : '#aebbc7', fontSize: '13px', fontWeight: '700', textDecoration: 'none' })}
+            >Architecture</NavLink>
             <div style={{ marginLeft: 'auto' }}><AuthPanel {...authProps} /></div>
         </div>
     );
@@ -859,6 +868,7 @@ export default function App() {
                 )}
                 <Routes>
                     <Route path="/" element={<div style={{ display: 'flex', justifyContent: 'center' }}><StemSplitter {...stemProps} /></div>} />
+                    <Route path="/architecture" element={<ArchitecturePage />} />
                     <Route path="/stems" element={<Navigate to="/" replace />} />
                 </Routes>
             </div>
