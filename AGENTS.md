@@ -60,8 +60,10 @@ low-latency notification mechanism, not durable result storage.
    then removes the DynamoDB record. Do not permit deletion while workers are
    processing a job.
 
-For a linked media source, `POST /jobs/link` creates the same job first and
-asynchronously invokes yt-dlp. The ingestion Lambda writes only the durable
+For a linked media source, `POST /jobs/link` accepts only HTTPS source-page
+hosts in the reviewed `AllowedMediaHosts` allowlist (YouTube, Bilibili, and
+SoundCloud by default), creates the same job first, and asynchronously invokes
+yt-dlp. The ingestion Lambda repeats that validation and writes only the durable
 `uploads/{job_id}/linked-audio.wav` input key, with `job-id` and `stem-mode`
 metadata. That write triggers the same S3 → EventBridge → Batch path as a
 browser presigned upload. The React link modal calls this endpoint directly;
@@ -247,7 +249,7 @@ Docker image before local testing.
   advanced concurrently.
 - A changed ZIP file at the same S3 key does not reliably replace Lambda code.
   Upload the Job API package under a new key (currently
-  `job_api-delete-history-20260813.zip`) and update `JobApiCodeS3Key` when
+  `job_api-media-url-allowlist-20260815.zip`) and update `JobApiCodeS3Key` when
   deploying Job API changes.
 
 ## 4. Infrastructure Rules

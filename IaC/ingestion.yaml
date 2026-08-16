@@ -26,6 +26,11 @@ Parameters:
       Optional residential proxy URL supplied by the root stack. Leave empty
       to allow direct egress.
 
+  AllowedMediaHosts:
+    Type: CommaDelimitedList
+    Default: youtube.com,youtu.be,bilibili.com,b23.tv,soundcloud.com,on.soundcloud.com
+    Description: Reviewed linked-media page hosts accepted by the worker.
+
   UploadsBucketName:
     Type: String
     Description: Source-upload bucket name from the foundation component.
@@ -190,6 +195,7 @@ Resources:
           MAX_SOURCE_DOWNLOAD_BYTES: !Sub '${MaxSourceDownloadBytes}'
           MAX_CONVERTED_WAV_BYTES: !Sub '${MaxConvertedWavBytes}'
           PROXY_URL: !Ref YtDlpProxyUrl
+          ALLOWED_MEDIA_HOSTS: !Join [',', !Ref AllowedMediaHosts]
       Tags:
         - Key: Project
           Value: !Ref ProjectName

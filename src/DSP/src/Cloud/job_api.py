@@ -17,7 +17,6 @@ a user ID supplied by the browser.
 """
 
 import json
-import ipaddress
 import os
 import time
 import uuid
@@ -25,10 +24,11 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import PurePath
 from typing import Any
-from urllib.parse import urlsplit
 
 import boto3
 from boto3.dynamodb.conditions import Key
+
+from media_url_policy import MediaUrlPolicyError, validate_allowlisted_media_url
 
 
 VALID_STEM_MODES = {"2-stems", "4-stems", "6-stems"}
@@ -160,28 +160,11 @@ def bounded_source_size(value: Any, maximum: int) -> int:
 
 
 def safe_media_url(value: Any) -> str:
-    """Accept one absolute source URL for the yt-dlp ingestion worker."""
-    if not isinstance(value, str) or not value.strip():
-        raise RequestError(400, "source_url is required.")
-    if len(value) > 2_048:
-        raise RequestError(400, "source_url is too long.")
-    parsed = urlsplit(value)
-    if parsed.scheme not in {"https", "http"} or not parsed.hostname:
-        raise RequestError(400, "source_url must be an absolute HTTP or HTTPS URL.")
-    if parsed.username or parsed.password:
-        raise RequestError(400, "source_url must not contain credentials.")
-    if parsed.hostname.lower() == "localhost":
-        raise RequestError(400, "source_url must not target localhost.")
+    """Accept one reviewed HTTPS media-page URL for the ingestion worker."""
     try:
-        address = ipaddress.ip_address(parsed.hostname)
-    except ValueError:
-        # A hostname is valid, but the Lambda's network controls must block
-        # private destinations if it resolves to one at request time.
-        pass
-    else:
-        if not address.is_global:
-            raise RequestError(400, "source_url must not target a private or reserved IP address.")
-    return value
+        return validate_allowlisted_media_url(value)
+    except MediaUrlPolicyError as error:
+        raise RequestError(400, str(error)) from error
 
 
 def configured_int(name: str, default: int, minimum: int = 1) -> int:

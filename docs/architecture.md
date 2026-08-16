@@ -93,7 +93,7 @@ flowchart LR
 | Browser transport | **AudioMultiTrackPlayer.js**, **useTransportPlayhead.js**, **useTimelineViewport.js**, **useMidiSynth.js**, **useMidiManager.js** | Serializes audio/MIDI decode work, retains only current bounded `AudioBuffer`s and one editable MIDI graph per artifact, exposes an audio-clock transport ref for direct visual/MIDI consumers, renders only viewport-local timeline data, applies immediate gain/mute/solo, and aligns isolated MIDI output buses with the same start time. |
 | Authentication | **IaC/auth.yaml**, Cognito User Pool | Provides email/password accounts and ID tokens. There is no Cognito Identity Pool and no browser AWS credentials. |
 | Job API | **IaC/api.yaml**, **job_api.py** | Creates durable upload or linked-source jobs, invokes yt-dlp for a linked source, enforces ownership, renders stored artifact keys as fresh signed downloads, and permanently deletes terminal jobs at the owner's request. |
-| Link ingestion | **IaC/ingestion.yaml**, **LambdaYtDlp.py** | Downloads a validated public media URL through the optional residential `PROXY_URL`, with Deno/EJS challenge solving and typed curl-cffi Chrome impersonation, converts it to WAV, and writes the job's existing input key in the private uploads bucket. The normal S3/EventBridge route then starts Batch. |
+| Link ingestion | **IaC/ingestion.yaml**, **LambdaYtDlp.py** | Downloads a reviewed, allowlisted public-media page through the optional residential `PROXY_URL`, with Deno/EJS challenge solving and typed curl-cffi Chrome impersonation, converts it to WAV, and writes the job's existing input key in the private uploads bucket. The normal S3/EventBridge route then starts Batch. |
 | Jobs store | **IaC/jobs.yaml**, CloudDSPJobs | Stores the job owner, requested mode, state, artifact keys, error, revision, and expiry. |
 | Source storage | Foundation uploads bucket | Holds original user audio and publishes Object Created events to EventBridge. |
 | Event routing | Processing EventBridge rule | Matches the uploads prefix and submits a GPU Batch job with source bucket/key overrides. |
@@ -318,10 +318,17 @@ uses this contract directly:
 }
 ~~~
 
-The Job API validates an absolute HTTP(S) URL and rejects embedded credentials,
-localhost, and literal private/reserved IPs. The ingestion Lambda repeats those
-checks and rejects hostnames that resolve to private/reserved addresses before
-yt-dlp contacts the host. It then creates a job in
+The Job API accepts only an absolute **HTTPS** URL whose normalized page host
+is listed in the root stack's **AllowedMediaHosts** parameter. Its default is
+YouTube (`youtube.com` and `youtu.be`), Bilibili (`bilibili.com` and `b23.tv`),
+and SoundCloud (`soundcloud.com` and `on.soundcloud.com`); subdomains are
+accepted without allowing lookalikes such as `youtube.com.example.net`.
+The ingestion Lambda repeats the same validation so an internal invocation
+cannot bypass it. Credential-bearing URLs and non-standard HTTPS ports are
+rejected. Before yt-dlp contacts an allowed hostname, the worker also rejects
+hostnames that resolve to private or reserved addresses. New providers must be
+reviewed for terms, compatibility, and operational behavior before being added
+to the CloudFormation parameter. It then creates a job in
 **source_ingestion** status. It invokes the yt-dlp Lambda asynchronously and
 returns 202 with the job ID and its fixed input key:
 
@@ -824,8 +831,9 @@ origins in **AllowedFrontendOrigins** before release.
 
 - Job ownership is enforced at both HTTP read and WebSocket subscription time.
 - The authenticated Job API alone invokes yt-dlp. It creates the job before
-  download; the ingestion Lambda validates that record and can write only the
-  `uploads/*` key scoped to it. A linked URL is not persisted in the job item.
+  download; both it and the ingestion Lambda accept only a reviewed HTTPS
+  provider allowlist, and the worker can write only the `uploads/*` key scoped
+  to the job. A linked URL is not persisted in the job item.
 - Browser access is limited to API requests authenticated by Cognito and
   presigned, narrow S3 object transfers.
 - S3 object permissions are scoped to required buckets/prefixes; workers do not

@@ -34,7 +34,7 @@ Parameters:
 
   JobApiCodeS3Key:
     Type: String
-    Default: job_api-delete-history-20260813.zip
+    Default: job_api-media-url-allowlist-20260815.zip
     Description: S3 key for the packaged job_api Lambda zip artifact.
 
   WebSocketHandlerCodeS3Key:
@@ -51,6 +51,14 @@ Parameters:
     Type: CommaDelimitedList
     Default: http://localhost:5173
     Description: Comma-separated browser origins allowed by S3 and the job API.
+
+  AllowedMediaHosts:
+    Type: CommaDelimitedList
+    Default: youtube.com,youtu.be,bilibili.com,b23.tv,soundcloud.com,on.soundcloud.com
+    Description: >-
+      Reviewed linked-media page hosts accepted by the Job API and yt-dlp.
+      Add a provider only after validating its terms, yt-dlp support, and
+      operational behavior.
 
   BasicPitchImageTag:
     Type: String
@@ -242,6 +250,7 @@ Resources:
         UserConnectionsIndexName: !GetAtt RealtimeStack.Outputs.UserConnectionsIndexName
         WebSocketApiId: !GetAtt RealtimeStack.Outputs.WebSocketApiId
         YtDlpProxyUrl: !Ref YtDlpProxyUrl
+        AllowedMediaHosts: !Join [',', !Ref AllowedMediaHosts]
         MaxSourceDurationSeconds: !Ref MaxSourceDurationSeconds
         MaxSourceDownloadBytes: !Ref MaxSourceBytes
         MaxConvertedWavBytes: !Ref MaxConvertedWavBytes
@@ -292,6 +301,7 @@ Resources:
         JobApiCodeS3Bucket: !Ref ArtifactBucketName
         JobApiCodeS3Key: !Ref JobApiCodeS3Key
         AllowedFrontendOrigins: !Join [',', !Ref AllowedFrontendOrigins]
+        AllowedMediaHosts: !Join [',', !Ref AllowedMediaHosts]
         CognitoUserPoolIssuer: !GetAtt AuthStack.Outputs.UserPoolIssuer
         CognitoBrowserClientId: !GetAtt AuthStack.Outputs.BrowserClientId
         MaxSourceBytes: !Ref MaxSourceBytes

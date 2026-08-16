@@ -68,6 +68,11 @@ Parameters:
     Default: http://localhost:5173
     Description: Comma-separated browser origins permitted to call the API.
 
+  AllowedMediaHosts:
+    Type: CommaDelimitedList
+    Default: youtube.com,youtu.be,bilibili.com,b23.tv,soundcloud.com,on.soundcloud.com
+    Description: Reviewed linked-media page hosts accepted by POST /jobs/link.
+
   UploadUrlExpirySeconds:
     Type: Number
     Default: 300
@@ -203,6 +208,7 @@ Resources:
           MAX_SOURCE_BYTES: !Sub '${MaxSourceBytes}'
           DOWNLOAD_URL_EXPIRY_SECONDS: !Ref DownloadUrlExpirySeconds
           YTDLP_FUNCTION_ARN: !Ref YtDlpFunctionArn
+          ALLOWED_MEDIA_HOSTS: !Join [',', !Ref AllowedMediaHosts]
 
   JobHttpApi:
     Type: AWS::ApiGatewayV2::Api

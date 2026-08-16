@@ -27,6 +27,7 @@ from botocore.exceptions import ClientError
 from yt_dlp.networking.impersonate import ImpersonateTarget
 
 from cloud_job_workflow import get_job, send_job_updated, utc_now
+from media_url_policy import MediaUrlPolicyError, validate_allowlisted_media_url
 
 
 INGESTION_STATUS = "source_ingestion"
@@ -54,19 +55,13 @@ def configured_positive_int(name: str, default: int) -> int:
 
 
 def safe_source_url(value: Any) -> str:
-    """Validate an invocation's link before passing it to yt-dlp."""
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError("source_url is required.")
-    if len(value) > 2_048:
-        raise ValueError("source_url is too long.")
+    """Validate an allowlisted invocation URL before passing it to yt-dlp."""
+    try:
+        source_url = validate_allowlisted_media_url(value)
+    except MediaUrlPolicyError as error:
+        raise ValueError(str(error)) from error
 
-    parsed = urlsplit(value)
-    if parsed.scheme not in {"https", "http"} or not parsed.hostname:
-        raise ValueError("source_url must be an absolute HTTP or HTTPS URL.")
-    if parsed.username or parsed.password:
-        raise ValueError("source_url must not contain credentials.")
-    if parsed.hostname.lower() == "localhost":
-        raise ValueError("source_url must not target localhost.")
+    parsed = urlsplit(source_url)
     try:
         address = ipaddress.ip_address(parsed.hostname)
     except ValueError:
@@ -89,7 +84,7 @@ def safe_source_url(value: Any) -> str:
     else:
         if not address.is_global:
             raise ValueError("source_url must not target a private or reserved IP address.")
-    return value
+    return source_url
 
 
 def display_filename(title: Any) -> str:
