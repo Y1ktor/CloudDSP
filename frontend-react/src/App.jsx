@@ -631,8 +631,8 @@ export default function App() {
             });
             const job = await response.json();
             if (!response.ok) throw new Error(job.error || `Could not create a job (${response.status}).`);
-            if (!job.job_id || !job.upload_url || (!job.upload_fields && !job.upload_headers)) {
-                throw new Error('The job API returned an incomplete upload contract.');
+            if (!job.job_id || !job.upload_url || !job.upload_fields) {
+                throw new Error('The job API returned an incomplete secure upload contract. Please refresh and try again.');
             }
 
             setActiveJobId(job.job_id);
@@ -655,21 +655,13 @@ export default function App() {
             subscribeToActiveJob(socketRef.current, job.job_id);
 
             setStatusMessage('Uploading audio to the secure job location…');
-            const uploadResponse = job.upload_fields
-                ? await (async () => {
-                    const uploadForm = new FormData();
-                    Object.entries(job.upload_fields).forEach(([name, value]) => uploadForm.append(name, value));
-                    uploadForm.append('file', stemFile);
-                    return fetch(job.upload_url, { method: 'POST', body: uploadForm });
-                })()
-                // Compatibility only while a previously deployed Job API still
-                // returns the retired signed-PUT contract. Once the new API is
-                // live all direct uploads use the constrained POST policy.
-                : fetch(job.upload_url, {
-                    method: 'PUT',
-                    headers: job.upload_headers,
-                    body: stemFile,
-                });
+            const uploadForm = new FormData();
+            Object.entries(job.upload_fields).forEach(([name, value]) => uploadForm.append(name, value));
+            uploadForm.append('file', stemFile);
+            const uploadResponse = await fetch(job.upload_url, {
+                method: 'POST',
+                body: uploadForm,
+            });
             if (!uploadResponse.ok) {
                 throw new Error(`S3 upload failed (${uploadResponse.status}). The file may exceed the 256 MiB limit or the upload policy may have expired.`);
             }

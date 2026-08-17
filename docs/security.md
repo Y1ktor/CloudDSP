@@ -154,13 +154,20 @@ CloudFormation's native `AWS::SSM::Parameter` resource cannot create a
 log its sensitive input. Proxy credential rotation is provider-specific and is
 not falsely automated by this change.
 
-### SEC-11 — Medium, conditional — legacy presigned-PUT upload fallback weakens size enforcement
+### SEC-11 — Fixed — legacy presigned-PUT upload fallback weakened size enforcement
 
-The current Job API returns a signed POST with an S3 `content-length-range`. React retains a compatibility fallback for an older signed-PUT response. A presigned PUT does not enforce the same signed size range, so an outdated backend could allow an authenticated caller to bypass the upload contract before worker-side rejection.
+The browser now accepts only the current presigned POST contract: `job_id`, an
+upload URL, and `upload_fields`. It rejects a legacy PUT-shaped response before
+uploading any bytes. The POST policy signs S3's `content-length-range`, so S3
+enforces the 1-byte–256-MiB source limit at ingestion; Batch retains its
+`HeadObject` check as defense in depth.
 
-**Evidence:** `frontend-react/src/App.jsx:655-670`; the current safe contract is in `src/DSP/src/Cloud/job_api.py:238-252`.
+**Evidence:** `frontend-react/src/App.jsx` and
+`src/DSP/src/Cloud/job_api.py`.
 
-**Remediation:** After confirming all environments use the POST-only API, remove the fallback and reject incomplete upload contracts. Retain Batch `HeadObject` size checks as defense in depth.
+**Residual limitation:** An old deployed frontend will retain its own source
+code until its static assets are replaced. Deploy the current frontend with the
+current Job API so all clients use the POST-only contract.
 
 ### SEC-12 — Low — the WebSocket handshake contains a full ID token in its query string
 
@@ -170,21 +177,43 @@ Native browser WebSockets cannot set arbitrary handshake headers, so the app use
 
 **Remediation:** Ensure log formats exclude query strings and authorization material; keep WSS and short token lifetimes; and consider a short-lived single-use socket ticket minted by the authenticated HTTP API.
 
-### SEC-13 — Low — tracked frontend `.env` invites future secret exposure
+### SEC-13 — Fixed — tracked frontend `.env` invited future secret exposure
 
-`frontend-react/.env` is tracked and is not excluded by `frontend-react/.gitignore`. Its current entries are public browser configuration identifiers/endpoints, not credentials. However, Vite embeds `VITE_*` values in client assets, so this is not safe for secrets and makes an accidental future secret commit more likely.
+`frontend-react/.env` has been removed from Git tracking and local `.env` /
+`.env.*` files are ignored repository-wide while `.env.example` remains
+tracked. The prior file contained only public browser configuration: Cognito
+User Pool and browser-client identifiers plus Job API and WebSocket endpoints.
+It did not contain a password, token, AWS credential, proxy URL, or Cognito
+client secret.
 
-**Evidence:** `git ls-files frontend-react/.env` and `frontend-react/.gitignore`.
+Vite embeds all `VITE_*` values in browser assets, so these variables are
+configuration rather than secret storage. The local file is intentionally kept
+on the developer's machine after untracking; a new checkout must copy
+`.env.example` and configure the four public stack outputs.
 
-**Remediation:** Remove `.env` from tracking, ignore `.env` and `.env.*` while retaining `.env.example`, and document that all `VITE_*` values are public.
+**Evidence:** `.gitignore`, `frontend-react/.gitignore`,
+`frontend-react/.env.example`, and the Vite configuration consumers.
 
-### SEC-14 — Low — TLS enforcement and audit visibility are not defined in the repository
+**Residual limitation:** Git ignores prevent accidental future additions but
+cannot remove a value already present in historical commits. If a genuine
+credential is ever committed, revoke/rotate it and use an appropriate
+server-side secret service; do not rely on history rewriting alone.
 
-S3 is private, encrypted, versioned, and uses origin-specific CORS, but the templates do not define a bucket-policy deny for `aws:SecureTransport = false`. HTTP and WebSocket stages also have no repository-defined API Gateway access logs. Account-level CloudTrail, S3 data events, WAF, and alerting may exist outside the repository, but could not be verified.
+### SEC-14 — Partially fixed — Low — S3 TLS enforcement added; audit visibility remains out of scope
 
-**Evidence:** `IaC/foundation.yaml:27-136`, `IaC/api.yaml:207-304`, and `IaC/realtime.yaml:203-285`.
+Both audio buckets now have an explicit bucket-policy `Deny` for every
+`s3:*` action when `aws:SecureTransport` is `false`. This applies to IAM
+callers, presigned browser transfers, and future service integrations, so a
+mistaken `http://` request cannot disclose, replay, or alter audio in transit.
+It does not alter the existing private-bucket, HTTPS presigned-URL workflow.
 
-**Remediation:** Add an explicit S3 TLS deny; configure structured API logs that intentionally omit query strings/tokens; enable CloudTrail data events for both audio buckets; and alert on anomalous deletion, authentication failure, job volume, upload failure, and ECR scan events.
+**Evidence:** `IaC/foundation.yaml`.
+
+**Remaining accepted risk:** HTTP and WebSocket stages still have no
+repository-defined API Gateway access logs. Account-level CloudTrail, S3 data
+events, WAF, and alerting may exist outside the repository but were not
+verified. Per the current decision, no audit-visibility infrastructure is
+added by this remediation.
 
 ### SEC-15 — Low — internal input hardening gaps
 
@@ -194,13 +223,22 @@ S3 is private, encrypted, versioned, and uses origin-specific CORS, but the temp
 
 **Remediation:** Canonicalize `job_id` as a UUID and verify resolved temporary-path containment before cleanup. Remove or explicitly gate the `principalId` fallback in production HTTP API code.
 
-### SEC-16 — Medium — Batch can make unrestricted HTTPS egress through NAT
+### SEC-16 — Accepted risk — Medium — public Batch hosts have unrestricted HTTPS egress
 
-Batch instances are private and have no security-group ingress, but their security group permits TCP/443 to `0.0.0.0/0` through a NAT gateway. A compromised codec, dependency, or container can therefore exfiltrate audio or credentials to arbitrary HTTPS destinations.
+Batch EC2 hosts now launch in public subnets with a public IPv4 address while
+they run. They have no security-group ingress, but the security group permits
+TCP/443 to `0.0.0.0/0` through the Internet Gateway. A compromised codec,
+dependency, or container can therefore exfiltrate audio or task-role credentials
+to arbitrary HTTPS destinations. This replaces the prior NAT-based design to
+avoid NAT's fixed monthly cost while Batch is scaled to zero.
 
-**Evidence:** `IaC/network.yaml:204-216` and `IaC/network.yaml:247-268`.
+**Evidence:** `IaC/network.yaml` public-subnet mapping, Internet Gateway route,
+and Batch security-group egress.
 
-**Remediation:** Prefer VPC endpoints for S3, ECR, Logs, STS, Lambda, and API Gateway. Where public model/provider access is not required at runtime, remove general NAT egress. Otherwise route it through a controlled egress proxy with domain policy and logging.
+**Future remediation:** For production, prefer private Batch subnets plus
+required VPC endpoints or route the remaining public destinations through a
+controlled egress proxy with domain policy and logging. Keep IAM permissions
+least-privilege regardless of network topology.
 
 ### SEC-17 — Conditional high — dormant legacy handlers are unsafe if redeployed
 

@@ -195,8 +195,8 @@ email-confirmation dialog; never persist its password or verification code.
     run on the older Python 3.11/Amazon Linux 2 glibc.
   - `processing.yaml` — EventBridge-to-Batch target, GPU Demucs resources, and
     processing permissions.
-  - `network.yaml` — private GPU Batch subnets, NAT egress, security group, and
-    S3 gateway endpoint.
+  - `network.yaml` — public GPU Batch subnets, Internet Gateway egress,
+    egress-only security group, and S3 gateway endpoint.
   - `cloud-dsp.yaml` — root nested-stack composition template.
 - `/docs/job-id-workflow-plan.md` — phased implementation plan and acceptance
   criteria for the durable job architecture.
@@ -220,6 +220,8 @@ Copy `frontend-react/.env.example` to a local ignored environment file and set
 the Cognito, Job API, and WebSocket values from the deployed stack outputs.
 Do not put credentials or private AWS resource values in a `VITE_*` variable:
 Vite embeds those values into browser assets.
+The repository ignores `.env` and `.env.*` but retains `.env.example`; never
+force-add a local environment file.
 
 ### DSP
 
@@ -272,11 +274,13 @@ Docker image before local testing.
   functions, and `execute-api:ManageConnections` to the specific WebSocket API
   and stage.
 - Keep S3 buckets private, encrypted, versioned, and protected by public-access
-  blocks. Use presigned URLs for browser transfer.
-- AWS Batch GPU workloads run in private VPC subnets. Include an S3 gateway
-  endpoint. If private instances do not use NAT, also provide the required
-  interface endpoints for ECR API/Docker, CloudWatch Logs, STS, and ECS/AWS
-  Batch dependencies before launching jobs.
+  blocks. Each bucket policy must explicitly deny `aws:SecureTransport=false`;
+  use presigned URLs for browser transfer.
+- AWS Batch GPU workloads currently run in public VPC subnets to avoid an
+  always-on NAT Gateway charge. Keep their security group ingress-free, retain
+  the S3 gateway endpoint, and use `MinvCpus: 0` so no public Batch host exists
+  while idle. This is a cost-optimized development posture; reassess private
+  subnets plus interface endpoints or controlled egress before production.
 - Do not set a custom IAM service role on the managed Batch compute
   environment. Omit `ServiceRole` so AWS Batch uses its
   `AWSServiceRoleForBatch` service-linked role; the deployment principal
@@ -329,6 +333,10 @@ Docker image before local testing.
 - **Stable artifact identity.** Presigned URL query strings are disposable.
   Cache/download/parse S3 objects by stable host plus decoded path, not the full
   URL, otherwise polling replays expensive work and inflates browser memory.
+- **Direct source uploads are POST-only.** `POST /jobs` must return the
+  size-constrained presigned POST fields and the browser must reject any
+  retired presigned-PUT-shaped response. Do not restore an `upload_headers`
+  fallback: S3's signed `content-length-range` is the ingestion boundary.
 - **History is server-backed.** The selected saved job is held in React state
   only. On reload, fetch the authenticated account's job library; do not cache
   job IDs, artifacts, or presigned URLs in session/local storage.

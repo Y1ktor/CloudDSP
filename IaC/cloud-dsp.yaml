@@ -289,7 +289,7 @@ Resources:
             ImageTag: !Ref DemucsImageTag
         BasicPitchLambdaArn: !GetAtt MidiLambdasStack.Outputs.BasicPitchLambdaArn
         ADTOFLambdaArn: !GetAtt MidiLambdasStack.Outputs.ADTOFLambdaArn
-        BatchSubnetIds: !GetAtt NetworkStack.Outputs.BatchPrivateSubnetIds
+        BatchSubnetIds: !GetAtt NetworkStack.Outputs.BatchPublicSubnetIds
         BatchSecurityGroupIds: !GetAtt NetworkStack.Outputs.BatchSecurityGroupId
         GpuInstanceTypes: !Join [',', !Ref GpuInstanceTypes]
         BatchMaxvCpus: !Ref BatchMaxvCpus

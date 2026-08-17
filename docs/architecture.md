@@ -102,7 +102,7 @@ flowchart LR
 | Artifact storage | Foundation processed-audio bucket | Holds stems, MIDI, and BPM JSON. It remains private; the browser gets presigned GET URLs only. |
 | Real-time delivery | **IaC/realtime.yaml**, WebSocket handlers | Authenticates connections, records subscriptions, accepts heartbeats, and posts compact update hints. |
 | Connection registry | CloudDSPConnections | Stores current connection IDs and subscribed jobs. It is TTL-backed and is never the authority for results. |
-| Registry and network | ECR, **IaC/network.yaml** | Hosts deployable images and provides private Batch networking, an S3 gateway endpoint, and NAT egress. Basic Pitch, ADTOF, Demucs, and yt-dlp are wired into the root stack. Madmom remains a prototype repository/source. |
+| Registry and network | ECR, **IaC/network.yaml** | Hosts deployable images and provides public Batch networking, an S3 gateway endpoint, and Internet Gateway egress. Basic Pitch, ADTOF, Demucs, and yt-dlp are wired into the root stack. Madmom remains a prototype repository/source. |
 
 ## Identity and authorization
 
@@ -697,18 +697,22 @@ rendering or React Server Components.
 | processed audio | **midi/{job_id}/{stem}.mid** and **midi/{job_id}/{stem}_bpm.json** | MIDI Lambdas write; browser reads through signed GET. |
 
 Both buckets are private, AES-256 encrypted, versioned, bucket-owner-enforced,
-and protected with public-access blocks. CORS permits configured frontend
-origins. Stack deletion/replacement retains these buckets. Current job objects
-expire after 14 days; noncurrent versions expire one day after becoming
+protected with public-access blocks, and have an explicit bucket-policy deny
+for any request where `aws:SecureTransport` is false. CORS permits configured
+frontend origins. Stack deletion/replacement retains these buckets. Current job
+objects expire after 14 days; noncurrent versions expire one day after becoming
 noncurrent, expired delete markers are cleaned up, and incomplete multipart
 uploads abort after seven days. S3 lifecycle actions are asynchronous.
 
 ### Batch GPU environment
 
-The network stack creates a VPC with two private Batch subnets in separate
-Availability Zones, an egress-only security group, an S3 Gateway endpoint, and
-one NAT Gateway. The endpoint keeps S3 traffic off NAT; NAT still provides ECR
-image pulls, CloudWatch Logs, Lambda invocation, and other HTTPS egress.
+The network stack creates a VPC with two public Batch subnets in separate
+Availability Zones, an ingress-free security group, an S3 Gateway endpoint,
+and Internet Gateway routes. Every Batch EC2 host receives a public IPv4
+address only while it is running. Its security group has no inbound rules; it
+allows HTTPS egress and DNS only. The S3 gateway endpoint keeps S3 object
+traffic on the AWS network while the Internet Gateway supplies ECR image pulls,
+CloudWatch Logs, Lambda invocation, DynamoDB/API calls, and other HTTPS egress.
 
 The processing stack defines a managed EC2 GPU compute environment:
 
@@ -724,9 +728,13 @@ environment, AWS Batch uses or creates its **AWSServiceRoleForBatch**
 service-linked role, which is the supported role for capacity management and
 future infrastructure updates.
 
-The single NAT Gateway is a cost optimization and a single-AZ dependency.
-Evaluate per-AZ NAT gateways and/or AWS interface endpoints for a
-high-availability production environment.
+This deliberately removes the NAT Gateway's hourly and per-gigabyte charges.
+With `MinvCpus: 0`, the development environment has no idle Batch host or
+public-IPv4 charge; public IPv4 charges apply only while an EC2 host runs. The
+trade-off is accepted in development: a compromised Batch container can make
+general HTTPS egress, although it cannot receive inbound traffic through the
+security group. Reassess private subnets, interface endpoints, and/or a
+controlled egress proxy before a production launch.
 
 ### MIDI Lambda images and ECR
 
@@ -747,8 +755,8 @@ images.
 yt-dlp is a separate x86_64 Lambda image, also built for **linux/amd64**. It
 uses 3,008 MiB memory, a 900-second timeout, and 4,096 MiB `/tmp` storage so
 the downloaded media and WAV conversion can coexist. It is intentionally not
-attached to the private Batch VPC: source retrieval needs public internet
-egress, while Batch's private VPC remains scoped to processing. It enforces an
+attached to the Batch VPC: source retrieval needs public internet egress and
+has its own narrowly scoped ingestion role. It enforces an
 eight-minute media-duration limit by default and cleans its
 `/tmp/clouddsp-ytdlp/{job_id}` directory after every invocation.
 
@@ -774,7 +782,7 @@ flowchart TD
     Foundation["foundation<br/>S3 + ECR"]
     Jobs["jobs<br/>DynamoDB Jobs"]
     Auth["auth<br/>Cognito"]
-    Network["network<br/>VPC + NAT + S3 endpoint"]
+    Network["network<br/>Public Batch VPC + S3 endpoint"]
     Realtime["realtime<br/>WebSocket + Connections"]
     Midi["midi-lambdas<br/>Basic Pitch + ADTOF"]
     Ingestion["ingestion<br/>yt-dlp Lambda"]
@@ -914,8 +922,8 @@ Some production hardening remains:
    move to a streaming/chunked or server-generated preview-stem transport if
    long-form audio becomes a product requirement.
 7. **Cost and availability:** benchmark Lambda memory settings and real audio
-   duration, tune Batch capacity, and revisit the single-NAT design before a
-   highly available production launch.
+   duration, tune Batch capacity, and revisit public-Batch network isolation
+   before a highly available production launch.
 
 ## Operations checklist
 

@@ -75,7 +75,7 @@ Parameters:
 
   BatchSubnetIds:
     Type: List<AWS::EC2::Subnet::Id>
-    Description: Private subnets in which the GPU Batch instances can run.
+    Description: Public subnets in which the GPU Batch instances can run.
 
   BatchSecurityGroupIds:
     Type: List<AWS::EC2::SecurityGroup::Id>

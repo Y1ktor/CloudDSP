@@ -95,6 +95,24 @@ Resources:
         - Key: Component
           Value: foundation
 
+  UploadsBucketTlsOnlyPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref UploadsBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: s3:*
+            Resource:
+              - !GetAtt UploadsBucket.Arn
+              - !Sub '${UploadsBucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
   ProcessedAudioBucket:
     Type: AWS::S3::Bucket
     # Do not orphan a globally named bucket if the initial root-stack create
@@ -153,6 +171,24 @@ Resources:
           Value: !Ref EnvironmentName
         - Key: Component
           Value: foundation
+
+  ProcessedAudioBucketTlsOnlyPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ProcessedAudioBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: s3:*
+            Resource:
+              - !GetAtt ProcessedAudioBucket.Arn
+              - !Sub '${ProcessedAudioBucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
 
   BasicPitchRepository:
     Type: AWS::ECR::Repository
