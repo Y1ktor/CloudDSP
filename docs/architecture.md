@@ -93,7 +93,7 @@ flowchart LR
 | Browser transport | **AudioMultiTrackPlayer.js**, **useTransportPlayhead.js**, **useTimelineViewport.js**, **useMidiSynth.js**, **useMidiManager.js** | Serializes audio/MIDI decode work, retains only current bounded `AudioBuffer`s and one editable MIDI graph per artifact, exposes an audio-clock transport ref for direct visual/MIDI consumers, renders only viewport-local timeline data, applies immediate gain/mute/solo, and aligns isolated MIDI output buses with the same start time. |
 | Authentication | **IaC/auth.yaml**, Cognito User Pool | Provides email/password accounts and ID tokens. There is no Cognito Identity Pool and no browser AWS credentials. |
 | Job API | **IaC/api.yaml**, **job_api.py** | Creates durable upload or linked-source jobs, invokes yt-dlp for a linked source, enforces ownership, renders stored artifact keys as fresh signed downloads, and permanently deletes terminal jobs at the owner's request. |
-| Link ingestion | **IaC/ingestion.yaml**, **LambdaYtDlp.py** | Downloads a reviewed, allowlisted public-media page through the optional residential `PROXY_URL`, with Deno/EJS challenge solving and typed curl-cffi Chrome impersonation, converts it to WAV, and writes the job's existing input key in the private uploads bucket. The normal S3/EventBridge route then starts Batch. |
+| Link ingestion | **IaC/ingestion.yaml**, **LambdaYtDlp.py** | Downloads a reviewed, allowlisted public-media page through an optional residential proxy. CloudFormation stores the deployment credential as a KMS-encrypted SSM `SecureString`; the Lambda holds only its parameter name and retrieves the decrypted value at runtime. Deno/EJS challenge solving and typed curl-cffi Chrome impersonation convert the media to WAV, then the worker writes the job's existing input key in the private uploads bucket. The normal S3/EventBridge route then starts Batch. |
 | Jobs store | **IaC/jobs.yaml**, CloudDSPJobs | Stores the job owner, requested mode, state, artifact keys, error, revision, and expiry. |
 | Source storage | Foundation uploads bucket | Holds original user audio and publishes Object Created events to EventBridge. |
 | Event routing | Processing EventBridge rule | Matches the uploads prefix and submits a GPU Batch job with source bucket/key overrides. |
@@ -220,11 +220,16 @@ An illustrative item:
 }
 ~~~
 
-The Job API defaults the item expiry to seven days after creation. DynamoDB TTL
-deletion is asynchronous, so it is cleanup rather than an exact retention
-clock. The foundation stack currently expires noncurrent S3 versions, but not
-the current source/artifact version. Align current-object retention with the
-job TTL and privacy policy before production data is stored long term.
+The Job API defaults the item expiry to **14 days** after creation and returns
+the Unix `expires_at` value in job-library entries so the browser can show its
+remaining retention window. It hides a record when that timestamp passes;
+DynamoDB TTL deletion is asynchronous, so it is cleanup rather than an exact
+retention clock. The foundation stack expires current upload and processed
+objects after the same 14-day period. Because both buckets are versioned, their
+noncurrent versions expire one day after becoming noncurrent and expired delete
+markers are removed. S3 lifecycle processing is asynchronous, so the object
+removal should be treated as an enforced retention policy rather than a
+clock-exact deletion guarantee.
 
 Before TTL cleanup, the history modal exposes a destructive **Delete job**
 action only for `completed` and `failed` records. `DELETE /jobs/{job_id}`
@@ -351,6 +356,17 @@ It writes the resulting `audio/wav` at the returned key with `job-id`,
 `stem-mode`, `source-type=yt-dlp`, and size metadata. That S3 write matches the
 existing EventBridge rule, so it starts the same Demucs Batch worker as a
 normal presigned upload. There is no parallel direct-Batch route.
+
+When a residential proxy is configured, the root stack accepts its complete
+credential-bearing URL only as a `NoEcho` deployment parameter. The ingestion
+stack's minimal custom resource writes it to the KMS-encrypted SSM parameter
+`/${ProjectName}/${EnvironmentName}/yt-dlp/proxy-url`; the native CloudFormation
+SSM parameter resource cannot create `SecureString` values. The yt-dlp Lambda
+configuration contains only that parameter name. At invocation it calls SSM
+with decryption using its exact-path `ssm:GetParameter` and exact-key
+`kms:Decrypt` permissions, validates the result in memory, and never logs it.
+Changing or removing the proxy requires an intentional root-stack parameter
+update; an ordinary update must retain the prior `NoEcho` value.
 
 The Job API generates `original_url` only when source audio is known to exist.
 After yt-dlp's S3 upload, it records `source_uploaded=true` as it advances the
@@ -682,8 +698,10 @@ rendering or React Server Components.
 
 Both buckets are private, AES-256 encrypted, versioned, bucket-owner-enforced,
 and protected with public-access blocks. CORS permits configured frontend
-origins. Stack deletion/replacement retains these buckets. Noncurrent versions
-expire after 30 days and incomplete multipart uploads abort after seven days.
+origins. Stack deletion/replacement retains these buckets. Current job objects
+expire after 14 days; noncurrent versions expire one day after becoming
+noncurrent, expired delete markers are cleaned up, and incomplete multipart
+uploads abort after seven days. S3 lifecycle actions are asynchronous.
 
 ### Batch GPU environment
 
@@ -836,6 +854,11 @@ origins in **AllowedFrontendOrigins** before release.
   to the job. A linked URL is not persisted in the job item.
 - Browser access is limited to API requests authenticated by Cognito and
   presigned, narrow S3 object transfers.
+- The static frontend emits a restrictive Content Security Policy: scripts are
+  self-only, plugins and child frames are blocked, and browser connections are
+  constrained to configured CloudDSP API/Cognito endpoints, S3, and the
+  reviewed drum-sample host. Production hosting must send the same policy as
+  an HTTP response header to also enforce `frame-ancestors`.
 - S3 object permissions are scoped to required buckets/prefixes; workers do not
   receive unrestricted S3 access.
 - Batch only invokes the named MIDI Lambda ARNs. Lambda/Batch notification
@@ -874,15 +897,16 @@ Some production hardening remains:
    Batch failures, Lambda errors/throttles, EventBridge DLQ messages, and jobs
    stuck in non-terminal status. A Batch task that never starts cannot update
    DynamoDB from inside its Python code.
-3. **Retention/privacy:** define current-object S3 lifecycle expiry and
-   deletion/erasure behavior consistent with seven-day job TTL and product
-   privacy requirements.
+3. **Retention/privacy:** monitor S3 Lifecycle and DynamoDB TTL execution to
+   verify the 14-day job/artifact policy in the deployed account. Lifecycle
+   action timing is asynchronous and must not be presented as exact to users.
 4. **Deployment verification:** package zip dependencies and images in CI, then
    test real Cognito authentication, CORS, upload, Batch, MIDI, reconnect, and
    URL-expiry paths in a deployed environment.
 5. **History retention:** users can permanently delete completed/failed jobs
-   and their job-scoped artifacts. Define archival and automatic current-object
-   retention before treating the seven-day TTL as a customer-facing guarantee.
+   and their job-scoped artifacts. The history UI shows the job's 14-day
+   retention window; define an archival service only if a longer product
+   retention period is required.
 6. **Browser memory:** decoded `AudioBuffer` transport avoids cross-browser
    drift but grows with stem count and track duration. Monitor the built-in
    decoded-buffer metrics separately from Safari process memory, sampled

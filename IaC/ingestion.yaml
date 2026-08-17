@@ -23,8 +23,10 @@ Parameters:
     Type: String
     NoEcho: true
     Description: >-
-      Optional residential proxy URL supplied by the root stack. Leave empty
-      to allow direct egress.
+      Optional residential proxy URL supplied only at deployment time. When
+      set, CloudFormation writes it as an encrypted Parameter Store
+      SecureString; the yt-dlp Lambda receives only the parameter name. Leave
+      empty to allow direct egress.
 
   AllowedMediaHosts:
     Type: CommaDelimitedList
@@ -106,7 +108,171 @@ Parameters:
     MaxValue: 1073741824
     Description: Maximum normalized WAV size in bytes before yt-dlp uploads to S3.
 
+Conditions:
+  HasYtDlpProxyUrl: !Not
+    - !Equals
+      - !Ref YtDlpProxyUrl
+      - ''
+
 Resources:
+  # AWS::SSM::Parameter does not support the SecureString parameter type. This
+  # narrowly scoped custom resource stores the NoEcho deployment value under a
+  # customer-managed KMS key without placing it in the worker configuration.
+  YtDlpProxyParameterKey:
+    Type: AWS::KMS::Key
+    Condition: HasYtDlpProxyUrl
+    Properties:
+      Description: !Sub 'Encrypts the ${ProjectName}-${EnvironmentName} yt-dlp proxy credential.'
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: EnableRootAccountPermissions
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'
+            Action: kms:*
+            Resource: '*'
+      Tags:
+        - TagKey: Project
+          TagValue: !Ref ProjectName
+        - TagKey: Environment
+          TagValue: !Ref EnvironmentName
+        - TagKey: Component
+          TagValue: ingestion
+
+  YtDlpProxyParameterKeyAlias:
+    Type: AWS::KMS::Alias
+    Condition: HasYtDlpProxyUrl
+    Properties:
+      AliasName: !Sub 'alias/${ProjectName}-${EnvironmentName}-yt-dlp-proxy-parameter'
+      TargetKeyId: !Ref YtDlpProxyParameterKey
+
+  YtDlpProxyParameterWriterLogGroup:
+    Type: AWS::Logs::LogGroup
+    Condition: HasYtDlpProxyUrl
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ProjectName}-${EnvironmentName}-YtDlpProxyParameterWriter'
+      RetentionInDays: 7
+
+  YtDlpProxyParameterWriterRole:
+    Type: AWS::IAM::Role
+    Condition: HasYtDlpProxyUrl
+    Properties:
+      RoleName: !Sub '${ProjectName}-${EnvironmentName}-YtDlpProxyParameterWriterRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: !Sub '${ProjectName}-${EnvironmentName}-YtDlpProxyParameterWrite'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:PutParameter
+                  - ssm:DeleteParameter
+                Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectName}/${EnvironmentName}/yt-dlp/proxy-url'
+              - Effect: Allow
+                Action: kms:Encrypt
+                Resource: !GetAtt YtDlpProxyParameterKey.Arn
+
+  YtDlpProxyParameterWriterFunction:
+    Type: AWS::Lambda::Function
+    Condition: HasYtDlpProxyUrl
+    DependsOn: YtDlpProxyParameterWriterLogGroup
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${EnvironmentName}-YtDlpProxyParameterWriter'
+      Description: Writes the deployment proxy credential to an encrypted SSM SecureString.
+      Runtime: python3.12
+      Architectures:
+        - arm64
+      Handler: index.handler
+      Role: !GetAtt YtDlpProxyParameterWriterRole.Arn
+      Timeout: 30
+      MemorySize: 128
+      Code:
+        ZipFile: |
+          import json
+          import urllib.request
+
+          import boto3
+
+
+          def respond(event, context, status, physical_id, reason=None):
+              body = json.dumps({
+                  "Status": status,
+                  "Reason": reason or "See CloudWatch Logs for details.",
+                  "PhysicalResourceId": physical_id,
+                  "StackId": event["StackId"],
+                  "RequestId": event["RequestId"],
+                  "LogicalResourceId": event["LogicalResourceId"],
+                  "NoEcho": True,
+              }).encode("utf-8")
+              request = urllib.request.Request(
+                  event["ResponseURL"],
+                  data=body,
+                  method="PUT",
+                  headers={"content-type": "", "content-length": str(len(body))},
+              )
+              with urllib.request.urlopen(request) as response:
+                  response.read()
+
+
+          def handler(event, context):
+              properties = event["ResourceProperties"]
+              parameter_name = properties["ParameterName"]
+              physical_id = event.get("PhysicalResourceId", parameter_name)
+              client = boto3.client("ssm")
+              try:
+                  if event["RequestType"] in {"Create", "Update"}:
+                      client.put_parameter(
+                          Name=parameter_name,
+                          Value=properties["ProxyUrl"],
+                          Type="SecureString",
+                          KeyId=properties["KeyId"],
+                          Tier="Standard",
+                          Overwrite=True,
+                      )
+                  elif event["RequestType"] == "Delete":
+                      try:
+                          client.delete_parameter(Name=parameter_name)
+                      except client.exceptions.ParameterNotFound:
+                          pass
+                  respond(event, context, "SUCCESS", physical_id)
+              except Exception as error:
+                  # Never log the custom-resource properties: ProxyUrl is one.
+                  print(f"SecureString custom resource failed: {type(error).__name__}")
+                  respond(
+                      event,
+                      context,
+                      "FAILED",
+                      physical_id,
+                      "Unable to manage the encrypted yt-dlp proxy parameter.",
+                  )
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Component
+          Value: ingestion
+
+  YtDlpProxySecureString:
+    Type: Custom::CloudDSPYtDlpProxySecureString
+    Condition: HasYtDlpProxyUrl
+    Properties:
+      ServiceToken: !GetAtt YtDlpProxyParameterWriterFunction.Arn
+      ParameterName: !Sub '/${ProjectName}/${EnvironmentName}/yt-dlp/proxy-url'
+      KeyId: !GetAtt YtDlpProxyParameterKey.Arn
+      ProxyUrl: !Ref YtDlpProxyUrl
+
   YtDlpIngestionLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -167,6 +333,19 @@ Resources:
                 Action:
                   - execute-api:ManageConnections
                 Resource: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApiId}/${EnvironmentName}/POST/@connections/*'
+        - !If
+          - HasYtDlpProxyUrl
+          - PolicyName: !Sub '${ProjectName}-${EnvironmentName}-YtDlpReadProxySecureString'
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action: ssm:GetParameter
+                  Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectName}/${EnvironmentName}/yt-dlp/proxy-url'
+                - Effect: Allow
+                  Action: kms:Decrypt
+                  Resource: !GetAtt YtDlpProxyParameterKey.Arn
+          - !Ref AWS::NoValue
 
   YtDlpIngestionFunction:
     Type: AWS::Lambda::Function
@@ -194,7 +373,10 @@ Resources:
           MAX_SOURCE_DURATION_SECONDS: !Sub '${MaxSourceDurationSeconds}'
           MAX_SOURCE_DOWNLOAD_BYTES: !Sub '${MaxSourceDownloadBytes}'
           MAX_CONVERTED_WAV_BYTES: !Sub '${MaxConvertedWavBytes}'
-          PROXY_URL: !Ref YtDlpProxyUrl
+          PROXY_SSM_PARAMETER_NAME: !If
+            - HasYtDlpProxyUrl
+            - !Sub '/${ProjectName}/${EnvironmentName}/yt-dlp/proxy-url'
+            - ''
           ALLOWED_MEDIA_HOSTS: !Join [',', !Ref AllowedMediaHosts]
       Tags:
         - Key: Project

@@ -89,6 +89,13 @@ Parameters:
       Maximum direct-browser source object size in bytes. The Job API encodes
       this into the S3 presigned POST content-length-range policy.
 
+  JobRetentionDays:
+    Type: Number
+    Default: 14
+    MinValue: 1
+    MaxValue: 365
+    Description: Number of days a job remains accessible to its owner.
+
   DownloadUrlExpirySeconds:
     Type: Number
     Default: 3600
@@ -206,6 +213,7 @@ Resources:
           PROCESSED_AUDIO_BUCKET_NAME: !Ref ProcessedAudioBucketName
           UPLOAD_URL_EXPIRY_SECONDS: !Ref UploadUrlExpirySeconds
           MAX_SOURCE_BYTES: !Sub '${MaxSourceBytes}'
+          JOB_TTL_DAYS: !Sub '${JobRetentionDays}'
           DOWNLOAD_URL_EXPIRY_SECONDS: !Ref DownloadUrlExpirySeconds
           YTDLP_FUNCTION_ARN: !Ref YtDlpFunctionArn
           ALLOWED_MEDIA_HOSTS: !Join [',', !Ref AllowedMediaHosts]

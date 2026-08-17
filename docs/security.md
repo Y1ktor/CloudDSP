@@ -7,7 +7,7 @@
 
 CloudDSP has strong application-level controls: private, versioned S3 buckets; Cognito-authenticated HTTP routes; owner checks on job reads, subscriptions, and deletion; constrained presigned **POST** uploads; and worker-side validation of the durable job, S3 object size, and decoded audio.
 
-The important remaining risks are known JavaScript dependency advisories, unrestricted authenticated creation of expensive GPU/media-download work, an overly broad deployment trust boundary, and defense-in-depth gaps around arbitrary media URLs, worker isolation, token handling, and retention.
+The important remaining risks are known JavaScript dependency advisories, unrestricted authenticated creation of expensive GPU/media-download work, an overly broad deployment trust boundary, and defense-in-depth gaps around media retrieval, worker isolation, and token handling.
 
 No live AWS state was verified. `aws sts get-caller-identity` could not run because the local AWS session expired. Bucket policies, IAM attachments, CloudTrail, WAF, CloudFront headers, ECR findings, and deployment drift must be reviewed after reauthentication.
 
@@ -70,15 +70,20 @@ The Demucs role can read/write every processed-artifact object, and MIDI workers
 
 **Remediation:** Split permissions by purpose: Demucs needs only the required input reads and stem writes; MIDI workers need stem reads and MIDI writes. For stronger tenant isolation, use scoped per-job credentials or an object-access broker.
 
-### SEC-06 — Medium — S3 retention is not aligned with the seven-day job TTL
+### SEC-06 — Fixed — Medium — S3 retention was not aligned with job retention
 
-Jobs expire from DynamoDB after seven days, but S3 lifecycle rules expire only noncurrent versions. Current original uploads, stems, MIDI, and BPM files can remain after a job record is hidden/expired.
+Jobs and current source/artifact objects now share a 14-day retention policy.
+The Job API sets and exposes `expires_at`, hides expired records immediately,
+and DynamoDB TTL removes them asynchronously. Both versioned buckets expire
+current objects after 14 days, expire noncurrent versions one day after they
+become noncurrent, and remove expired delete markers.
 
-**Evidence:** `src/DSP/src/Cloud/job_api.py:213-215,412-421`, `IaC/jobs.yaml:44-50`, and `IaC/foundation.yaml:57-66,110-119`.
+**Evidence:** `src/DSP/src/Cloud/job_api.py`, `IaC/api.yaml`,
+`IaC/foundation.yaml`, and `frontend-react/src/components/StemSplitter/PreviousJobs.jsx`.
 
-**Impact:** User audio can persist longer than the apparent job lifecycle, creating privacy, storage-cost, and deletion-compliance risk.
-
-**Remediation:** Add a version-aware job-prefix reaper that removes every version at job expiry, or explicit current-object lifecycle rules with a documented retention period. Test deletion retries and failures.
+**Residual limitation:** DynamoDB TTL and S3 Lifecycle actions are
+asynchronous rather than clock-exact. The application retention boundary is
+the `expires_at` timestamp; deployed lifecycle execution should be monitored.
 
 ### SEC-07 — High — deployed container images have critical/high CVEs and mutable provenance
 
@@ -99,13 +104,25 @@ All ECR repositories also permit mutable tags and the root stack defaults worker
 
 **Remediation:** Triage the scan results and rebuild on refreshed bases; update directly affected libraries (including Torch); make ECR tags immutable; deploy digest-pinned images or versioned release tags instead of `latest`; pin base images by digest and packages/models by version and hash; gate releases on image scans/signatures; and run Batch under an explicit non-root user with only required writable directories. Add `.env*`, credential files, PEM keys, and local AWS configuration to `src/DSP/.dockerignore`. Verify Lambda base-image runtime users before relying on inheritance.
 
-### SEC-08 — Medium — browser session material lacks a strong XSS containment layer
+### SEC-08 — Fixed — Medium — browser session material lacked XSS containment
 
-The Cognito SDK uses default browser storage, which persists session material in JavaScript-readable `localStorage`. No Content Security Policy or other response-security-header policy is defined in the frontend or IaC. No active React XSS sink was found, but a future XSS could steal refresh/session tokens and take over the account.
+The Cognito SDK persists session material in JavaScript-readable browser
+storage, so an XSS would still be able to steal it. CloudDSP now emits an
+enforced CSP in its built HTML and uses the same policy as a Vite development
+and preview response header. It permits scripts only from the app's own origin,
+blocks plugins and child frames, restricts fetch/media connections to the
+configured API Gateway/Cognito endpoints, S3, and the drum-sample host, and
+blocks inline script execution. Inline styles remain permitted because the
+React UI currently relies on them.
 
-**Evidence:** `frontend-react/src/auth/cognito.js:13-18,41-54`, `frontend-react/index.html:1-12`, and no frontend/IaC response-header configuration.
+**Evidence:** `frontend-react/csp.js` and `frontend-react/vite.config.js`.
 
-**Remediation:** Configure hosting-layer headers (for example CloudFront): restrictive CSP, HSTS, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `frame-ancestors 'none'`, and a restrictive `Permissions-Policy`. The inline styles require a deliberate `style-src` design. Consider a BFF/OAuth authorization-code architecture with HttpOnly secure cookies; otherwise evaluate session storage versus persistent-login convenience.
+**Residual limitation:** A CSP reduces the chance of an injected script
+running; it cannot protect tokens after a same-origin script, malicious browser
+extension, or compromised device already executes. The production static-hosting
+layer must mirror the generated production policy as a
+`Content-Security-Policy` HTTP header; this is also required to enforce
+`frame-ancestors`. No authentication architecture or MFA behavior changed.
 
 ### SEC-09 — Medium — the User Pool baseline is intentionally weak
 
@@ -115,13 +132,27 @@ The pool permits an eight-character password with one symbol but does not requir
 
 **Remediation:** Offer optional TOTP/WebAuthn MFA immediately and require it for administrative/support accounts. Increase password length and introduce risk-based or compromised-credential protections as public usage grows.
 
-### SEC-10 — Medium — proxy credentials are plaintext Lambda environment configuration
+### SEC-10 — Fixed — Medium — proxy credentials were plaintext Lambda configuration
 
-`YtDlpProxyUrl` is `NoEcho`, which suppresses normal CloudFormation output, but its value is injected as plaintext `PROXY_URL` in Lambda configuration. Users/processes that can read Lambda configuration or deployment snapshots may obtain proxy credentials.
+The optional `YtDlpProxyUrl` remains a `NoEcho` deployment input, but the
+ingestion stack now writes it through a scoped custom resource to
+`/${ProjectName}/${EnvironmentName}/yt-dlp/proxy-url` as a Standard
+KMS-encrypted SSM `SecureString`. The yt-dlp worker receives only the
+non-sensitive parameter name and calls `GetParameter(WithDecryption=True)` at
+runtime. It has `ssm:GetParameter` for that exact parameter and `kms:Decrypt`
+for the dedicated customer-managed key; neither the Lambda environment nor the
+handler logs contains the URL.
 
-**Evidence:** `IaC/ingestion.yaml:22-27,182-192` and `IaC/cloud-dsp.yaml:75-81`.
+**Evidence:** `IaC/ingestion.yaml`, `IaC/cloud-dsp.yaml`, and
+`src/DSP/src/Cloud/LambdaYtDlp.py`.
 
-**Remediation:** Store proxy credentials in Secrets Manager under a customer-managed KMS key, grant the worker only `GetSecretValue` for that secret, fetch it at startup, rotate it, and continue never logging the full proxy URL.
+**Residual limitation:** The yt-dlp process must receive the proxy URL in
+memory to use it. An actor with code execution in that Lambda, or with both
+the function role and its exact SSM/KMS permissions, can still retrieve it.
+CloudFormation's native `AWS::SSM::Parameter` resource cannot create a
+`SecureString`, so the template uses a minimal custom resource and does not
+log its sensitive input. Proxy credential rotation is provider-specific and is
+not falsely automated by this change.
 
 ### SEC-11 — Medium, conditional — legacy presigned-PUT upload fallback weakens size enforcement
 
@@ -215,6 +246,6 @@ The following files are not referenced by current IaC but bypass the durable job
 1. Update JavaScript dependencies and re-run the production audit.
 2. Add per-user quotas, throttles, and cost/abuse monitoring.
 3. Lock down deployment: immutable artifacts/images, signed releases, and a least-privilege deployment role.
-4. Close SSRF, unrestricted egress, cross-job worker-role, and retention gaps.
+4. Close SSRF, unrestricted egress, and cross-job worker-role gaps.
 5. Add browser headers, token/logging protection, TLS enforcement, and secret management.
 6. Remove dormant legacy handlers and the old presigned-PUT compatibility path.

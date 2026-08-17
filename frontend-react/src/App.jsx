@@ -361,6 +361,7 @@ export default function App() {
                         stem_mode: snapshot.stem_mode || job.stem_mode,
                         tempo: snapshot.tempo || job.tempo,
                         updated_at: snapshot.updated_at || job.updated_at,
+                        expires_at: snapshot.expires_at ?? job.expires_at,
                     }
                     : job
             )));
@@ -647,6 +648,7 @@ export default function App() {
                     stem_mode: splitMode,
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
+                    expires_at: job.expires_at,
                 },
                 ...current.filter((existingJob) => existingJob.job_id !== job.job_id),
             ]);
@@ -739,6 +741,7 @@ export default function App() {
                     stem_mode: splitMode,
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
+                    expires_at: job.expires_at,
                 },
                 ...current.filter((existingJob) => existingJob.job_id !== job.job_id),
             ]);

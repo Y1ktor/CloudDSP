@@ -82,6 +82,12 @@ progress hook, and validates its converted WAV before it can enter S3. Keep the
 browser hint, API POST policy, ingestion Lambda, and Batch checks aligned when
 changing these values.
 
+Jobs and their source/stem/MIDI artifacts use a **14-day** retention policy.
+The Job API hides a record when its `expires_at` timestamp passes; DynamoDB TTL
+and versioned-S3 Lifecycle removal run asynchronously. The S3 policy expires
+the current object after 14 days and noncurrent versions one day after they
+become noncurrent, so do not promise clock-exact deletion timing in the UI.
+
 Store S3 keys and status in DynamoDB; never store presigned URLs as the
 authoritative artifact value. URLs expire and must be generated when a job is
 read.
@@ -178,8 +184,9 @@ email-confirmation dialog; never persist its password or verification code.
   - `midi-lambdas.yaml` — Basic Pitch and ADTOF image Lambdas and their role.
   - `ingestion.yaml` — the yt-dlp image Lambda, its least-privilege role, and
     public-media download limits. Its optional `YtDlpProxyUrl` root parameter
-    reaches the worker only as `PROXY_URL`; never commit a proxy URL or
-    credentials in a template. Its Docker image contains Deno plus the
+    is stored as a KMS-encrypted SSM SecureString; the worker receives only
+    `PROXY_SSM_PARAMETER_NAME` and retrieves it at runtime. Never commit a
+    proxy URL or credentials in a template. Its Docker image contains Deno plus the
     version-matched yt-dlp EJS solver and curl-cffi browser impersonation for
     current YouTube challenge handling. The Python handler must convert a
     configured browser name such as `chrome` to yt-dlp's `ImpersonateTarget`;
@@ -249,7 +256,7 @@ Docker image before local testing.
   advanced concurrently.
 - A changed ZIP file at the same S3 key does not reliably replace Lambda code.
   Upload the Job API package under a new key (currently
-  `job_api-media-url-allowlist-20260815.zip`) and update `JobApiCodeS3Key` when
+  `job_api-retention-20260816.zip`) and update `JobApiCodeS3Key` when
   deploying Job API changes.
 
 ## 4. Infrastructure Rules
@@ -291,6 +298,11 @@ Docker image before local testing.
 - **Never commit secrets.** Do not hardcode AWS credentials, API keys, proxy
   addresses, or deployment-specific endpoints. Use CloudFormation parameters,
   environment variables, or local ignored configuration.
+- **Preserve the CSP.** `frontend-react/csp.js` is emitted into built HTML and
+  served by Vite. New browser network or media origins require a deliberate
+  production-policy review; never add `unsafe-inline`, `unsafe-eval`, or a
+  broad script origin to make a feature work. The production host must mirror
+  the generated policy as a `Content-Security-Policy` response header.
 - **Respect React render cycles.** Never drive audio position, MIDI scheduling,
   auto-scroll, or a playhead through a `setState()` on every animation frame.
   `AudioMultiTrackPlayer.transportRef` is the authoritative visual/scheduler

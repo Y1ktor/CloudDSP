@@ -33,7 +33,7 @@ from media_url_policy import MediaUrlPolicyError, validate_allowlisted_media_url
 
 VALID_STEM_MODES = {"2-stems", "4-stems", "6-stems"}
 TERMINAL_JOB_STATUSES = {"completed", "failed"}
-DEFAULT_JOB_TTL_DAYS = 7
+DEFAULT_JOB_TTL_DAYS = 14
 USER_JOBS_INDEX_NAME = "user_id-updated_at-index"
 DEFAULT_MAX_SOURCE_BYTES = 256 * 1024 * 1024
 SUPPORTED_AUDIO_MEDIA_TYPES = {
@@ -243,6 +243,7 @@ def create_job(event: dict[str, Any], user_id: str) -> dict[str, Any]:
         "status": job["status"],
         "revision": job["revision"],
         "input_key": input_key,
+        "expires_at": expires_at,
         "upload_url": upload_contract["url"],
         "upload_fields": upload_contract["fields"],
         "max_source_bytes": maximum_source_bytes,
@@ -330,6 +331,7 @@ def create_link_job(event: dict[str, Any], user_id: str) -> dict[str, Any]:
         "status": job["status"],
         "revision": job["revision"],
         "input_key": input_key,
+        "expires_at": expires_at,
     }
 
 
@@ -347,7 +349,7 @@ def artifact_snapshot(item: dict[str, Any]) -> dict[str, Any]:
     result = {
         key: value
         for key, value in item.items()
-        if key not in {"input_bucket", "input_key", "expires_at"}
+        if key not in {"input_bucket", "input_key"}
     }
     input_bucket = item.get("input_bucket")
     input_key = item.get("input_key")
@@ -389,6 +391,7 @@ def job_list_item(item: dict[str, Any]) -> dict[str, Any]:
         "tempo": item.get("tempo"),
         "created_at": item.get("created_at"),
         "updated_at": item.get("updated_at"),
+        "expires_at": item.get("expires_at"),
     }
 
 

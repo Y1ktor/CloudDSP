@@ -23,6 +23,13 @@ Parameters:
       Comma-separated browser origins permitted to use presigned S3 URLs.
       Include the deployed frontend origin before production deployment.
 
+  JobRetentionDays:
+    Type: Number
+    Default: 14
+    MinValue: 1
+    MaxValue: 365
+    Description: Days after creation before current job audio/artifact objects expire.
+
 Resources:
   UploadsBucket:
     Type: AWS::S3::Bucket
@@ -63,7 +70,13 @@ Resources:
           - Id: ExpireNoncurrentUploadVersions
             Status: Enabled
             NoncurrentVersionExpiration:
-              NoncurrentDays: 30
+              NoncurrentDays: 1
+          - Id: ExpireCurrentUploadObjects
+            Status: Enabled
+            ExpirationInDays: !Ref JobRetentionDays
+          - Id: RemoveExpiredUploadDeleteMarkers
+            Status: Enabled
+            ExpiredObjectDeleteMarker: true
       OwnershipControls:
         Rules:
           - ObjectOwnership: BucketOwnerEnforced
@@ -116,7 +129,13 @@ Resources:
           - Id: ExpireNoncurrentProcessedVersions
             Status: Enabled
             NoncurrentVersionExpiration:
-              NoncurrentDays: 30
+              NoncurrentDays: 1
+          - Id: ExpireCurrentProcessedObjects
+            Status: Enabled
+            ExpirationInDays: !Ref JobRetentionDays
+          - Id: RemoveExpiredProcessedDeleteMarkers
+            Status: Enabled
+            ExpiredObjectDeleteMarker: true
       OwnershipControls:
         Rules:
           - ObjectOwnership: BucketOwnerEnforced

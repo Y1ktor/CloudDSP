@@ -96,14 +96,28 @@ def display_filename(title: Any) -> str:
 
 
 def configured_proxy_url() -> str | None:
-    """Validate the optional proxy URL without ever logging its credentials."""
-    proxy_url = os.environ.get("PROXY_URL", "").strip()
-    if not proxy_url:
+    """Read and validate the optional proxy credential without logging it."""
+    parameter_name = os.environ.get("PROXY_SSM_PARAMETER_NAME", "").strip()
+    if not parameter_name:
         return None
+
+    try:
+        parameter = boto3.client("ssm").get_parameter(
+            Name=parameter_name,
+            WithDecryption=True,
+        )
+        proxy_url = str(parameter["Parameter"]["Value"]).strip()
+    except Exception as error:
+        # Do not include the AWS error message: it may echo a configured name
+        # and must never cause a credential-bearing value to reach CloudWatch.
+        raise RuntimeError("Unable to retrieve the configured proxy credential.") from error
+
+    if not proxy_url:
+        raise ValueError("The configured proxy credential is empty.")
     parsed = urlsplit(proxy_url)
     if parsed.scheme not in {"http", "https", "socks4", "socks4a", "socks5", "socks5h"} or not parsed.hostname:
         raise ValueError(
-            "PROXY_URL must be an HTTP(S) or SOCKS proxy URL with a hostname."
+            "The configured proxy credential must be an HTTP(S) or SOCKS proxy URL with a hostname."
         )
     return proxy_url
 

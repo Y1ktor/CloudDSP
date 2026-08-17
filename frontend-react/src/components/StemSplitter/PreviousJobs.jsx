@@ -11,6 +11,20 @@ function statusLabel(status) {
     return String(status || 'unknown').replaceAll('_', ' ');
 }
 
+function formatExpiry(expiresAt) {
+    const expiresAtSeconds = Number(expiresAt);
+    if (!Number.isFinite(expiresAtSeconds) || expiresAtSeconds <= 0) {
+        return 'Expiration unavailable';
+    }
+
+    const millisecondsRemaining = expiresAtSeconds * 1000 - Date.now();
+    if (millisecondsRemaining <= 0) return 'Expired';
+
+    const daysRemaining = Math.ceil(millisecondsRemaining / (24 * 60 * 60 * 1000));
+    if (daysRemaining === 1) return 'expires in 1 day';
+    return `expires in ${daysRemaining} days`;
+}
+
 /**
  * Modal job library for durable jobs owned by the authenticated browser user.
  * Selecting an item only fetches its snapshot; it never starts a new DSP job.
@@ -113,19 +127,19 @@ export default function PreviousJobs({
                                 <div
                                     key={job.job_id}
                                     style={{
-                                        width: '100%', minHeight: '66px', flex: '0 0 auto', boxSizing: 'border-box',
+                                        width: '100%', minHeight: '84px', flex: '0 0 auto', boxSizing: 'border-box',
                                         background: isActive ? '#264d38' : '#353535', color: '#e8e8e8',
                                         border: `1px solid ${isActive ? '#61b680' : '#555'}`, borderRadius: '4px', overflow: 'hidden',
                                     }}
                                 >
-                                    <div style={{ display: 'flex', width: '100%', minHeight: '64px', alignItems: 'stretch' }}>
+                                    <div style={{ display: 'flex', width: '100%', minHeight: '82px', alignItems: 'stretch' }}>
                                         <button
                                             type="button"
                                             onClick={() => onSelect(job)}
                                             aria-pressed={isActive}
                                             title={`Open ${job.source_filename || 'saved track'}`}
                                             style={{
-                                                display: 'block', minWidth: 0, minHeight: '64px', flex: '1 1 auto', boxSizing: 'border-box',
+                                                display: 'block', minWidth: 0, minHeight: '82px', flex: '1 1 auto', boxSizing: 'border-box',
                                                 textAlign: 'left', padding: '11px 13px', background: 'transparent', color: '#e8e8e8',
                                                 border: 0, cursor: 'pointer',
                                             }}
@@ -136,6 +150,12 @@ export default function PreviousJobs({
                                             <div style={{ display: 'block', color: isActive ? '#bfe6ca' : '#aaa', fontSize: '12px', marginTop: '5px', lineHeight: 1.25 }}>
                                                 {statusLabel(job.status)} · {formatUpdatedAt(job.updated_at)}
                                             </div>
+                                            <div
+                                                style={{ display: 'block', color: isActive ? '#9fcfb0' : '#8eb99a', fontSize: '12px', marginTop: '3px', lineHeight: 1.25 }}
+                                                title={Number(job.expires_at) > 0 ? new Date(Number(job.expires_at) * 1000).toLocaleString() : undefined}
+                                            >
+                                                {formatExpiry(job.expires_at)}
+                                            </div>
                                         </button>
                                         <button
                                             type="button"
@@ -144,7 +164,7 @@ export default function PreviousJobs({
                                             aria-label={`Delete ${job.source_filename || 'saved track'}`}
                                             title={isTerminal ? 'Delete this job and all of its files' : 'Only completed or failed jobs can be deleted'}
                                             style={{
-                                                width: '46px', minHeight: '64px', flex: '0 0 46px', border: 0, borderLeft: '1px solid #555',
+                                                width: '46px', minHeight: '82px', flex: '0 0 46px', border: 0, borderLeft: '1px solid #555',
                                                 background: 'transparent', color: isTerminal ? '#e69292' : '#777',
                                                 cursor: isTerminal && !isDeleting ? 'pointer' : 'not-allowed', opacity: isDeleting ? 0.6 : 1,
                                             }}
