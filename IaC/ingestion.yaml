@@ -134,12 +134,12 @@ Resources:
             Action: kms:*
             Resource: '*'
       Tags:
-        - TagKey: Project
-          TagValue: !Ref ProjectName
-        - TagKey: Environment
-          TagValue: !Ref EnvironmentName
-        - TagKey: Component
-          TagValue: ingestion
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Component
+          Value: ingestion
 
   YtDlpProxyParameterKeyAlias:
     Type: AWS::KMS::Alias
