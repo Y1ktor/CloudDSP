@@ -69,10 +69,14 @@
 
 .architecture-tabs {
     display: flex;
-    width: max-content;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
     margin: 0 0 24px;
     padding: 0;
     gap: 0;
+    overflow-x: auto;
+    scrollbar-gutter: stable;
     border: 0;
     border-bottom: 1px solid #b9c6d0;
     border-radius: 0;
@@ -80,6 +84,7 @@
 }
 
 .architecture-tabs button {
+    flex: 0 0 auto;
     padding: 9px 16px 8px;
     border: 0;
     border-bottom: 3px solid transparent;
@@ -88,10 +93,12 @@
     cursor: pointer;
     font-size: 13px;
     font-weight: 700;
+    white-space: nowrap;
 }
 
 .architecture-tabs button:hover { color: #182230; }
 .architecture-tabs button.is-active { border-bottom-color: #1f6f9f; color: #18374f; }
+.architecture-tabs button:focus-visible { outline: 2px solid #4e7897; outline-offset: -2px; }
 
 .architecture-diagram-shell,
 .architecture-components {
@@ -219,13 +226,22 @@
 .architecture-components { padding: 24px; }
 .architecture-components-intro p { max-width: 450px; margin: 0; color: #566777; font-size: 13px; line-height: 1.55; }
 
-.architecture-ingestion { padding: 28px; }
+.architecture-ingestion,
+.architecture-hosting { padding: 28px; }
+
+.architecture-overview-figure { margin-top: 22px; }
 
 .ingestion-reference-diagram {
     margin: 0;
     padding: 16px;
     border: 1px solid #c4ced8;
     background: #fff;
+}
+
+.architecture-diagram-image-scroll {
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
 }
 
 .ingestion-reference-diagram img {
@@ -307,6 +323,9 @@
     .architecture-components { padding: 16px; }
     .architecture-flow-notes,
     .ingestion-walkthrough { grid-template-columns: 1fr; }
-    .architecture-ingestion { padding: 18px; }
+    .architecture-ingestion,
+    .architecture-hosting { padding: 18px; }
     .ingestion-reference-diagram { padding: 8px; }
+    .architecture-diagram-image-scroll img { min-width: 760px; }
+    .architecture-overview-figure .architecture-diagram-image-scroll img { min-width: 900px; }
 }

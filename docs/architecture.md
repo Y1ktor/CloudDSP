@@ -530,8 +530,8 @@ sequenceDiagram
 
     UI->>API: POST /jobs with Cognito ID token
     API->>Jobs: create upload_pending item
-    API-->>UI: job_id, key, signed PUT URL and headers
-    UI->>S3: PUT uploads/job_id/file with signed metadata
+    API-->>UI: job_id, key, constrained presigned POST fields
+    UI->>S3: multipart POST uploads/job_id/file with signed metadata
     S3->>EB: Object Created
     EB->>Batch: INPUT_BUCKET and FILE_KEY overrides
     Batch->>Jobs: validate item; set stem_processing

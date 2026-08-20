@@ -1,134 +1,64 @@
 import React, { useState } from 'react';
 import './ArchitecturePage.css';
 
-// Official AWS Architecture Icons, Q2 2026. The source package is published
-// by AWS at https://aws.amazon.com/architecture/icons/.
-const ICONS = {
-    apiGateway: '/aws-icons/amazon-api-gateway.svg',
-    batch: '/aws-icons/aws-batch.svg',
-    cognito: '/aws-icons/amazon-cognito.svg',
-    dynamoDb: '/aws-icons/amazon-dynamodb.svg',
-    ecr: '/aws-icons/amazon-ecr.svg',
-    eventBridge: '/aws-icons/amazon-eventbridge.svg',
-    lambda: '/aws-icons/aws-lambda.svg',
-    s3: '/aws-icons/amazon-s3.svg',
-};
-
-function AwsIcon({ icon, label }) {
-    return <img className="architecture-service-icon" src={ICONS[icon]} alt={`${label} AWS architecture icon`} />;
-}
-
-function DiagramNode({ icon, eyebrow, title, detail, accent = 'default' }) {
-    return (
-        <article className={`architecture-node architecture-node--${accent}`}>
-            {icon ? <AwsIcon icon={icon} label={title} /> : <span className="architecture-browser-icon" aria-hidden="true">⌁</span>}
-            <div>
-                <div className="architecture-node-eyebrow">{eyebrow}</div>
-                <div className="architecture-node-title">{title}</div>
-                {detail && <div className="architecture-node-detail">{detail}</div>}
-            </div>
-        </article>
-    );
-}
-
-function DiagramArrow({ label, dashed = false }) {
-    return (
-        <div className={`architecture-arrow${dashed ? ' architecture-arrow--dashed' : ''}`} aria-hidden="true">
-            {label && <span>{label}</span>}
-            <i>→</i>
-        </div>
-    );
-}
-
 function OverviewDiagram() {
     return (
         <section className="architecture-diagram-shell" aria-labelledby="architecture-diagram-heading">
             <div className="architecture-diagram-heading">
                 <div>
                     <div className="architecture-section-kicker">AWS WORKFLOW</div>
-                    <h2 id="architecture-diagram-heading">One durable job, from source to editable MIDI</h2>
-                </div>
-                <div className="architecture-legend" aria-label="Diagram legend">
-                    <span><b className="architecture-legend-line" /> durable request or artifact flow</span>
-                    <span><b className="architecture-legend-line architecture-legend-line--dashed" /> notification or readback</span>
+                    <h2 id="architecture-diagram-heading">Static demos and durable user jobs remain isolated</h2>
                 </div>
             </div>
 
-            <div className="architecture-diagram-scroll">
-                <div className="architecture-diagram">
-                    <div className="architecture-lane-label">Identity &amp; control</div>
-                    <div className="architecture-lane architecture-lane--control">
-                        <DiagramNode eyebrow="WEB CLIENT" title="CloudDSP React app" detail="Upload, history, DAW" accent="client" />
-                        <DiagramArrow label="ID token" />
-                        <DiagramNode icon="cognito" eyebrow="AUTHENTICATION" title="Amazon Cognito" detail="User Pool" />
-                        <DiagramArrow label="JWT" />
-                        <DiagramNode icon="apiGateway" eyebrow="HTTP API" title="API Gateway" detail="JWT authorizer" />
-                        <DiagramArrow label="routes" />
-                        <DiagramNode icon="lambda" eyebrow="JOB API" title="Job API Lambda" detail="Create, read, delete" />
-                        <DiagramArrow label="state" />
-                        <DiagramNode icon="dynamoDb" eyebrow="DURABLE STATE" title="DynamoDB Jobs" detail="Owner, status, S3 keys" />
-                    </div>
-
-                    <div className="architecture-lane-label">Event-driven processing</div>
-                    <div className="architecture-lane architecture-lane--processing">
-                        <DiagramNode icon="s3" eyebrow="PRIVATE SOURCE" title="Uploads bucket" detail="uploads/{job_id}/…" />
-                        <DiagramArrow label="Object Created" />
-                        <DiagramNode icon="eventBridge" eyebrow="EVENT ROUTING" title="Amazon EventBridge" detail="Input transformer" />
-                        <DiagramArrow label="submit job" />
-                        <DiagramNode icon="batch" eyebrow="GPU COMPUTE" title="AWS Batch · Demucs" detail="Split stems" />
-                        <DiagramArrow label="stems" />
-                        <DiagramNode icon="s3" eyebrow="PRIVATE ARTIFACTS" title="Processed bucket" detail="stems/{job_id}/…" />
-                        <DiagramArrow label="invoke" />
-                        <DiagramNode icon="lambda" eyebrow="MIDI WORKERS" title="Basic Pitch & ADTOF" detail="Pitched + drums MIDI" />
-                    </div>
-
-                    <div className="architecture-lane-label">Artifacts &amp; live updates</div>
-                    <div className="architecture-lane architecture-lane--delivery">
-                        <DiagramNode icon="s3" eyebrow="MIDI ARTIFACTS" title="Processed bucket" detail="midi/{job_id}/…" />
-                        <DiagramArrow label="persist status" />
-                        <DiagramNode icon="dynamoDb" eyebrow="AUTHORITATIVE RESULT" title="DynamoDB Jobs" detail="Keys, BPM, revisions" />
-                        <DiagramArrow label="job_updated" dashed />
-                        <DiagramNode icon="apiGateway" eyebrow="WEBSOCKET API" title="API Gateway WebSocket" detail="Subscribe + heartbeat" />
-                        <DiagramArrow label="snapshot hint" dashed />
-                        <DiagramNode eyebrow="BROWSER" title="CloudDSP React app" detail="Fresh presigned URLs" accent="client" />
-                    </div>
+            <figure className="ingestion-reference-diagram architecture-overview-figure" aria-labelledby="overview-diagram-caption">
+                <div className="architecture-diagram-image-scroll">
+                    <img
+                        src="/architecture/cloud-dsp-architecture-overview.png"
+                        alt="CloudDSP AWS architecture overview separating static CloudFront website and anonymous demo delivery from authenticated Cognito, Job API, EventBridge, public-subnet Batch, MIDI Lambda, DynamoDB, WebSocket, and private S3 artifact workflows."
+                    />
                 </div>
-            </div>
+                <figcaption id="overview-diagram-caption">
+                    CloudFront serves the React build and curated examples from two dedicated private origins. Authenticated uploads, GPU processing, durable job state, realtime hints, and presigned artifact reads use a separate application path; CloudFront never proxies those APIs or private user artifacts.
+                </figcaption>
+            </figure>
 
             <div className="architecture-flow-notes">
-                <p><b>1.</b> The Job API owns the job record before the source is uploaded.</p>
-                <p><b>2.</b> Batch and MIDI workers store S3 keys and state before publishing a notification.</p>
-                <p><b>3.</b> The browser reads a fresh job snapshot; a WebSocket is never the source of truth.</p>
+                <p><b>1.</b> Anonymous examples stop at CloudFront and the demo-assets bucket; they never create backend jobs.</p>
+                <p><b>2.</b> DynamoDB owns authenticated job state, while S3 owns source and generated artifact bytes.</p>
+                <p><b>3.</b> WebSockets provide update hints; authenticated HTTP snapshots and fresh presigned URLs recover every result.</p>
             </div>
         </section>
     );
 }
 
-function ComponentsPanel() {
+function IngestionPanel() {
     return (
         <section className="architecture-components architecture-ingestion" aria-label="Source ingestion workflow">
             <figure className="ingestion-reference-diagram" aria-labelledby="ingestion-diagram-caption">
-                <img
-                    src="/architecture/secure-source-ingestion-linked-media.png"
-                    alt="Secure Source Ingestion architecture diagram showing direct file upload and alternate yt-dlp linked-media ingestion through Cognito, API Gateway, Job API Lambda, DynamoDB, S3, and EventBridge."
-                />
+                <div className="architecture-diagram-image-scroll">
+                    <img
+                        src="/architecture/secure-source-ingestion-linked-media.png"
+                        alt="Secure Source Ingestion architecture diagram showing constrained multipart upload and allowlisted yt-dlp ingestion through Cognito, API Gateway, Job API Lambda, DynamoDB, encrypted proxy configuration, private uploads S3, and EventBridge."
+                    />
+                </div>
                 <figcaption id="ingestion-diagram-caption">
-                    Steps 1–5 cover a browser-selected audio file. Steps 6–8 show the alternate linked-media route; both paths write to the same uploads bucket and share the same S3-to-EventBridge processing handoff.
+                    A browser-selected file uses a size-constrained presigned POST, while an allowlisted media link is validated and normalized by yt-dlp. Both routes create an owner-bound job first, write to the same private <b>UPLOADS</b> bucket, and join one S3-to-EventBridge processing path.
                 </figcaption>
             </figure>
 
             <ol className="ingestion-walkthrough" aria-label="Detailed source ingestion workflow">
                 <li>
                     <span>1</span>
-                    <div><h2>Authentication</h2><p>The user signs in with Amazon Cognito. The React client receives a Cognito ID token, which identifies the immutable user <code>sub</code>; that identity is used for job ownership rather than a display name or browser session.</p></div>
+                    <div><h2>Authenticate the durable owner</h2><p>The user signs in with Amazon Cognito and the React client receives an ID token. APIs use its immutable <code>sub</code> claim for ownership; a display name, browser session, or WebSocket connection never becomes the job identity.</p></div>
                 </li>
                 <li>
                     <span>2</span>
-                    <div><h2>Create the job through the API</h2><p>The browser calls <code>POST /jobs</code> with its ID token and <code>filename</code>, <code>content_type</code>, <code>size_bytes</code>, and <code>stem_mode</code>. API Gateway verifies the JWT, then Job API Lambda validates the request and writes an <code>upload_pending</code> record to DynamoDB before any audio bytes move.</p></div>
+                    <div><h2>Request a direct upload</h2><p>For a local file, the browser calls <code>POST /jobs</code> through the API Gateway HTTP API. Its JWT authorizer verifies the Cognito token before Job API Lambda validates the filename, media type, exact byte count, requested stem mode, and source limits.</p></div>
                 </li>
                 <li>
                     <span>3</span>
-                    <div><h2>Return the signed upload contract</h2><p>Job API returns <code>201 Created</code> with the durable <code>job_id</code>, reserved <code>input_key</code>, <code>upload_url</code>, signed <code>upload_fields</code>, and <code>max_source_bytes</code>. This short-lived presigned POST contract is the only authority the browser receives for the upload.</p></div>
+                    <div><h2>Persist the job and sign its contract</h2><p>Job API writes the owner-bound <code>upload_pending</code> record to DynamoDB before audio moves. It returns the <code>job_id</code>, reserved <code>uploads/{'{job_id}'}/…</code> key, signed form fields, and a presigned POST whose policy enforces the 256 MiB ceiling and required metadata.</p></div>
                 </li>
                 <li>
                     <span>4</span>
@@ -136,19 +66,19 @@ function ComponentsPanel() {
                 </li>
                 <li>
                     <span>5</span>
-                    <div><h2>Hand off processing through EventBridge</h2><p>Either completed upload produces the same S3 Object Created event. EventBridge passes the dynamic bucket and key to the Batch submission; the Demucs worker later uses <code>HeadObject</code> to read durable metadata such as the requested stem mode before it begins processing.</p></div>
+                    <div><h2>Create a linked-source job</h2><p>Alternatively, the browser calls <code>POST /jobs/link</code>. Job API repeats the HTTPS media-host allowlist check, creates a <code>source_ingestion</code> record for the same authenticated owner, and asynchronously invokes the yt-dlp image Lambda rather than submitting Batch directly.</p></div>
                 </li>
                 <li>
                     <span>6</span>
-                    <div><h2>Request linked-media ingestion</h2><p>Instead of selecting a local file, the browser calls <code>POST /jobs/link</code> through the same authenticated API Gateway. Job API creates the same owner-bound job, records the supplied public media URL, and marks it as awaiting source ingestion.</p></div>
+                    <div><h2>Validate before downloading media</h2><p>The yt-dlp Lambda independently validates the HTTPS hostname and DNS result, retrieves media metadata, and enforces the 500-second duration and encoded-size limits. A progress hook caps unknown-size transfers, and the normalized WAV is checked again before upload.</p></div>
                 </li>
                 <li>
                     <span>7</span>
-                    <div><h2>Invoke the yt-dlp worker</h2><p>Job API asynchronously invokes the yt-dlp Lambda. It validates the public URL, checks available metadata and configured limits, downloads the source, and normalizes its audio to the permitted WAV format before S3 receives any object.</p></div>
+                    <div><h2>Resolve the optional proxy securely</h2><p>When configured, yt-dlp reads a KMS-encrypted SSM SecureString with narrowly scoped decrypt permission; the credential is not placed in its environment. The worker uploads only the validated <code>linked-audio.wav</code> under the reserved job prefix with the same durable metadata as a browser upload.</p></div>
                 </li>
                 <li>
                     <span>8</span>
-                    <div><h2>Write the normalized linked source</h2><p>yt-dlp uploads the validated result to <code>uploads/{'{job_id}'}/linked-audio.wav</code> with the same <code>job-id</code> and <code>stem-mode</code> metadata as a browser upload. This joins step 5 rather than creating a second Batch path.</p></div>
+                    <div><h2>Join one EventBridge handoff</h2><p>Either completed source creates the same S3 Object Created event. EventBridge forwards only the dynamic bucket and key into the Batch submission; the Demucs container later reads trusted S3 metadata with <code>HeadObject</code>. There is no second direct-to-Batch route.</p></div>
                 </li>
             </ol>
         </section>
@@ -159,12 +89,14 @@ function ProcessingPanel() {
     return (
         <section className="architecture-components architecture-processing" aria-label="Audio processing and MIDI extraction workflow">
             <figure className="ingestion-reference-diagram" aria-labelledby="processing-diagram-caption">
-                <img
-                    src="/architecture/audio-processing-and-midi-extraction.png"
-                    alt="Audio Processing and MIDI Extraction architecture diagram showing the uploads S3 bucket, EventBridge, private VPC GPU Demucs Batch job, processed S3 bucket, Basic Pitch, ADTOF, and DynamoDB Jobs."
-                />
+                <div className="architecture-diagram-image-scroll">
+                    <img
+                        src="/architecture/audio-processing-and-midi-extraction.png"
+                        alt="Audio Processing and MIDI Extraction architecture diagram showing uploads S3, EventBridge retries and DLQ, GPU Demucs in public Batch subnets with Internet and S3 endpoint access, processed S3, Basic Pitch, ADTOF, and DynamoDB Jobs."
+                    />
+                </div>
                 <figcaption id="processing-diagram-caption">
-                    An object created in the <b>UPLOADS</b> bucket starts the event-driven processing workflow. Demucs writes stems to the separate <b>PROCESSED</b> bucket, then Basic Pitch and ADTOF create the durable MIDI and BPM artifacts used by the application.
+                    An object created in the <b>UPLOADS</b> bucket starts one retryable EventBridge-to-Batch workflow. GPU Demucs runs in ingress-free public Batch subnets, writes stems to the separate <b>PROCESSED</b> bucket, and then invokes CPU MIDI Lambdas that persist MIDI and BPM before updating durable job state.
                 </figcaption>
             </figure>
             <ol className="ingestion-walkthrough" aria-label="Detailed audio processing and MIDI extraction workflow">
@@ -174,31 +106,31 @@ function ProcessingPanel() {
                 </li>
                 <li>
                     <span>2</span>
-                    <div><h2>Route the event through EventBridge</h2><p>EventBridge transforms the S3 event into an AWS Batch submission using only the dynamic bucket and object key. Object metadata is deliberately not copied into the event, which keeps the routing rule independent of user-controlled metadata.</p></div>
+                    <div><h2>Submit one retryable Batch job</h2><p>EventBridge transforms the S3 event into an AWS Batch submission using only <code>INPUT_BUCKET</code> and <code>FILE_KEY</code>. It retries a failed target delivery for the configured window and sends an exhausted submission to the SQS dead-letter queue for inspection or redrive.</p></div>
                 </li>
                 <li>
                     <span>3</span>
-                    <div><h2>Validate before GPU separation</h2><p>The private-VPC Batch job runs GPU Demucs. Before it starts expensive separation, <code>BatchDemucs.py</code> uses <code>HeadObject</code> to enforce source limits and retrieve the job metadata, then uses FFprobe to verify a permitted audio stream and duration.</p></div>
+                    <div><h2>Start GPU compute in public Batch subnets</h2><p>The managed compute environment pulls the Demucs image from Amazon ECR and launches EC2 GPU capacity in one of two public subnets. Instances receive public IPs and HTTPS egress through the Internet Gateway, accept no inbound traffic, and reach S3 through the VPC gateway endpoint.</p></div>
                 </li>
                 <li>
                     <span>4</span>
-                    <div><h2>Persist the stems in the processed bucket</h2><p>Demucs writes each separated stem beneath <code>stems/{'{job_id}'}/</code> in the distinct processed bucket. Persisting the files first makes their keys durable inputs for the downstream Lambdas and allows later job snapshots to create fresh download URLs.</p></div>
+                    <div><h2>Validate before expensive separation</h2><p><code>BatchDemucs.py</code> derives and verifies the canonical job identifier, reads object size and metadata with <code>HeadObject</code>, checks the requested stem mode against DynamoDB, and uses FFprobe to enforce the permitted duration and audio-stream boundary before loading Demucs.</p></div>
                 </li>
                 <li>
                     <span>5</span>
-                    <div><h2>Send pitched stems to Basic Pitch</h2><p>For vocals, bass, guitar, piano, and other pitched stems, the Batch worker directly invokes Basic Pitch with the processed S3 stem key. The Lambda downloads the identified stem and extracts standard note MIDI without requiring GPU compute.</p></div>
+                    <div><h2>Persist stems before downstream work</h2><p>Demucs writes every separated file beneath <code>stems/{'{job_id}'}/</code> in the private processed bucket, then records its stable key and queued MIDI state in DynamoDB. The configured 20-minute scale-down delay may keep the GPU host warm for a nearby job; setting it to zero restores immediate scale-down.</p></div>
                 </li>
                 <li>
                     <span>6</span>
-                    <div><h2>Send the drum stem to ADTOF</h2><p>The drums stem follows a separate direct invocation to ADTOF. Its CPU model identifies drum events such as kick, snare, tom, hi-hat, and cymbal, preserving the General MIDI drum-note mapping needed by the browser’s drum subtracks.</p></div>
+                    <div><h2>Invoke the correct MIDI extractor</h2><p>Batch asynchronously invokes Basic Pitch for vocals, bass, guitar, piano, and other pitched stems. Drums go to ADTOF, whose five-voice General MIDI mapping distinguishes kick, snare, tom, hi-hat, and cymbal. Both are CPU, x86_64 Lambda image workers outside the Batch VPC.</p></div>
                 </li>
                 <li>
                     <span>7</span>
-                    <div><h2>Store MIDI and tempo artifacts</h2><p>Basic Pitch and ADTOF upload MIDI under <code>midi/{'{job_id}'}/</code> in the processed bucket. The workflow also stores the accompanying BPM artifact so the durable result includes the information required to determine the track tempo.</p></div>
+                    <div><h2>Write MIDI and tempo artifacts first</h2><p>Each extractor reads its immutable stem key and uploads <code>midi/{'{job_id}'}/*.mid</code> plus the relevant BPM JSON to the processed bucket. Artifact bytes must exist before a worker can advertise the corresponding durable key as ready.</p></div>
                 </li>
                 <li>
                     <span>8</span>
-                    <div><h2>Persist the job result before delivery</h2><p>Workers write stable artifact keys, extraction state, BPM data, and a new revision to DynamoDB before sending a <code>job_updated</code> notification. The next delivery component turns that durable snapshot into fresh presigned URLs; a notification is only a prompt to read it.</p></div>
+                    <div><h2>Finalize durable state before notifying</h2><p>Workers persist stable keys, per-stem status, tempo candidates, master BPM, terminal state, and an incremented revision in DynamoDB Jobs. Only after that write succeeds do they emit <code>job_updated</code>; the delivery layer can therefore reconstruct the result even if that hint is duplicated or lost.</p></div>
                 </li>
             </ol>
         </section>
@@ -209,12 +141,14 @@ function DeliveryPanel() {
     return (
         <section className="architecture-components architecture-delivery" aria-label="Artifact delivery and live updates workflow">
             <figure className="ingestion-reference-diagram" aria-labelledby="delivery-diagram-caption">
-                <img
-                    src="/architecture/artifact-delivery-and-live-updates.png"
-                    alt="Artifact Delivery and Live Updates architecture diagram showing browser WebSocket subscriptions and heartbeats, durable HTTP job snapshots, DynamoDB state, and direct downloads from the processed S3 bucket."
-                />
+                <div className="architecture-diagram-image-scroll">
+                    <img
+                        src="/architecture/artifact-delivery-and-live-updates.png"
+                        alt="Durable Job Delivery and Live Updates architecture diagram showing Cognito-authenticated WebSocket hints, TTL subscriptions, durable HTTP polling and snapshots, DynamoDB job state, and direct original and processed artifact downloads from separate private S3 buckets."
+                    />
+                </div>
                 <figcaption id="delivery-diagram-caption">
-                    WebSocket messages are low-latency update hints, not result transport. After an update, the browser calls the authenticated job API for a durable snapshot and receives fresh presigned URLs for direct reads from the <b>PROCESSED</b> bucket.
+                    WebSocket messages contain only a job identifier and revision; they are low-latency hints, not result transport. The browser recovers through authenticated HTTP snapshots, then uses fresh presigned URLs to read the original from <b>UPLOADS</b> and stems, MIDI, and BPM from <b>PROCESSED</b>.
                 </figcaption>
             </figure>
             <ol className="ingestion-walkthrough" aria-label="Detailed artifact delivery and live updates workflow">
@@ -224,31 +158,84 @@ function DeliveryPanel() {
                 </li>
                 <li>
                     <span>2</span>
-                    <div><h2>Subscribe to one owned job</h2><p>After connecting, the browser sends <code>subscribe</code> for the job open in the workspace and sends a heartbeat every two minutes. The handler verifies that the Cognito <code>sub</code> owns the job, then stores a short-lived connection and subscription record in DynamoDB Connections.</p></div>
+                    <div><h2>Authorize and manage the socket lifecycle</h2><p>The WebSocket authorizer verifies the token before API Gateway accepts <code>$connect</code>. A separate handler processes <code>subscribe</code>, two-minute heartbeats, and <code>$disconnect</code>; heartbeats keep the socket active and detect failure but never retrieve artifacts.</p></div>
                 </li>
                 <li>
                     <span>3</span>
-                    <div><h2>Persist the result before any notification</h2><p>Batch and MIDI workers first write stable S3 keys, extraction state, BPM data, and a new job revision to DynamoDB Jobs. This is the authoritative record; completed artifacts are never represented only by an in-memory worker response or WebSocket message.</p></div>
+                    <div><h2>Verify ownership and store a temporary subscription</h2><p>On <code>subscribe</code>, the handler checks DynamoDB Jobs to confirm that the Cognito <code>sub</code> owns the selected job. It writes the short-lived connection and job subscription to DynamoDB Connections, where TTL and disconnect cleanup keep realtime state disposable.</p></div>
                 </li>
                 <li>
                     <span>4</span>
-                    <div><h2>Send a lightweight update hint</h2><p>Once the durable job record is updated, the worker sends <code>job_updated</code> through the WebSocket API. Messages may be late, duplicated, or missed, so the browser treats this only as a prompt to refresh—not as an artifact payload or a correctness boundary.</p></div>
+                    <div><h2>Persist first, then send a lightweight hint</h2><p>Processing workers write S3 keys, state, tempo, and a new revision to DynamoDB Jobs before querying active connections. They send only <code>{'{job_id, revision}'}</code> through API Gateway WebSocket. The hint may be late, duplicated, or missed without losing a result.</p></div>
                 </li>
                 <li>
                     <span>5</span>
-                    <div><h2>Read the durable job snapshot</h2><p>The browser calls <code>GET /jobs/{'{job_id}'}</code> with its Cognito ID token after a notification, on reconnect, and while expected artifacts are still pending. Polling provides a fallback if a connection expires or a WebSocket update never arrives.</p></div>
+                    <div><h2>Refresh through authenticated HTTP</h2><p>The browser calls <code>GET /jobs/{'{job_id}'}</code> after a hint, on reconnect, and every five seconds while expected artifacts remain pending. Its retry backoff protects the API after 429 or transient 5xx responses; a dropped socket therefore cannot strand the workspace.</p></div>
                 </li>
                 <li>
                     <span>6</span>
-                    <div><h2>Verify ownership and load stable keys</h2><p>API Gateway’s JWT authorizer and Job API Lambda use the immutable Cognito <code>sub</code> to enforce ownership. Job API reads the DynamoDB record, including its current revision and the durable S3 keys for original audio, stems, MIDI, and BPM artifacts.</p></div>
+                    <div><h2>Build the owner-checked snapshot</h2><p>The HTTP API JWT authorizer and Job API Lambda use the immutable Cognito <code>sub</code> to enforce ownership. Job API reads the current DynamoDB record, including revision, source status, master tempo, and stable keys for original audio, stems, MIDI, and BPM artifacts.</p></div>
                 </li>
                 <li>
                     <span>7</span>
-                    <div><h2>Generate fresh, short-lived download URLs</h2><p>Job API generates presigned S3 GET URLs only while assembling this response. URLs are deliberately not stored in DynamoDB because they expire; stable S3 keys remain the authoritative artifact identity.</p></div>
+                    <div><h2>Sign fresh artifact reads</h2><p>Job API generates one-hour presigned GET URLs only while assembling the response. DynamoDB never stores those disposable signatures; it retains stable bucket keys so history reads and polling snapshots can always issue a fresh URL.</p></div>
                 </li>
                 <li>
                     <span>8</span>
-                    <div><h2>Download artifacts directly from S3</h2><p>The browser fetches the returned URLs directly from the processed bucket, bypassing API Gateway and Lambda for large audio and MIDI transfers. It keys its local audio and MIDI work by stable S3 path rather than each disposable presigned query string.</p></div>
+                    <div><h2>Download directly from both private buckets</h2><p>The browser reads the original from the uploads bucket and reads stems, MIDI, and BPM from the processed bucket, bypassing API Gateway and Lambda for large transfers. Its caches use stable host-plus-path identity so refreshed query signatures do not trigger duplicate decoding.</p></div>
+                </li>
+            </ol>
+        </section>
+    );
+}
+
+function HostingDemoPanel() {
+    return (
+        <section className="architecture-components architecture-hosting" aria-label="Web hosting and anonymous demo delivery workflow">
+            <figure className="ingestion-reference-diagram" aria-labelledby="hosting-diagram-caption">
+                <div className="architecture-diagram-image-scroll">
+                    <img
+                        src="/architecture/web-hosting-and-demo-delivery.png"
+                        alt="Web Hosting and Anonymous Demo Delivery architecture diagram showing Route 53 and ACM, a CloudFront distribution and Function, response security headers, dedicated OAC access to private website and demo-assets S3 origins, and a browser-local anonymous demo workspace."
+                    />
+                </div>
+                <figcaption id="hosting-diagram-caption">
+                    A release publishes the Vite build and curated examples independently, then invalidates one CloudFront distribution. Its default behavior reads the private website origin; only <code>/demo/*</code> reaches the separate demo-assets origin. Neither behavior proxies application APIs or private user artifacts.
+                </figcaption>
+            </figure>
+
+            <ol className="ingestion-walkthrough" aria-label="Detailed web hosting and anonymous demo delivery workflow">
+                <li>
+                    <span>1</span>
+                    <div><h2>Resolve the canonical site at the edge</h2><p>Route 53 A and AAAA aliases for the apex and <code>www</code> names resolve to the CloudFront distribution. The S3 origins have no public website endpoints and are never exposed through public bucket policies.</p></div>
+                </li>
+                <li>
+                    <span>2</span>
+                    <div><h2>Terminate modern HTTPS with ACM</h2><p>An ACM certificate created in <code>us-east-1</code> covers both names and is validated through the supplied Route 53 zone. CloudFront enforces TLS 1.2 or newer and redirects ordinary HTTP viewers to HTTPS.</p></div>
+                </li>
+                <li>
+                    <span>3</span>
+                    <div><h2>Canonicalize and route known React pages</h2><p>A viewer-request CloudFront Function redirects <code>www</code> to the apex while preserving the path and query string. It rewrites only known client routes such as <code>/architecture</code> and <code>/stems</code> to <code>index.html</code>, avoiding a global SPA fallback.</p></div>
+                </li>
+                <li>
+                    <span>4</span>
+                    <div><h2>Serve the application from private website S3</h2><p>The default cache behavior signs origin requests through the website-specific Origin Access Control. The versioned bucket blocks public access and permits <code>GetObject</code> only when the request comes from this CloudFront distribution.</p></div>
+                </li>
+                <li>
+                    <span>5</span>
+                    <div><h2>Route demos to a separate private origin</h2><p>The <code>demo/*</code> cache behavior selects the demo-assets bucket and a second dedicated OAC. Curated originals, stems, MIDI, BPM files, and <code>demo/manifest.json</code> remain independent of website synchronization and the 14-day lifecycle used for user jobs.</p></div>
+                </li>
+                <li>
+                    <span>6</span>
+                    <div><h2>Apply browser security headers</h2><p>The response-headers policy adds the reviewed Content Security Policy, HSTS, frame denial, MIME-sniffing protection, and referrer policy. An optional WAF Web ACL can attach to the same distribution without changing origin access.</p></div>
+                </li>
+                <li>
+                    <span>7</span>
+                    <div><h2>Validate the same-origin demo catalog</h2><p>The React app requests <code>/demo/manifest.json</code>, accepts only JSON, and rejects artifact URLs outside the same-origin <code>/demo/*</code> namespace. Missing manifests or media remain genuine 403/404 responses rather than being rewritten to application HTML.</p></div>
+                </li>
+                <li>
+                    <span>8</span>
+                    <div><h2>Hydrate a browser-local example</h2><p>The selected manifest entry becomes a completed <code>demo:&lt;id&gt;</code> workspace. Playback, MIDI editing, and downloads run locally; no shared Cognito identity, Job API request, WebSocket subscription, DynamoDB item, Batch job, Lambda worker, or presigned URL is involved.</p></div>
                 </li>
             </ol>
         </section>
@@ -263,8 +250,8 @@ export default function ArchitecturePage() {
             <header className="architecture-hero">
                 <div>
                     <div className="architecture-section-kicker">CLOUDDSP ON AWS</div>
-                    <h1>Architecture that keeps long-running audio work dependable.</h1>
-                    <p>CloudDSP turns an uploaded or linked track into stems and editable MIDI through a durable, event-driven AWS workflow.</p>
+                    <h1>Architecture that separates public exploration from durable audio work.</h1>
+                    <p>CloudDSP serves curated examples at the edge, while authenticated uploads become stems and editable MIDI through an isolated, event-driven AWS workflow.</p>
                 </div>
                 <a href="https://aws.amazon.com/architecture/icons/" target="_blank" rel="noreferrer" className="architecture-icons-credit">
                     AWS Architecture Icons <span aria-hidden="true">↗</span>
@@ -285,10 +272,10 @@ export default function ArchitecturePage() {
                     type="button"
                     role="tab"
                     id="architecture-ingestion-tab"
-                    aria-selected={activeTab === 'components'}
+                    aria-selected={activeTab === 'ingestion'}
                     aria-controls="architecture-ingestion-panel"
-                    className={activeTab === 'components' ? 'is-active' : ''}
-                    onClick={() => setActiveTab('components')}
+                    className={activeTab === 'ingestion' ? 'is-active' : ''}
+                    onClick={() => setActiveTab('ingestion')}
                 >Ingestion</button>
                 <button
                     type="button"
@@ -308,6 +295,15 @@ export default function ArchitecturePage() {
                     className={activeTab === 'delivery' ? 'is-active' : ''}
                     onClick={() => setActiveTab('delivery')}
                 >Delivery</button>
+                <button
+                    type="button"
+                    role="tab"
+                    id="architecture-hosting-tab"
+                    aria-selected={activeTab === 'hosting'}
+                    aria-controls="architecture-hosting-panel"
+                    className={activeTab === 'hosting' ? 'is-active' : ''}
+                    onClick={() => setActiveTab('hosting')}
+                >Web hosting &amp; demo delivery</button>
             </div>
 
             <div
@@ -322,9 +318,9 @@ export default function ArchitecturePage() {
                 role="tabpanel"
                 id="architecture-ingestion-panel"
                 aria-labelledby="architecture-ingestion-tab"
-                hidden={activeTab !== 'components'}
+                hidden={activeTab !== 'ingestion'}
             >
-                <ComponentsPanel />
+                <IngestionPanel />
             </div>
             <div
                 role="tabpanel"
@@ -341,6 +337,14 @@ export default function ArchitecturePage() {
                 hidden={activeTab !== 'delivery'}
             >
                 <DeliveryPanel />
+            </div>
+            <div
+                role="tabpanel"
+                id="architecture-hosting-panel"
+                aria-labelledby="architecture-hosting-tab"
+                hidden={activeTab !== 'hosting'}
+            >
+                <HostingDemoPanel />
             </div>
         </main>
     );
