@@ -967,9 +967,9 @@ take ownership of the bucket resources themselves.
 Upload versioned demo audio/MIDI objects first with long-lived immutable cache
 metadata, validate them through CloudFront, then publish
 `demo/manifest.json` last with short-lived/no-cache metadata and invalidate
-that manifest path. Because demo assets are served from the website origin,
-they require no additional CSP or S3 CORS source. Direct S3 reads must remain
-denied.
+that manifest path. Demo assets are served from the dedicated private demo
+origin through the same CloudFront hostname, so they require no additional CSP
+or S3 CORS source. Direct S3 reads must remain denied.
 
 The root outputs for the Basic Pitch and ADTOF Lambda ARNs and Demucs queue are
 absent during the bootstrap phase and appear after worker processing is
