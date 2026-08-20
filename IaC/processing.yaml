@@ -92,6 +92,16 @@ Parameters:
     MinValue: 4
     Description: Maximum vCPUs that the managed GPU compute environment may allocate.
 
+  BatchScaleDownDelayMinutes:
+    Type: Number
+    Default: 20
+    AllowedValues:
+      - 0
+      - 20
+    Description: >-
+      Keep an idle GPU host after its final job for 20 minutes so a nearby job
+      can reuse it. Set 0 to disable the delay and scale down immediately.
+
   BatchJobTimeoutSeconds:
     Type: Number
     Default: 3600
@@ -206,6 +216,11 @@ Resources:
       ComputeEnvironmentName: !Sub '${ProjectName}-${EnvironmentName}-DemucsGpu'
       Type: MANAGED
       State: ENABLED
+      # BEST_FIT_PROGRESSIVE plus the Batch service-linked role supports
+      # enhanced in-place updates for infrastructure properties such as the
+      # scale-down policy. The legacy replacement behavior omits that policy
+      # from UpdateComputeEnvironment requests.
+      ReplaceComputeEnvironment: false
       # Omit ServiceRole so AWS Batch uses (or creates) the supported
       # AWSServiceRoleForBatch service-linked role for this managed environment.
       ComputeResources:
@@ -214,6 +229,8 @@ Resources:
         MinvCpus: 0
         DesiredvCpus: 0
         MaxvCpus: !Ref BatchMaxvCpus
+        ScalingPolicy:
+          MinScaleDownDelayMinutes: !Ref BatchScaleDownDelayMinutes
         InstanceTypes: !Ref GpuInstanceTypes
         InstanceRole: !Ref BatchEcsInstanceProfile
         SecurityGroupIds: !Ref BatchSecurityGroupIds

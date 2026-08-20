@@ -41,6 +41,9 @@ export function contentSecurityPolicy({ jobApiUrl, webSocketUrl, userPoolId, dev
     const connectSources = new Set([
         "'self'",
         'https://*.s3.amazonaws.com',
+        // smplr fetches the FluidR3 guitar and bass banks as data through
+        // fetch(), so this belongs in connect-src rather than script-src.
+        'https://gleitz.github.io',
         'https://smpldsnds.github.io',
     ]);
     const jobApiOrigin = configuredOrigin(jobApiUrl, new Set(['https:']));

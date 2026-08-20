@@ -11,6 +11,7 @@ import React from 'react';
  * 
  * @param {Object} props - Component props
  * @param {boolean} props.isSplitting - Is AWS processing running
+ * @param {boolean} props.processingEnabled - Whether authenticated job creation is available
  * @param {Function} props.handleFileUpload - Callback when a file is selected
  * @param {string} props.fileName - The name of the currently selected file
  * @param {string} props.splitMode - The active demucs split mode
@@ -21,6 +22,7 @@ import React from 'react';
  */
 export default function ControlBar({
     isSplitting,
+    processingEnabled,
     handleFileUpload,
     fileName,
     splitMode,
@@ -33,6 +35,7 @@ export default function ControlBar({
     const [showLinkPopup, setShowLinkPopup] = React.useState(false);
     const [linkInput, setLinkInput] = React.useState('');
     const [isSubmittingLink, setIsSubmittingLink] = React.useState(false);
+    const controlsDisabled = isSplitting || !processingEnabled;
 
     const handleLinkSubmit = async () => {
         const sourceUrl = linkInput.trim();
@@ -52,17 +55,28 @@ export default function ControlBar({
     return (
         <>
             <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' }}>
-                <label htmlFor="stem-upload" className="upload-btn" style={{ margin: 0, cursor: isSplitting ? 'not-allowed' : 'pointer', opacity: isSplitting ? 0.5 : 1 }}>Browse...</label>
+                <label
+                    htmlFor={processingEnabled ? 'stem-upload' : undefined}
+                    className="upload-btn"
+                    aria-disabled={controlsDisabled}
+                    title={processingEnabled ? 'Choose an audio file' : 'Sign in to upload and process audio'}
+                    style={{ margin: 0, cursor: controlsDisabled ? 'not-allowed' : 'pointer', opacity: controlsDisabled ? 0.5 : 1 }}
+                >Browse...</label>
                 <input
                     type="file"
                     id="stem-upload"
                     accept=".wav,.mp3,.flac,.m4a,.aac,.ogg,.opus,.aiff,.aif,.webm"
                     style={{ display: 'none' }}
                     onChange={handleFileUpload}
-                    disabled={isSplitting}
+                    disabled={controlsDisabled}
                 />
                 
-                <div id="file-name-container" onClick={() => !isSplitting && setShowLinkPopup(true)} style={{ flexGrow: 1, margin: 0, cursor: isSplitting ? 'not-allowed' : 'pointer' }} title="Click to paste a link">
+                <div
+                    id="file-name-container"
+                    onClick={() => !controlsDisabled && setShowLinkPopup(true)}
+                    style={{ flexGrow: 1, margin: 0, cursor: controlsDisabled ? 'not-allowed' : 'pointer', opacity: controlsDisabled ? 0.7 : 1 }}
+                    title={processingEnabled ? 'Click to paste a link' : 'Sign in to extract and process linked audio'}
+                >
                     <div id="file-name-display" style={{ color: (fileName === "No file loaded" || fileName === "Upload audio or paste a link") ? '#aaa' : '#fff' }}>
                         {fileName === "No file loaded" ? "Upload audio or paste a link" : fileName}
                     </div>
@@ -117,19 +131,19 @@ export default function ControlBar({
                     <select 
                         value={splitMode} 
                         onChange={(e) => setSplitMode(e.target.value)}
-                        disabled={isSplitting}
+                        disabled={controlsDisabled}
                         style={{
                             background: '#222',
                             color: '#fff',
                             border: '1px solid #444',
                             padding: '8px 10px',
                             borderRadius: '4px',
-                            cursor: isSplitting ? 'not-allowed' : 'pointer',
+                            cursor: controlsDisabled ? 'not-allowed' : 'pointer',
                             outline: 'none',
                             width: '100%',
                             fontSize: '13px',
                             fontFamily: 'inherit',
-                            opacity: isSplitting ? 0.5 : 1
+                            opacity: controlsDisabled ? 0.5 : 1
                         }}
                     >
                         <option value="6-stems">6 Stems (Vocals / Drums / Bass / Piano / Guitar / Other)</option>
@@ -140,14 +154,14 @@ export default function ControlBar({
 
                 <button 
                     onClick={() => file && executeStemSplit()}
-                    disabled={isSplitting || !file}
+                    disabled={controlsDisabled || !file}
                     style={{
-                        background: isSplitting || !file ? '#555' : '#4CAF50',
+                        background: controlsDisabled || !file ? '#555' : '#4CAF50',
                         color: 'white',
                         border: 'none',
                         padding: '8px 16px',
                         borderRadius: '4px',
-                        cursor: isSplitting || !file ? 'not-allowed' : 'pointer',
+                        cursor: controlsDisabled || !file ? 'not-allowed' : 'pointer',
                         fontWeight: 'bold',
                         transition: 'background-color 0.2s',
                         fontSize: '13px'
@@ -158,6 +172,7 @@ export default function ControlBar({
             </div>
             <div style={{ color: '#8492a1', fontSize: '11px', marginTop: '-7px' }}>
                 Audio: WAV, MP3, FLAC, M4A, AAC, OGG, Opus, AIFF, or WebM · up to 256 MiB · up to 500 seconds.
+                {!processingEnabled && <span style={{ color: '#b6c7d5' }}> Sign in to upload or extract audio from a link.</span>}
             </div>
             
             {/* Error Message */}

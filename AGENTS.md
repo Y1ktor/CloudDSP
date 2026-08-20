@@ -106,6 +106,13 @@ subscriptions must always use the immutable `sub` claim. A pending signup's
 email/display name may be stored in browser local storage solely to resume an
 email-confirmation dialog; never persist its password or verification code.
 
+Anonymous demo mode never creates or shares a Cognito account. It reads only a
+same-origin `/demo/manifest.json` catalog and immutable `/demo/*` artifacts
+through CloudFront. Demo IDs use `demo:<id>` and must never enter Job API
+polling, WebSocket subscriptions, history, deletion, Batch, or Lambda
+processing. Playback and MIDI editing remain browser-local; uploading, linked
+source ingestion, and server-side persistence require authentication.
+
 ### WebSocket lifecycle
 
 - On socket open or reconnect, the client sends `subscribe` for the one job
@@ -127,6 +134,10 @@ email-confirmation dialog; never persist its password or verification code.
   - `src/auth/cognito.js` and `src/components/AuthPanel.jsx` — browser-only
     Cognito User Pool authentication, including a resumable email-confirmation
     dialog and the profile display name.
+  - `src/components/DemoLibrary.jsx` and `src/utils/demoCatalog.js` — anonymous
+    static demo discovery and completed-job snapshot hydration. The catalog
+    accepts only JSON and same-origin `/demo/*` artifact URLs; demo jobs must
+    remain outside authenticated API, WebSocket, history, and processing paths.
   - `src/components/StemSplitter/` — stem grid, MIDI status, and popup editor.
   - `src/hooks/AudioMultiTrackPlayer.js` — shared Web Audio transport. It
     serializes fetch/decode work, owns current `AudioBuffer`s, and publishes a
@@ -197,6 +208,9 @@ email-confirmation dialog; never persist its password or verification code.
     processing permissions.
   - `network.yaml` — public GPU Batch subnets, Internet Gateway egress,
     egress-only security group, and S3 gateway endpoint.
+  - `hosting.yaml` — optional private website and demo-assets buckets served by
+    one CloudFront distribution. It owns OAC bucket access, the `demo/*` origin
+    behavior, exact React-route rewrites, ACM, Route 53, and hosting outputs.
   - `cloud-dsp.yaml` — root nested-stack composition template.
 - `/docs/job-id-workflow-plan.md` — phased implementation plan and acceptance
   criteria for the durable job architecture.
@@ -243,6 +257,18 @@ Docker image before local testing.
   components. Push the three worker images, then update the same root stack
   with `DeployProcessingWorkers=true`. Do not try to create Lambda image
   functions before their ECR tags exist.
+- Never update the root stack with a partial `--parameters` list. Supply the
+  complete reviewed parameter set, or set `UsePreviousValue=true` for every
+  unchanged parameter, and inspect a change set before execution. An omitted
+  conditional parameter can fall back to `false` and remove its nested stack;
+  this is especially dangerous for `DeployProcessingWorkers`,
+  `DeployWebsiteHosting`, and the `NoEcho` yt-dlp proxy value.
+- The hosting nested stack is retained if its root condition is accidentally
+  removed. On a clean deployment, leave `ExistingWebsiteBucketName` and
+  `ExistingDemoAssetsBucketName` empty. During recovery from a previously
+  retained hosting-data bucket, pass both names so the replacement CloudFront
+  stack adopts them as origins and restores their OAC bucket policies without
+  trying to recreate the buckets.
 - Package the three zip Lambdas (`job_api`, `websocket_handler`, and
   `websocket_authorizer`) before deployment. The authorizer package must also
   contain the dependencies in `requirements-websocket-authorizer.txt`; build
@@ -278,9 +304,16 @@ Docker image before local testing.
   use presigned URLs for browser transfer.
 - AWS Batch GPU workloads currently run in public VPC subnets to avoid an
   always-on NAT Gateway charge. Keep their security group ingress-free, retain
-  the S3 gateway endpoint, and use `MinvCpus: 0` so no public Batch host exists
-  while idle. This is a cost-optimized development posture; reassess private
-  subnets plus interface endpoints or controlled egress before production.
+  the S3 gateway endpoint, and use `MinvCpus: 0`. The root
+  `BatchScaleDownDelayMinutes` parameter has a temporary default of `20` so a
+  recently-used GPU host can accept a nearby job; set it to `0` to remove that
+  billable warm-host delay and return to immediate scale-down. This is a
+  cost-optimized development posture; reassess private subnets plus interface
+  endpoints or controlled egress before production.
+- Keep `ReplaceComputeEnvironment: false` on the managed
+  `BEST_FIT_PROGRESSIVE` Demucs environment. Together with the Batch
+  service-linked role, it enables supported in-place updates; omitting it can
+  prevent `ScalingPolicy` changes from reaching the AWS Batch API.
 - Do not set a custom IAM service role on the managed Batch compute
   environment. Omit `ServiceRole` so AWS Batch uses its
   `AWSServiceRoleForBatch` service-linked role; the deployment principal
@@ -307,6 +340,11 @@ Docker image before local testing.
   production-policy review; never add `unsafe-inline`, `unsafe-eval`, or a
   broad script origin to make a feature work. The production host must mirror
   the generated policy as a `Content-Security-Policy` response header.
+- **Keep demo mode static and isolated.** Accept only a JSON catalog and
+  same-origin `/demo/*` artifact URLs. Never issue shared Cognito or AWS
+  credentials, and never send a `demo:` identifier to the Job API or WebSocket
+  API. Website build synchronization and demo publication target separate S3
+  buckets; a website `sync --delete` must never touch curated demo releases.
 - **Respect React render cycles.** Never drive audio position, MIDI scheduling,
   auto-scroll, or a playhead through a `setState()` on every animation frame.
   `AudioMultiTrackPlayer.transportRef` is the authoritative visual/scheduler

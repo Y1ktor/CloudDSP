@@ -2,9 +2,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BrowserRouter, Link, NavLink, Navigate, Route, Routes } from 'react-router-dom';
 import ArchitecturePage from './components/ArchitecturePage';
 import AuthPanel from './components/AuthPanel';
+import DemoLibrary from './components/DemoLibrary';
+import WelcomeTutorial from './components/WelcomeTutorial';
 import StemSplitter from './components/StemSplitter/StemSplitter';
 import PreviousJobs from './components/StemSplitter/PreviousJobs';
 import './assets/css/styles.css';
+import { createDemoJobSnapshot, loadDemoCatalog } from './utils/demoCatalog';
 import {
     confirmSignUp,
     getCurrentSession,
@@ -199,6 +202,9 @@ export default function App() {
     const [deletingJobId, setDeletingJobId] = useState(null);
     const [isRestoringHistoryJob, setIsRestoringHistoryJob] = useState(false);
     const [isHistoryJob, setIsHistoryJob] = useState(false);
+    const [demoCatalog, setDemoCatalog] = useState({ jobs: [], defaultJobId: null });
+    const [isDemoLibraryOpen, setIsDemoLibraryOpen] = useState(false);
+    const [isAuthDialogOpen, setIsAuthDialogOpen] = useState(false);
 
     const socketRef = useRef(null);
     const shouldReconnectRef = useRef(false);
@@ -212,6 +218,7 @@ export default function App() {
     const deletedJobIdsRef = useRef(new Set());
 
     const currentJob = activeJobId ? jobSnapshots[activeJobId] : null;
+    const activeDemoId = currentJob?.is_demo ? currentJob.demo_id : null;
     const authUsername = authSession?.username;
     const stemUrls = useMemo(() => urlsForReadyArtifacts(currentJob?.stems), [currentJob]);
     const midiUrls = useMemo(() => urlsForReadyArtifacts(currentJob?.midi), [currentJob]);
@@ -245,6 +252,21 @@ export default function App() {
     useEffect(() => {
         restoreSession();
     }, [restoreSession]);
+
+    useEffect(() => {
+        const controller = new AbortController();
+        loadDemoCatalog({ signal: controller.signal })
+            .then(setDemoCatalog)
+            .catch((error) => {
+                if (error.name === 'AbortError') return;
+                // Demo publication is a separate deployment step. The signed-in
+                // application remains fully usable while the catalog is absent
+                // or temporarily unavailable.
+                console.warn('[CloudDSP] Public demo catalog is unavailable:', error);
+                setDemoCatalog({ jobs: [], defaultJobId: null });
+            });
+        return () => controller.abort();
+    }, []);
 
     // The durable account-scoped Job API is the only source of job history.
     // Do not restore a browser-local job queue after a reload: deleted jobs
@@ -405,6 +427,7 @@ export default function App() {
 
     const subscribeToActiveJob = useCallback((socket, jobId = activeJobIdRef.current) => {
         if (!jobId) return;
+        if (jobSnapshotsRef.current[jobId]?.is_demo || String(jobId).startsWith('demo:')) return;
         if (socket?.readyState !== WebSocket.OPEN) return;
         socket.send(JSON.stringify({ action: 'subscribe', job_id: jobId }));
     }, []);
@@ -491,6 +514,9 @@ export default function App() {
 
     useEffect(() => {
         if (!authUsername || !activeJobId) return undefined;
+        if (jobSnapshotsRef.current[activeJobId]?.is_demo || String(activeJobId).startsWith('demo:')) {
+            return undefined;
+        }
         const refreshPendingJobs = () => {
             if (needsJobRefresh(jobSnapshotsRef.current[activeJobId])) {
                 fetchJobSnapshot(activeJobId);
@@ -521,6 +547,28 @@ export default function App() {
         setErrorMsg('');
         setStatusMessage('Ready to upload audio.');
     };
+
+    const openDemoJob = useCallback((demo) => {
+        const snapshot = createDemoJobSnapshot(demo);
+        if (!snapshot) return;
+
+        setStemFile(null);
+        setStemFileName(demo.sourceFilename || demo.title);
+        setActiveJobId(snapshot.job_id);
+        setJobSnapshots({ [snapshot.job_id]: snapshot });
+        setIsRestoringHistoryJob(false);
+        setIsHistoryJob(false);
+        setIsDemoLibraryOpen(false);
+        setErrorMsg('');
+        setStatusMessage('Public demo loaded. Playback and MIDI edits stay in this browser.');
+    }, []);
+
+    useEffect(() => {
+        if (authLoading || authSession || currentJob || demoCatalog.jobs.length === 0) return;
+        const defaultDemo = demoCatalog.jobs.find((job) => job.id === demoCatalog.defaultJobId)
+            || demoCatalog.jobs[0];
+        openDemoJob(defaultDemo);
+    }, [authLoading, authSession, currentJob, demoCatalog, openDemoJob]);
 
     const openPreviousJob = async (selectedJob) => {
         const jobId = selectedJob?.job_id;
@@ -822,6 +870,9 @@ export default function App() {
             : currentJob?.original_url,
         isRestoringHistoryJob,
         isHistoryJob,
+        isDemo: Boolean(currentJob?.is_demo),
+        canProcess: Boolean(authSession),
+        onOpenExamples: demoCatalog.jobs.length > 0 ? () => setIsDemoLibraryOpen(true) : null,
         errorMsg,
         setErrorMsg,
         executeStemSplit,
@@ -838,12 +889,23 @@ export default function App() {
         onConfirmSignUp: handleConfirmSignUp,
         onSignOut: handleSignOut,
         onOpenHistory: openPreviousJobs,
+        onDialogOpenChange: setIsAuthDialogOpen,
     };
 
     return (
         <BrowserRouter>
             <div style={{ minHeight: '100vh' }}>
                 <NavBar authProps={authProps} />
+                <WelcomeTutorial
+                    enabled={!authLoading && !isAuthDialogOpen && !isDemoLibraryOpen && !isPreviousJobsOpen}
+                />
+                <DemoLibrary
+                    isOpen={isDemoLibraryOpen}
+                    jobs={demoCatalog.jobs}
+                    activeDemoId={activeDemoId}
+                    onSelect={openDemoJob}
+                    onClose={() => setIsDemoLibraryOpen(false)}
+                />
                 <PreviousJobs
                     isOpen={isPreviousJobsOpen}
                     onClose={() => setIsPreviousJobsOpen(false)}

@@ -107,6 +107,8 @@ const MidiScheduler = React.memo(function MidiScheduler({
  * @param {boolean} props.isSplitting - Tracks if the active upload is being processed
  * @param {boolean} props.isRestoringHistoryJob - A saved job is being hydrated from private artifacts
  * @param {boolean} props.isHistoryJob - The workspace currently displays a saved job
+ * @param {boolean} props.isDemo - The workspace currently displays immutable public demo assets
+ * @param {boolean} props.canProcess - Whether the signed-in user may create backend jobs
  * @param {string} props.statusMessage - The dynamic loading text
  * @param {Object} props.stemUrls - Fresh presigned stem URLs from the durable job snapshot
  * @param {Object} props.midiUrls - Fresh presigned MIDI URLs from the durable job snapshot
@@ -122,9 +124,9 @@ export default function StemSplitter({
     file, setFile,
     fileName, setFileName,
     splitMode, setSplitMode,
-    isSplitting, isRestoringHistoryJob, isHistoryJob, statusMessage, stemUrls, midiUrls, midiStates, jobTempo, jobId, errorMsg, setErrorMsg,
+    isSplitting, isRestoringHistoryJob, isHistoryJob, isDemo, canProcess, statusMessage, stemUrls, midiUrls, midiStates, jobTempo, jobId, errorMsg, setErrorMsg,
     sourceUrl,
-    executeStemSplit, executeLinkExtraction, beginNewUpload
+    executeStemSplit, executeLinkExtraction, beginNewUpload, onOpenExamples
 }) {
     const [showSigMenu, setShowSigMenu] = React.useState(false);
     const [selectedTrack, setSelectedTrack] = React.useState(null);
@@ -576,9 +578,34 @@ export default function StemSplitter({
             <h2 style={{ margin: 0, fontSize: '18px', borderBottom: '1px solid #555', paddingBottom: '10px' }}>
                 Stem Splitting & Audio-to-MIDI
             </h2>
+
+            {isDemo && (
+                <div style={{
+                    display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap',
+                    padding: '10px 12px', border: '1px solid #4d7958', borderRadius: '5px',
+                    background: '#203229', color: '#d9eadc', fontSize: '12px', lineHeight: 1.45,
+                }}>
+                    <strong style={{ color: '#aee0b8' }}>Demo mode</strong>
+                    <span style={{ flex: 1, minWidth: '240px' }}>
+                        Explore playback and edit MIDI locally. Public demo assets are read-only; sign in to process and save your own audio.
+                    </span>
+                    {onOpenExamples && (
+                        <button
+                            type="button"
+                            onClick={onOpenExamples}
+                            style={{
+                                padding: '6px 9px', border: '1px solid #669873', borderRadius: '4px',
+                                background: '#294334', color: '#e0f3e4', cursor: 'pointer',
+                                fontSize: '11px', fontWeight: '700',
+                            }}
+                        >Choose example</button>
+                    )}
+                </div>
+            )}
             
             <ControlBar 
                 isSplitting={isSplitting}
+                processingEnabled={canProcess}
                 handleFileUpload={handleFileUpload}
                 fileName={fileName}
                 splitMode={splitMode}

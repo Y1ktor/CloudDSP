@@ -21,6 +21,7 @@ export default function AuthPanel({
     onConfirmSignUp,
     onSignOut,
     onOpenHistory,
+    onDialogOpenChange,
 }) {
     const [isOpen, setIsOpen] = React.useState(false);
     const [mode, setMode] = React.useState('sign-in');
@@ -42,10 +43,14 @@ export default function AuthPanel({
         }
         setMode(nextMode);
         setIsOpen(true);
+        onDialogOpenChange?.(true);
     };
 
     const closeDialog = () => {
-        if (!busy) setIsOpen(false);
+        if (!busy) {
+            setIsOpen(false);
+            onDialogOpenChange?.(false);
+        }
     };
 
     const submit = async (event) => {
@@ -70,6 +75,7 @@ export default function AuthPanel({
             if (mode === 'sign-in') {
                 await onSignIn(email, password);
                 setIsOpen(false);
+                onDialogOpenChange?.(false);
                 return;
             }
             if (mode === 'sign-up') {
