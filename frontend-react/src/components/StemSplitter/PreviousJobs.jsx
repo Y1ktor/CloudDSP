@@ -66,7 +66,7 @@ export default function PreviousJobs({
             }}
             style={{
                 position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                padding: '20px', background: 'rgba(0, 0, 0, 0.68)', boxSizing: 'border-box',
+                padding: '20px', background: 'rgba(37, 52, 70, 0.28)', boxSizing: 'border-box',
             }}
         >
             <section
@@ -75,13 +75,13 @@ export default function PreviousJobs({
                 aria-label="Previous jobs"
                 style={{
                     width: 'min(680px, 100%)', minHeight: '220px', maxHeight: 'min(620px, calc(100vh - 40px))', overflow: 'hidden',
-                    background: '#292929', border: '1px solid #555f6d', borderRadius: '7px', padding: '16px',
-                    boxShadow: '0 18px 50px rgba(0, 0, 0, 0.6)', display: 'flex', flexDirection: 'column',
+                    background: 'var(--studio-surface)', border: '1px solid var(--studio-border)', borderRadius: '7px', padding: '16px',
+                    boxShadow: '0 18px 50px rgba(44, 62, 80, 0.22)', display: 'flex', flexDirection: 'column',
                 }}
             >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-                    <div style={{ color: '#eee', fontSize: '16px', fontWeight: '700' }}>Previous jobs</div>
-                    <div style={{ color: '#9d9d9d', fontSize: '12px', flex: 1 }}>
+                    <div style={{ color: 'var(--studio-text)', fontSize: '16px', fontWeight: '700' }}>Previous jobs</div>
+                    <div style={{ color: 'var(--studio-text-muted)', fontSize: '12px', flex: 1 }}>
                         {isLoading ? 'Loading saved tracks…' : 'Select a track to reopen its source, stems, MIDI, and BPM.'}
                     </div>
                     <button
@@ -92,7 +92,7 @@ export default function PreviousJobs({
                         title="Refresh previous jobs"
                         style={{
                             width: '28px', height: '28px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                            background: '#3d3d3d', color: '#ddd', border: '1px solid #5a5a5a', borderRadius: '4px',
+                            background: 'var(--studio-surface-raised)', color: 'var(--studio-text-secondary)', border: '1px solid var(--studio-border-strong)', borderRadius: '4px',
                             padding: 0, cursor: isLoading ? 'wait' : 'pointer', opacity: isLoading ? 0.65 : 1,
                         }}
                     >
@@ -106,15 +106,15 @@ export default function PreviousJobs({
                         aria-label="Close previous jobs"
                         title="Close"
                         style={{
-                            width: '28px', height: '28px', padding: 0, border: '1px solid #5a5a5a', borderRadius: '4px',
-                            background: '#3d3d3d', color: '#ddd', cursor: 'pointer', fontSize: '19px', lineHeight: 1,
+                            width: '28px', height: '28px', padding: 0, border: '1px solid var(--studio-border-strong)', borderRadius: '4px',
+                            background: 'var(--studio-surface-raised)', color: 'var(--studio-text-secondary)', cursor: 'pointer', fontSize: '19px', lineHeight: 1,
                         }}
                     >×</button>
                 </div>
 
-                {error && <div role="alert" style={{ color: '#f08b8b', fontSize: '12px' }}>{error}</div>}
+                {error && <div role="alert" style={{ color: '#a93845', fontSize: '12px' }}>{error}</div>}
                 {!error && !isLoading && jobs.length === 0 && (
-                    <div style={{ color: '#999', fontSize: '12px' }}>No saved processing jobs for this account yet.</div>
+                    <div style={{ color: 'var(--studio-text-muted)', fontSize: '12px' }}>No saved processing jobs for this account yet.</div>
                 )}
                 {jobs.length > 0 && (
                     <div style={{ display: 'flex', flex: '1 1 auto', flexDirection: 'column', gap: '7px', minHeight: 0, overflowY: 'auto', paddingRight: '2px' }}>
@@ -128,8 +128,8 @@ export default function PreviousJobs({
                                     key={job.job_id}
                                     style={{
                                         width: '100%', minHeight: '84px', flex: '0 0 auto', boxSizing: 'border-box',
-                                        background: isActive ? '#264d38' : '#353535', color: '#e8e8e8',
-                                        border: `1px solid ${isActive ? '#61b680' : '#555'}`, borderRadius: '4px', overflow: 'hidden',
+                                        background: isActive ? '#e5f4eb' : 'var(--studio-surface-muted)', color: 'var(--studio-text)',
+                                        border: `1px solid ${isActive ? '#9dcfb1' : 'var(--studio-border)'}`, borderRadius: '4px', overflow: 'hidden',
                                     }}
                                 >
                                     <div style={{ display: 'flex', width: '100%', minHeight: '82px', alignItems: 'stretch' }}>
@@ -140,18 +140,18 @@ export default function PreviousJobs({
                                             title={`Open ${job.source_filename || 'saved track'}`}
                                             style={{
                                                 display: 'block', minWidth: 0, minHeight: '82px', flex: '1 1 auto', boxSizing: 'border-box',
-                                                textAlign: 'left', padding: '11px 13px', background: 'transparent', color: '#e8e8e8',
+                                                textAlign: 'left', padding: '11px 13px', background: 'transparent', color: 'var(--studio-text)',
                                                 border: 0, cursor: 'pointer',
                                             }}
                                         >
                                             <div style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '14px', fontWeight: '700', lineHeight: 1.25 }}>
                                                 {job.source_filename || 'Untitled audio'}
                                             </div>
-                                            <div style={{ display: 'block', color: isActive ? '#bfe6ca' : '#aaa', fontSize: '12px', marginTop: '5px', lineHeight: 1.25 }}>
+                                            <div style={{ display: 'block', color: isActive ? '#2d7750' : 'var(--studio-text-muted)', fontSize: '12px', marginTop: '5px', lineHeight: 1.25 }}>
                                                 {statusLabel(job.status)} · {formatUpdatedAt(job.updated_at)}
                                             </div>
                                             <div
-                                                style={{ display: 'block', color: isActive ? '#9fcfb0' : '#8eb99a', fontSize: '12px', marginTop: '3px', lineHeight: 1.25 }}
+                                                style={{ display: 'block', color: isActive ? '#4a8565' : '#6b9277', fontSize: '12px', marginTop: '3px', lineHeight: 1.25 }}
                                                 title={Number(job.expires_at) > 0 ? new Date(Number(job.expires_at) * 1000).toLocaleString() : undefined}
                                             >
                                                 {formatExpiry(job.expires_at)}
@@ -164,8 +164,8 @@ export default function PreviousJobs({
                                             aria-label={`Delete ${job.source_filename || 'saved track'}`}
                                             title={isTerminal ? 'Delete this job and all of its files' : 'Only completed or failed jobs can be deleted'}
                                             style={{
-                                                width: '46px', minHeight: '82px', flex: '0 0 46px', border: 0, borderLeft: '1px solid #555',
-                                                background: 'transparent', color: isTerminal ? '#e69292' : '#777',
+                                                width: '46px', minHeight: '82px', flex: '0 0 46px', border: 0, borderLeft: '1px solid var(--studio-border)',
+                                                background: 'transparent', color: isTerminal ? '#c1434f' : 'var(--studio-text-muted)',
                                                 cursor: isTerminal && !isDeleting ? 'pointer' : 'not-allowed', opacity: isDeleting ? 0.6 : 1,
                                             }}
                                         >
@@ -180,9 +180,9 @@ export default function PreviousJobs({
                                         <div
                                             role="alertdialog"
                                             aria-label={`Delete ${job.source_filename || 'saved track'} confirmation`}
-                                            style={{ borderTop: '1px solid #555', padding: '10px 12px', background: 'rgba(0, 0, 0, 0.18)' }}
+                                            style={{ borderTop: '1px solid var(--studio-border)', padding: '10px 12px', background: 'var(--studio-danger-soft)' }}
                                         >
-                                            <div style={{ color: '#f0c4c4', fontSize: '12px', lineHeight: 1.45 }}>
+                                            <div style={{ color: '#8d2733', fontSize: '12px', lineHeight: 1.45 }}>
                                                 Permanently delete this job, its original audio, stems, MIDI, and BPM data? This cannot be undone.
                                             </div>
                                             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '9px' }}>
@@ -190,7 +190,7 @@ export default function PreviousJobs({
                                                     type="button"
                                                     onClick={() => setPendingDeletion(null)}
                                                     disabled={isDeleting}
-                                                    style={{ padding: '5px 9px', border: '1px solid #666', borderRadius: '3px', background: '#3c3c3c', color: '#ddd', cursor: isDeleting ? 'wait' : 'pointer' }}
+                                                    style={{ padding: '5px 9px', border: '1px solid var(--studio-border-strong)', borderRadius: '3px', background: 'var(--studio-surface)', color: 'var(--studio-text)', cursor: isDeleting ? 'wait' : 'pointer' }}
                                                 >Cancel</button>
                                                 <button
                                                     type="button"

@@ -86,17 +86,17 @@ const MidiScheduler = React.memo(function MidiScheduler({
 
 /**
  * StemSplitter Component (Orchestrator)
- * 
- * This UI component is the central orchestrator of the Stem Splitter workspace. It bridges 
- * the gap between the AWS backend connection (handled upstream in App.jsx), the audio transport 
- * (handled by `useAudioMultiTrackPlayer`), the MIDI conversion layer (`useMidiManager`), and the 
+ *
+ * This UI component is the central orchestrator of the Stem Splitter workspace. It bridges
+ * the gap between the AWS backend connection (handled upstream in App.jsx), the audio transport
+ * (handled by `useAudioMultiTrackPlayer`), the MIDI conversion layer (`useMidiManager`), and the
  * visual UI components.
- * 
+ *
  * ARCHITECTURE NOTE:
- * Following a strict "Smart/Dumb" pattern, this component has been refactored to contain almost 
- * zero business logic itself. All state management has been extracted into custom hooks. This 
+ * Following a strict "Smart/Dumb" pattern, this component has been refactored to contain almost
+ * zero business logic itself. All state management has been extracted into custom hooks. This
  * file serves purely to assemble the layout and route data between the hooks and the UI components.
- * 
+ *
  * @param {Object} props - The hoisted state props provided by App.jsx
  * @param {File} props.file - The currently selected audio file
  * @param {Function} props.setFile - State setter for the file
@@ -299,16 +299,16 @@ export default function StemSplitter({
     const renderActivityNotice = () => showActivityNotice && (
         <div style={{
             display: 'flex', alignItems: 'center', gap: '9px',
-            background: 'rgba(76, 175, 80, 0.13)', color: '#d7f3dc',
-            border: '1px solid rgba(76, 175, 80, 0.42)', borderRadius: '4px',
+            background: 'var(--studio-midi-soft)', color: '#176b45',
+            border: '1px solid #adddc1', borderRadius: '4px',
             padding: '9px 12px', fontSize: '13px', fontWeight: '600'
         }}>
             <span aria-hidden="true" style={{
-                width: '10px', height: '10px', border: '2px solid rgba(215, 243, 220, 0.35)',
-                borderTopColor: '#d7f3dc', borderRadius: '50%', animation: 'spin 1s linear infinite'
+                width: '10px', height: '10px', border: '2px solid rgba(37, 137, 92, 0.24)',
+                borderTopColor: 'var(--studio-midi)', borderRadius: '50%', animation: 'spin 1s linear infinite'
             }} />
             {activityMessage}
-            {isSplitting && !hasDeterminedTempo && <span style={{ color: '#a9d8b0', fontWeight: '500' }}>BPM pending</span>}
+            {isSplitting && !hasDeterminedTempo && <span style={{ color: '#3f7d5c', fontWeight: '500' }}>BPM pending</span>}
         </div>
     );
 
@@ -489,14 +489,14 @@ export default function StemSplitter({
             if (playheadDragRef.current.isDragging) {
                 const activeTimeline = playheadDragRef.current.timelineRef?.current || timelineRef.current;
                 const activePixels = playheadDragRef.current.pixelsPerBar || pixelsPerBar;
-                
+
                 if (activeTimeline) {
                     const rect = activeTimeline.getBoundingClientRect();
                     const xOffset = e.clientX - rect.left;
-                    
+
                     let newBar = xOffset / activePixels;
                     newBar = Math.max(0, Math.min(newBar, totalBars));
-                    
+
                     const newProgress = (newBar * parsedBeatsPerBar) / (activeBpm / 60);
                     handleTimelineSeek({ target: { value: newProgress } });
                 }
@@ -506,12 +506,12 @@ export default function StemSplitter({
                 const deltaX = e.clientX - cycleDragRef.current.initialX;
                 const deltaBars = deltaX / activePixels;
                 const snappedDeltaBars = Math.round(deltaBars * parsedBeatsPerBar) / parsedBeatsPerBar;
-                
+
                 if (mode === 'move') {
                     let newStart = cycleDragRef.current.initialStart + snappedDeltaBars;
                     let newEnd = cycleDragRef.current.initialEnd + snappedDeltaBars;
                     const span = cycleDragRef.current.initialEnd - cycleDragRef.current.initialStart;
-                    
+
                     if (newStart < 0) {
                         newStart = 0;
                         newEnd = span;
@@ -562,30 +562,30 @@ export default function StemSplitter({
 
     return (
         <div style={{
-            background: '#333',
-            color: 'white',
+            background: 'var(--studio-surface)',
+            color: 'var(--studio-text)',
             padding: '20px',
             borderRadius: '5px',
             width: '95vw',
             maxWidth: '1400px',
             margin: '0 auto 40px auto',
             boxSizing: 'border-box',
-            boxShadow: '0 8px 16px rgba(0,0,0,0.5)',
+            boxShadow: '0 10px 28px rgba(44, 62, 80, 0.12)',
             display: 'flex',
             flexDirection: 'column',
             gap: '20px'
         }}>
-            <h2 style={{ margin: 0, fontSize: '18px', borderBottom: '1px solid #555', paddingBottom: '10px' }}>
+            <h2 style={{ margin: 0, fontSize: '18px', borderBottom: '1px solid var(--studio-border)', paddingBottom: '10px' }}>
                 Stem Splitting & Audio-to-MIDI
             </h2>
 
             {isDemo && (
                 <div style={{
                     display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap',
-                    padding: '10px 12px', border: '1px solid #4d7958', borderRadius: '5px',
-                    background: '#203229', color: '#d9eadc', fontSize: '12px', lineHeight: 1.45,
+                    padding: '10px 12px', border: '1px solid #adddc1', borderRadius: '5px',
+                    background: 'var(--studio-midi-soft)', color: '#235c40', fontSize: '12px', lineHeight: 1.45,
                 }}>
-                    <strong style={{ color: '#aee0b8' }}>Demo mode</strong>
+                    <strong style={{ color: '#176b45' }}>Demo mode</strong>
                     <span style={{ flex: 1, minWidth: '240px' }}>
                         Explore playback and edit MIDI locally. Public demo assets are read-only; sign in to process and save your own audio.
                     </span>
@@ -594,16 +594,16 @@ export default function StemSplitter({
                             type="button"
                             onClick={onOpenExamples}
                             style={{
-                                padding: '6px 9px', border: '1px solid #669873', borderRadius: '4px',
-                                background: '#294334', color: '#e0f3e4', cursor: 'pointer',
+                                padding: '6px 9px', border: '1px solid #8fc9a8', borderRadius: '4px',
+                                background: 'var(--studio-surface)', color: '#176b45', cursor: 'pointer',
                                 fontSize: '11px', fontWeight: '700',
                             }}
                         >Choose example</button>
                     )}
                 </div>
             )}
-            
-            <ControlBar 
+
+            <ControlBar
                 isSplitting={isSplitting}
                 processingEnabled={canProcess}
                 handleFileUpload={handleFileUpload}
@@ -618,7 +618,7 @@ export default function StemSplitter({
 
             {/* Dynamic Results Area */}
             <div style={{
-                background: '#222',
+                background: 'var(--studio-surface-muted)',
                 borderRadius: '4px',
                 padding: '20px',
                 minHeight: '200px',
@@ -626,8 +626,8 @@ export default function StemSplitter({
                 flexDirection: 'column',
                 justifyContent: Object.keys(tracksToRender).length ? 'flex-start' : 'center',
                 alignItems: Object.keys(tracksToRender).length ? 'stretch' : 'center',
-                color: '#777',
-                border: '1px dashed #444',
+                color: 'var(--studio-text-muted)',
+                border: '1px dashed var(--studio-border-strong)',
                 gap: '15px'
             }}>
                 {Object.keys(tracksToRender).length ? (
@@ -636,13 +636,13 @@ export default function StemSplitter({
                         {!audioEngine.isAudioReady && (
                             <div style={{
                                 display: 'flex', alignItems: 'center', gap: '9px',
-                                background: 'rgba(85, 137, 198, 0.13)', color: '#bdd8f7',
-                                border: '1px solid rgba(85, 137, 198, 0.42)', borderRadius: '4px',
+                                background: 'var(--studio-accent-soft)', color: '#245b86',
+                                border: '1px solid #b8d6ee', borderRadius: '4px',
                                 padding: '9px 12px', fontSize: '13px', fontWeight: '600'
                             }}>
                                 <span aria-hidden="true" style={{
-                                    width: '10px', height: '10px', border: '2px solid rgba(189, 216, 247, 0.35)',
-                                    borderTopColor: '#bdd8f7', borderRadius: '50%', animation: 'spin 1s linear infinite'
+                                    width: '10px', height: '10px', border: '2px solid rgba(47, 127, 184, 0.24)',
+                                    borderTopColor: 'var(--studio-accent)', borderRadius: '50%', animation: 'spin 1s linear infinite'
                                 }} />
                                 Preparing synchronized audio buffers. Playback will be available when every displayed track is ready.
                             </div>
@@ -650,34 +650,34 @@ export default function StemSplitter({
                         {backendMidiProcessingCount > 0 && isSplitting && (
                             <div style={{
                                 display: 'flex', alignItems: 'center', gap: '9px',
-                                background: 'rgba(224, 168, 0, 0.13)', color: '#f5c451',
-                                border: '1px solid rgba(224, 168, 0, 0.4)', borderRadius: '4px',
+                                background: 'var(--studio-warning-soft)', color: '#8b5a00',
+                                border: '1px solid #eed49c', borderRadius: '4px',
                                 padding: '9px 12px', fontSize: '13px', fontWeight: '600'
                             }}>
-                                <span aria-hidden="true" style={{ color: '#f5c451', fontSize: '16px' }}>●</span>
+                                <span aria-hidden="true" style={{ color: 'var(--studio-warning)', fontSize: '16px' }}>●</span>
                                 MIDI extraction is still processing for {backendMidiProcessingCount} stem{backendMidiProcessingCount === 1 ? '' : 's'}. Tracks will populate as each result arrives.
                             </div>
                         )}
                         {midiDownloadCount > 0 && (
                             <div style={{
                                 display: 'flex', alignItems: 'center', gap: '9px',
-                                background: 'rgba(85, 137, 198, 0.13)', color: '#bdd8f7',
-                                border: '1px solid rgba(85, 137, 198, 0.42)', borderRadius: '4px',
+                                background: 'var(--studio-accent-soft)', color: '#245b86',
+                                border: '1px solid #b8d6ee', borderRadius: '4px',
                                 padding: '9px 12px', fontSize: '13px', fontWeight: '600'
                             }}>
-                                <span aria-hidden="true" style={{ color: '#bdd8f7', fontSize: '16px' }}>●</span>
+                                <span aria-hidden="true" style={{ color: 'var(--studio-accent)', fontSize: '16px' }}>●</span>
                                 {isHistoryJob
                                     ? `Saved-job MIDI is downloading for ${midiDownloadCount} stem${midiDownloadCount === 1 ? '' : 's'}. Stems and MIDI will arrive shortly.`
                                     : `Generated MIDI is downloading for ${midiDownloadCount} stem${midiDownloadCount === 1 ? '' : 's'}. Tracks will populate as each file arrives.`}
                             </div>
                         )}
                         {/* Central Master Audio Control */}
-                        <div style={{ 
-                            background: '#333', padding: '15px 20px', borderRadius: '4px', 
+                        <div style={{
+                            background: 'var(--studio-surface-raised)', padding: '15px 20px', borderRadius: '4px',
                             display: 'flex', alignItems: 'center', gap: '20px'
                         }}>
                             <button title="Go to Beginning" onClick={audioEngine.handleGoToBeginning} style={{
-                                background: 'transparent', color: 'white', border: 'none',
+                                background: 'transparent', color: 'var(--studio-text)', border: 'none',
                                 cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '0', opacity: 0.8
                             }}>
                                 <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
@@ -688,7 +688,7 @@ export default function StemSplitter({
                                 onPointerDown={audioEngine.unlockAudio}
                                 onClick={audioEngine.togglePlay}
                                 style={{
-                                background: 'transparent', color: 'white', border: 'none',
+                                background: 'transparent', color: 'var(--studio-text)', border: 'none',
                                 cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '0', opacity: 0.8
                             }}>
                                 {audioEngine.isPlaying ? (
@@ -699,19 +699,19 @@ export default function StemSplitter({
                             </button>
 
                             <button title="Toggle Cycle" onClick={() => audioEngine.setIsCycling(!audioEngine.isCycling)} style={{
-                                background: audioEngine.isCycling ? '#8B6508' : 'transparent', 
-                                color: audioEngine.isCycling ? '#fff' : 'white', 
+                                background: audioEngine.isCycling ? '#a56a00' : 'transparent',
+                                color: audioEngine.isCycling ? 'white' : 'var(--studio-text)',
                                 border: 'none', borderRadius: '4px',
-                                cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px', 
+                                cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px',
                                 opacity: 0.8,
                                 transition: 'background-color 0.2s'
                             }}>
                                 <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>
                             </button>
-                            
-                            <div className="time-display" style={{ color: '#fff', fontSize: '14px', fontFamily: 'monospace', marginLeft: '10px', whiteSpace: 'nowrap' }}>
-                                {isMidiLoading ? 
-                                    `${audioEngine.formatTime(audioEngine.progress)} / ${audioEngine.formatTime(audioEngine.duration)}` : 
+
+                            <div className="time-display" style={{ color: 'var(--studio-text)', fontSize: '14px', fontFamily: 'monospace', marginLeft: '10px', whiteSpace: 'nowrap' }}>
+                                {isMidiLoading ?
+                                    `${audioEngine.formatTime(audioEngine.progress)} / ${audioEngine.formatTime(audioEngine.duration)}` :
                                     `${audioEngine.formatTime(dynamicProgress)} / ${audioEngine.formatTime(dynamicDuration)}`
                                 }
                             </div>
@@ -727,9 +727,9 @@ export default function StemSplitter({
                                 style={{
                                     height: '24px', padding: '0 8px', marginLeft: '12px',
                                     background: 'transparent',
-                                    color: isGlobalMidiEnabled ? '#4CAF50' : '#aaa',
-                                    border: `1px solid ${isGlobalMidiEnabled ? '#4CAF50' : '#555'}`,
-                                    boxShadow: isGlobalMidiEnabled ? '0 0 8px rgba(76, 175, 80, 0.5)' : 'none',
+                                    color: isGlobalMidiEnabled ? 'var(--studio-midi)' : 'var(--studio-text-muted)',
+                                    border: `1px solid ${isGlobalMidiEnabled ? 'var(--studio-midi)' : 'var(--studio-border-strong)'}`,
+                                    boxShadow: isGlobalMidiEnabled ? '0 0 8px rgba(37, 137, 92, 0.22)' : 'none',
                                     borderRadius: '4px',
                                     cursor: midiCapableTrackNames.length === 0 ? 'not-allowed' : 'pointer',
                                     fontSize: '11px', fontWeight: 'bold',
@@ -738,26 +738,26 @@ export default function StemSplitter({
                             >MIDI</button>
 
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '18px' }}>
-                                <span className="bpm-label" style={{ color: '#fff', fontSize: '14px', fontWeight: 'bold' }}>BPM:</span>
-                                <div style={{ 
-                                    background: 'linear-gradient(180deg, #2A3644 0%, #1B232D 100%)',
-                                    color: hasDeterminedTempo ? '#e2e8f0' : '#777',
+                                <span className="bpm-label" style={{ color: 'var(--studio-text)', fontSize: '14px', fontWeight: 'bold' }}>BPM:</span>
+                                <div style={{
+                                    background: 'var(--studio-surface)',
+                                    color: hasDeterminedTempo ? 'var(--studio-text)' : 'var(--studio-text-muted)',
                                     fontSize: '14px', fontFamily: 'monospace', fontWeight: 'bold',
                                     padding: '4px 8px', borderRadius: '4px', width: '55px', textAlign: 'center',
-                                    border: '1px solid #0a0d12',
-                                    borderTop: '1px solid #485c70',
-                                    boxShadow: 'inset 0 2px 5px rgba(0,0,0,0.6), 0 1px 1px rgba(255,255,255,0.05)',
-                                    textShadow: hasDeterminedTempo ? '0 0 6px rgba(226, 232, 240, 0.4)' : 'none',
+                                    border: '1px solid var(--studio-border-strong)',
+                                    borderTop: '1px solid var(--studio-surface)',
+                                    boxShadow: 'inset 0 1px 2px rgba(44, 62, 80, 0.07)',
+                                    textShadow: 'none',
                                     display: 'flex', justifyContent: 'center', userSelect: 'none'
                                 }}>
                                     {hasDeterminedTempo ? (
                                         <>
-                                            <span 
+                                            <span
                                                 onMouseDown={(e) => audioEngine.handleBpmMouseDown(e, 'int')}
                                                 style={{ cursor: 'ns-resize', flexGrow: 1, textAlign: 'right' }}
                                             >{Math.floor(audioEngine.bpm)}</span>
                                             <span style={{ cursor: 'default' }}>.</span>
-                                            <span 
+                                            <span
                                                 onMouseDown={(e) => audioEngine.handleBpmMouseDown(e, 'dec')}
                                                 style={{ cursor: 'ns-resize', flexGrow: 1, textAlign: 'left' }}
                                             >{Math.round((audioEngine.bpm - Math.floor(audioEngine.bpm)) * 10)}</span>
@@ -767,22 +767,22 @@ export default function StemSplitter({
                                     )}
                                 </div>
                             </div>
-                            
+
                             <div style={{ flexGrow: 0.15, minWidth: '15px', maxWidth: '60px' }} className="dynamic-spacer-1" />
-                            
+
                             {/* Time Signature Box */}
                             <div className="time-signature" style={{ position: 'relative' }}>
-                                <div 
+                                <div
                                     onClick={() => setShowSigMenu(!showSigMenu)}
-                                    style={{ 
-                                        background: 'linear-gradient(180deg, #2A3644 0%, #1B232D 100%)',
-                                        color: '#e2e8f0', 
+                                    style={{
+                                        background: 'var(--studio-surface)',
+                                        color: 'var(--studio-text)',
                                         fontSize: '14px', fontFamily: 'monospace', fontWeight: 'bold',
                                         padding: '4px 8px', borderRadius: '4px', minWidth: '35px', textAlign: 'center',
-                                        border: '1px solid #0a0d12',
-                                        borderTop: '1px solid #485c70',
-                                        boxShadow: 'inset 0 2px 5px rgba(0,0,0,0.6), 0 1px 1px rgba(255,255,255,0.05)',
-                                        textShadow: '0 0 6px rgba(226, 232, 240, 0.4)',
+                                        border: '1px solid var(--studio-border-strong)',
+                                        borderTop: '1px solid var(--studio-surface)',
+                                        boxShadow: 'inset 0 1px 2px rgba(44, 62, 80, 0.07)',
+                                        textShadow: 'none',
                                         cursor: 'pointer',
                                         userSelect: 'none'
                                     }}
@@ -792,24 +792,24 @@ export default function StemSplitter({
 
                                 {showSigMenu && (
                                     <>
-                                        <div 
-                                            style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 99 }} 
+                                        <div
+                                            style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 99 }}
                                             onClick={() => setShowSigMenu(false)}
                                         />
-                                        <div style={{ 
-                                            position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)', 
-                                            marginTop: '5px', background: '#1B232D', border: '1px solid #485c70', 
+                                        <div style={{
+                                            position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)',
+                                            marginTop: '5px', background: 'var(--studio-surface)', border: '1px solid var(--studio-border)',
                                             borderRadius: '4px', zIndex: 100, display: 'flex', flexDirection: 'column',
-                                            boxShadow: '0 4px 12px rgba(0,0,0,0.5)', overflow: 'hidden'
+                                            boxShadow: '0 8px 20px rgba(44, 62, 80, 0.16)', overflow: 'hidden'
                                         }}>
                                             {['3/4', '4/4', '5/4', '6/8', '7/8'].map(sig => (
-                                                <div 
+                                                <div
                                                     key={sig}
                                                     onClick={() => { audioEngine.setTimeSignature(sig); setShowSigMenu(false); }}
-                                                    onMouseEnter={(e) => e.target.style.background = '#2A3644'}
+                                                    onMouseEnter={(e) => e.target.style.background = 'var(--studio-accent-soft)'}
                                                     onMouseLeave={(e) => e.target.style.background = 'transparent'}
-                                                    style={{ 
-                                                        padding: '6px 12px', color: '#fff', fontSize: '14px', fontFamily: 'monospace',
+                                                    style={{
+                                                        padding: '6px 12px', color: 'var(--studio-text)', fontSize: '14px', fontFamily: 'monospace',
                                                         cursor: 'pointer', textAlign: 'center', transition: 'background 0.1s'
                                                     }}
                                                 >
@@ -829,10 +829,10 @@ export default function StemSplitter({
                                 disabled={downloadArtifacts.length === 0}
                                 title={downloadArtifacts.length === 0 ? 'No project files are available to download yet' : 'Choose project files to download'}
                                 style={{
-                                    background: downloadArtifacts.length === 0 ? '#333' : '#444', color: downloadArtifacts.length === 0 ? '#777' : '#ccc', border: '1px solid #555',
+                                    background: downloadArtifacts.length === 0 ? 'var(--studio-surface-sunken)' : 'var(--studio-surface)', color: downloadArtifacts.length === 0 ? 'var(--studio-text-muted)' : 'var(--studio-text-secondary)', border: '1px solid var(--studio-border-strong)',
                                     padding: '6px 14px', borderRadius: '4px', fontSize: '12px',
                                     fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px',
-                                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)', opacity: downloadArtifacts.length === 0 ? 0.65 : 1,
+                                    boxShadow: '0 2px 5px rgba(44, 62, 80, 0.08)', opacity: downloadArtifacts.length === 0 ? 0.65 : 1,
                                     cursor: downloadArtifacts.length === 0 ? 'not-allowed' : 'pointer',
                                 }}
                             >
@@ -851,16 +851,16 @@ export default function StemSplitter({
                                 }
                                 @media (max-width: 600px) {
                                     .bpm-label { display: none !important; }
-                                    
+
                                 }
                             `}</style>
                         </div>
 
                         {/* Split Workspace: Fixed Left Column + Scrollable Right Column */}
                         <div style={{ width: '100%', display: 'flex', gap: '3px', paddingBottom: '10px' }}>
-                            
+
                             {/* LEFT COLUMN: Track Consoles (Fixed) */}
-                            <TrackList 
+                            <TrackList
                                 pixelsPerBar={pixelsPerBar}
                                 setPixelsPerBar={setPixelsPerBar}
                                 timelineRows={timelineRows}
@@ -883,11 +883,11 @@ export default function StemSplitter({
                                 toggleDrumMute={toggleDrumMute}
                                 toggleDrumSolo={toggleDrumSolo}
                             />
-                            
+
                             {/* RIGHT COLUMN: Timeline Canvas (Scrollable) */}
-                            <div ref={setTimelineScrollContainer} style={{ flexGrow: 1, overflowX: 'auto', paddingBottom: '10px', scrollBehavior: 'auto' }}>
-                                <div ref={timelineRef} style={{ minWidth: `${pixelsPerBar * totalBars}px`, display: 'flex', flexDirection: 'column', gap: '3px', position: 'relative' }}>
-                                    
+                            <div ref={setTimelineScrollContainer} style={{ flexGrow: 1, overflowX: 'auto', paddingBottom: '10px', scrollBehavior: 'auto', backgroundColor: 'var(--studio-canvas)' }}>
+                                <div ref={timelineRef} style={{ minWidth: `${pixelsPerBar * totalBars}px`, display: 'flex', flexDirection: 'column', gap: '3px', position: 'relative', backgroundColor: 'var(--studio-canvas)' }}>
+
                                     {/* Time Indicator (Playhead) */}
                                     {audioEngine.duration > 0 && (
                                         <TransportPlayheadLine
@@ -898,7 +898,7 @@ export default function StemSplitter({
                                     )}
 
                                     {/* Timeline Header Right (Time Bar) */}
-                                    <TimelineRuler 
+                                    <TimelineRuler
                                         duration={audioEngine.duration}
                                         pixelsPerBar={pixelsPerBar}
                                         cycleDragRef={cycleDragRef}
@@ -918,7 +918,7 @@ export default function StemSplitter({
                                         parsedBeatsPerBar={parsedBeatsPerBar}
                                         handleSeek={handleTimelineSeek}
                                     />
-                                    
+
                                     {/* The popup is modal. Its own virtual piano roll is
                                         the only useful note surface while open, so release
                                         the occluded workspace grid instead of updating two
@@ -989,8 +989,8 @@ export default function StemSplitter({
                 A closed popup has no reason to retain keyboard listeners,
                 selection state, or a MIDI-note virtual index. */}
             {editorOpenTrack && <MidiEditorPopup
-                trackName={editorOpenTrack} 
-                onClose={handleCloseEditor} 
+                trackName={editorOpenTrack}
+                onClose={handleCloseEditor}
                 duration={audioEngine.duration}
                 pixelsPerBar={pixelsPerBar}
                 totalBars={totalBars}

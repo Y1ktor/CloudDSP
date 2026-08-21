@@ -178,12 +178,12 @@ export default function DownloadPopup({
             style={{
                 display: 'flex', alignItems: 'center', gap: '9px', minHeight: '34px',
                 padding: `5px 10px 5px ${indent}px`, borderRadius: '5px', cursor: isDownloading ? 'default' : 'pointer',
-                color: '#d8e0ea', borderTop: '1px solid rgba(148, 168, 187, 0.2)',
-                background: selectedArtifactIds.has(artifact.id) ? '#294d6b' : 'transparent',
-                boxShadow: selectedArtifactIds.has(artifact.id) ? 'inset 3px 0 #76b9ee' : 'none',
+                color: 'var(--studio-text)', borderTop: '1px solid rgba(148, 168, 187, 0.28)',
+                background: selectedArtifactIds.has(artifact.id) ? 'var(--studio-accent-soft)' : 'transparent',
+                boxShadow: selectedArtifactIds.has(artifact.id) ? 'inset 3px 0 var(--studio-accent)' : 'none',
             }}
         >
-            <span aria-hidden="true" style={{ color: '#aebccc', fontSize: '14px' }}>▤</span>
+            <span aria-hidden="true" style={{ color: 'var(--studio-text-muted)', fontSize: '14px' }}>▤</span>
             <span style={{ flexGrow: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '13px' }}>
                 {artifact.filename}
             </span>
@@ -200,7 +200,7 @@ export default function DownloadPopup({
 
     const renderFolder = (label, children) => children.length > 0 && (
         <React.Fragment key={label}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minHeight: '33px', padding: '3px 10px 3px 34px', color: '#e8c878', fontSize: '13px', fontWeight: '700' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minHeight: '33px', padding: '3px 10px 3px 34px', color: '#98630a', fontSize: '13px', fontWeight: '700' }}>
                 <span aria-hidden="true">▾</span>
                 <span aria-hidden="true">▰</span>
                 <span>{label}</span>
@@ -215,7 +215,7 @@ export default function DownloadPopup({
             onMouseDown={() => !isDownloading && onClose()}
             style={{
                 position: 'fixed', inset: 0, zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                padding: '20px', background: 'rgba(0, 0, 0, 0.7)',
+                padding: '20px', background: 'rgba(37, 52, 70, 0.28)',
             }}
         >
             <section
@@ -225,8 +225,8 @@ export default function DownloadPopup({
                 onMouseDown={(event) => event.stopPropagation()}
                 style={{
                     width: 'min(640px, 100%)', maxHeight: 'min(680px, 90vh)', display: 'flex', flexDirection: 'column',
-                    color: '#fff', background: '#20252b', border: '1px solid #4b5663', borderRadius: '9px',
-                    boxShadow: '0 18px 60px rgba(0, 0, 0, 0.65)', overflow: 'hidden',
+                    color: 'var(--studio-text)', background: 'var(--studio-surface)', border: '1px solid var(--studio-border)', borderRadius: '9px',
+                    boxShadow: '0 18px 60px rgba(44, 62, 80, 0.22)', overflow: 'hidden',
                 }}
             >
                 <style>{`
@@ -238,7 +238,7 @@ export default function DownloadPopup({
                         margin: 0;
                         border: 1px solid #8fa7bd;
                         border-radius: 50%;
-                        background: #182029;
+                        background: var(--studio-surface-muted);
                         cursor: pointer;
                         display: grid;
                         place-content: center;
@@ -262,22 +262,22 @@ export default function DownloadPopup({
                     .download-artifact-checkbox:disabled { cursor: wait; opacity: 0.6; }
                 `}</style>
 
-                <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '17px 20px', borderBottom: '1px solid #3d4650' }}>
+                <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '17px 20px', borderBottom: '1px solid var(--studio-border)' }}>
                     <div>
                         <h3 id="download-artifacts-title" style={{ margin: 0, fontSize: '17px' }}>Download project files</h3>
-                        <p style={{ margin: '4px 0 0', color: '#aeb9c6', fontSize: '12px' }}>Select the original audio, stems, and MIDI files to include.</p>
+                        <p style={{ margin: '4px 0 0', color: 'var(--studio-text-muted)', fontSize: '12px' }}>Select the original audio, stems, and MIDI files to include.</p>
                     </div>
                     <button
                         type="button"
                         onClick={onClose}
                         disabled={isDownloading}
                         aria-label="Close download dialog"
-                        style={{ background: 'transparent', border: 'none', color: '#bac4d2', fontSize: '25px', lineHeight: 1, cursor: isDownloading ? 'wait' : 'pointer' }}
+                        style={{ background: 'transparent', border: 'none', color: 'var(--studio-text-muted)', fontSize: '25px', lineHeight: 1, cursor: isDownloading ? 'wait' : 'pointer' }}
                     >×</button>
                 </header>
 
                 <div style={{ overflowY: 'auto', padding: '12px 10px 16px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minHeight: '35px', padding: '3px 10px', color: '#f0ce77', fontSize: '14px', fontWeight: '700' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minHeight: '35px', padding: '3px 10px', color: '#98630a', fontSize: '14px', fontWeight: '700' }}>
                         <span aria-hidden="true">▾</span>
                         <span aria-hidden="true">▰</span>
                         <span>{rootFolderName}</span>
@@ -287,11 +287,11 @@ export default function DownloadPopup({
                     {renderFolder('midi', midiArtifacts)}
                 </div>
 
-                <footer style={{ padding: '14px 20px 16px', borderTop: '1px solid #3d4650', background: '#1b2026' }}>
-                    {downloadError && <div role="alert" style={{ marginBottom: '10px', color: '#ffaaa5', fontSize: '12px' }}>{downloadError}</div>}
-                    {downloadStatus && <div aria-live="polite" style={{ marginBottom: '10px', color: '#b9d9f5', fontSize: '12px' }}>{downloadStatus}</div>}
+                <footer style={{ padding: '14px 20px 16px', borderTop: '1px solid var(--studio-border)', background: 'var(--studio-surface-muted)' }}>
+                    {downloadError && <div role="alert" style={{ marginBottom: '10px', color: '#a93845', fontSize: '12px' }}>{downloadError}</div>}
+                    {downloadStatus && <div aria-live="polite" style={{ marginBottom: '10px', color: '#245b86', fontSize: '12px' }}>{downloadStatus}</div>}
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
-                        <span style={{ color: '#aeb9c6', fontSize: '12px' }}>
+                        <span style={{ color: 'var(--studio-text-muted)', fontSize: '12px' }}>
                             {selectedArtifacts.length} file{selectedArtifacts.length === 1 ? '' : 's'} selected
                             {selectedArtifacts.length > 0 && (
                                 unknownSelectedSizeCount > 0
@@ -304,7 +304,7 @@ export default function DownloadPopup({
                                 type="button"
                                 onClick={downloadFilesOnly}
                                 disabled={isDownloading || selectedArtifacts.length === 0}
-                                style={{ padding: '8px 11px', color: '#dbe8f3', background: '#35404b', border: '1px solid #566574', borderRadius: '5px', cursor: isDownloading || selectedArtifacts.length === 0 ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: '700', opacity: selectedArtifacts.length === 0 ? 0.55 : 1 }}
+                                style={{ padding: '8px 11px', color: 'var(--studio-text)', background: 'var(--studio-surface)', border: '1px solid var(--studio-border-strong)', borderRadius: '5px', cursor: isDownloading || selectedArtifacts.length === 0 ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: '700', opacity: selectedArtifacts.length === 0 ? 0.55 : 1 }}
                             >Download files only</button>
                             <button
                                 type="button"

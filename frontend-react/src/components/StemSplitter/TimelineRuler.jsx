@@ -73,13 +73,13 @@ const RulerMarks = React.memo(function RulerMarks({
                     top: 0,
                     bottom: 0,
                     width: '1px',
-                    background: 'rgba(255,255,255,0.18)',
+                    background: 'var(--studio-grid-major)',
                 }}>
                     <div style={{
                         position: 'absolute',
                         top: '2px',
                         left: '4px',
-                        color: 'rgba(255,255,255,0.4)',
+                        color: 'var(--studio-text-muted)',
                         fontSize: '10px',
                         fontFamily: 'monospace',
                         lineHeight: '1',
@@ -94,7 +94,7 @@ const RulerMarks = React.memo(function RulerMarks({
                         top: '50%',
                         bottom: 0,
                         width: '1px',
-                        background: 'rgba(255,255,255,0.06)',
+                        background: 'var(--studio-grid-minor)',
                     }} />
                 ))}
             </React.Fragment>,
@@ -140,8 +140,8 @@ const TimelineRulerBody = React.memo(function TimelineRulerBody({
     if (duration <= 0) return (
         <div style={{ height: '30px', borderRadius: '4px', overflow: 'hidden', position: 'relative' }}>
             <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%' }}>
-                <div style={{ flexGrow: 1, background: '#2a2a2a' }} />
-                <div style={{ flexGrow: 1, background: '#333' }} />
+                <div style={{ flexGrow: 1, background: 'var(--studio-surface)' }} />
+                <div style={{ flexGrow: 1, background: 'var(--studio-surface-sunken)' }} />
             </div>
         </div>
     );
@@ -149,8 +149,8 @@ const TimelineRulerBody = React.memo(function TimelineRulerBody({
     return (
         <div style={{ height: '30px', borderRadius: '4px', overflow: 'hidden', position: 'relative', contain: 'paint' }}>
             <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%' }}>
-                <div style={{ flexGrow: 1, background: '#2a2a2a' }} />
-                <div style={{ flexGrow: 1, background: '#333' }} />
+                <div style={{ flexGrow: 1, background: 'var(--studio-surface)' }} />
+                <div style={{ flexGrow: 1, background: 'var(--studio-surface-sunken)' }} />
             </div>
 
             {/* Cycle Region Header Bar */}
@@ -174,7 +174,7 @@ const TimelineRulerBody = React.memo(function TimelineRulerBody({
                     width: `${(cycleRegion.endBar - cycleRegion.startBar) * pixelsPerBar}px`,
                     top: 0,
                     bottom: '50%',
-                    backgroundColor: isCycling ? '#8B6508' : 'rgba(255, 255, 255, 0.15)',
+                    backgroundColor: isCycling ? '#d9a52d' : 'rgba(47, 127, 184, 0.12)',
                     cursor: 'grab',
                     zIndex: 25,
                 }}
@@ -301,7 +301,7 @@ const TimelineRulerBody = React.memo(function TimelineRulerBody({
                     height: 0,
                     borderLeft: '4px solid transparent',
                     borderRight: '4px solid transparent',
-                    borderTop: `6px solid rgba(255, 255, 255, ${(isPlayheadHovered || playheadDragRef.current.isDragging) ? 1 : 0.7})`,
+                    borderTop: `6px solid rgba(47, 127, 184, ${(isPlayheadHovered || playheadDragRef.current.isDragging) ? 1 : 0.72})`,
                     transition: 'border-top-color 0.15s',
                     marginTop: '15px',
                 }} />

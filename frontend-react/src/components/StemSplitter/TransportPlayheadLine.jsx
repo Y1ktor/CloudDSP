@@ -24,10 +24,10 @@ const TransportPlayheadLine = React.memo(function TransportPlayheadLine({
                 top,
                 bottom,
                 width: '1px',
-                backgroundColor: '#fff',
+                backgroundColor: 'var(--studio-accent)',
                 zIndex: 10,
                 pointerEvents: 'none',
-                boxShadow: '0 0 4px rgba(255, 255, 255, 0.5)',
+                boxShadow: '0 0 5px rgba(47, 127, 184, 0.35)',
                 willChange: 'transform',
             }}
         />

@@ -60,28 +60,28 @@ export default function DemoLibrary({ isOpen, jobs, activeDemoId, onSelect, onCl
 
 const overlayStyle = {
     position: 'fixed', inset: 0, zIndex: 1900, display: 'grid', placeItems: 'center',
-    padding: '24px', background: 'rgba(5, 9, 13, 0.76)', backdropFilter: 'blur(6px)',
+    padding: '24px', background: 'rgba(37, 52, 70, 0.28)', backdropFilter: 'blur(6px)',
 };
 const dialogStyle = {
     boxSizing: 'border-box', width: 'min(100%, 620px)', maxHeight: 'min(720px, 90vh)',
-    display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid #3c4855',
-    borderRadius: '10px', background: '#182028', color: '#edf4fa', boxShadow: '0 24px 70px rgba(0,0,0,0.6)',
+    display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid var(--studio-border)',
+    borderRadius: '10px', background: 'var(--studio-surface)', color: 'var(--studio-text)', boxShadow: '0 24px 70px rgba(44, 62, 80, 0.22)',
 };
-const headerStyle = { position: 'relative', padding: '25px 58px 20px 25px', borderBottom: '1px solid #34414d' };
-const eyebrowStyle = { color: '#83c991', fontSize: '11px', fontWeight: '800', letterSpacing: '0.12em', textTransform: 'uppercase' };
+const headerStyle = { position: 'relative', padding: '25px 58px 20px 25px', borderBottom: '1px solid var(--studio-border)' };
+const eyebrowStyle = { color: 'var(--studio-midi)', fontSize: '11px', fontWeight: '800', letterSpacing: '0.12em', textTransform: 'uppercase' };
 const titleStyle = { margin: '6px 0 7px', fontSize: '23px' };
-const descriptionStyle = { margin: 0, maxWidth: '500px', color: '#aebdca', fontSize: '13px', lineHeight: 1.55 };
-const closeButtonStyle = { position: 'absolute', top: '16px', right: '19px', border: 0, background: 'transparent', color: '#b5c0ca', cursor: 'pointer', fontSize: '26px' };
+const descriptionStyle = { margin: 0, maxWidth: '500px', color: 'var(--studio-text-secondary)', fontSize: '13px', lineHeight: 1.55 };
+const closeButtonStyle = { position: 'absolute', top: '16px', right: '19px', border: 0, background: 'transparent', color: 'var(--studio-text-muted)', cursor: 'pointer', fontSize: '26px' };
 const listStyle = { display: 'grid', gap: '9px', padding: '17px', overflowY: 'auto' };
 const jobButtonStyle = {
     width: '100%', minHeight: '70px', display: 'flex', alignItems: 'center', gap: '16px',
-    padding: '13px 15px', border: '1px solid #3b4855', borderRadius: '7px',
-    background: '#202a34', color: '#edf4fa', textAlign: 'left', cursor: 'pointer',
+    padding: '13px 15px', border: '1px solid var(--studio-border)', borderRadius: '7px',
+    background: 'var(--studio-surface-muted)', color: 'var(--studio-text)', textAlign: 'left', cursor: 'pointer',
 };
-const activeJobButtonStyle = { borderColor: '#6aa778', background: '#22382a', boxShadow: 'inset 3px 0 #6fbd80' };
+const activeJobButtonStyle = { borderColor: '#9dcfb1', background: 'var(--studio-midi-soft)', boxShadow: 'inset 3px 0 var(--studio-midi)' };
 const jobTextStyle = { minWidth: 0, flex: 1, display: 'grid', gap: '5px' };
 const jobTitleStyle = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '14px' };
-const jobDescriptionStyle = { color: '#aab8c5', fontSize: '12px', lineHeight: 1.4 };
-const openLabelStyle = { padding: '5px 10px', border: '1px solid #596979', borderRadius: '5px', color: '#cbd7e1', fontSize: '11px', fontWeight: '800' };
-const activeOpenLabelStyle = { borderColor: '#669d72', color: '#bce7c5' };
-const footerStyle = { padding: '13px 20px', borderTop: '1px solid #34414d', color: '#96a6b4', fontSize: '12px', lineHeight: 1.45 };
+const jobDescriptionStyle = { color: 'var(--studio-text-muted)', fontSize: '12px', lineHeight: 1.4 };
+const openLabelStyle = { padding: '5px 10px', border: '1px solid var(--studio-border-strong)', borderRadius: '5px', color: 'var(--studio-text-secondary)', fontSize: '11px', fontWeight: '800' };
+const activeOpenLabelStyle = { borderColor: '#9dcfb1', color: '#217248' };
+const footerStyle = { padding: '13px 20px', borderTop: '1px solid var(--studio-border)', color: 'var(--studio-text-muted)', fontSize: '12px', lineHeight: 1.45 };

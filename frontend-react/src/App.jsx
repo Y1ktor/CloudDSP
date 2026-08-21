@@ -161,22 +161,22 @@ function preserveReadyArtifactUrls(previous, snapshot) {
 
 function NavBar({ authProps }) {
     const navStyle = {
-        background: '#161b22', padding: '15px 20px', display: 'flex', gap: '20px',
-        borderBottom: '1px solid #444', marginBottom: '40px', alignItems: 'center',
-        boxShadow: '0 4px 12px rgba(0,0,0,0.3)', flexWrap: 'wrap',
+        background: 'var(--studio-surface)', padding: '15px 20px', display: 'flex', gap: '20px',
+        borderBottom: '1px solid var(--studio-border)', marginBottom: '40px', alignItems: 'center',
+        boxShadow: '0 4px 14px rgba(44, 62, 80, 0.09)', flexWrap: 'wrap',
     };
 
     return (
-        <div style={navStyle}>
-            <Link to="/" style={{ color: '#fff', fontWeight: '900', fontSize: '20px', marginRight: '20px', letterSpacing: '1px', textDecoration: 'none' }}>CloudDSP</Link>
+        <div className="studio-nav" style={navStyle}>
+            <Link to="/" style={{ color: 'var(--studio-text)', fontWeight: '900', fontSize: '20px', marginRight: '20px', letterSpacing: '1px', textDecoration: 'none' }}>CloudDSP</Link>
             <NavLink
                 to="/"
                 end
-                style={({ isActive }) => ({ color: isActive ? '#f3f8fd' : '#aebbc7', fontSize: '13px', fontWeight: '700', textDecoration: 'none' })}
+                style={({ isActive }) => ({ color: isActive ? 'var(--studio-accent)' : 'var(--studio-text-muted)', fontSize: '13px', fontWeight: '700', textDecoration: 'none' })}
             >Studio</NavLink>
             <NavLink
                 to="/architecture"
-                style={({ isActive }) => ({ color: isActive ? '#f3f8fd' : '#aebbc7', fontSize: '13px', fontWeight: '700', textDecoration: 'none' })}
+                style={({ isActive }) => ({ color: isActive ? 'var(--studio-accent)' : 'var(--studio-text-muted)', fontSize: '13px', fontWeight: '700', textDecoration: 'none' })}
             >Architecture</NavLink>
             <div style={{ marginLeft: 'auto' }}><AuthPanel {...authProps} /></div>
         </div>
@@ -894,7 +894,7 @@ export default function App() {
 
     return (
         <BrowserRouter>
-            <div style={{ minHeight: '100vh' }}>
+            <div className="studio-app-shell" style={{ minHeight: '100vh' }}>
                 <NavBar authProps={authProps} />
                 <WelcomeTutorial
                     enabled={!authLoading && !isAuthDialogOpen && !isDemoLibraryOpen && !isPreviousJobsOpen}
@@ -919,7 +919,7 @@ export default function App() {
                     deletingJobId={deletingJobId}
                 />
                 {!authLoading && (!JOB_API_URL || !WEBSOCKET_URL) && (
-                    <div style={{ margin: '-24px 20px 20px', color: '#f5c451', fontSize: '13px' }}>
+                    <div style={{ margin: '-24px 20px 20px', color: '#8b5a00', fontSize: '13px' }}>
                         Set VITE_JOB_API_URL and VITE_WEBSOCKET_URL before using the processing workspace.
                     </div>
                 )}

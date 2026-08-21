@@ -1,6 +1,6 @@
 /**
  * ControlBar.jsx
- * 
+ *
  * Top-level control bar for the StemSplitter component.
  * Handles file uploading, mode selection, and the main split trigger.
  */
@@ -8,7 +8,7 @@ import React from 'react';
 
 /**
  * ControlBar
- * 
+ *
  * @param {Object} props - Component props
  * @param {boolean} props.isSplitting - Is AWS processing running
  * @param {boolean} props.processingEnabled - Whether authenticated job creation is available
@@ -70,14 +70,14 @@ export default function ControlBar({
                     onChange={handleFileUpload}
                     disabled={controlsDisabled}
                 />
-                
+
                 <div
                     id="file-name-container"
                     onClick={() => !controlsDisabled && setShowLinkPopup(true)}
                     style={{ flexGrow: 1, margin: 0, cursor: controlsDisabled ? 'not-allowed' : 'pointer', opacity: controlsDisabled ? 0.7 : 1 }}
                     title={processingEnabled ? 'Click to paste a link' : 'Sign in to extract and process linked audio'}
                 >
-                    <div id="file-name-display" style={{ color: (fileName === "No file loaded" || fileName === "Upload audio or paste a link") ? '#aaa' : '#fff' }}>
+                    <div id="file-name-display" style={{ color: (fileName === "No file loaded" || fileName === "Upload audio or paste a link") ? 'var(--studio-text-muted)' : 'var(--studio-text)' }}>
                         {fileName === "No file loaded" ? "Upload audio or paste a link" : fileName}
                     </div>
                 </div>
@@ -85,28 +85,28 @@ export default function ControlBar({
                 {showLinkPopup && (
                     <div style={{
                         position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-                        backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 9999,
+                        backgroundColor: 'rgba(37, 52, 70, 0.26)', zIndex: 9999,
                         display: 'flex', alignItems: 'center', justifyContent: 'center'
                     }} onClick={() => setShowLinkPopup(false)}>
                         <div style={{
-                            background: '#1e1e1e', padding: '20px 24px', borderRadius: '12px',
+                            background: 'var(--studio-surface)', padding: '20px 24px', borderRadius: '12px',
                             width: '80%', maxWidth: '800px', display: 'flex', flexDirection: 'column', gap: '12px',
-                            boxShadow: '0 12px 30px rgba(0,0,0,0.5)', border: '1px solid #333'
+                            boxShadow: '0 18px 42px rgba(44, 62, 80, 0.18)', border: '1px solid var(--studio-border)'
                         }} onClick={e => e.stopPropagation()}>
-                            <p style={{ margin: 0, fontSize: '14px', color: '#ccc', fontWeight: '500' }}>
+                            <p style={{ margin: 0, fontSize: '14px', color: 'var(--studio-text-secondary)', fontWeight: '500' }}>
                                 Paste a URL to extract audio directly
                             </p>
                             <div style={{ display: 'flex', gap: '10px' }}>
-                                <input 
-                                    type="text" 
-                                    value={linkInput} 
-                                    onChange={e => setLinkInput(e.target.value)} 
+                                <input
+                                    type="text"
+                                    value={linkInput}
+                                    onChange={e => setLinkInput(e.target.value)}
                                     onKeyDown={e => e.key === 'Enter' && handleLinkSubmit()}
                                     placeholder="https://www.youtube.com/watch?v=..."
                                     autoFocus
-                                    style={{ 
-                                        flexGrow: 1, padding: '10px 14px', borderRadius: '6px', border: '1px solid #444', 
-                                        background: '#111', color: 'white', boxSizing: 'border-box',
+                                    style={{
+                                        flexGrow: 1, padding: '10px 14px', borderRadius: '6px', border: '1px solid var(--studio-border)',
+                                        background: 'var(--studio-surface-muted)', color: 'var(--studio-text)', boxSizing: 'border-box',
                                         fontSize: '14px', outline: 'none'
                                     }}
                                 />
@@ -115,7 +115,7 @@ export default function ControlBar({
                                     onClick={handleLinkSubmit}
                                     disabled={!linkInput.trim() || isSubmittingLink}
                                     style={{
-                                        background: !linkInput.trim() || isSubmittingLink ? '#555' : '#4CAF50', color: 'white',
+                                        background: !linkInput.trim() || isSubmittingLink ? 'var(--studio-control)' : 'var(--studio-midi)', color: 'white',
                                         border: 'none', borderRadius: '6px', padding: '0 15px', fontSize: '13px', fontWeight: 'bold',
                                         cursor: !linkInput.trim() || isSubmittingLink ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap',
                                     }}
@@ -128,14 +128,14 @@ export default function ControlBar({
                 )}
 
                 <div style={{ width: 'auto', minWidth: '150px' }}>
-                    <select 
-                        value={splitMode} 
+                    <select
+                        value={splitMode}
                         onChange={(e) => setSplitMode(e.target.value)}
                         disabled={controlsDisabled}
                         style={{
-                            background: '#222',
-                            color: '#fff',
-                            border: '1px solid #444',
+                            background: 'var(--studio-surface)',
+                            color: 'var(--studio-text)',
+                            border: '1px solid var(--studio-border)',
                             padding: '8px 10px',
                             borderRadius: '4px',
                             cursor: controlsDisabled ? 'not-allowed' : 'pointer',
@@ -152,11 +152,11 @@ export default function ControlBar({
                     </select>
                 </div>
 
-                <button 
+                <button
                     onClick={() => file && executeStemSplit()}
                     disabled={controlsDisabled || !file}
                     style={{
-                        background: controlsDisabled || !file ? '#555' : '#4CAF50',
+                        background: controlsDisabled || !file ? 'var(--studio-control)' : 'var(--studio-midi)',
                         color: 'white',
                         border: 'none',
                         padding: '8px 16px',
@@ -170,14 +170,14 @@ export default function ControlBar({
                     {isSplitting ? 'Processing...' : 'Upload & Split'}
                 </button>
             </div>
-            <div style={{ color: '#8492a1', fontSize: '11px', marginTop: '-7px' }}>
+            <div style={{ color: 'var(--studio-text-muted)', fontSize: '11px', marginTop: '-7px' }}>
                 Audio: WAV, MP3, FLAC, M4A, AAC, OGG, Opus, AIFF, or WebM · up to 256 MiB · up to 500 seconds.
-                {!processingEnabled && <span style={{ color: '#b6c7d5' }}> Sign in to upload or extract audio from a link.</span>}
+                {!processingEnabled && <span style={{ color: 'var(--studio-text-secondary)' }}> Sign in to upload or extract audio from a link.</span>}
             </div>
-            
+
             {/* Error Message */}
             {errorMsg && (
-                <div style={{ color: '#ff6b6b', background: '#3b2222', padding: '10px', borderRadius: '4px', border: '1px solid #ff4444' }}>
+                <div style={{ color: '#9f2431', background: 'var(--studio-danger-soft)', padding: '10px', borderRadius: '4px', border: '1px solid #f0b4bb' }}>
                     {errorMsg}
                 </div>
             )}

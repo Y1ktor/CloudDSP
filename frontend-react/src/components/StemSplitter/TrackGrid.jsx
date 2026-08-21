@@ -254,10 +254,10 @@ const TrackRow = React.memo(function TrackRow({
                 overflow: 'hidden',
                 boxSizing: 'border-box',
                 contain: 'paint',
-                borderBottom: '1px solid rgba(255,255,255,0.05)',
+                borderBottom: '1px solid var(--studio-grid-row)',
                 backgroundColor: selectedTrack === row.id
-                    ? 'rgba(255, 255, 255, 0.08)'
-                    : row.kind === 'drum-lane' ? 'rgba(255, 255, 255, 0.025)' : 'transparent',
+                    ? 'rgba(74, 132, 182, 0.14)'
+                    : row.kind === 'drum-lane' ? 'rgba(74, 132, 182, 0.045)' : 'transparent',
                 cursor: 'pointer',
                 userSelect: 'none',
                 transition: 'background-color 0.2s',
@@ -276,9 +276,9 @@ const TrackRow = React.memo(function TrackRow({
             {(isMidiPending || isMidiFailed) && (
                 <div style={{
                     position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
-                    justifyContent: 'center', gap: '7px', color: isMidiFailed ? '#ff9a9a' : '#e7bd47',
+                    justifyContent: 'center', gap: '7px', color: isMidiFailed ? '#a93845' : '#8b5a00',
                     fontSize: '12px', fontWeight: '600',
-                    backgroundColor: isMidiFailed ? 'rgba(75, 25, 25, 0.45)' : 'rgba(15, 15, 15, 0.38)',
+                    backgroundColor: isMidiFailed ? 'rgba(255, 240, 241, 0.9)' : 'rgba(255, 245, 221, 0.92)',
                     pointerEvents: 'none',
                 }}>
                     <span aria-hidden="true">{isMidiFailed ? '!' : '●'}</span>
@@ -314,7 +314,7 @@ const MemoizedTrackGrid = React.memo(function MemoizedTrackGrid({
                 .midi-grid-pitched-note {
                     height: 4px;
                     border-radius: 2px;
-                    background: #4CAF50;
+                    background: var(--studio-midi);
                 }
                 .midi-grid-drum-note {
                     top: 19px;

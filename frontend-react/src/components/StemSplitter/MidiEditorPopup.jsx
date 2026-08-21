@@ -152,7 +152,7 @@ const VisibleMidiEditorNotes = React.memo(function VisibleMidiEditorNotes({
         const lightness = Math.round(45 + (velocity * 10));
         const isDisabled = note.velocity !== undefined && note.velocity <= 0.015;
         const noteColor = isDisabled
-            ? '#555'
+            ? '#94a3b8'
             : drumVoice ? drumVoice.color : `hsl(${Math.round(hue)}, ${saturation}%, ${lightness}%)`;
         const isSelected = selectedNoteIndices.has(index);
 
@@ -210,19 +210,19 @@ const VisibleMidiEditorNotes = React.memo(function VisibleMidiEditorNotes({
 
 /**
  * MidiEditorPopup Component
- * 
+ *
  * This UI component provides a full-screen, modal piano roll editor for interacting with
- * and modifying parsed MIDI data for a specific track. It features multi-note drag selection, 
+ * and modifying parsed MIDI data for a specific track. It features multi-note drag selection,
  * velocity editing, and real-time auditioning through the Web Audio API.
- * 
+ *
  * ARCHITECTURE NOTE:
- * This component utilizes a "State Hoisting" / "Dumb Component" architecture. It holds very little 
- * global state of its own. Global playback state (duration, playheadX, timeSignature), mute/solo 
- * status, and the underlying MIDI data dictionary are managed in `StemSplitter.jsx` and passed down. 
- * Local viewport logic (like horizontal zoom `popupPixelsPerBar`, vertical zoom `popupRowHeight`, 
- * and drag `selectedNoteIndices`) are isolated internally. To mutate MIDI, it mutates the 
+ * This component utilizes a "State Hoisting" / "Dumb Component" architecture. It holds very little
+ * global state of its own. Global playback state (duration, playheadX, timeSignature), mute/solo
+ * status, and the underlying MIDI data dictionary are managed in `StemSplitter.jsx` and passed down.
+ * Local viewport logic (like horizontal zoom `popupPixelsPerBar`, vertical zoom `popupRowHeight`,
+ * and drag `selectedNoteIndices`) are isolated internally. To mutate MIDI, it mutates the
  * underlying @tonejs/midi instance directly and forces a top-level React re-render.
- * 
+ *
  * @param {Object} props - Component props
  * @param {string} props.trackName - The name of the track currently being edited (e.g., 'piano')
  * @param {Function} props.onClose - Callback fired to close the modal
@@ -267,8 +267,8 @@ const VisibleMidiEditorNotes = React.memo(function VisibleMidiEditorNotes({
  * @param {Function} props.pushUndoState - Callback to snapshot the current MIDI state onto the undo stack before editing
  * @param {number} props.undoStackLength - The number of snapshots currently in the undo stack for this track
  */
-export default function MidiEditorPopup({ 
-    trackName, 
+export default function MidiEditorPopup({
+    trackName,
     onClose,
     duration,
     pixelsPerBar,
@@ -357,16 +357,16 @@ export default function MidiEditorPopup({
             });
         }
     };
-    
+
     // Local zoom states for the popup (independent of the main app)
     const [popupPixelsPerBar, setPopupPixelsPerBar] = React.useState(pixelsPerBar || 100);
     const [popupRowHeight, setPopupRowHeight] = React.useState(8); // Default to 8 (lowest)
-    
+
     // Selection state for MIDI notes (multi selection)
     const [selectedNoteIndices, setSelectedNoteIndices] = React.useState(new Set());
     const [showHintBox, setShowHintBox] = React.useState(false);
     const [isRevertConfirmationOpen, setIsRevertConfirmationOpen] = useState(false);
-    
+
     const [contextMenu, setContextMenu] = React.useState(null);
     const closeContextMenu = () => { if (contextMenu) setContextMenu(null); };
     React.useEffect(() => {
@@ -374,7 +374,7 @@ export default function MidiEditorPopup({
         window.addEventListener('click', handleClick);
         return () => window.removeEventListener('click', handleClick);
     }, [contextMenu]);
-    
+
     // Track if Cmd/Ctrl is held down
     const [isModifierHeld, setIsModifierHeld] = React.useState(false);
     React.useEffect(() => {
@@ -386,11 +386,11 @@ export default function MidiEditorPopup({
         };
         window.addEventListener('keydown', handleKeyDown);
         window.addEventListener('keyup', handleKeyUp);
-        
+
         // Failsafe in case window loses focus while holding the key
         const handleBlur = () => setIsModifierHeld(false);
         window.addEventListener('blur', handleBlur);
-        
+
         return () => {
             window.removeEventListener('keydown', handleKeyDown);
             window.removeEventListener('keyup', handleKeyUp);
@@ -412,7 +412,7 @@ export default function MidiEditorPopup({
         setSelectedNoteIndices(new Set());
         setIsRevertConfirmationOpen(false);
     };
-    
+
     // Center melodic editors on C4. ADTOF drum editors only have five lanes.
     React.useEffect(() => {
         if (trackName && gridScrollRef.current) {
@@ -424,10 +424,10 @@ export default function MidiEditorPopup({
             // C4 is 67 rows down from the top (127 - 60)
             const c4TopPx = 67 * popupRowHeight;
             const containerHeight = gridScrollRef.current.clientHeight;
-            
+
             // Calculate scroll position to center C4
             const targetScrollTop = Math.max(0, c4TopPx - (containerHeight / 2) + (popupRowHeight / 2));
-            
+
             gridScrollRef.current.scrollTop = targetScrollTop;
             if (pianoScrollRef.current) {
                 pianoScrollRef.current.scrollTop = targetScrollTop;
@@ -499,7 +499,7 @@ export default function MidiEditorPopup({
                     <div key={voice.id} style={{
                         height: `${DRUM_EDITOR_ROW_HEIGHT}px`, boxSizing: 'border-box', display: 'flex', flexDirection: 'column',
                         justifyContent: 'center', gap: '1px', padding: '4px 7px',
-                        color: voice.color, backgroundColor: '#1a1a1a', borderBottom: '1px solid #3a3a3a',
+                        color: voice.color, backgroundColor: 'var(--studio-surface-raised)', borderBottom: '1px solid var(--studio-border)',
                         borderLeft: `3px solid ${voice.color}`, fontSize: '12px', fontWeight: '700', userSelect: 'none'
                     }}>
                         <div style={{ display: 'flex', alignItems: 'center', width: '100%', minHeight: '21px' }}>
@@ -510,7 +510,7 @@ export default function MidiEditorPopup({
                                     onClick={() => toggleDrumMute?.(trackName, voice.id)}
                                     style={{
                                         width: '21px', height: '21px', padding: 0, border: 'none', borderRadius: '3px',
-                                        background: isMuted ? '#e53935' : '#444', color: '#fff', cursor: 'pointer',
+                                        background: isMuted ? '#d44b55' : 'var(--studio-control)', color: isMuted ? 'white' : 'var(--studio-text-secondary)', cursor: 'pointer',
                                         fontSize: '10px', fontWeight: 'bold'
                                     }}
                                     title={`Mute ${voice.label} MIDI`}
@@ -520,7 +520,7 @@ export default function MidiEditorPopup({
                                     onClick={() => toggleDrumSolo?.(trackName, voice.id)}
                                     style={{
                                         width: '21px', height: '21px', padding: 0, border: 'none', borderRadius: '3px',
-                                        background: isSoloed ? '#e0a800' : '#444', color: '#fff', cursor: 'pointer',
+                                        background: isSoloed ? '#c88a12' : 'var(--studio-control)', color: isSoloed ? 'white' : 'var(--studio-text-secondary)', cursor: 'pointer',
                                         fontSize: '10px', fontWeight: 'bold'
                                     }}
                                     title={`Solo ${voice.label} MIDI`}
@@ -543,7 +543,7 @@ export default function MidiEditorPopup({
             const isC = (i % 12) === 0;
             const isF = (i % 12) === 5;
             const octave = Math.floor(i / 12) - 1;
-            
+
             if (isBlackKey) {
                 keys.push(
                     <div key={`key-${i}`} style={{
@@ -551,16 +551,16 @@ export default function MidiEditorPopup({
                         height: `${popupRowHeight}px`,
                         width: '100%',
                         boxSizing: 'border-box',
-                        backgroundColor: '#ddd', 
+                        backgroundColor: '#cfd9e3',
                     }}>
                         <div style={{
                             position: 'absolute', top: '50%', left: '60%', right: 0,
-                            height: '1px', backgroundColor: '#bbb', zIndex: 1
+                            height: '1px', backgroundColor: '#9fb0c1', zIndex: 1
                         }} />
                         <div style={{
                             position: 'absolute', top: 0, left: 0, width: '60%', height: '100%',
-                            backgroundColor: '#1a1a1a', borderBottom: '2px solid #000',
-                            borderTop: '1px solid #333', borderRight: '2px solid #000',
+                            backgroundColor: '#455a70', borderBottom: '2px solid #304255',
+                            borderTop: '1px solid #73869a', borderRight: '2px solid #304255',
                             borderBottomRightRadius: '3px', borderTopRightRadius: '3px',
                             boxSizing: 'border-box', zIndex: 2
                         }} />
@@ -571,8 +571,8 @@ export default function MidiEditorPopup({
                 keys.push(
                     <div key={`key-${i}`} style={{
                         height: `${popupRowHeight}px`, width: '100%', boxSizing: 'border-box',
-                        backgroundColor: '#ddd', borderBottom: needsBottomBorder ? '1px solid #bbb' : 'none',
-                        color: '#555', display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+                        backgroundColor: '#cfd9e3', borderBottom: needsBottomBorder ? '1px solid #9fb0c1' : 'none',
+                        color: 'var(--studio-text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
                         paddingRight: '6px', fontSize: '10px', fontWeight: isC ? 'bold' : 'normal',
                         userSelect: 'none', position: 'relative', zIndex: 3
                     }}>
@@ -606,7 +606,7 @@ export default function MidiEditorPopup({
     const gridHeight = isAdtofDrum
         ? ADTOF_DRUM_VOICES.length * DRUM_EDITOR_ROW_HEIGHT
         : 128 * popupRowHeight;
-    
+
     // Scale the playhead position to match the popup's local zoom level
     const popupPlayheadX = (playheadX / pixelsPerBar) * popupPixelsPerBar;
 
@@ -631,7 +631,7 @@ export default function MidiEditorPopup({
         <div style={{
             position: 'fixed',
             top: 0, left: 0, right: 0, bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.85)',
+            backgroundColor: 'var(--studio-page)',
             zIndex: 9999,
             display: 'flex',
             flexDirection: 'column',
@@ -648,7 +648,7 @@ export default function MidiEditorPopup({
                     margin: 0;
                     border: 0;
                     border-radius: 999px;
-                    background: linear-gradient(90deg, #4f94d4 0%, #4f94d4 var(--drum-editor-gain-progress), #505a67 var(--drum-editor-gain-progress), #505a67 100%);
+                    background: linear-gradient(90deg, var(--studio-accent) 0%, var(--studio-accent) var(--drum-editor-gain-progress), #c6d3df var(--drum-editor-gain-progress), #c6d3df 100%);
                     cursor: pointer;
                 }
                 .drum-editor-gain-slider::-webkit-slider-runnable-track {
@@ -665,7 +665,7 @@ export default function MidiEditorPopup({
                     border: 1px solid #9fb7cd;
                     border-radius: 50%;
                     background: #e5edf5;
-                    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+                    box-shadow: 0 1px 2px rgba(44, 62, 80, 0.24);
                 }
                 .drum-editor-gain-slider::-moz-range-track {
                     height: 3px;
@@ -680,7 +680,7 @@ export default function MidiEditorPopup({
                     border: 1px solid #9fb7cd;
                     border-radius: 50%;
                     background: #e5edf5;
-                    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+                    box-shadow: 0 1px 2px rgba(44, 62, 80, 0.24);
                 }
                 .drum-editor-gain-slider:focus-visible { outline: 2px solid #70b4ef; outline-offset: 2px; }
             `}</style>
@@ -691,7 +691,7 @@ export default function MidiEditorPopup({
                     style={{
                         position: 'fixed', inset: 0, zIndex: 10,
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        backgroundColor: 'rgba(0, 0, 0, 0.55)', padding: '20px'
+                        backgroundColor: 'rgba(37, 52, 70, 0.28)', padding: '20px'
                     }}
                 >
                     <section
@@ -701,15 +701,15 @@ export default function MidiEditorPopup({
                         aria-describedby="revert-midi-description"
                         onMouseDown={(event) => event.stopPropagation()}
                         style={{
-                            width: 'min(420px, 100%)', backgroundColor: '#202020', color: '#fff',
-                            border: '1px solid #555', borderRadius: '8px', padding: '20px',
-                            boxShadow: '0 18px 50px rgba(0, 0, 0, 0.6)'
+                            width: 'min(420px, 100%)', backgroundColor: 'var(--studio-surface)', color: 'var(--studio-text)',
+                            border: '1px solid var(--studio-border)', borderRadius: '8px', padding: '20px',
+                            boxShadow: '0 18px 50px rgba(44, 62, 80, 0.22)'
                         }}
                     >
                         <h4 id="revert-midi-title" style={{ margin: '0 0 10px', fontSize: '18px' }}>
                             Revert {trackName} MIDI?
                         </h4>
-                        <p id="revert-midi-description" style={{ margin: '0 0 20px', color: '#c8c8c8', fontSize: '14px', lineHeight: 1.45 }}>
+                        <p id="revert-midi-description" style={{ margin: '0 0 20px', color: 'var(--studio-text-secondary)', fontSize: '14px', lineHeight: 1.45 }}>
                             This restores the generated MIDI for this track and discards the current edits. You can undo the revert afterward.
                         </p>
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
@@ -717,7 +717,7 @@ export default function MidiEditorPopup({
                                 type="button"
                                 onClick={() => setIsRevertConfirmationOpen(false)}
                                 style={{
-                                    padding: '7px 12px', background: 'transparent', color: '#fff', border: '1px solid #777',
+                                    padding: '7px 12px', background: 'transparent', color: 'var(--studio-text)', border: '1px solid var(--studio-border-strong)',
                                     borderRadius: '4px', cursor: 'pointer', fontWeight: '600'
                                 }}
                             >
@@ -740,7 +740,7 @@ export default function MidiEditorPopup({
             {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <h3 style={{ margin: 0, color: '#fff', textTransform: 'capitalize', fontSize: '24px' }}>
+                    <h3 style={{ margin: 0, color: 'var(--studio-text)', textTransform: 'capitalize', fontSize: '24px' }}>
                         {isAdtofDrum ? 'Drum Editor' : 'MIDI Editor'}: {trackName}
                     </h3>
                     {isAdtofDrum && (
@@ -750,35 +750,35 @@ export default function MidiEditorPopup({
                     )}
                     {(isMidiPending || isMidiFailed) && (
                         <span style={{
-                            color: isMidiFailed ? '#ff9a9a' : '#f5c451', background: isMidiFailed ? 'rgba(155, 45, 45, 0.22)' : 'rgba(224, 168, 0, 0.16)',
-                            border: `1px solid ${isMidiFailed ? 'rgba(255, 100, 100, 0.45)' : 'rgba(224, 168, 0, 0.4)'}`, borderRadius: '999px',
+                            color: isMidiFailed ? '#a93845' : '#8b5a00', background: isMidiFailed ? 'var(--studio-danger-soft)' : 'var(--studio-warning-soft)',
+                            border: `1px solid ${isMidiFailed ? '#f0b4bb' : '#eed49c'}`, borderRadius: '999px',
                             padding: '4px 9px', fontSize: '12px', fontWeight: '600'
                         }}>
                             {isMidiFailed ? 'MIDI failed' : 'MIDI processing'}
                         </span>
                     )}
                 </div>
-                <button 
+                <button
                     onClick={onClose}
                     style={{
-                        background: 'transparent', color: '#ccc', border: 'none', 
+                        background: 'transparent', color: 'var(--studio-text-muted)', border: 'none',
                         cursor: 'pointer', fontSize: '28px', lineHeight: 1
                     }}
                 >
                     &times;
                 </button>
             </div>
-            
+
             {/* Control Bar */}
             <div style={{
-                display: 'flex', alignItems: 'center', gap: '30px', 
-                backgroundColor: '#1a1a1a', padding: '10px 15px', 
-                borderRadius: '8px', marginBottom: '15px', border: '1px solid #333'
+                display: 'flex', alignItems: 'center', gap: '30px',
+                backgroundColor: 'var(--studio-surface-raised)', padding: '10px 15px',
+                borderRadius: '8px', marginBottom: '15px', border: '1px solid var(--studio-border)'
             }}>
                 {/* Transport Controls */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
                     <button title="Go to Beginning" onClick={handleGoToBeginning} style={{
-                        background: 'transparent', color: 'white', border: 'none',
+                        background: 'transparent', color: 'var(--studio-text)', border: 'none',
                         cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '0', opacity: 0.8
                     }}>
                         <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
@@ -789,7 +789,7 @@ export default function MidiEditorPopup({
                         onPointerDown={unlockAudio}
                         onClick={togglePlay}
                         style={{
-                        background: 'transparent', color: 'white', border: 'none',
+                        background: 'transparent', color: 'var(--studio-text)', border: 'none',
                         cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '0', opacity: 0.8
                     }}>
                         {isPlaying ? (
@@ -800,10 +800,10 @@ export default function MidiEditorPopup({
                     </button>
 
                     <button title="Toggle Cycle" onClick={toggleCycling} style={{
-                        background: isCycling ? '#8B6508' : 'transparent', 
-                        color: isCycling ? '#fff' : 'white', 
+                        background: isCycling ? '#a56a00' : 'transparent',
+                        color: isCycling ? 'white' : 'var(--studio-text)',
                         border: 'none', borderRadius: '4px',
-                        cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px', 
+                        cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px',
                         opacity: 0.8,
                         transition: 'background-color 0.2s'
                     }}>
@@ -811,14 +811,14 @@ export default function MidiEditorPopup({
                     </button>
                 </div>
 
-                <div style={{ width: '1px', height: '24px', backgroundColor: '#333' }}></div>
+                <div style={{ width: '1px', height: '24px', backgroundColor: 'var(--studio-border)' }}></div>
 
                 {/* Mute and Solo Controls */}
                 <div style={{ display: 'flex', gap: '8px' }}>
                     <button onClick={() => toggleMute(trackName)} style={{
                         width: '24px', height: '24px',
-                        background: mutedTracks[trackName] ? '#e53935' : '#555',
-                        color: 'white', border: 'none', borderRadius: '4px', 
+                        background: mutedTracks[trackName] ? '#d44b55' : 'var(--studio-control)',
+                        color: mutedTracks[trackName] ? 'white' : 'var(--studio-text-secondary)', border: 'none', borderRadius: '4px',
                         cursor: 'pointer', fontSize: '11px', fontWeight: 'bold',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         transition: 'background-color 0.2s'
@@ -827,9 +827,9 @@ export default function MidiEditorPopup({
                     </button>
                     <button onClick={() => toggleSolo(trackName)} style={{
                         width: '24px', height: '24px',
-                        background: soloedTracks[trackName] ? '#e0a800' : '#555',
-                        color: soloedTracks[trackName] ? '#fff' : 'white', 
-                        border: 'none', borderRadius: '4px', 
+                        background: soloedTracks[trackName] ? '#c88a12' : 'var(--studio-control)',
+                        color: soloedTracks[trackName] ? 'white' : 'var(--studio-text-secondary)',
+                        border: 'none', borderRadius: '4px',
                         cursor: 'pointer', fontSize: '11px', fontWeight: 'bold',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         transition: 'background-color 0.2s'
@@ -838,15 +838,15 @@ export default function MidiEditorPopup({
                     </button>
                 </div>
 
-                <div style={{ width: '1px', height: '24px', backgroundColor: '#333', marginLeft: '10px', marginRight: '10px' }}></div>
+                <div style={{ width: '1px', height: '24px', backgroundColor: 'var(--studio-border)', marginLeft: '10px', marginRight: '10px' }}></div>
 
                 {/* MIDI Play Mode Toggle */}
                 <button onClick={() => setIsMidiMode(!isMidiMode)} style={{
                     height: '24px', padding: '0 10px',
                     background: 'transparent',
-                    color: isMidiMode ? '#4CAF50' : '#aaa', 
-                    border: `1px solid ${isMidiMode ? '#4CAF50' : '#555'}`, 
-                    boxShadow: isMidiMode ? '0 0 8px rgba(76, 175, 80, 0.5)' : 'none',
+                    color: isMidiMode ? 'var(--studio-midi)' : 'var(--studio-text-muted)',
+                    border: `1px solid ${isMidiMode ? 'var(--studio-midi)' : 'var(--studio-border-strong)'}`,
+                    boxShadow: isMidiMode ? '0 0 8px rgba(37, 137, 92, 0.2)' : 'none',
                     borderRadius: '4px',
                     cursor: 'pointer', fontSize: '12px', fontWeight: 'bold',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -863,8 +863,8 @@ export default function MidiEditorPopup({
                 }} style={{
                     height: '24px', padding: '0 10px',
                     background: 'transparent',
-                    color: undoStackLength > 0 ? 'white' : '#555', 
-                    border: `1px solid ${undoStackLength > 0 ? 'white' : '#555'}`, 
+                    color: undoStackLength > 0 ? 'var(--studio-text)' : 'var(--studio-text-muted)',
+                    border: `1px solid ${undoStackLength > 0 ? 'var(--studio-border-strong)' : 'var(--studio-border)'}`,
                     borderRadius: '4px',
                     cursor: undoStackLength > 0 ? 'pointer' : 'default', fontSize: '12px', fontWeight: 'bold',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -881,8 +881,8 @@ export default function MidiEditorPopup({
                 }} style={{
                     height: '24px', padding: '0 10px',
                     background: 'transparent',
-                    color: 'white', 
-                    border: '1px solid white', 
+                    color: 'var(--studio-text)',
+                    border: '1px solid var(--studio-border-strong)',
                     borderRadius: '4px',
                     cursor: 'pointer', fontSize: '12px', fontWeight: 'bold',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -898,13 +898,13 @@ export default function MidiEditorPopup({
                     <button onClick={() => setShowHintBox(!showHintBox)} style={{
                         height: '24px', width: '24px', padding: '0',
                         background: 'transparent',
-                        color: '#aaa', 
+                        color: 'var(--studio-text-muted)',
                         border: 'none',
                         cursor: 'pointer',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         transition: 'color 0.2s',
                         marginLeft: '4px'
-                    }} title="Shortcuts & Controls" onMouseEnter={e => e.currentTarget.style.color = 'white'} onMouseLeave={e => e.currentTarget.style.color = '#aaa'}>
+                    }} title="Shortcuts & Controls" onMouseEnter={e => e.currentTarget.style.color = 'var(--studio-text)'} onMouseLeave={e => e.currentTarget.style.color = 'var(--studio-text-muted)'}>
                         <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
                             <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>
                         </svg>
@@ -913,22 +913,22 @@ export default function MidiEditorPopup({
                     {showHintBox && (
                         <>
                             {/* Transparent overlay for clicking outside */}
-                            <div 
-                                style={{ position: 'fixed', inset: 0, zIndex: 10999 }} 
-                                onClick={() => setShowHintBox(false)} 
+                            <div
+                                style={{ position: 'fixed', inset: 0, zIndex: 10999 }}
+                                onClick={() => setShowHintBox(false)}
                             />
-                            
+
                             <div style={{
                                 position: 'absolute',
                                 top: '35px',
                                 right: '-10px',
                                 width: '280px',
-                                backgroundColor: '#111',
-                                border: '1px solid #333',
+                                backgroundColor: 'var(--studio-surface)',
+                                border: '1px solid var(--studio-border)',
                                 borderRadius: '6px',
                                 padding: '16px',
-                                color: '#fff',
-                                boxShadow: '0 8px 32px rgba(0,0,0,0.8)',
+                                color: 'var(--studio-text)',
+                                boxShadow: '0 8px 32px rgba(44, 62, 80, 0.18)',
                                 cursor: 'default',
                                 zIndex: 11000
                             }} onClick={e => e.stopPropagation()}>
@@ -941,7 +941,7 @@ export default function MidiEditorPopup({
                                     height: 0,
                                     borderLeft: '7px solid transparent',
                                     borderRight: '7px solid transparent',
-                                    borderBottom: '7px solid #333',
+                                    borderBottom: '7px solid var(--studio-border)',
                                 }} />
                                 <div style={{
                                     position: 'absolute',
@@ -951,50 +951,50 @@ export default function MidiEditorPopup({
                                     height: 0,
                                     borderLeft: '6px solid transparent',
                                     borderRight: '6px solid transparent',
-                                    borderBottom: '6px solid #111',
+                                    borderBottom: '6px solid var(--studio-surface)',
                                     zIndex: 1
                                 }} />
-                                
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', borderBottom: '1px solid #222', paddingBottom: '8px' }}>
+
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', borderBottom: '1px solid var(--studio-border)', paddingBottom: '8px' }}>
                                     <h3 style={{ margin: 0, fontSize: '14px' }}>Shortcuts & Controls</h3>
-                                    <button onClick={() => setShowHintBox(false)} style={{ background: 'transparent', border: 'none', color: '#aaa', cursor: 'pointer', fontSize: '16px' }}>&times;</button>
+                                    <button onClick={() => setShowHintBox(false)} style={{ background: 'transparent', border: 'none', color: 'var(--studio-text-muted)', cursor: 'pointer', fontSize: '16px' }}>&times;</button>
                                 </div>
-                                
+
                                 <div style={{ display: 'grid', gap: '8px', fontSize: '12px' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                        <span style={{ color: '#aaa' }}>Add Note</span>
+                                        <span style={{ color: 'var(--studio-text-muted)' }}>Add Note</span>
                                         <span><kbd>Cmd/Ctrl</kbd> + Click</span>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                        <span style={{ color: '#aaa' }}>Lasso Select</span>
+                                        <span style={{ color: 'var(--studio-text-muted)' }}>Lasso Select</span>
                                         <span>Drag Background</span>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                        <span style={{ color: '#aaa' }}>Multi-select</span>
+                                        <span style={{ color: 'var(--studio-text-muted)' }}>Multi-select</span>
                                         <span><kbd>Shift</kbd> + Click</span>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                        <span style={{ color: '#aaa' }}>Context Menu</span>
+                                        <span style={{ color: 'var(--studio-text-muted)' }}>Context Menu</span>
                                         <span>Right Click</span>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                        <span style={{ color: '#aaa' }}>Replicate</span>
+                                        <span style={{ color: 'var(--studio-text-muted)' }}>Replicate</span>
                                         <span><kbd>Shift</kbd> + Drag</span>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                        <span style={{ color: '#aaa' }}>Join Notes</span>
+                                        <span style={{ color: 'var(--studio-text-muted)' }}>Join Notes</span>
                                         <span><kbd>J</kbd></span>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                        <span style={{ color: '#aaa' }}>Disable / Restore</span>
+                                        <span style={{ color: 'var(--studio-text-muted)' }}>Disable / Restore</span>
                                         <span><kbd>D</kbd></span>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                        <span style={{ color: '#aaa' }}>Delete Note(s)</span>
+                                        <span style={{ color: 'var(--studio-text-muted)' }}>Delete Note(s)</span>
                                         <span><kbd>Backspace / Del</kbd></span>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                        <span style={{ color: '#aaa' }}>Undo</span>
+                                        <span style={{ color: 'var(--studio-text-muted)' }}>Undo</span>
                                         <span><kbd>Cmd/Ctrl</kbd> + <kbd>Z</kbd></span>
                                     </div>
                                 </div>
@@ -1008,17 +1008,17 @@ export default function MidiEditorPopup({
 
                 {/* Velocity Control */}
                 {selectedNoteIndices.size > 0 && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginRight: '20px', borderRight: '1px solid #333', paddingRight: '20px' }}>
-                        <span style={{ color: '#aaa', fontSize: '12px', fontWeight: 'bold' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginRight: '20px', borderRight: '1px solid var(--studio-border)', paddingRight: '20px' }}>
+                        <span style={{ color: 'var(--studio-text-muted)', fontSize: '12px', fontWeight: 'bold' }}>
                             Velocity: {Math.round(commonVelocity * 100)}
                         </span>
-                        <input 
-                            type="range" 
+                        <input
+                            type="range"
                             min="0.05" max="1" step="0.01"
                             value={commonVelocity}
                             onChange={handleVelocityChange}
                             onPointerDown={pushUndoState}
-                            style={{ width: '80px', cursor: 'pointer', accentColor: '#aaa' }}
+                            style={{ width: '80px', cursor: 'pointer', accentColor: 'var(--studio-accent)' }}
                         />
                     </div>
                 )}
@@ -1026,24 +1026,24 @@ export default function MidiEditorPopup({
                 {/* Zoom Controls */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} title="Horizontal Zoom">
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="#aaa">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="var(--studio-text-muted)">
                             <path d="M22 12l-4-4v3H6V8l-4 4 4 4v-3h12v3z"/>
                         </svg>
-                        <input 
-                            type="range" 
-                            min="20" max="400" 
+                        <input
+                            type="range"
+                            min="20" max="400"
                             value={popupPixelsPerBar}
                             onChange={(e) => setPopupPixelsPerBar(Number(e.target.value))}
                             style={{ width: '80px', cursor: 'pointer' }}
                         />
                     </div>
                     {!isAdtofDrum && <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} title="Vertical Zoom">
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="#aaa">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="var(--studio-text-muted)">
                             <path d="M12 2L8 6h3v12H8l4 4 4-4h-3V6h3z"/>
                         </svg>
-                        <input 
-                            type="range" 
-                            min="8" max="32" 
+                        <input
+                            type="range"
+                            min="8" max="32"
                             value={popupRowHeight}
                             onChange={(e) => setPopupRowHeight(Number(e.target.value))}
                             style={{ width: '80px', cursor: 'pointer' }}
@@ -1053,20 +1053,20 @@ export default function MidiEditorPopup({
             </div>
 
             {/* Split Canvas Area */}
-            <div style={{ 
-                flexGrow: 1, 
-                backgroundColor: '#222', 
-                borderRadius: '8px', 
-                border: '1px solid #444', 
+            <div style={{
+                flexGrow: 1,
+                backgroundColor: 'var(--studio-surface-muted)',
+                borderRadius: '8px',
+                border: '1px solid var(--studio-border)',
                 overflow: 'hidden',
                 display: 'flex',
                 flexDirection: 'row'
             }}>
                 {/* Left Column: piano keys, or named ADTOF drum lanes */}
-                <div style={{ width: isAdtofDrum ? '154px' : '60px', flexShrink: 0, display: 'flex', flexDirection: 'column', backgroundColor: '#111' }}>
+                <div style={{ width: isAdtofDrum ? '154px' : '60px', flexShrink: 0, display: 'flex', flexDirection: 'column', backgroundColor: 'var(--studio-surface-sunken)' }}>
                     {/* Empty top left corner to match the 30px TimelineRuler */}
-                    <div style={{ height: '30px', backgroundColor: '#1a1a1a', borderBottom: '1px solid #333', borderRight: '1px solid #222', flexShrink: 0 }} />
-                    
+                    <div style={{ height: '30px', backgroundColor: 'var(--studio-surface-raised)', borderBottom: '1px solid var(--studio-border)', borderRight: '1px solid var(--studio-border)', flexShrink: 0 }} />
+
                     {/* The keys themselves (sync scrolled) */}
                     <div ref={pianoScrollRef} style={{ flexGrow: 1, overflow: 'hidden', opacity: isAdtofDrum ? 1 : 0.6 }}>
                         <div style={{ height: `${gridHeight}px` }}>
@@ -1076,31 +1076,32 @@ export default function MidiEditorPopup({
                 </div>
 
                 {/* Right Column: Scrollable Grid */}
-                <div 
+                <div
                     ref={setPopupGridScrollContainer}
-                    style={{ flexGrow: 1, overflow: 'auto', position: 'relative' }}
+                    style={{ flexGrow: 1, overflow: 'auto', position: 'relative', backgroundColor: 'var(--studio-surface-raised)' }}
                     onScroll={handleGridScroll}
                 >
                     {(isMidiPending || isMidiFailed) && (
                         <div style={{
                             position: 'absolute', inset: 0, zIndex: 30, display: 'flex',
                             alignItems: 'center', justifyContent: 'center', textAlign: 'center',
-                            color: isMidiFailed ? '#ff9a9a' : '#f5c451', backgroundColor: 'rgba(15, 15, 15, 0.76)',
+                            color: isMidiFailed ? 'var(--studio-danger)' : 'var(--studio-warning)',
+                            backgroundColor: 'rgba(233, 239, 244, 0.94)',
                             padding: '24px', pointerEvents: 'auto'
                         }}>
                             <div>
                                 <div aria-hidden="true" style={{ fontSize: '20px', marginBottom: '8px' }}>{isMidiFailed ? '!' : '●'}</div>
-                                <strong style={{ display: 'block', color: '#fff', marginBottom: '4px' }}>{isMidiFailed ? 'MIDI unavailable' : 'MIDI not ready yet'}</strong>
+                                <strong style={{ display: 'block', color: 'var(--studio-text)', marginBottom: '4px' }}>{isMidiFailed ? 'MIDI unavailable' : 'MIDI not ready yet'}</strong>
                                 <span style={{ fontSize: '13px' }}>{midiPendingLabel}</span>
                             </div>
                         </div>
                     )}
-                    <div 
-                        ref={popupTimelineRef} 
-                        style={{ 
-                            minWidth: `${popupPixelsPerBar * totalBars}px`, 
+                    <div
+                        ref={popupTimelineRef}
+                        style={{
+                            minWidth: `${popupPixelsPerBar * totalBars}px`,
                             minHeight: `${gridHeight + 30}px`, // 30px for ruler
-                            position: 'relative' 
+                            position: 'relative'
                         }}
                     >
                     {/* Time Indicator (Playhead) */}
@@ -1114,7 +1115,7 @@ export default function MidiEditorPopup({
 
                     {/* Ruler */}
                     <div style={{ position: 'sticky', top: 0, zIndex: 20 }}>
-                        <TimelineRuler 
+                        <TimelineRuler
                             duration={duration}
                             pixelsPerBar={popupPixelsPerBar}
                             cycleDragRef={cycleDragRef}
@@ -1137,7 +1138,7 @@ export default function MidiEditorPopup({
                     </div>
 
                     {/* MIDI Grid */}
-                    <div 
+                    <div
                         onMouseDown={handleGridMouseDown}
                         onMouseMove={handleGridMouseMove}
                         onMouseUp={handleGridMouseUp}
@@ -1155,23 +1156,24 @@ export default function MidiEditorPopup({
                         height: `${gridHeight}px`,
                         marginTop: '0px',
                         cursor: isModifierHeld ? 'crosshair' : 'default',
+                        backgroundColor: 'var(--studio-surface-raised)',
                         backgroundSize: `${popupPixelsPerBar}px 100%, ${popupPixelsPerBar / parsedBeatsPerBar}px 100%, 100% ${isAdtofDrum ? DRUM_EDITOR_ROW_HEIGHT : popupRowHeight}px`,
                         backgroundImage: `
-                            linear-gradient(to right, transparent ${popupPixelsPerBar - 1}px, rgba(255,255,255,0.1) ${popupPixelsPerBar}px),
-                            linear-gradient(to right, transparent ${(popupPixelsPerBar / parsedBeatsPerBar) - 1}px, rgba(255,255,255,0.03) ${popupPixelsPerBar / parsedBeatsPerBar}px),
-                            linear-gradient(to bottom, transparent ${(isAdtofDrum ? DRUM_EDITOR_ROW_HEIGHT : popupRowHeight) - 1}px, rgba(255,255,255,0.05) ${isAdtofDrum ? DRUM_EDITOR_ROW_HEIGHT : popupRowHeight}px)
+                            linear-gradient(to right, transparent ${popupPixelsPerBar - 1}px, var(--studio-grid-major) ${popupPixelsPerBar}px),
+                            linear-gradient(to right, transparent ${(popupPixelsPerBar / parsedBeatsPerBar) - 1}px, var(--studio-grid-minor) ${popupPixelsPerBar / parsedBeatsPerBar}px),
+                            linear-gradient(to bottom, transparent ${(isAdtofDrum ? DRUM_EDITOR_ROW_HEIGHT : popupRowHeight) - 1}px, var(--studio-grid-row) ${isAdtofDrum ? DRUM_EDITOR_ROW_HEIGHT : popupRowHeight}px)
                         `
                     }}>
                         {/* Drag Highlight Row or Replication Projections */}
                         {noteDragState && noteDragState.hasMoved && parsedMidiStems && parsedMidiStems[trackName] && (
                             (() => {
                                 const notes = parsedMidiStems[trackName].midiData.tracks[0].notes;
-                                
+
                                 if (noteDragState.isReplicating) {
                                     return noteDragState.originalNotes.map(orig => {
                                         const noteToClone = notes[orig.index];
                                         if (!noteToClone) return null;
-                                        
+
                                         const projTime = Math.max(0, orig.originalTime + noteDragState.deltaTime);
                                         const projMidi = isAdtofDrum
                                             ? (() => {
@@ -1184,7 +1186,7 @@ export default function MidiEditorPopup({
                                                 return ADTOF_DRUM_VOICES[targetIndex].midi;
                                             })()
                                             : Math.max(0, Math.min(127, orig.originalMidi + noteDragState.deltaPitch));
-                                        
+
                                         const noteStartBeats = projTime * (activeBpm / 60);
                                         const noteStartBars = noteStartBeats / parsedBeatsPerBar;
                                         const leftPx = noteStartBars * popupPixelsPerBar;
@@ -1200,11 +1202,11 @@ export default function MidiEditorPopup({
 
                                         const v = noteToClone.velocity !== undefined ? Math.max(0.01, noteToClone.velocity) : 0.8;
                                         // Hue: Purple(280) -> Blue -> Cyan -> Green -> Yellow -> Red(0)
-                                        const hue = 280 - (v * 280); 
-                                        const saturation = Math.round(35 + (v * 15)); 
+                                        const hue = 280 - (v * 280);
+                                        const saturation = Math.round(35 + (v * 15));
                                         const lightness = Math.round(45 + (v * 10));
                                         const isDisabled = v <= 0.015;
-                                        const noteColor = isDisabled ? '#555' : `hsla(${Math.round(hue)}, ${saturation}%, ${lightness}%, 0.4)`;
+                                        const noteColor = isDisabled ? '#94a3b8' : `hsla(${Math.round(hue)}, ${saturation}%, ${lightness}%, 0.4)`;
 
                                         return (
                                             <div key={`proj-${orig.index}`} style={{
@@ -1226,7 +1228,7 @@ export default function MidiEditorPopup({
 
                                 const clickedNote = notes[noteDragState.clickedNoteIndex];
                                 if (!clickedNote) return null;
-                                
+
                                 const clickedVoice = isAdtofDrum ? getAdtofDrumVoice(clickedNote.midi) : null;
                                 const topPx = clickedVoice
                                     ? getAdtofDrumVoiceIndex(clickedNote.midi) * DRUM_EDITOR_ROW_HEIGHT
@@ -1260,7 +1262,7 @@ export default function MidiEditorPopup({
                             onNoteMouseDown={handleVisibleNoteMouseDown}
                             onNoteContextMenu={handleVisibleNoteContextMenu}
                         />
-                        
+
                         {/* Drag Selection Rectangle */}
                         {isDraggingSelection && selectionRect && (
                             <div style={{
@@ -1281,30 +1283,30 @@ export default function MidiEditorPopup({
 
             {/* Context Menu */}
             {contextMenu && (
-                <div 
+                <div
                     style={{
                         position: 'fixed',
                         left: `${contextMenu.x}px`,
                         top: `${contextMenu.y}px`,
-                        backgroundColor: '#222',
-                        border: '1px solid #444',
+                        backgroundColor: 'var(--studio-surface)',
+                        border: '1px solid var(--studio-border)',
                         borderRadius: '4px',
                         padding: '4px 0',
-                        boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+                        boxShadow: '0 4px 12px rgba(44, 62, 80, 0.18)',
                         zIndex: 10000,
-                        color: '#fff',
+                        color: 'var(--studio-text)',
                         minWidth: '150px',
                         fontSize: '13px'
                     }}
                     onContextMenu={(e) => e.preventDefault()}
                 >
-                    <div 
+                    <div
                         style={{
                             padding: '8px 16px',
                             cursor: undoStackLength > 0 ? 'pointer' : 'default',
                             opacity: undoStackLength > 0 ? 1 : 0.4,
-                            color: undoStackLength > 0 ? '#fff' : '#aaa',
-                            borderBottom: '1px solid #333',
+                            color: undoStackLength > 0 ? 'var(--studio-text)' : 'var(--studio-text-muted)',
+                            borderBottom: '1px solid var(--studio-border)',
                             display: 'flex',
                             justifyContent: 'space-between',
                             alignItems: 'center'
@@ -1313,75 +1315,75 @@ export default function MidiEditorPopup({
                             if (undoStackLength > 0 && handleUndoMidi) handleUndoMidi();
                             closeContextMenu();
                         }}
-                        onMouseEnter={(e) => { if (undoStackLength > 0) e.target.style.backgroundColor = '#333' }}
+                        onMouseEnter={(e) => { if (undoStackLength > 0) e.target.style.backgroundColor = 'var(--studio-accent-soft)' }}
                         onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
                     >
                         <span>Undo</span>
                         <span style={{ fontSize: '11px', opacity: 0.5, marginLeft: '20px' }}>Cmd/Ctrl+Z</span>
                     </div>
-                    
+
                     {selectedNoteIndices.size > 0 && (
                         <>
-                            <div 
+                            <div
                                 style={{ padding: '8px 16px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                                 onClick={() => { handleToggleDisable(); closeContextMenu(); }}
-                                onMouseEnter={(e) => e.target.style.backgroundColor = '#333'}
+                                onMouseEnter={(e) => e.target.style.backgroundColor = 'var(--studio-accent-soft)'}
                                 onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
                             >
                                 <span>{allDisabled ? "Restore" : "Disable"}</span>
-                                <span style={{ fontSize: '11px', opacity: 0.5, marginLeft: '20px', color: '#aaa' }}>D</span>
+                                <span style={{ fontSize: '11px', opacity: 0.5, marginLeft: '20px', color: 'var(--studio-text-muted)' }}>D</span>
                             </div>
-                            <div 
+                            <div
                                 style={{ padding: '8px 16px', cursor: 'pointer', color: '#e53935', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                                 onClick={() => { handleDeleteNotes(); closeContextMenu(); }}
-                                onMouseEnter={(e) => e.target.style.backgroundColor = '#333'}
+                                onMouseEnter={(e) => e.target.style.backgroundColor = 'var(--studio-accent-soft)'}
                                 onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
                             >
                                 <span>Delete</span>
-                                <span style={{ fontSize: '11px', opacity: 0.5, marginLeft: '20px', color: '#aaa' }}>⌫ / Del</span>
+                                <span style={{ fontSize: '11px', opacity: 0.5, marginLeft: '20px', color: 'var(--studio-text-muted)' }}>⌫ / Del</span>
                             </div>
                             {canJoin && (
-                                <div 
+                                <div
                                     style={{ padding: '8px 16px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                                     onClick={() => { handleJoinNotes(); closeContextMenu(); }}
-                                    onMouseEnter={(e) => e.target.style.backgroundColor = '#333'}
+                                    onMouseEnter={(e) => e.target.style.backgroundColor = 'var(--studio-accent-soft)'}
                                     onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
                                 >
                                     <span>Join</span>
-                                    <span style={{ fontSize: '11px', opacity: 0.5, marginLeft: '20px', color: '#aaa' }}>J</span>
+                                    <span style={{ fontSize: '11px', opacity: 0.5, marginLeft: '20px', color: 'var(--studio-text-muted)' }}>J</span>
                                 </div>
                             )}
-                            <div style={{ height: '1px', backgroundColor: '#333', margin: '4px 0' }} />
+                            <div style={{ height: '1px', backgroundColor: 'var(--studio-border)', margin: '4px 0' }} />
                         </>
                     )}
 
                     {selectedNoteIndices.size === 0 && contextMenu.gridX !== undefined && (
                         <>
-                            <div 
+                            <div
                                 style={{ padding: '8px 16px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                                 onClick={() => { handleAddNote(contextMenu.gridX, contextMenu.gridY); closeContextMenu(); }}
-                                onMouseEnter={(e) => e.target.style.backgroundColor = '#333'}
+                                onMouseEnter={(e) => e.target.style.backgroundColor = 'var(--studio-accent-soft)'}
                                 onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
                             >
                                 <span>Add Note</span>
                                 <span style={{ fontSize: '11px', opacity: 0.5, marginLeft: '20px' }}>Cmd/Ctrl+Click</span>
                             </div>
-                            <div style={{ height: '1px', backgroundColor: '#333', margin: '4px 0' }} />
+                            <div style={{ height: '1px', backgroundColor: 'var(--studio-border)', margin: '4px 0' }} />
                         </>
                     )}
 
-                    <div 
+                    <div
                         style={{ padding: '8px 16px', cursor: 'pointer' }}
                         onClick={() => { handleExportMidi(); closeContextMenu(); }}
-                        onMouseEnter={(e) => e.target.style.backgroundColor = '#333'}
+                        onMouseEnter={(e) => e.target.style.backgroundColor = 'var(--studio-accent-soft)'}
                         onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
                     >
                         Export MIDI
                     </div>
-                    <div 
+                    <div
                         style={{ padding: '8px 16px', cursor: 'pointer' }}
                         onClick={() => { handleExportCycleRange(); closeContextMenu(); }}
-                        onMouseEnter={(e) => e.target.style.backgroundColor = '#333'}
+                        onMouseEnter={(e) => e.target.style.backgroundColor = 'var(--studio-accent-soft)'}
                         onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
                     >
                         Export Cycle Range
