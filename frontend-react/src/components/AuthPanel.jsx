@@ -105,7 +105,7 @@ export default function AuthPanel({
 
     if (!configured) {
         return (
-            <div style={{ color: '#f5c451', fontSize: '13px' }}>
+            <div style={{ color: 'var(--studio-warning)', fontSize: '13px', fontWeight: '600' }}>
                 Authentication is not configured for this environment.
             </div>
         );
@@ -241,27 +241,27 @@ export default function AuthPanel({
     );
 }
 
-const signedInStyle = { display: 'flex', alignItems: 'center', gap: '10px', color: '#d8e6d9', fontSize: '13px' };
-const primaryButtonStyle = { padding: '8px 13px', borderRadius: '7px', border: '1px solid #5ba66a', background: '#3f854d', color: '#fff', cursor: 'pointer', fontSize: '13px', fontWeight: '700' };
-const secondaryButtonStyle = { padding: '7px 10px', borderRadius: '6px', border: '1px solid #52606f', background: '#29323c', color: '#e8eef4', cursor: 'pointer', fontSize: '12px' };
-const verifyButtonStyle = { padding: '7px 10px', borderRadius: '6px', border: '1px solid #a67d2a', background: '#4b3b1d', color: '#ffe19a', cursor: 'pointer', fontSize: '12px', fontWeight: '700' };
-const historyButtonStyle = { padding: '7px 10px', borderRadius: '6px', border: '1px solid #5a6b80', background: '#374452', color: '#fff', cursor: 'pointer', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '5px' };
-const overlayStyle = { position: 'fixed', inset: 0, zIndex: 2000, display: 'grid', placeItems: 'center', padding: '24px', background: 'rgba(5, 9, 13, 0.74)', backdropFilter: 'blur(7px)' };
-const dialogStyle = { position: 'relative', boxSizing: 'border-box', width: 'min(100%, 430px)', padding: '34px', border: '1px solid #374554', borderRadius: '14px', background: 'linear-gradient(145deg, #1d2630, #11171e)', color: '#eef5fb', boxShadow: '0 28px 80px rgba(0,0,0,0.55)' };
-const closeButtonStyle = { position: 'absolute', top: '13px', right: '15px', width: '28px', height: '28px', border: 0, borderRadius: '50%', background: 'transparent', color: '#9eadba', cursor: 'pointer', fontSize: '25px', lineHeight: 1 };
-const eyebrowStyle = { color: '#80c68d', fontSize: '11px', fontWeight: '800', letterSpacing: '0.13em', textTransform: 'uppercase' };
-const titleStyle = { margin: '8px 0 9px', fontSize: '27px', letterSpacing: '-0.035em' };
-const descriptionStyle = { margin: '0 0 25px', color: '#aab8c6', fontSize: '14px', lineHeight: 1.55 };
+const signedInStyle = { display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--studio-text)', fontSize: '13px', fontWeight: '600' };
+const primaryButtonStyle = { padding: '8px 13px', borderRadius: '7px', border: '1px solid #1b6a48', background: 'var(--studio-midi)', color: '#fff', cursor: 'pointer', fontSize: '13px', fontWeight: '700', boxShadow: '0 1px 1px rgba(23, 58, 39, 0.14)' };
+const secondaryButtonStyle = { padding: '7px 10px', borderRadius: '6px', border: '1px solid var(--studio-border-strong)', background: 'var(--studio-surface-raised)', color: 'var(--studio-text)', cursor: 'pointer', fontSize: '12px', fontWeight: '600' };
+const verifyButtonStyle = { padding: '7px 10px', borderRadius: '6px', border: '1px solid #d7a33c', background: 'var(--studio-warning-soft)', color: '#80510a', cursor: 'pointer', fontSize: '12px', fontWeight: '700' };
+const historyButtonStyle = { padding: '7px 10px', borderRadius: '6px', border: '1px solid #83a7c2', background: 'var(--studio-accent-soft)', color: '#234b69', cursor: 'pointer', fontSize: '12px', fontWeight: '700', display: 'inline-flex', alignItems: 'center', gap: '5px' };
+const overlayStyle = { position: 'fixed', inset: 0, zIndex: 2000, display: 'grid', placeItems: 'center', padding: '24px', background: 'rgba(36, 54, 73, 0.36)', backdropFilter: 'blur(7px)' };
+const dialogStyle = { position: 'relative', boxSizing: 'border-box', width: 'min(100%, 430px)', padding: '34px', border: '1px solid var(--studio-border-strong)', borderRadius: '14px', background: 'linear-gradient(145deg, var(--studio-surface), var(--studio-surface-raised))', color: 'var(--studio-text)', boxShadow: '0 24px 70px rgba(39, 61, 83, 0.28)' };
+const closeButtonStyle = { position: 'absolute', top: '13px', right: '15px', width: '28px', height: '28px', border: '1px solid transparent', borderRadius: '50%', background: 'transparent', color: 'var(--studio-text-secondary)', cursor: 'pointer', fontSize: '25px', lineHeight: 1 };
+const eyebrowStyle = { color: 'var(--studio-midi)', fontSize: '11px', fontWeight: '800', letterSpacing: '0.13em', textTransform: 'uppercase' };
+const titleStyle = { margin: '8px 0 9px', color: 'var(--studio-text)', fontSize: '27px', letterSpacing: '-0.035em' };
+const descriptionStyle = { margin: '0 0 25px', color: 'var(--studio-text-secondary)', fontSize: '14px', lineHeight: 1.55 };
 const formStyle = { display: 'grid', gap: '16px' };
 const fieldStyle = { display: 'grid', gap: '7px' };
-const labelStyle = { color: '#d9e5ef', fontSize: '12px', fontWeight: '700' };
-const inputStyle = { boxSizing: 'border-box', width: '100%', padding: '11px 12px', borderRadius: '7px', border: '1px solid #435465', outline: 'none', background: '#0d1319', color: '#fff', fontSize: '14px' };
-const hintStyle = { color: '#8393a3', fontSize: '11px', lineHeight: 1.35 };
-const verificationAddressStyle = { display: 'grid', gap: '4px', padding: '12px', borderRadius: '7px', background: '#101820', color: '#ccd9e5', fontSize: '13px', overflowWrap: 'anywhere' };
+const labelStyle = { color: 'var(--studio-text)', fontSize: '12px', fontWeight: '700' };
+const inputStyle = { boxSizing: 'border-box', width: '100%', padding: '11px 12px', borderRadius: '7px', border: '1px solid var(--studio-border-strong)', outline: 'none', background: 'var(--studio-page)', color: 'var(--studio-text)', fontSize: '14px', boxShadow: 'inset 0 1px 1px rgba(32, 50, 70, 0.05)' };
+const hintStyle = { color: 'var(--studio-text-muted)', fontSize: '11px', lineHeight: 1.35 };
+const verificationAddressStyle = { display: 'grid', gap: '4px', padding: '12px', borderRadius: '7px', border: '1px solid var(--studio-border)', background: 'var(--studio-surface-sunken)', color: 'var(--studio-text-secondary)', fontSize: '13px', overflowWrap: 'anywhere' };
 const noticeStyle = { padding: '10px 11px', borderRadius: '7px', fontSize: '12px', lineHeight: 1.4 };
-const errorNoticeStyle = { background: 'rgba(141, 47, 47, 0.25)', border: '1px solid #8d4545', color: '#ffb6b6' };
-const successNoticeStyle = { background: 'rgba(55, 126, 70, 0.22)', border: '1px solid #4b8c5b', color: '#b9e9c0' };
+const errorNoticeStyle = { background: 'var(--studio-danger-soft)', border: '1px solid #dfa3aa', color: '#8e2632' };
+const successNoticeStyle = { background: 'var(--studio-midi-soft)', border: '1px solid #8fc9a8', color: '#176441' };
 const submitButtonStyle = { width: '100%', marginTop: '3px', padding: '11px 13px' };
 const disabledButtonStyle = { cursor: 'wait', opacity: 0.65 };
-const switcherStyle = { display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: '6px', marginTop: '22px', color: '#9baaB8', fontSize: '12px' };
-const linkButtonStyle = { padding: 0, border: 0, background: 'transparent', color: '#91c9ff', cursor: 'pointer', fontSize: '12px', fontWeight: '700' };
+const switcherStyle = { display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: '6px', marginTop: '22px', color: 'var(--studio-text-secondary)', fontSize: '12px' };
+const linkButtonStyle = { padding: 0, border: 0, background: 'transparent', color: 'var(--studio-accent)', cursor: 'pointer', fontSize: '12px', fontWeight: '700' };
