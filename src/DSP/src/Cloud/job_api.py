@@ -20,13 +20,15 @@ import json
 import os
 import time
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import PurePath
 from typing import Any
 
 import boto3
 from boto3.dynamodb.conditions import Key
+from boto3.dynamodb.types import TypeSerializer
+from botocore.exceptions import ClientError
 
 from media_url_policy import MediaUrlPolicyError, validate_allowlisted_media_url
 
@@ -36,6 +38,9 @@ TERMINAL_JOB_STATUSES = {"completed", "failed"}
 DEFAULT_JOB_TTL_DAYS = 14
 USER_JOBS_INDEX_NAME = "user_id-updated_at-index"
 DEFAULT_MAX_SOURCE_BYTES = 256 * 1024 * 1024
+DEFAULT_MAX_DAILY_DIRECT_UPLOAD_JOBS = 5
+DEFAULT_MAX_DAILY_YTDLP_JOBS = 3
+DAILY_QUOTA_RETENTION_DAYS = 2
 SUPPORTED_AUDIO_MEDIA_TYPES = {
     ".wav": ("audio/wav", {"audio/wav", "audio/x-wav", "audio/wave", "audio/vnd.wave"}),
     ".mp3": ("audio/mpeg", {"audio/mpeg", "audio/mp3"}),
@@ -49,9 +54,13 @@ SUPPORTED_AUDIO_MEDIA_TYPES = {
     ".webm": ("audio/webm", {"audio/webm"}),
 }
 
-_jobs = boto3.resource("dynamodb").Table(os.environ["JOBS_TABLE_NAME"])
+_dynamodb = boto3.resource("dynamodb")
+_dynamodb_client = boto3.client("dynamodb")
+_jobs = _dynamodb.Table(os.environ["JOBS_TABLE_NAME"])
+_daily_submission_quotas = _dynamodb.Table(os.environ["DAILY_SUBMISSION_QUOTA_TABLE_NAME"])
 _s3 = boto3.client("s3")
 _lambda = boto3.client("lambda")
+_dynamodb_serializer = TypeSerializer()
 
 
 class RequestError(Exception):
@@ -178,6 +187,163 @@ def configured_int(name: str, default: int, minimum: int = 1) -> int:
     return value
 
 
+def utc_day() -> str:
+    """Return the UTC calendar day used to partition daily submission quotas."""
+    return datetime.now(UTC).date().isoformat()
+
+
+def quota_record_expiry(day: str) -> int:
+    """Keep a daily counter briefly after its UTC day without driving resets by TTL."""
+    day_start = datetime.combine(date.fromisoformat(day), datetime.min.time(), UTC)
+    return int((day_start + timedelta(days=DAILY_QUOTA_RETENTION_DAYS)).timestamp())
+
+
+def next_utc_reset_at() -> str:
+    """Return the next UTC midnight, which begins the next quota window."""
+    next_day = datetime.now(UTC).date() + timedelta(days=1)
+    return datetime.combine(next_day, datetime.min.time(), UTC).isoformat().replace("+00:00", "Z")
+
+
+def dynamodb_item(values: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Serialize ordinary Python values for DynamoDB's low-level transaction API."""
+    return {name: _dynamodb_serializer.serialize(value) for name, value in values.items()}
+
+
+def quota_count(value: Any) -> int:
+    """Normalize a stored DynamoDB counter without exposing malformed values."""
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def daily_quota_snapshot(user_id: str) -> dict[str, Any]:
+    """Return the authenticated user's current UTC-day submission allowance."""
+    day = utc_day()
+    item = _daily_submission_quotas.get_item(
+        Key={"quota_key": f"{user_id}#{day}"},
+        ConsistentRead=True,
+    ).get("Item", {})
+    direct_limit = configured_int(
+        "MAX_DAILY_DIRECT_UPLOAD_JOBS", DEFAULT_MAX_DAILY_DIRECT_UPLOAD_JOBS
+    )
+    ytdlp_limit = configured_int("MAX_DAILY_YTDLP_JOBS", DEFAULT_MAX_DAILY_YTDLP_JOBS)
+    direct_used = quota_count(item.get("direct_upload_jobs"))
+    ytdlp_used = quota_count(item.get("ytdlp_jobs"))
+    return {
+        "window": "utc_day",
+        "day": day,
+        "resets_at": next_utc_reset_at(),
+        "direct_uploads": {
+            "used": direct_used,
+            "limit": direct_limit,
+            "remaining": max(0, direct_limit - direct_used),
+        },
+        "ytdlp": {
+            "used": ytdlp_used,
+            "limit": ytdlp_limit,
+            "remaining": max(0, ytdlp_limit - ytdlp_used),
+        },
+    }
+
+
+def append_daily_quota(body: dict[str, Any], user_id: str) -> dict[str, Any]:
+    """Attach the current quota state without making quota display a hard dependency."""
+    try:
+        return {**body, "quota": daily_quota_snapshot(user_id)}
+    except Exception as error:
+        print(f"Warning: Could not read daily quota for {user_id}: {error}")
+        return body
+
+
+def create_job_with_daily_quota(
+    *,
+    job: dict[str, Any],
+    user_id: str,
+    quota_attribute: str,
+    maximum: int,
+    quota_label: str,
+) -> None:
+    """Atomically reserve one daily submission slot and persist its job.
+
+    A transaction is necessary: two simultaneous requests must not both see the
+    last available slot, and a quota slot must not be consumed if the durable
+    job record fails to be created.  A fresh UTC-date key provides the daily
+    reset; DynamoDB TTL later removes old accounting items only as cleanup.
+    """
+    quota_table_name = os.environ["DAILY_SUBMISSION_QUOTA_TABLE_NAME"]
+    day = utc_day()
+    quota_key = f"{user_id}#{day}"
+    now = utc_now()
+    quota_expression_values = dynamodb_item(
+        {
+            ":user_id": user_id,
+            ":day": day,
+            ":expires_at": quota_record_expiry(day),
+            ":updated_at": now,
+            ":one": 1,
+            ":maximum": maximum,
+        }
+    )
+
+    transaction_items = [
+        {
+            "Update": {
+                "TableName": quota_table_name,
+                "Key": dynamodb_item({"quota_key": quota_key}),
+                "UpdateExpression": (
+                    "SET #user_id = if_not_exists(#user_id, :user_id), "
+                    "#day = if_not_exists(#day, :day), "
+                    "#expires_at = if_not_exists(#expires_at, :expires_at), "
+                    "#updated_at = :updated_at "
+                    f"ADD #{quota_attribute} :one"
+                ),
+                "ConditionExpression": (
+                    f"attribute_not_exists(#{quota_attribute}) "
+                    f"OR #{quota_attribute} < :maximum"
+                ),
+                "ExpressionAttributeNames": {
+                    "#user_id": "user_id",
+                    "#day": "day",
+                    "#expires_at": "expires_at",
+                    "#updated_at": "updated_at",
+                    f"#{quota_attribute}": quota_attribute,
+                },
+                "ExpressionAttributeValues": quota_expression_values,
+            }
+        },
+        {
+            "Put": {
+                "TableName": os.environ["JOBS_TABLE_NAME"],
+                "Item": dynamodb_item(job),
+                "ConditionExpression": "attribute_not_exists(job_id)",
+            }
+        },
+    ]
+    for attempt in range(3):
+        try:
+            _dynamodb_client.transact_write_items(TransactItems=transaction_items)
+            return
+        except ClientError as error:
+            if error.response.get("Error", {}).get("Code") != "TransactionCanceledException":
+                raise
+            cancellation_reasons = error.response.get("CancellationReasons", [])
+            quota_reason = cancellation_reasons[0].get("Code") if cancellation_reasons else None
+            if quota_reason == "TransactionConflict" and attempt < 2:
+                time.sleep(0.025 * (attempt + 1))
+                continue
+            if quota_reason in {"ConditionalCheckFailed", None}:
+                print(
+                    f"Rejected {quota_label} submission for {user_id}; "
+                    f"the {day} UTC daily limit of {maximum} has been reached."
+                )
+                raise RequestError(
+                    429,
+                    f"Daily {quota_label} limit reached ({maximum}). Try again after 00:00 UTC.",
+                ) from error
+            raise
+
+
 def create_job(event: dict[str, Any], user_id: str) -> dict[str, Any]:
     """Persist a queued job and generate the exact upload location."""
     payload = parse_json_body(event)
@@ -213,11 +379,6 @@ def create_job(event: dict[str, Any], user_id: str) -> dict[str, Any]:
         "updated_at": created_at,
         "expires_at": expires_at,
     }
-    _jobs.put_item(
-        Item=job,
-        ConditionExpression="attribute_not_exists(job_id)",
-    )
-
     upload_contract = _s3.generate_presigned_post(
         Bucket=job["input_bucket"],
         Key=input_key,
@@ -233,6 +394,15 @@ def create_job(event: dict[str, Any], user_id: str) -> dict[str, Any]:
             ["content-length-range", 1, maximum_source_bytes],
         ],
         ExpiresIn=configured_int("UPLOAD_URL_EXPIRY_SECONDS", 300),
+    )
+    create_job_with_daily_quota(
+        job=job,
+        user_id=user_id,
+        quota_attribute="direct_upload_jobs",
+        maximum=configured_int(
+            "MAX_DAILY_DIRECT_UPLOAD_JOBS", DEFAULT_MAX_DAILY_DIRECT_UPLOAD_JOBS
+        ),
+        quota_label="direct-upload job",
     )
     print(
         f"Created job {job_id} for authenticated user {user_id}; "
@@ -293,7 +463,13 @@ def create_link_job(event: dict[str, Any], user_id: str) -> dict[str, Any]:
         "updated_at": created_at,
         "expires_at": expires_at,
     }
-    _jobs.put_item(Item=job, ConditionExpression="attribute_not_exists(job_id)")
+    create_job_with_daily_quota(
+        job=job,
+        user_id=user_id,
+        quota_attribute="ytdlp_jobs",
+        maximum=configured_int("MAX_DAILY_YTDLP_JOBS", DEFAULT_MAX_DAILY_YTDLP_JOBS),
+        quota_label="yt-dlp job",
+    )
 
     try:
         invocation = _lambda.invoke(
@@ -562,21 +738,23 @@ def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     """Handle authenticated CloudDSP job API requests."""
     route_key = event.get("routeKey")
     print(f"Received Job API route: {route_key}")
+    user_id: str | None = None
     try:
         user_id = authenticated_user_id(event)
         if route_key == "POST /jobs":
-            return response(201, create_job(event, user_id))
+            return response(201, append_daily_quota(create_job(event, user_id), user_id))
         if route_key == "POST /jobs/link":
-            return response(202, create_link_job(event, user_id))
+            return response(202, append_daily_quota(create_link_job(event, user_id), user_id))
         if route_key == "GET /jobs":
-            return response(200, list_jobs(user_id))
+            return response(200, append_daily_quota(list_jobs(user_id), user_id))
         if route_key == "GET /jobs/{job_id}":
             return response(200, get_job(event, user_id))
         if route_key == "DELETE /jobs/{job_id}":
             return response(200, delete_job(event, user_id))
         raise RequestError(404, "Route not found.")
     except RequestError as error:
-        return response(error.status_code, {"error": error.message})
+        body = {"error": error.message}
+        return response(error.status_code, append_daily_quota(body, user_id) if user_id else body)
     except Exception as error:  # Keep operational details in CloudWatch only.
         print(f"Unexpected Job API error: {error}")
         return response(500, {"error": "Internal server error."})

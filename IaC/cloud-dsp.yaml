@@ -34,8 +34,22 @@ Parameters:
 
   JobApiCodeS3Key:
     Type: String
-    Default: lambda/job_api-08-18.zip
+    Default: lambda/job_api-quota-status-20260824.zip
     Description: S3 key for the packaged job_api Lambda zip artifact.
+
+  MaxDailyDirectUploadJobs:
+    Type: Number
+    Default: 5
+    MinValue: 1
+    MaxValue: 100
+    Description: Maximum direct browser-upload job contracts per Cognito user per UTC day.
+
+  MaxDailyYtDlpJobs:
+    Type: Number
+    Default: 3
+    MinValue: 1
+    MaxValue: 100
+    Description: Maximum linked-media yt-dlp jobs per Cognito user per UTC day.
 
   WebSocketHandlerCodeS3Key:
     Type: String
@@ -406,6 +420,8 @@ Resources:
         EnvironmentName: !Ref EnvironmentName
         JobsTableName: !GetAtt JobsStack.Outputs.JobsTableName
         JobsTableArn: !GetAtt JobsStack.Outputs.JobsTableArn
+        DailySubmissionQuotaTableName: !GetAtt JobsStack.Outputs.DailySubmissionQuotaTableName
+        DailySubmissionQuotaTableArn: !GetAtt JobsStack.Outputs.DailySubmissionQuotaTableArn
         UploadsBucketName: !GetAtt FoundationStack.Outputs.UploadsBucketName
         UploadsBucketArn: !GetAtt FoundationStack.Outputs.UploadsBucketArn
         ProcessedAudioBucketName: !GetAtt FoundationStack.Outputs.ProcessedAudioBucketName
@@ -418,6 +434,8 @@ Resources:
         CognitoBrowserClientId: !GetAtt AuthStack.Outputs.BrowserClientId
         MaxSourceBytes: !Ref MaxSourceBytes
         JobRetentionDays: !Ref JobRetentionDays
+        MaxDailyDirectUploadJobs: !Ref MaxDailyDirectUploadJobs
+        MaxDailyYtDlpJobs: !Ref MaxDailyYtDlpJobs
         YtDlpFunctionArn: !If
           - CreateProcessingWorkers
           - !GetAtt YtDlpIngestionStack.Outputs.YtDlpFunctionArn

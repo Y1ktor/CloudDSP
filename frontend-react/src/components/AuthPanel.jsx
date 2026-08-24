@@ -15,6 +15,7 @@ function passwordIsValid(password) {
 export default function AuthPanel({
     configured,
     session,
+    quota,
     pendingVerification,
     onSignIn,
     onSignUp,
@@ -32,6 +33,35 @@ export default function AuthPanel({
     const [message, setMessage] = React.useState('');
     const [error, setError] = React.useState('');
     const [busy, setBusy] = React.useState(false);
+    const [isAccountMenuOpen, setIsAccountMenuOpen] = React.useState(false);
+    const [clock, setClock] = React.useState(Date.now());
+    const accountMenuRef = React.useRef(null);
+
+    React.useEffect(() => {
+        const intervalId = window.setInterval(() => setClock(Date.now()), 60_000);
+        return () => window.clearInterval(intervalId);
+    }, []);
+
+    React.useEffect(() => {
+        if (!isAccountMenuOpen) return undefined;
+
+        const closeForOutsidePointer = (event) => {
+            if (!accountMenuRef.current?.contains(event.target)) setIsAccountMenuOpen(false);
+        };
+        const closeForEscape = (event) => {
+            if (event.key === 'Escape') setIsAccountMenuOpen(false);
+        };
+        document.addEventListener('pointerdown', closeForOutsidePointer);
+        document.addEventListener('keydown', closeForEscape);
+        return () => {
+            document.removeEventListener('pointerdown', closeForOutsidePointer);
+            document.removeEventListener('keydown', closeForEscape);
+        };
+    }, [isAccountMenuOpen]);
+
+    React.useEffect(() => {
+        if (!session) setIsAccountMenuOpen(false);
+    }, [session]);
 
     const openDialog = (nextMode = pendingVerification ? 'confirm' : 'sign-in') => {
         setError('');
@@ -112,18 +142,64 @@ export default function AuthPanel({
     }
 
     if (session) {
+        const quotaResetAt = new Date(quota?.resets_at).getTime();
+        const remainingMs = Math.max(0, quotaResetAt - clock);
+        const resetHours = Number.isFinite(quotaResetAt) ? Math.ceil(remainingMs / 3_600_000) : null;
+        const resetLabel = resetHours === null
+            ? 'Daily quota refreshes at midnight UTC'
+            : resetHours < 1
+                ? 'Resets shortly'
+                : `Resets in ${resetHours} ${resetHours === 1 ? 'hour' : 'hours'}`;
+        const directQuota = quota?.direct_uploads;
+        const ytdlpQuota = quota?.ytdlp;
+
         return (
-            <div style={signedInStyle}>
-                <span title={session.email || session.username}>Hi, {session.displayName || 'there'}</span>
-                {onOpenHistory && (
-                    <button onClick={onOpenHistory} style={historyButtonStyle} title="Open job history">
-                        <svg aria-hidden="true" viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-                            <path d="M13 3a9 9 0 1 0 8.94 10H20a7 7 0 1 1-2.05-4.95L15 11h6V5l-1.63 1.63A8.96 8.96 0 0 0 13 3Zm-1 5v5l4.25 2.52 1-1.64L14 12V8h-2Z" />
-                        </svg>
-                        History
-                    </button>
+            <div ref={accountMenuRef} style={accountMenuContainerStyle}>
+                <button
+                    type="button"
+                    style={accountTriggerStyle}
+                    aria-haspopup="menu"
+                    aria-expanded={isAccountMenuOpen}
+                    onClick={() => {
+                        setClock(Date.now());
+                        setIsAccountMenuOpen((open) => !open);
+                    }}
+                    title={session.email || session.username}
+                >
+                    <span>Hi, {session.displayName || 'there'}</span>
+                    <svg aria-hidden="true" viewBox="0 0 16 16" width="13" height="13" fill="currentColor" style={{ transform: isAccountMenuOpen ? 'rotate(180deg)' : 'none', transition: 'transform 150ms ease' }}>
+                        <path d="M3.1 5.7 8 10.6l4.9-4.9 1.1 1.1L8 12.7 2 6.8l1.1-1.1Z" />
+                    </svg>
+                </button>
+
+                {isAccountMenuOpen && (
+                    <div role="menu" aria-label="Account menu" style={accountMenuStyle}>
+                        <div aria-disabled="true" style={quotaSectionStyle}>
+                            <div style={quotaHeadingStyle}>Daily quotas <span style={quotaUtcStyle}>UTC</span></div>
+                            <div style={quotaRowStyle}>
+                                <span>Local</span>
+                                <strong>{directQuota ? `${directQuota.used}/${directQuota.limit}` : '—'}</strong>
+                            </div>
+                            <div style={quotaRowStyle}>
+                                <span>URL</span>
+                                <strong>{ytdlpQuota ? `${ytdlpQuota.used}/${ytdlpQuota.limit}` : '—'}</strong>
+                            </div>
+                            <div style={quotaResetStyle}>{resetLabel}</div>
+                        </div>
+                        <div style={menuDividerStyle} />
+                        {onOpenHistory && (
+                            <button type="button" role="menuitem" onClick={() => { setIsAccountMenuOpen(false); onOpenHistory(); }} style={menuActionStyle}>
+                                <svg aria-hidden="true" viewBox="0 0 24 24" width="15" height="15" fill="currentColor">
+                                    <path d="M13 3a9 9 0 1 0 8.94 10H20a7 7 0 1 1-2.05-4.95L15 11h6V5l-1.63 1.63A8.96 8.96 0 0 0 13 3Zm-1 5v5l4.25 2.52 1-1.64L14 12V8h-2Z" />
+                                </svg>
+                                History
+                            </button>
+                        )}
+                        <button type="button" role="menuitem" onClick={() => { setIsAccountMenuOpen(false); onSignOut(); }} style={{ ...menuActionStyle, ...signOutMenuActionStyle }}>
+                            Sign out
+                        </button>
+                    </div>
                 )}
-                <button onClick={onSignOut} style={secondaryButtonStyle}>Sign out</button>
             </div>
         );
     }
@@ -241,11 +317,19 @@ export default function AuthPanel({
     );
 }
 
-const signedInStyle = { display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--studio-text)', fontSize: '13px', fontWeight: '600' };
 const primaryButtonStyle = { padding: '8px 13px', borderRadius: '7px', border: '1px solid #1b6a48', background: 'var(--studio-midi)', color: '#fff', cursor: 'pointer', fontSize: '13px', fontWeight: '700', boxShadow: '0 1px 1px rgba(23, 58, 39, 0.14)' };
-const secondaryButtonStyle = { padding: '7px 10px', borderRadius: '6px', border: '1px solid var(--studio-border-strong)', background: 'var(--studio-surface-raised)', color: 'var(--studio-text)', cursor: 'pointer', fontSize: '12px', fontWeight: '600' };
 const verifyButtonStyle = { padding: '7px 10px', borderRadius: '6px', border: '1px solid #d7a33c', background: 'var(--studio-warning-soft)', color: '#80510a', cursor: 'pointer', fontSize: '12px', fontWeight: '700' };
-const historyButtonStyle = { padding: '7px 10px', borderRadius: '6px', border: '1px solid #83a7c2', background: 'var(--studio-accent-soft)', color: '#234b69', cursor: 'pointer', fontSize: '12px', fontWeight: '700', display: 'inline-flex', alignItems: 'center', gap: '5px' };
+const accountMenuContainerStyle = { position: 'relative', color: 'var(--studio-text)', fontSize: '13px', fontWeight: '600' };
+const accountTriggerStyle = { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '7px 9px 7px 11px', border: '1px solid var(--studio-border-strong)', borderRadius: '7px', background: 'var(--studio-surface-raised)', color: 'var(--studio-text)', cursor: 'pointer', fontSize: '13px', fontWeight: '700' };
+const accountMenuStyle = { position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 2100, width: '205px', overflow: 'hidden', border: '1px solid var(--studio-border-strong)', borderRadius: '8px', background: 'var(--studio-surface)', boxShadow: '0 14px 30px rgba(39, 61, 83, 0.20)' };
+const quotaSectionStyle = { display: 'grid', gap: '7px', padding: '12px 13px 11px', background: 'var(--studio-surface-muted)', color: 'var(--studio-text-muted)', cursor: 'default', userSelect: 'none' };
+const quotaHeadingStyle = { color: 'var(--studio-text-secondary)', fontSize: '11px', fontWeight: '800', letterSpacing: '0.06em', textTransform: 'uppercase' };
+const quotaUtcStyle = { marginLeft: '4px', color: 'var(--studio-text-muted)', fontSize: '10px', fontWeight: '700', letterSpacing: 0 };
+const quotaRowStyle = { display: 'flex', justifyContent: 'space-between', gap: '12px', fontSize: '12px', lineHeight: 1.25 };
+const quotaResetStyle = { marginTop: '2px', color: 'var(--studio-text-muted)', fontSize: '11px', fontWeight: '500' };
+const menuDividerStyle = { height: '1px', background: 'var(--studio-border)' };
+const menuActionStyle = { width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 13px', border: 0, background: 'transparent', color: 'var(--studio-text)', cursor: 'pointer', fontSize: '12px', fontWeight: '700', textAlign: 'left' };
+const signOutMenuActionStyle = { color: 'var(--studio-danger)' };
 const overlayStyle = { position: 'fixed', inset: 0, zIndex: 2000, display: 'grid', placeItems: 'center', padding: '24px', background: 'rgba(36, 54, 73, 0.36)', backdropFilter: 'blur(7px)' };
 const dialogStyle = { position: 'relative', boxSizing: 'border-box', width: 'min(100%, 430px)', padding: '34px', border: '1px solid var(--studio-border-strong)', borderRadius: '14px', background: 'linear-gradient(145deg, var(--studio-surface), var(--studio-surface-raised))', color: 'var(--studio-text)', boxShadow: '0 24px 70px rgba(39, 61, 83, 0.28)' };
 const closeButtonStyle = { position: 'absolute', top: '13px', right: '15px', width: '28px', height: '28px', border: '1px solid transparent', borderRadius: '50%', background: 'transparent', color: 'var(--studio-text-secondary)', cursor: 'pointer', fontSize: '25px', lineHeight: 1 };

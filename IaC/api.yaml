@@ -24,6 +24,14 @@ Parameters:
     Type: String
     Description: ARN output by the jobs component.
 
+  DailySubmissionQuotaTableName:
+    Type: String
+    Description: Name output by the jobs component for per-user daily submission counters.
+
+  DailySubmissionQuotaTableArn:
+    Type: String
+    Description: ARN output by the jobs component for per-user daily submission counters.
+
   UploadsBucketName:
     Type: String
     Description: Name output by the foundation component for source uploads.
@@ -103,6 +111,20 @@ Parameters:
     MaxValue: 86400
     Description: Lifetime of stem and MIDI download presigned URLs.
 
+  MaxDailyDirectUploadJobs:
+    Type: Number
+    Default: 5
+    MinValue: 1
+    MaxValue: 100
+    Description: Maximum direct browser-upload job contracts each Cognito user can create per UTC day.
+
+  MaxDailyYtDlpJobs:
+    Type: Number
+    Default: 3
+    MinValue: 1
+    MaxValue: 100
+    Description: Maximum linked-media yt-dlp jobs each Cognito user can create per UTC day.
+
 Conditions:
   HasYtDlpFunction: !Not [!Equals [!Ref YtDlpFunctionArn, '']]
 
@@ -149,6 +171,17 @@ Resources:
                 Resource:
                   - !Ref JobsTableArn
                   - !Sub '${JobsTableArn}/index/*'
+        - PolicyName: !Sub '${ProjectName}-${EnvironmentName}-JobApiEnforceDailySubmissionQuotas'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:TransactWriteItems
+                Resource:
+                  - !Ref JobsTableArn
+                  - !Ref DailySubmissionQuotaTableArn
         - PolicyName: !Sub '${ProjectName}-${EnvironmentName}-JobApiPresignObjects'
           PolicyDocument:
             Version: '2012-10-17'
@@ -209,10 +242,13 @@ Resources:
       Environment:
         Variables:
           JOBS_TABLE_NAME: !Ref JobsTableName
+          DAILY_SUBMISSION_QUOTA_TABLE_NAME: !Ref DailySubmissionQuotaTableName
           UPLOADS_BUCKET_NAME: !Ref UploadsBucketName
           PROCESSED_AUDIO_BUCKET_NAME: !Ref ProcessedAudioBucketName
           UPLOAD_URL_EXPIRY_SECONDS: !Ref UploadUrlExpirySeconds
           MAX_SOURCE_BYTES: !Sub '${MaxSourceBytes}'
+          MAX_DAILY_DIRECT_UPLOAD_JOBS: !Sub '${MaxDailyDirectUploadJobs}'
+          MAX_DAILY_YTDLP_JOBS: !Sub '${MaxDailyYtDlpJobs}'
           JOB_TTL_DAYS: !Sub '${JobRetentionDays}'
           DOWNLOAD_URL_EXPIRY_SECONDS: !Ref DownloadUrlExpirySeconds
           YTDLP_FUNCTION_ARN: !Ref YtDlpFunctionArn

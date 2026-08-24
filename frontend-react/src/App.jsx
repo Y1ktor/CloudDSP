@@ -28,6 +28,22 @@ const PRESIGNED_URL_REFRESH_SAFETY_MS = 60_000;
 const MAX_SOURCE_UPLOAD_BYTES = 256 * 1024 * 1024;
 const PENDING_SIGN_UP_STORAGE_KEY = 'clouddsp.pendingSignUp';
 
+function quotaResetMessage(resetsAt, now = Date.now()) {
+    const resetTime = new Date(resetsAt).getTime();
+    if (!Number.isFinite(resetTime)) return 'Resets at midnight UTC.';
+    const remainingMs = Math.max(0, resetTime - now);
+    if (remainingMs < 60_000) return 'Resets shortly.';
+    const hours = Math.ceil(remainingMs / 3_600_000);
+    return `Resets in ${hours} ${hours === 1 ? 'hour' : 'hours'}.`;
+}
+
+function quotaErrorMessage(payload, quotaKey, fallback) {
+    const quota = payload?.quota?.[quotaKey];
+    if (!quota || Number(payload?.statusCode) !== 429) return payload?.error || fallback;
+    const label = quotaKey === 'direct_uploads' ? 'local-upload' : 'URL-import';
+    return `Daily ${label} quota reached (${quota.used}/${quota.limit}). ${quotaResetMessage(payload.quota.resets_at)}`;
+}
+
 function readPendingSignUp() {
     try {
         const value = window.localStorage.getItem(PENDING_SIGN_UP_STORAGE_KEY);
@@ -192,6 +208,7 @@ export default function App() {
     const [authSession, setAuthSession] = useState(null);
     const [authLoading, setAuthLoading] = useState(isCognitoConfigured);
     const [pendingSignUp, setPendingSignUp] = useState(readPendingSignUp);
+    const [accountQuota, setAccountQuota] = useState(null);
     const [activeJobId, setActiveJobId] = useState(null);
     const [jobSnapshots, setJobSnapshots] = useState({});
     const [isUploading, setIsUploading] = useState(false);
@@ -278,6 +295,7 @@ export default function App() {
             // active jobs before the account-backed job library existed.
             sessionStorage.removeItem(`clouddsp.activeJobs.${authUsername}`);
         } else {
+            setAccountQuota(null);
             setActiveJobId(null);
             setJobSnapshots({});
             setIsPreviousJobsOpen(false);
@@ -303,6 +321,12 @@ export default function App() {
         return response;
     }, []);
 
+    const updateAccountQuota = useCallback((payload) => {
+        if (payload?.quota && typeof payload.quota === 'object') {
+            setAccountQuota(payload.quota);
+        }
+    }, []);
+
     const fetchPreviousJobs = useCallback(async () => {
         if (!authUsername) {
             setPreviousJobs([]);
@@ -315,6 +339,7 @@ export default function App() {
         try {
             const response = await authenticatedFetch('/jobs');
             const payload = await response.json();
+            updateAccountQuota(payload);
             if (!response.ok) {
                 throw new Error(payload.error || `Could not load previous jobs (${response.status}).`);
             }
@@ -330,7 +355,7 @@ export default function App() {
         } finally {
             setIsPreviousJobsLoading(false);
         }
-    }, [authUsername, authenticatedFetch]);
+    }, [authUsername, authenticatedFetch, updateAccountQuota]);
 
     useEffect(() => {
         fetchPreviousJobs();
@@ -677,8 +702,12 @@ export default function App() {
                     stem_mode: splitMode,
                 }),
             });
-            const job = await response.json();
-            if (!response.ok) throw new Error(job.error || `Could not create a job (${response.status}).`);
+            const job = await response.json().catch(() => ({}));
+            updateAccountQuota(job);
+            if (!response.ok) {
+                job.statusCode = response.status;
+                throw new Error(quotaErrorMessage(job, 'direct_uploads', `Could not create a job (${response.status}).`));
+            }
             if (!job.job_id || !job.upload_url || !job.upload_fields) {
                 throw new Error('The job API returned an incomplete secure upload contract. Please refresh and try again.');
             }
@@ -754,9 +783,11 @@ export default function App() {
                     stem_mode: splitMode,
                 }),
             });
-            const job = await response.json();
+            const job = await response.json().catch(() => ({}));
+            updateAccountQuota(job);
             if (!response.ok) {
-                throw new Error(job.error || `Could not create a linked-source job (${response.status}).`);
+                job.statusCode = response.status;
+                throw new Error(quotaErrorMessage(job, 'ytdlp', `Could not create a linked-source job (${response.status}).`));
             }
             if (!job.job_id) {
                 throw new Error('The job API returned an incomplete linked-source job.');
@@ -837,6 +868,7 @@ export default function App() {
     const handleSignOut = () => {
         signOut();
         setAuthSession(null);
+        setAccountQuota(null);
         setIsPreviousJobsOpen(false);
         setIsRestoringHistoryJob(false);
         setIsHistoryJob(false);
@@ -883,6 +915,7 @@ export default function App() {
     const authProps = {
         configured: isCognitoConfigured,
         session: authSession,
+        quota: accountQuota,
         pendingVerification: pendingSignUp,
         onSignIn: handleSignIn,
         onSignUp: handleSignUp,

@@ -54,6 +54,7 @@ flowchart LR
     JobApi["Job API Lambda"]
     YtDlp["yt-dlp ingestion Lambda<br/>CPU / x86_64 image"]
     Jobs["DynamoDB Jobs<br/>durable state"]
+    Quotas["DynamoDB daily quotas<br/>per user + UTC day"]
     Uploads["Private S3 uploads bucket"]
     EventBridge["EventBridge upload rule"]
     Batch["AWS Batch GPU<br/>Demucs container"]
@@ -68,6 +69,7 @@ flowchart LR
     Browser -->|"POST /jobs, GET /jobs, DELETE /jobs/id<br/>Bearer ID token"| HttpApi
     HttpApi --> JobApi
     JobApi <--> Jobs
+    JobApi <--> Quotas
     JobApi -->|"size-constrained presigned POST"| Browser
     JobApi -->|"async invoke job_id + source URL"| YtDlp
     Browser -->|"PUT uploads/job_id/file"| Uploads
@@ -155,9 +157,9 @@ both parameters empty for a normal clean deployment.
 | Static-site hosting | **IaC/hosting.yaml**, optional root nested stack | Serves the React site and a separate private demo-assets origin through CloudFront. ACM DNS validation, Route 53 apex/`www` aliases, HTTPS enforcement, OAC bucket policies, `demo/*` routing, security headers, and `www` canonicalization are managed in IaC. It is not an API or private user-artifact proxy. |
 | Demo assets | Hosting demo-assets bucket, CloudFront `demo/*` behavior | Holds manually curated original audio, stems, MIDI, tempo metadata, and `/demo/manifest.json`. Assets do not expire with user jobs and are never written by Batch or MIDI Lambdas. |
 | Authentication | **IaC/auth.yaml**, Cognito User Pool | Provides email/password accounts and ID tokens. There is no Cognito Identity Pool and no browser AWS credentials. |
-| Job API | **IaC/api.yaml**, **job_api.py** | Creates durable upload or linked-source jobs, invokes yt-dlp for a linked source, enforces ownership, renders stored artifact keys as fresh signed downloads, and permanently deletes terminal jobs at the owner's request. |
+| Job API | **IaC/api.yaml**, **job_api.py** | Atomically reserves a per-user daily submission slot and creates a durable upload or linked-source job, invokes yt-dlp for a linked source, enforces ownership, renders stored artifact keys as fresh signed downloads, and permanently deletes terminal jobs at the owner's request. |
 | Link ingestion | **IaC/ingestion.yaml**, **LambdaYtDlp.py** | Downloads a reviewed, allowlisted public-media page through an optional residential proxy. CloudFormation stores the deployment credential as a KMS-encrypted SSM `SecureString`; the Lambda holds only its parameter name and retrieves the decrypted value at runtime. Deno/EJS challenge solving and typed curl-cffi Chrome impersonation convert the media to WAV, then the worker writes the job's existing input key in the private uploads bucket. The normal S3/EventBridge route then starts Batch. |
-| Jobs store | **IaC/jobs.yaml**, CloudDSPJobs | Stores the job owner, requested mode, state, artifact keys, error, revision, and expiry. |
+| Jobs store | **IaC/jobs.yaml**, CloudDSPJobs and CloudDSPDailySubmissionQuotas | Stores durable job owner, requested mode, state, artifact keys, error, revision, and expiry. The separate quota table holds short-lived per-Cognito-submission counts keyed by user and UTC calendar day. |
 | Source storage | Foundation uploads bucket | Holds original user audio and publishes Object Created events to EventBridge. |
 | Event routing | Processing EventBridge rule | Matches the uploads prefix and submits a GPU Batch job with source bucket/key overrides. |
 | Stem processing | **BatchDemucs.py** in AWS Batch | Validates the job, runs Demucs, uploads stems, persists their state, and asynchronously dispatches MIDI extractors. |
@@ -366,7 +368,13 @@ as proof that a job belongs to a user.
 ~~~
 
 Allowed stem modes are **2-stems**, **4-stems**, and **6-stems**; the default
-is **6-stems**. The response is 201 and includes:
+is **6-stems**. Before the API creates its job item, one DynamoDB transaction
+increments the caller's `direct_upload_jobs` counter for the current UTC date
+and writes the durable job. The default quota is **five** direct-upload job
+contracts per Cognito `sub` per UTC day. The sixth request returns HTTP **429**;
+concurrent requests cannot bypass this boundary. The 201 response and an
+authenticated 429 response both include the current quota snapshot, allowing
+the browser to show the authoritative usage immediately:
 
 ~~~json
 {
@@ -380,7 +388,13 @@ is **6-stems**. The response is 201 and includes:
     "x-amz-meta-job-id": "uuid",
     "x-amz-meta-stem-mode": "6-stems"
   },
-  "max_source_bytes": 268435456
+  "max_source_bytes": 268435456,
+  "quota": {
+    "window": "utc_day",
+    "resets_at": "2026-08-25T00:00:00Z",
+    "direct_uploads": {"used": 1, "limit": 5, "remaining": 4},
+    "ytdlp": {"used": 0, "limit": 3, "remaining": 3}
+  }
 }
 ~~~
 
@@ -418,9 +432,13 @@ cannot bypass it. Credential-bearing URLs and non-standard HTTPS ports are
 rejected. Before yt-dlp contacts an allowed hostname, the worker also rejects
 hostnames that resolve to private or reserved addresses. New providers must be
 reviewed for terms, compatibility, and operational behavior before being added
-to the CloudFormation parameter. It then creates a job in
-**source_ingestion** status. It invokes the yt-dlp Lambda asynchronously and
-returns 202 with the job ID and its fixed input key:
+to the CloudFormation parameter. It then atomically increments a separate
+`ytdlp_jobs` counter for that Cognito `sub` and UTC date while it creates a job
+in **source_ingestion** status. The default linked-media quota is **three**
+jobs per UTC day and returns HTTP **429** when exhausted. The 202 success and
+429 failure both carry the same quota snapshot shown above. It invokes the
+yt-dlp Lambda asynchronously and returns 202 with the job ID and its fixed
+input key:
 
 ~~~json
 {
@@ -483,7 +501,10 @@ newest first. A list item has `job_id`, `source_filename`, `status`,
 `stem_mode`, `created_at`, `updated_at`, and the current top-level `tempo`.
 It intentionally contains no S3 keys or URLs. When a user selects an item,
 the browser calls **GET /jobs/{job_id}** to receive the original track, stems,
-MIDI artifacts, and master BPM in one owner-checked snapshot.
+MIDI artifacts, and master BPM in one owner-checked snapshot. The list response
+also contains the current UTC-day quota snapshot so the account menu can update
+on sign-in and after the library refresh; job-detail polling intentionally does
+not read the quota table.
 
 ### Delete saved job
 
@@ -521,6 +542,7 @@ or stem URL over a socket. The client must respond by reading the HTTP snapshot.
 sequenceDiagram
     participant UI as Browser
     participant API as Job API
+    participant Quota as DynamoDB daily quotas
     participant Jobs as DynamoDB Jobs
     participant S3 as S3
     participant EB as EventBridge
@@ -529,7 +551,8 @@ sequenceDiagram
     participant WS as WebSocket API
 
     UI->>API: POST /jobs with Cognito ID token
-    API->>Jobs: create upload_pending item
+    API->>Quota: atomically reserve UTC daily slot
+    API->>Jobs: transaction creates upload_pending item
     API-->>UI: job_id, key, constrained presigned POST fields
     UI->>S3: multipart POST uploads/job_id/file with signed metadata
     S3->>EB: Object Created
@@ -990,6 +1013,9 @@ origins in **AllowedFrontendOrigins** before release.
   to the job. A linked URL is not persisted in the job item.
 - Browser access is limited to API requests authenticated by Cognito and
   presigned, narrow S3 object transfers.
+- A DynamoDB transaction permits each Cognito subject five direct-upload job
+  contracts and three linked-media yt-dlp jobs per UTC day. The UTC-date quota
+  key resets the count at midnight; TTL only removes old accounting records.
 - Anonymous demo access is limited to immutable objects under the CloudFront
   `demo/*` behavior. It does not mint a shared user token or expose the demo
   bucket directly.

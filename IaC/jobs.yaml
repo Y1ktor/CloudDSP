@@ -1,7 +1,8 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >-
   CloudDSP durable processing-job state. This stack owns the DynamoDB table
-  used to recover stem and MIDI results after a WebSocket disconnect.
+  used to recover stem and MIDI results after a WebSocket disconnect, plus
+  short-lived per-user daily submission counters.
 
 Parameters:
   ProjectName:
@@ -56,6 +57,32 @@ Resources:
         - Key: Component
           Value: jobs
 
+  CloudDSPDailySubmissionQuotas:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${ProjectName}-${EnvironmentName}-DailySubmissionQuotas'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: quota_key
+          AttributeType: S
+      KeySchema:
+        - AttributeName: quota_key
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      TimeToLiveSpecification:
+        AttributeName: expires_at
+        Enabled: true
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Component
+          Value: jobs
+
 Outputs:
   JobsTableName:
     Description: Name of the DynamoDB table that stores durable job state.
@@ -74,3 +101,15 @@ Outputs:
     Value: user_id-updated_at-index
     Export:
       Name: !Sub '${AWS::StackName}-UserJobsIndexName'
+
+  DailySubmissionQuotaTableName:
+    Description: Name of the short-lived DynamoDB table for per-user UTC daily submission quotas.
+    Value: !Ref CloudDSPDailySubmissionQuotas
+    Export:
+      Name: !Sub '${AWS::StackName}-DailySubmissionQuotaTableName'
+
+  DailySubmissionQuotaTableArn:
+    Description: ARN of the short-lived DynamoDB table for per-user UTC daily submission quotas.
+    Value: !GetAtt CloudDSPDailySubmissionQuotas.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-DailySubmissionQuotaTableArn'

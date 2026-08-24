@@ -6,6 +6,46 @@ so its remediation remains traceable to the assessment. **Fixed** means the
 specified remediation is implemented in the repository; it does not imply that
 all residual risk has disappeared.
 
+## SEC-02 — Partially fixed — per-user daily job quotas
+
+**Fixed on:** 2026-08-24
+**Original finding:** [SEC-02 in the security assessment](security.md#sec-02--partially-fixed--high--authenticated-users-can-create-expensive-work)
+
+### Implemented control
+
+The Jobs component now owns a separate encrypted, on-demand DynamoDB table
+named `${ProjectName}-${EnvironmentName}-DailySubmissionQuotas`. `job_api.py`
+uses `TransactWriteItems` so it increments a counter and creates the matching
+durable job as one all-or-nothing operation. The key is the authenticated
+Cognito `sub` plus the UTC date, which makes five direct-upload jobs and three
+yt-dlp linked-media jobs the default per-account limits for every calendar day.
+The job is not created when its limit is exhausted; the API returns HTTP 429.
+
+The table has a TTL attribute only to remove old accounting records. A fresh
+UTC-date key performs the actual daily reset, so asynchronous DynamoDB TTL
+deletion can never extend or shorten a user's quota window.
+
+Successful submissions, quota-exhausted HTTP 429 responses, and the
+authenticated saved-job-list response include a read-only snapshot of both
+counters, their limits, remaining requests, and the next UTC reset timestamp.
+The browser renders that snapshot in the account menu and turns a rejected
+submission into a precise quota message. Detail polling deliberately omits the
+read so its five-second processing cadence cannot inflate quota-table traffic.
+
+### Residual risk
+
+The control deliberately limits submission count only. It does not yet cap
+active jobs, daily bytes, API request rate, Lambda concurrency, or the number
+of distinct verified accounts an attacker can create. Those remain required
+before an unrestricted public launch.
+
+### Deployment action
+
+Upload a new Job API ZIP containing `job_api.py` and `media_url_policy.py`,
+upload `jobs.yaml`, `api.yaml`, and `cloud-dsp.yaml`, then update the root stack
+with that new ZIP key. The root parameters default to five
+`MaxDailyDirectUploadJobs` and three `MaxDailyYtDlpJobs` per UTC day.
+
 ## SEC-04 — Fixed — strict linked-media source allowlist
 
 **Fixed on:** 2026-08-15

@@ -30,9 +30,18 @@ low-latency notification mechanism, not durable result storage.
 1. The frontend accepts only WAV, MP3, FLAC, M4A, AAC, OGG, Opus, AIFF, and
    WebM source files, checks the exact `File.size`, then calls `POST /jobs`
    with the requested stem mode and source file information.
-2. The job API creates a DynamoDB item and returns a `job_id`, an input key, and
-   a size-constrained presigned **POST** upload contract. Input keys use
-   `uploads/{job_id}/filename`.
+2. Before creating a job, the Job API atomically reserves one DynamoDB quota
+   slot keyed by the authenticated Cognito `sub` and the current **UTC** date,
+   then persists the job in the same transaction. Each account may create at
+   most **five** direct-upload contracts and **three** linked-media yt-dlp jobs
+   per UTC day. A new date uses a distinct quota record; DynamoDB TTL only
+   cleans old counters and must never be used as the reset mechanism. The API
+   returns HTTP 429 once a quota is exhausted. Successful submission responses,
+   their authenticated errors, and `GET /jobs` include the current quota
+   snapshot for the account menu; do not add that extra read to the five-second
+   `GET /jobs/{job_id}` artifact-polling path. A successful direct request then
+   includes a `job_id`, input key, and size-constrained presigned **POST**
+   upload contract. Input keys use `uploads/{job_id}/filename`.
 3. The browser POSTs the audio to S3 with object metadata including
    `job-id` and `stem-mode`.
 4. S3 publishes an Object Created event to EventBridge. Its input transformer
@@ -188,7 +197,8 @@ source ingestion, and server-side persistence require authentication.
 - `/IaC/` — componentized CloudFormation templates.
   - `foundation.yaml` — S3 buckets, ECR repositories, CORS, and EventBridge
     delivery from uploads.
-  - `jobs.yaml` — durable jobs table, TTL, recovery, and user-job index.
+  - `jobs.yaml` — durable jobs table, TTL, recovery, user-job index, and the
+    short-lived per-user daily-submission quota table.
   - `api.yaml` — job creation/status HTTP API and its Lambda role.
   - `realtime.yaml` — WebSocket API, subscription/heartbeat handler, and
     ephemeral connection registry.
@@ -284,7 +294,7 @@ Docker image before local testing.
   advanced concurrently.
 - A changed ZIP file at the same S3 key does not reliably replace Lambda code.
   Upload the Job API package under a new key (currently
-  `job_api-retention-20260816.zip`) and update `JobApiCodeS3Key` when
+  `job_api-quota-status-20260824.zip`) and update `JobApiCodeS3Key` when
   deploying Job API changes.
 
 ## 4. Infrastructure Rules

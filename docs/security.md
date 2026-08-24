@@ -7,7 +7,10 @@
 
 CloudDSP has strong application-level controls: private, versioned S3 buckets; Cognito-authenticated HTTP routes; owner checks on job reads, subscriptions, and deletion; constrained presigned **POST** uploads; and worker-side validation of the durable job, S3 object size, and decoded audio.
 
-The important remaining risks are known JavaScript dependency advisories, unrestricted authenticated creation of expensive GPU/media-download work, an overly broad deployment trust boundary, and defense-in-depth gaps around media retrieval, worker isolation, and token handling.
+The important remaining risks are known JavaScript dependency advisories,
+partially bounded authenticated creation of expensive GPU/media-download work,
+an overly broad deployment trust boundary, and defense-in-depth gaps around
+media retrieval, worker isolation, and token handling.
 
 No live AWS state was verified. `aws sts get-caller-identity` could not run because the local AWS session expired. Bucket policies, IAM attachments, CloudTrail, WAF, CloudFront headers, ECR findings, and deployment drift must be reviewed after reauthentication.
 
@@ -36,15 +39,27 @@ No live AWS state was verified. `aws sts get-caller-identity` could not run beca
 
 **Remediation:** Make a dependency-only change, review the lockfile, then run `npm audit`, `npm run lint`, and `npm run build`. Do not use an unreviewed blanket `npm audit fix`.
 
-### SEC-02 — High — authenticated users can create unbounded expensive work
+### SEC-02 — Partially fixed — High — authenticated users can create expensive work
 
-Any verified Cognito user can repeatedly create direct or linked jobs. The API validates each object and URL, but it has no per-user active-job limit, cumulative byte quota, daily budget, or application rate limit. The HTTP API stage has no throttling settings, and a linked job can consume a 900-second yt-dlp Lambda before GPU Batch work.
+The Job API now uses a DynamoDB transaction to reserve a daily slot and create
+the job atomically. Each verified Cognito `sub` is limited to five direct
+browser-upload contracts and three linked-media yt-dlp jobs per UTC day. The
+new UTC date, not DynamoDB TTL, resets the quota. This prevents one verified
+account from submitting unlimited jobs or exploiting races around the final
+slot.
 
-**Evidence:** `src/DSP/src/Cloud/job_api.py:198-350`, `IaC/api.yaml:291-296`, `IaC/ingestion.yaml:69-74`, and `IaC/processing.yaml:203-269`.
+**Evidence:** `src/DSP/src/Cloud/job_api.py`, `IaC/jobs.yaml`, and
+`IaC/api.yaml`.
 
-**Impact:** An abusive account can create Lambda/S3/Batch cost, queue backlog, and capacity contention. The Batch vCPU cap limits concurrent work but does not prevent a large queued backlog.
+**Remaining impact:** A coordinated group of accounts can still create work up
+to each account's daily allowance. There is no active-job, byte, API-stage
+throttle, Lambda-concurrency, or alerting control yet. The Batch vCPU cap
+limits concurrent GPU work but does not bound queued work.
 
-**Remediation:** Enforce per-Cognito-`sub` active-job, daily-job, and daily-byte limits with conditional DynamoDB writes; set API route throttles and worker reserved concurrency; alert on abnormal job creation/failure/queue depth; and consider an entitlement or verified-account gate before public linked-media ingestion.
+**Remaining remediation:** Add active-job and daily-byte limits, API route
+throttles, worker reserved concurrency, and alerts for abnormal job
+creation/failure/queue depth. Consider an entitlement or verified-account gate
+before broad public linked-media ingestion.
 
 ### SEC-03 — High — deployment trust boundary is broader than necessary
 
