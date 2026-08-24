@@ -192,6 +192,10 @@ const MidiNotes = React.memo(function MidiNotes({
 
             const topPercent = Math.max(0, Math.min(1, 1 - ((note.midi - minBoundedPitch) / pitchRange))) * 100;
             const velocity = note.velocity !== undefined ? Math.max(0.25, note.velocity) : 0.8;
+            // The compact workspace row is only four pixels high. Preserve a
+            // velocity cue while keeping quieter notes legible on the slate
+            // timeline; the full editor keeps its own unmodified note colors.
+            const gridOpacity = Math.min(1, 0.68 + (velocity * 0.32));
             return (
                 <div
                     key={`${row.id}-note-${index}`}
@@ -201,7 +205,7 @@ const MidiNotes = React.memo(function MidiNotes({
                         left: `${leftPx}px`,
                         width: `${widthPx}px`,
                         top: `calc(${topPercent}% - 2px)`,
-                        '--midi-note-opacity': velocity,
+                        '--midi-note-opacity': gridOpacity,
                     }}
                 />
             );
@@ -314,7 +318,7 @@ const MemoizedTrackGrid = React.memo(function MemoizedTrackGrid({
                 .midi-grid-pitched-note {
                     height: 4px;
                     border-radius: 2px;
-                    background: var(--studio-midi);
+                    background: #0d8757;
                 }
                 .midi-grid-drum-note {
                     top: 19px;

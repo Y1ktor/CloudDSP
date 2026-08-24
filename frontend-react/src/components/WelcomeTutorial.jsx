@@ -2,8 +2,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import './WelcomeTutorial.css';
 
-const TUTORIAL_STORAGE_KEY = 'clouddsp.welcomeTutorial.v1.completed';
-
 /*
  * When the final workstation screenshots are ready, place them in
  * `public/tutorial/` and set `imageSrc` on the first two slides. Until then,
@@ -54,23 +52,6 @@ const TUTORIAL_SLIDES = [
         preview: 'finish',
     },
 ];
-
-function hasCompletedTutorial() {
-    try {
-        return window.localStorage.getItem(TUTORIAL_STORAGE_KEY) === 'true';
-    } catch {
-        return false;
-    }
-}
-
-function rememberTutorialCompletion() {
-    try {
-        window.localStorage.setItem(TUTORIAL_STORAGE_KEY, 'true');
-    } catch {
-        // The tutorial still closes when storage is unavailable. It may be
-        // offered again on a later visit in a private browsing session.
-    }
-}
 
 function ArrowIcon({ direction }) {
     return (
@@ -168,20 +149,22 @@ export default function WelcomeTutorial({ enabled = true, delayMs = 2400 }) {
     const location = useLocation();
     const dialogRef = useRef(null);
     const restoreFocusRef = useRef(null);
-    const [completed, setCompleted] = useState(hasCompletedTutorial);
+    // Dismiss only for this document. A page refresh deliberately offers the
+    // tutorial again so its layout and final screenshots remain easy to review.
+    const [isDismissed, setIsDismissed] = useState(false);
     const [isOpen, setIsOpen] = useState(false);
     const [activeSlide, setActiveSlide] = useState(0);
     const [direction, setDirection] = useState('forward');
 
     useEffect(() => {
-        if (!enabled || completed || location.pathname !== '/') {
+        if (!enabled || isDismissed || location.pathname !== '/') {
             setIsOpen(false);
             return undefined;
         }
 
         const timer = window.setTimeout(() => setIsOpen(true), delayMs);
         return () => window.clearTimeout(timer);
-    }, [completed, delayMs, enabled, location.pathname]);
+    }, [delayMs, enabled, isDismissed, location.pathname]);
 
     useEffect(() => {
         if (!isOpen) return undefined;
@@ -198,8 +181,7 @@ export default function WelcomeTutorial({ enabled = true, delayMs = 2400 }) {
     }, [isOpen]);
 
     const complete = useCallback(() => {
-        rememberTutorialCompletion();
-        setCompleted(true);
+        setIsDismissed(true);
         setIsOpen(false);
     }, []);
 
