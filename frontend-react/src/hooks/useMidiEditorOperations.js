@@ -535,26 +535,25 @@ export function useMidiEditorOperations({
         if (e.button !== 0) return; // Only allow left clicks
         e.stopPropagation();
         let newSelection = new Set(selectedNoteIndices);
-        
+
         if (!newSelection.has(index)) {
             if (!e.shiftKey) {
                 newSelection.clear();
             }
             newSelection.add(index);
             setSelectedNoteIndices(newSelection);
-            
-            const stemData = parsedMidiStems[trackName];
-            if (stemData && stemData.midiData && stemData.midiData.tracks && stemData.midiData.tracks[0].notes) {
-                const note = stemData.midiData.tracks[0].notes[index];
-                if (note && auditionNote && action === 'move') {
-                    auditionNote(note);
-                }
-            }
         }
-        
+
         const stemData = parsedMidiStems[trackName];
         if (!stemData) return;
         const notes = stemData.midiData.tracks[0].notes;
+        const clickedNote = notes[index];
+        // A click on a note is always an audition gesture, whether it lands in
+        // the central move area or one of the overlapping resize handles.
+        // Keeping this outside selection handling also lets a selected note be
+        // auditioned repeatedly without first selecting a different note.
+        if (clickedNote && auditionNote) auditionNote(clickedNote);
+
         const originalNotes = Array.from(newSelection).map(idx => ({
             index: idx,
             originalTime: notes[idx].time,

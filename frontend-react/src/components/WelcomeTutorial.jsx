@@ -2,12 +2,9 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import './WelcomeTutorial.css';
 
-/*
- * When the final workstation screenshots are ready, place them in
- * `public/tutorial/` and set `imageSrc` on the first two slides. Until then,
- * these lightweight previews keep the layout complete without issuing a
- * request for a missing asset.
- */
+// Static workstation captures are served directly from `public/tutorial/`.
+// Keeping them as local assets preserves the same visual language as the app
+// and avoids third-party media requests during onboarding.
 const TUTORIAL_SLIDES = [
     {
         id: 'workspace',
@@ -19,10 +16,8 @@ const TUTORIAL_SLIDES = [
             'Mute, solo, and balance each stem without losing synchronization.',
             'Switch MIDI playback on when you want to hear the extracted notes.',
         ],
-        imageSrc: null,
+        imageSrc: '/tutorial/main_canvas.png',
         imageAlt: 'CloudDSP multitrack workstation with audio and MIDI tracks',
-        preview: 'workspace',
-        placeholderLabel: 'Main canvas screenshot',
     },
     {
         id: 'editor',
@@ -34,10 +29,8 @@ const TUTORIAL_SLIDES = [
             'Audition drum voices independently with subtrack mute and solo controls.',
             'Revert changes safely or download the result when the edit is ready.',
         ],
-        imageSrc: null,
+        imageSrc: '/tutorial/popup_editor.png',
         imageAlt: 'CloudDSP popup MIDI editor with a piano roll',
-        preview: 'editor',
-        placeholderLabel: 'Popup editor screenshot',
     },
     {
         id: 'finish',
@@ -49,7 +42,8 @@ const TUTORIAL_SLIDES = [
             'Return to saved projects from your private job history.',
             'Keep stems, MIDI, tempo, and downloads together for 14 days.',
         ],
-        preview: 'finish',
+        imageSrc: '/tutorial/samples.png',
+        imageAlt: 'CloudDSP public example picker',
     },
 ];
 
@@ -64,58 +58,6 @@ function ArrowIcon({ direction }) {
                 strokeLinejoin="round"
             />
         </svg>
-    );
-}
-
-function WorkspacePreview({ label }) {
-    return (
-        <div className="welcome-tutorial__placeholder" aria-label={label} role="img">
-            <div className="welcome-tutorial__mock-window">
-                <div className="welcome-tutorial__mock-toolbar">
-                    <span />
-                    <span />
-                    <span />
-                    <b />
-                </div>
-                <div className="welcome-tutorial__mock-transport">
-                    <i />
-                    <i />
-                    <em />
-                    <strong />
-                </div>
-                <div className="welcome-tutorial__mock-timeline">
-                    {['original', 'vocals', 'drums', 'midi'].map((track, index) => (
-                        <div className={`welcome-tutorial__mock-track welcome-tutorial__mock-track--${track}`} key={track}>
-                            <span>{index + 1}</span>
-                            <i />
-                        </div>
-                    ))}
-                </div>
-            </div>
-            <span className="welcome-tutorial__placeholder-caption">{label}</span>
-        </div>
-    );
-}
-
-function EditorPreview({ label }) {
-    return (
-        <div className="welcome-tutorial__placeholder" aria-label={label} role="img">
-            <div className="welcome-tutorial__mock-editor">
-                <div className="welcome-tutorial__mock-editor-title"><span /><b /></div>
-                <div className="welcome-tutorial__mock-piano">
-                    <div className="welcome-tutorial__mock-keys">
-                        {Array.from({ length: 8 }, (_, index) => <i key={index} />)}
-                    </div>
-                    <div className="welcome-tutorial__mock-notes">
-                        <i style={{ '--note-x': '9%', '--note-y': '18%', '--note-w': '21%' }} />
-                        <i style={{ '--note-x': '35%', '--note-y': '34%', '--note-w': '15%' }} />
-                        <i style={{ '--note-x': '54%', '--note-y': '50%', '--note-w': '25%' }} />
-                        <i style={{ '--note-x': '70%', '--note-y': '68%', '--note-w': '18%' }} />
-                    </div>
-                </div>
-            </div>
-            <span className="welcome-tutorial__placeholder-caption">{label}</span>
-        </div>
     );
 }
 
@@ -140,8 +82,6 @@ function TutorialMedia({ slide }) {
     if (slide.imageSrc) {
         return <img className="welcome-tutorial__image" src={slide.imageSrc} alt={slide.imageAlt} />;
     }
-    if (slide.preview === 'workspace') return <WorkspacePreview label={slide.placeholderLabel} />;
-    if (slide.preview === 'editor') return <EditorPreview label={slide.placeholderLabel} />;
     return <FinishPreview />;
 }
 

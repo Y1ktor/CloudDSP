@@ -64,8 +64,12 @@
 
 .welcome-tutorial__image {
     display: block;
-    object-fit: cover;
+    /* Do not crop the workstation captures: their controls and timeline are
+       part of the lesson. The framed matte keeps every slide consistent even
+       though the supplied screenshots have different proportions. */
+    object-fit: contain;
     object-position: center;
+    background: #dfe8f0;
 }
 
 .welcome-tutorial__placeholder {
