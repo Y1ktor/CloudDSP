@@ -104,6 +104,7 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Sub '${ProjectName}-${EnvironmentName}-WebSocketHandlerRole'
+      PermissionsBoundary: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${ProjectName}-${EnvironmentName}-CloudDSPRuntimeBoundary'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -149,6 +150,7 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Sub '${ProjectName}-${EnvironmentName}-WebSocketAuthorizerRole'
+      PermissionsBoundary: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${ProjectName}-${EnvironmentName}-CloudDSPRuntimeBoundary'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:

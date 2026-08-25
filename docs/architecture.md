@@ -812,6 +812,38 @@ objects expire after 14 days; noncurrent versions expire one day after becoming
 noncurrent, expired delete markers are cleaned up, and incomplete multipart
 uploads abort after seven days. S3 lifecycle actions are asynchronous.
 
+### Provisioning and runtime IAM boundaries
+
+CloudFormation cannot assume an execution role created by the same root-stack
+operation: the service role ARN must exist before `CreateStack` or
+`UpdateStack` starts. CloudDSP therefore uses the separate
+`clouddsp-cloudformation-adminRole` bootstrap stack to create
+`clouddsp-dev-CloudFormationExecutionRole`, then supplies that existing role
+to the root and nested stack operations. This is fully IaC, but necessarily a
+two-phase trust setup rather than a same-stack role switch.
+
+The execution role has no `AdministratorAccess`. Its project/environment-scoped
+policies provision only CloudDSP resources, may pass only CloudDSP runtime roles
+to EC2, ECS tasks, EventBridge, or Lambda, and may attach only the Lambda basic
+execution and ECS container-instance AWS policies. A dedicated
+`clouddsp-dev-CloudDSPRuntimeBoundary` is attached to every runtime role. The
+boundary is a maximum-permission ceiling that prevents a compromised deployment
+artifact from turning a runtime role into a general account administrator;
+each runtime role's own policy remains the narrower functional grant.
+
+Runtime artifact access is deliberately divided by workflow phase:
+
+| Runtime identity | Read | Write |
+| --- | --- | --- |
+| Demucs Batch task | `uploads/*` | `stems/*` |
+| Basic Pitch / ADTOF Lambda | `stems/*` | `midi/*` |
+| Job API Lambda | uploads, stems, MIDI needed for presigning/deletion | upload contracts and terminal-job deletion only |
+
+These static service roles span all valid job IDs within their listed prefixes.
+Durable owner checks in the Job API protect browser access, but strong worker
+tenant isolation would require per-job STS credentials/session tags or an
+object-access broker.
+
 ### Batch GPU environment
 
 The network stack creates a VPC with two public Batch subnets in separate

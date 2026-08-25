@@ -136,6 +136,7 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Sub '${ProjectName}-${EnvironmentName}-BatchEcsInstanceRole'
+      PermissionsBoundary: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${ProjectName}-${EnvironmentName}-CloudDSPRuntimeBoundary'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -157,6 +158,7 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Sub '${ProjectName}-${EnvironmentName}-DemucsJobRole'
+      PermissionsBoundary: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${ProjectName}-${EnvironmentName}-CloudDSPRuntimeBoundary'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -175,9 +177,8 @@ Resources:
                 Resource: !Sub '${UploadsBucketArn}/uploads/*'
               - Effect: Allow
                 Action:
-                  - s3:GetObject
                   - s3:PutObject
-                Resource: !Sub '${ProcessedAudioBucketArn}/*'
+                Resource: !Sub '${ProcessedAudioBucketArn}/stems/*'
         - PolicyName: !Sub '${ProjectName}-${EnvironmentName}-DemucsUpdateJobs'
           PolicyDocument:
             Version: '2012-10-17'
@@ -316,6 +317,7 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Sub '${ProjectName}-${EnvironmentName}-EventBridgeBatchTargetRole'
+      PermissionsBoundary: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${ProjectName}-${EnvironmentName}-CloudDSPRuntimeBoundary'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:

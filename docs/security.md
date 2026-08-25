@@ -1,304 +1,458 @@
 # CloudDSP security assessment
 
-**Assessment date:** 2026-08-15
-**Scope:** Current repository checkout: React/Vite frontend, Python Cloud handlers and packaged ZIPs, CloudFormation, Dockerfiles, dependency lockfiles, and targeted Git secret-history checks. This is a source/configuration review; it does not change runtime behavior.
+**Initial assessment:** 2026-08-15
+
+**Reassessed:** 2026-08-25
+
+**Scope:** React/Vite frontend, Python handlers and deployable ZIPs,
+CloudFormation, Dockerfiles, local worker images, dependency lockfiles, and a
+targeted Git-history secret review. This is a read-only source/configuration
+assessment; it does not alter deployed AWS resources.
 
 ## Executive summary
 
-CloudDSP has strong application-level controls: private, versioned S3 buckets; Cognito-authenticated HTTP routes; owner checks on job reads, subscriptions, and deletion; constrained presigned **POST** uploads; and worker-side validation of the durable job, S3 object size, and decoded audio.
+CloudDSP has materially improved since the initial assessment. The 14-day
+retention boundary, POST-only direct uploads, proxy credential handling,
+frontend environment-file hygiene, S3 TLS-deny policies, daily submission
+quotas, and a live CloudFront CSP/header policy are now present.
 
-The important remaining risks are known JavaScript dependency advisories,
-partially bounded authenticated creation of expensive GPU/media-download work,
-an overly broad deployment trust boundary, and defense-in-depth gaps around
-media retrieval, worker isolation, and token handling.
+The remaining priorities are dependency/image remediation and privileged
+deployment boundaries. Four high JavaScript advisories remain, every scanned
+worker image still has critical/high CVEs, and the deployed WebSocket
+authorizer ZIP pins a PyJWT version with a reachable JWKS-refresh amplification
+issue. The URL allowlist reduces SSRF substantially but is not a complete
+egress control. Runtime roles now have purpose-specific S3 grants and a
+CloudDSP permissions boundary, but the shared worker identities still span job
+prefixes. Mutable deployment artifacts, query-string WebSocket tokens, and
+accepted public-Batch egress remain open design risks.
 
-No live AWS state was verified. `aws sts get-caller-identity` could not run because the local AWS session expired. Bucket policies, IAM attachments, CloudTrail, WAF, CloudFront headers, ECR findings, and deployment drift must be reviewed after reauthentication.
+The assessment names both CVEs/advisories and broader security findings. A
+**Fixed** status means the repository contains the intended control; it does
+not imply that a related residual risk has disappeared.
 
 ## Severity guide
 
 | Severity | Meaning |
 | --- | --- |
-| High | Practical account/data/cost risk or a known high-severity dependency issue. |
-| Medium | Meaningful privacy or defense-in-depth gap to resolve before broad production use. |
-| Low | Hardening improvement or a risk that requires an additional weakness. |
+| High | Practical account, data, cost, or worker-compromise risk; or a known high-impact dependency issue. |
+| Medium | Meaningful availability, privacy, or defense-in-depth gap to resolve before broad production use. |
+| Low | Hardening improvement or a risk requiring an additional weakness. |
 | Conditional | Not in the active IaC deployment path, but unsafe if separately deployed. |
+
+## 2026-08-25 reassessment register
+
+| Finding | Current status | New observation |
+| --- | --- | --- |
+| SEC-01 | **Open** | The same four high npm-audit advisories remain; the two React Router entries are production dependencies. |
+| SEC-02 | **Partially fixed** | Atomic UTC daily quotas are implemented, but active-job, daily-byte, API-stage, and account-abuse limits remain absent. |
+| SEC-03 | **Fixed, narrowed residual** | AdministratorAccess is removed. The execution role is restricted to CloudDSP provisioning actions and all runtime roles have a CloudDSP permissions boundary; mutable artifacts and selected create APIs with unavoidable `Resource: "*"` remain. |
+| SEC-04 | **Partially fixed** | HTTPS allowlisting, credential/port rejection, and initial DNS checks are implemented; redirect and DNS-rebinding containment is still absent. |
+| SEC-05 | **Partially fixed** | Demucs reads uploads and writes stems only; MIDI reads stems and writes MIDI only; the Job API reads only stems/MIDI. Shared roles still span all valid job prefixes. |
+| SEC-06 | **Fixed** | Job records and audio artifacts have aligned 14-day application/lifecycle retention. |
+| SEC-07 | **Open — high** | Fresh local Scout scans still show critical/high worker-image CVEs. Mutable tags and unpinned provenance remain. |
+| SEC-08 | **Fixed, narrowed residual** | The live site sends CSP, HSTS, anti-framing, nosniff, and referrer-policy headers. CSP S3 wildcards and a missing Permissions-Policy remain hardening opportunities. |
+| SEC-09 | **Accepted/open** | The intentionally permissive password policy and no-MFA posture are unchanged. |
+| SEC-10 | **Fixed** | The proxy is stored as a KMS-encrypted SSM SecureString and retrieved at runtime. |
+| SEC-11 | **Fixed** | Direct browser ingestion uses only a content-length-constrained presigned POST. |
+| SEC-12 | **Open — low** | A full Cognito ID token still appears in the native WebSocket connection query string. |
+| SEC-13 | **Fixed, with historical caveat** | No frontend environment file is tracked now; an expired presigned-URL exposure in Git history is recorded separately as SEC-19. |
+| SEC-14 | **Partially fixed** | TLS-deny policies cover the four IaC-managed S3 buckets; audit logging/alerting remains intentionally out of scope. |
+| SEC-15 | **Deferred — low** | yt-dlp still removes its event-derived temporary directory before canonical UUID validation. |
+| SEC-16 | **Accepted — medium** | Cost-optimized public Batch hosts retain unrestricted outbound HTTPS while running. |
+| SEC-17 | **Conditional high** | Unsafe legacy handlers remain in source but no active IaC reference was found. |
+| SEC-18 | **New — medium** | The WebSocket authorizer packages vulnerable PyJWT 2.10.1; an unauthenticated unknown JWT key ID can amplify JWKS refreshes. |
+| SEC-19 | **New — low historical exposure** | Expired S3 presigned URLs were found only in Git history, not the current tree. |
 
 ## Findings
 
 ### SEC-01 — High — JavaScript dependencies have known advisories
 
-`npm audit` reports two high-severity production findings and two more high-severity development/build findings.
+**Status: Open.** The dependency set has not changed since the prior review.
+npm audit --omit=dev --json reports two high production entries and the full
+audit reports four high entries.
 
-| Dependency | Installed | Finding | Patched target |
+| Dependency | Installed | Advisory | Patched target |
 | --- | --- | --- | --- |
-| `react-router-dom` / `react-router` | `7.18.0` | React Router RSC-mode CSRF bypass ([GHSA-qwww-vcr4-c8h2](https://github.com/advisories/GHSA-qwww-vcr4-c8h2)) | `7.18.2+` |
-| `postcss` | `8.5.15` | source-map path traversal / file disclosure advisories | `8.5.26+` |
-| `nanoid` | `3.3.15` | unsafe custom-generator infinite-loop advisories | `3.3.18+` |
+| react-router-dom / react-router | 7.18.0 | React Router RSC-mode CSRF bypass ([GHSA-qwww-vcr4-c8h2](https://github.com/advisories/GHSA-qwww-vcr4-c8h2)) | 7.18.2+ |
+| postcss | 8.5.15 | source-map path traversal / file disclosure ([GHSA-r28c-9q8g-f849](https://github.com/advisories/GHSA-r28c-9q8g-f849), [GHSA-fxqj-rqcc-2cmp](https://github.com/advisories/GHSA-fxqj-rqcc-2cmp)) | 8.5.26+ |
+| nanoid | 3.3.15 | unsafe custom-generator infinite loop ([GHSA-28wg-ghj8-5hjv](https://github.com/advisories/GHSA-28wg-ghj8-5hjv), [GHSA-2v37-7h3g-55p8](https://github.com/advisories/GHSA-2v37-7h3g-55p8)) | 3.3.18+ |
 
-**Evidence:** `frontend-react/package.json`, `frontend-react/package-lock.json`; `npm audit --omit=dev --json` found the React Router pair, and the full audit found all four. The app uses a client-only `BrowserRouter` and no React Server Components, so present reachability of the RSC advisory is lower than the upstream severity. PostCSS and Nanoid are build dependencies, but should still be updated.
+The app uses a client-only BrowserRouter and no React Server Components or
+server actions, so reachability of the RSC CSRF issue appears lower than the
+upstream advisory severity. PostCSS and Nanoid are build dependencies, but the
+versions should still be upgraded in a reviewed dependency-only change.
 
-**Remediation:** Make a dependency-only change, review the lockfile, then run `npm audit`, `npm run lint`, and `npm run build`. Do not use an unreviewed blanket `npm audit fix`.
+**Remediation:** update the four packages to the patched versions, review the
+lockfile, then run npm audit, npm run lint, and npm run build. Do not use an
+unreviewed blanket npm audit fix.
 
 ### SEC-02 — Partially fixed — High — authenticated users can create expensive work
 
-The Job API now uses a DynamoDB transaction to reserve a daily slot and create
-the job atomically. Each verified Cognito `sub` is limited to five direct
-browser-upload contracts and three linked-media yt-dlp jobs per UTC day. The
-new UTC date, not DynamoDB TTL, resets the quota. This prevents one verified
-account from submitting unlimited jobs or exploiting races around the final
-slot.
+The Job API now atomically reserves a daily slot and creates the durable job in
+one DynamoDB transaction. A verified Cognito subject receives five direct
+browser-upload contracts and three linked-media yt-dlp jobs per UTC day.
+Counters reset through the date portion of the key, not through eventual TTL
+deletion, and quota exhaustion returns HTTP 429.
 
-**Evidence:** `src/DSP/src/Cloud/job_api.py`, `IaC/jobs.yaml`, and
-`IaC/api.yaml`.
+**Evidence:** job_api.py, jobs.yaml, api.yaml, and the account-menu quota
+response/UI.
 
-**Remaining impact:** A coordinated group of accounts can still create work up
-to each account's daily allowance. There is no active-job, byte, API-stage
-throttle, Lambda-concurrency, or alerting control yet. The Batch vCPU cap
-limits concurrent GPU work but does not bound queued work.
+**Remaining impact:** coordinated accounts can still submit up to their
+allowance. There is no active-job or daily-byte quota, API-stage rate/burst
+throttle, worker reserved concurrency, or repository-defined abuse alerting.
+The Batch vCPU cap limits concurrent GPU work, not queued work.
 
-**Remaining remediation:** Add active-job and daily-byte limits, API route
-throttles, worker reserved concurrency, and alerts for abnormal job
-creation/failure/queue depth. Consider an entitlement or verified-account gate
-before broad public linked-media ingestion.
+**Next remediation:** add active-job and daily-byte limits, route throttles,
+worker concurrency limits, and monitoring for job-creation/failure/queue-depth
+anomalies.
 
-### SEC-03 — High — deployment trust boundary is broader than necessary
+### SEC-03 — Fixed, narrowed residual — High — deployment authority is now bounded
 
-The CloudFormation service role has `AdministratorAccess`. The root stack loads nested templates and ZIP functions by mutable S3 key without a repository-defined code-signing control. A party that can update an artifact/template or start a stack update with this role can make account-wide infrastructure changes.
+**Status: Fixed, with residual risk.** The bootstrap role no longer attaches
+AdministratorAccess. Its CloudDSP-named policies limit provisioning to the
+project/environment naming boundary, a configured Route 53 zone, named S3,
+DynamoDB, ECR, SQS, Lambda, and EventBridge resources, and an explicit set of
+CloudFormation service actions. It can pass only CloudDSP-named runtime roles
+to EC2, ECS tasks, EventBridge, or Lambda, and can attach only the two required
+AWS service policies.
 
-**Evidence:** `IaC/deployment-role.yaml:34-40`, `IaC/cloud-dsp.yaml:17-48`, and `IaC/cloud-dsp.yaml:148-303`.
+Every CloudDSP runtime role has the
+`clouddsp-dev-CloudDSPRuntimeBoundary` permissions boundary. This prevents a
+malicious template or artifact from converting a Lambda, Batch, or EventBridge
+role into an administrator role even if it can change that role's inline policy
+or trust relationship. The execution role is explicitly denied mutation or
+pass-role operations on itself.
 
-**Remediation:** Restrict template/artifact bucket writers and `iam:PassRole`/stack-update permission; use immutable versioned artifact keys or S3 versions and record hashes; configure Lambda code signing for ZIP functions; and replace `AdministratorAccess` with a reviewed least-privilege deployment policy after observing required CloudTrail actions. Treat the current role as a privileged deployment boundary.
+**Evidence:** deployed `clouddsp-cloudformation-adminRole`,
+IaC/deployment-role.yaml, and the permissions-boundary properties in the API,
+realtime, ingestion, processing, and MIDI component templates.
 
-### SEC-04 — Fixed — Medium — linked-media URL validation does not fully contain SSRF
+**Residual risk:** some resource-creation APIs do not support resource-level
+authorization, so the role retains small, enumerated `Resource: "*"` action
+sets for EC2 networking, Batch, API Gateway, Cognito, KMS, CloudFront, and ACM.
+Template ZIP/S3 keys and ECR tags are still mutable. An authorized artifact
+writer could therefore change CloudDSP resources within the boundary, but no
+longer gain general account administration through this execution role.
 
-The API and worker now accept only HTTPS page hosts from the reviewed `ALLOWED_MEDIA_HOSTS` allowlist (YouTube, Bilibili, and SoundCloud by default), reject credentials and non-standard ports, and the worker rejects allowed names resolving to private/reserved addresses. This substantially reduces attacker-controlled destination choice. However, these checks still occur before yt-dlp follows redirects or makes subsequent requests: redirect targets and DNS rebinding are not revalidated/pinned at every hop. The ingestion Lambda is not in a VPC with a filtering egress boundary.
+**Next remediation:** restrict artifact writers, use immutable S3 versions and
+ECR digests/code signing, and use CloudTrail evidence to further reduce the
+remaining create/read action sets.
 
-**Evidence:** `src/DSP/src/Cloud/media_url_policy.py`, `src/DSP/src/Cloud/job_api.py`, `src/DSP/src/Cloud/LambdaYtDlp.py`, and `IaC/ingestion.yaml`.
+### SEC-04 — Partially fixed — Medium — linked-media URL validation reduces but does not eliminate SSRF
 
-**Remaining remediation:** Route egress through a proxy/DNS firewall that blocks private, link-local, and AWS control-plane destinations; validate every redirect; and set connect/read/redirect limits. Do not rely only on the initial DNS lookup or on the allowlist alone.
+The Job API and yt-dlp Lambda now accept only credential-free HTTPS page URLs
+from the reviewed media-host allowlist. They reject lookalike hosts,
+non-standard ports, literal/private/reserved addresses, and allowlisted names
+that resolve to private/reserved addresses at the initial check.
 
-### SEC-05 — Medium — worker S3 privileges create a cross-job blast radius
+**Evidence:** media_url_policy.py, job_api.py, LambdaYtDlp.py, and
+IaC/ingestion.yaml.
 
-The Demucs role can read/write every processed-artifact object, and MIDI workers have broad get/put access to the same bucket. A compromised worker could read or overwrite another job's output rather than being limited to its normal prefixes.
+**Residual risk:** yt-dlp can follow redirects and make provider/CDN requests
+after the initial validation. Redirect destinations are not revalidated and
+DNS resolution is not pinned, so redirect abuse/DNS rebinding remains possible.
+The ingestion Lambda intentionally has public egress for media retrieval.
 
-**Evidence:** `IaC/processing.yaml:158-170` and `IaC/midi-lambdas.yaml:123-127`. Application code normally writes `stems/{job_id}/` and `midi/{job_id}/` only.
+**Next remediation:** use controlled egress or DNS filtering that blocks
+private, link-local, and AWS control-plane destinations; enforce redirect,
+connect, and read limits; and validate every redirect target.
 
-**Remediation:** Split permissions by purpose: Demucs needs only the required input reads and stem writes; MIDI workers need stem reads and MIDI writes. For stronger tenant isolation, use scoped per-job credentials or an object-access broker.
+### SEC-05 — Partially fixed — Medium — worker S3 scope is purpose-limited, not job-isolated
 
-### SEC-06 — Fixed — Medium — S3 retention was not aligned with job retention
+**Status: Partially fixed.** The deployed Demucs role can read only
+`uploads/*` and write only `stems/*`. The MIDI extraction role can read only
+`stems/*` and write only `midi/*`. The Job API can read only the uploads,
+stems, and MIDI prefixes needed to create presigned transfers and remove an
+owner's terminal job. It no longer has a broad processed-bucket `GetObject`
+grant.
 
-Jobs and current source/artifact objects now share a 14-day retention policy.
-The Job API sets and exposes `expires_at`, hides expired records immediately,
-and DynamoDB TTL removes them asynchronously. Both versioned buckets expire
-current objects after 14 days, expire noncurrent versions one day after they
-become noncurrent, and remove expired delete markers.
+**Evidence:** deployed `clouddsp-dev-DemucsAudioObjects`,
+`clouddsp-dev-MidiExtractionArtifacts`, and
+`clouddsp-dev-JobApiPresignObjects` policies; IaC/processing.yaml,
+IaC/midi-lambdas.yaml, and IaC/api.yaml.
 
-**Evidence:** `src/DSP/src/Cloud/job_api.py`, `IaC/api.yaml`,
-`IaC/foundation.yaml`, and `frontend-react/src/components/StemSplitter/PreviousJobs.jsx`.
+**Residual risk:** these are static shared roles. A compromised Demucs worker
+can still read another job's valid `uploads/` object and write another job's
+`stems/` object; a compromised MIDI worker has the analogous stems/MIDI
+cross-job scope. IAM policy variables cannot bind a long-lived Batch/Lambda
+role to the event's individual `job_id`.
 
-**Residual limitation:** DynamoDB TTL and S3 Lifecycle actions are
-asynchronous rather than clock-exact. The application retention boundary is
-the `expires_at` timestamp; deployed lifecycle execution should be monitored.
+**Next remediation:** use short-lived per-job STS credentials with session tags
+or put S3 access behind a job-aware broker for strong tenant isolation.
 
-### SEC-07 — High — deployed container images have critical/high CVEs and mutable provenance
+### SEC-06 — Fixed — 14-day job and artifact retention is aligned
 
-Docker Scout scanned the four locally built deployment images and found critical/high CVEs in every image. The raw counts may include duplicate Go standard-library and container-kernel findings, so applicability needs triage, but the result warrants an immediate base/dependency refresh and rescan.
+Jobs expose a durable expires_at timestamp and the Job API hides expired
+records. The uploads and processed buckets expire current objects after 14
+days, remove noncurrent versions one day after they become noncurrent, and
+remove expired delete markers. The history UI communicates the remaining
+period.
 
-| Image | Critical | High |
-| --- | ---: | ---: |
-| `clouddsp-basicpitch-lambda:latest` | 2 | 22 |
-| `clouddsp-adtof-lambda:latest` | 3 | 22 |
-| `clouddsp-demucs:latest` | 23 | 378 |
-| `clouddsp-ytdlp:latest` | 2 | 17 |
+**Evidence:** job_api.py, api.yaml, foundation.yaml, and PreviousJobs.jsx.
 
-For example, the ADTOF image pins `torch==2.5.1+cpu`, which Docker Scout reports as affected by `CVE-2025-32434` and fixed in Torch 2.6.0. Demucs is the highest-priority image because it combines the largest CVE count with attacker-controlled media parsing.
+**Residual limitation:** DynamoDB TTL and S3 Lifecycle execution are
+asynchronous. expires_at is the application-visible cutoff; AWS may physically
+remove data later.
 
-All ECR repositories also permit mutable tags and the root stack defaults workers to `latest`. Several Dockerfiles rely on tag-based base images, while the Demucs image installs packages/downloads model weights without version and integrity pinning. The active worker Dockerfiles do not declare an explicit unprivileged `USER`; the Batch worker parses attacker-controlled media.
+### SEC-07 — High — worker image vulnerabilities and mutable provenance remain
 
-**Evidence:** Docker Scout scan of the locally built worker images; `IaC/foundation.yaml:146,190,234,278,322`, `IaC/cloud-dsp.yaml:55-73,207-269`, `src/DSP/docker/adtof/Dockerfile:24`, and `src/DSP/docker/stem_split/Dockerfile:4,11-19,27-39`.
+**Status: Open.** Fresh Docker Scout quickviews of the local 08-18 image IDs
+still reported the following vulnerability counts:
 
-**Remediation:** Triage the scan results and rebuild on refreshed bases; update directly affected libraries (including Torch); make ECR tags immutable; deploy digest-pinned images or versioned release tags instead of `latest`; pin base images by digest and packages/models by version and hash; gate releases on image scans/signatures; and run Batch under an explicit non-root user with only required writable directories. Add `.env*`, credential files, PEM keys, and local AWS configuration to `src/DSP/.dockerignore`. Verify Lambda base-image runtime users before relying on inheritance.
+| Image | Critical | High | Scan status |
+| --- | ---: | ---: | --- |
+| Basic Pitch | 2 | 12 | freshly scanned |
+| ADTOF | 3 | 23 | freshly scanned |
+| yt-dlp | 2 | 10 | freshly scanned |
+| Demucs | prior result: 23 | prior result: 378 | re-index did not complete; count is stale, not a fresh assertion |
 
-### SEC-08 — Fixed — Medium — browser session material lacked XSS containment
+Source pins independently show active affected libraries: ADTOF uses Torch
+2.5.1 CPU and Demucs uses PyTorch 2.4.0. Both are affected by
+CVE-2025-32434 and CVE-2026-24747 (the latter is fixed in Torch 2.10.0).
+Basic Pitch pins scikit-learn 1.3.2, affected by CVE-2024-5206 and fixed in
+1.5.0. The observed Basic Pitch inference flow does not train TfidfVectorizer,
+and audio uploads do not supply a PyTorch checkpoint, so those individual code
+paths are not presently demonstrated as remote-code-execution paths; they
+remain inventory/release-gate issues.
 
-The Cognito SDK persists session material in JavaScript-readable browser
-storage, so an XSS would still be able to steal it. CloudDSP now emits an
-enforced CSP in its built HTML and uses the same policy as a Vite development
-and preview response header. It permits scripts only from the app's own origin,
-blocks plugins and child frames, restricts fetch/media connections to the
-configured API Gateway/Cognito endpoints, S3, and the drum-sample host, and
-blocks inline script execution. Inline styles remain permitted because the
-React UI currently relies on them.
+All ECR repositories still use mutable tags and root-stack image defaults
+remain latest. Active Dockerfiles do not declare an explicit unprivileged USER;
+this matters most for the Demucs Batch image that parses attacker-controlled
+media. Lambda base images run within the Lambda sandbox, so the Dockerfile
+omission alone should not be treated as proof of root Lambda execution.
 
-**Evidence:** `frontend-react/csp.js` and `frontend-react/vite.config.js`.
+**Remediation:** triage the exact Scout CVE output; refresh bases and directly
+affected dependencies; use immutable ECR tags and digest-pinned deployments;
+pin bases/packages/models by digest/version/hash; gate release on image scans;
+run Batch as a non-root user; and extend src/DSP/.dockerignore to exclude
+environment files, local AWS files, and PEM/key material.
 
-**Residual limitation:** A CSP reduces the chance of an injected script
-running; it cannot protect tokens after a same-origin script, malicious browser
-extension, or compromised device already executes. The production static-hosting
-layer must mirror the generated production policy as a
-`Content-Security-Policy` HTTP header; this is also required to enforce
-`frame-ancestors`. No authentication architecture or MFA behavior changed.
+### SEC-08 — Fixed — CSP-based XSS containment is live
 
-### SEC-09 — Medium — the User Pool baseline is intentionally weak
+The live website and demo manifest now return a Content-Security-Policy, HSTS,
+X-Frame-Options: DENY, X-Content-Type-Options: nosniff, and
+Referrer-Policy: strict-origin-when-cross-origin. The policy matches
+frontend-react/csp.js and the CloudFront response-headers policy in
+IaC/hosting.yaml. Production builds contain no source maps, and the active
+React path has no unsafe HTML injection, eval, new Function, or remote script
+import.
 
-The pool permits an eight-character password with one symbol but does not require lowercase, uppercase, or numeric characters; MFA is disabled. This matches the current product requirement but leaves protection dependent on password quality and Cognito throttling.
+**Residual limitation:** Cognito tokens remain JavaScript-readable browser
+storage, so a same-origin script or malicious extension could still read them.
+The policy permits https://*.s3.amazonaws.com for media/connect requests
+because presigned URLs are dynamic; passing only the exact CloudDSP bucket
+origins at build time would reduce exfiltration options further. The CloudFront
+CSP parameter defaults empty, so future deployments must continue to supply
+the exact generated header. No Permissions-Policy is returned; adding a
+restrictive policy for unused capabilities is low-priority defense in depth.
 
-**Evidence:** `IaC/auth.yaml:30-63`.
+### SEC-09 — Medium — User Pool baseline is intentionally weak
 
-**Remediation:** Offer optional TOTP/WebAuthn MFA immediately and require it for administrative/support accounts. Increase password length and introduce risk-based or compromised-credential protections as public usage grows.
+**Status: Accepted/open.** Cognito still permits an eight-character password
+with one symbol and does not require MFA. This is a deliberate product choice,
+but leaves protection dependent on password quality and Cognito throttling.
 
-### SEC-10 — Fixed — Medium — proxy credentials were plaintext Lambda configuration
+**Evidence:** IaC/auth.yaml.
 
-The optional `YtDlpProxyUrl` remains a `NoEcho` deployment input, but the
-ingestion stack now writes it through a scoped custom resource to
-`/${ProjectName}/${EnvironmentName}/yt-dlp/proxy-url` as a Standard
-KMS-encrypted SSM `SecureString`. The yt-dlp worker receives only the
-non-sensitive parameter name and calls `GetParameter(WithDecryption=True)` at
-runtime. It has `ssm:GetParameter` for that exact parameter and `kms:Decrypt`
-for the dedicated customer-managed key; neither the Lambda environment nor the
-handler logs contains the URL.
+**Future remediation:** offer TOTP/WebAuthn MFA, require it for
+administrative/support accounts, and strengthen password/risk controls before
+broader public usage.
 
-**Evidence:** `IaC/ingestion.yaml`, `IaC/cloud-dsp.yaml`, and
-`src/DSP/src/Cloud/LambdaYtDlp.py`.
+### SEC-10 — Fixed — proxy credentials are not plaintext Lambda configuration
 
-**Residual limitation:** The yt-dlp process must receive the proxy URL in
-memory to use it. An actor with code execution in that Lambda, or with both
-the function role and its exact SSM/KMS permissions, can still retrieve it.
-CloudFormation's native `AWS::SSM::Parameter` resource cannot create a
-`SecureString`, so the template uses a minimal custom resource and does not
-log its sensitive input. Proxy credential rotation is provider-specific and is
-not falsely automated by this change.
+The optional proxy input is stored as a KMS-encrypted SSM SecureString. The
+yt-dlp function receives only the parameter name and gets the value with
+decryption at runtime. Its role has exact-parameter ssm:GetParameter and
+dedicated-key kms:Decrypt grants, and the handler avoids logging the proxy.
 
-### SEC-11 — Fixed — legacy presigned-PUT upload fallback weakened size enforcement
+**Evidence:** IaC/ingestion.yaml, IaC/cloud-dsp.yaml, and LambdaYtDlp.py.
 
-The browser now accepts only the current presigned POST contract: `job_id`, an
-upload URL, and `upload_fields`. It rejects a legacy PUT-shaped response before
-uploading any bytes. The POST policy signs S3's `content-length-range`, so S3
-enforces the 1-byte–256-MiB source limit at ingestion; Batch retains its
-`HeadObject` check as defense in depth.
+**Residual limitation:** the proxy must be plaintext in the Lambda process
+while it is used. Code execution in that function, or a principal with the
+same narrowly scoped SSM/KMS grants, can retrieve it. Provider-specific
+credential rotation remains separate work.
 
-**Evidence:** `frontend-react/src/App.jsx` and
-`src/DSP/src/Cloud/job_api.py`.
+### SEC-11 — Fixed — direct uploads are POST-only and size constrained
 
-**Residual limitation:** An old deployed frontend will retain its own source
-code until its static assets are replaced. Deploy the current frontend with the
-current Job API so all clients use the POST-only contract.
+The browser accepts only the current presigned POST contract. S3 evaluates the
+signed content-length-range before accepting the source, and Batch retains its
+durable HeadObject size validation.
+
+**Evidence:** frontend-react/src/App.jsx and job_api.py.
+
+**Residual hardening:** the uploads bucket's CORS configuration still permits
+PUT, but no active API/browser path supplies a signed PUT URL. Remove the
+unused method when compatibility confirms it is unnecessary.
 
 ### SEC-12 — Low — the WebSocket handshake contains a full ID token in its query string
 
-Native browser WebSockets cannot set arbitrary handshake headers, so the app uses `wss://…?token=<Cognito ID token>`. The authorizer correctly validates issuer, audience, expiry, RS256, `sub`, and `token_use`, and does not log the token. It can still appear in access logs, proxies, diagnostics, or browser tooling until expiration.
+**Status: Open/accepted.** Native browser WebSockets cannot set arbitrary
+opening-handshake headers, so the application uses an ID-token query
+parameter. The authorizer validates issuer, audience, expiry, RS256, sub, and
+token_use and does not log the token. It can nevertheless appear in proxy,
+access-log, browser-diagnostic, or monitoring data until expiration.
 
-**Evidence:** `frontend-react/src/App.jsx:425-427`, `src/DSP/src/Cloud/websocket_authorizer.py:34-61`, and `IaC/realtime.yaml:217-225`.
+**Remediation:** ensure log formats exclude query strings and authorization
+material, keep WSS/token lifetimes short, and consider a short-lived,
+single-use WebSocket ticket minted by the authenticated HTTP API.
 
-**Remediation:** Ensure log formats exclude query strings and authorization material; keep WSS and short token lifetimes; and consider a short-lived single-use socket ticket minted by the authenticated HTTP API.
+### SEC-13 — Fixed — frontend environment files are no longer tracked
 
-### SEC-13 — Fixed — tracked frontend `.env` invited future secret exposure
+Root and frontend ignore rules exclude .env and .env.* while retaining
+.env.example. The current tracked tree contains no frontend environment file.
+The example contains only public browser configuration; Vite embeds every
+VITE_* value into the browser bundle, so it must never contain a credential.
 
-`frontend-react/.env` has been removed from Git tracking and local `.env` /
-`.env.*` files are ignored repository-wide while `.env.example` remains
-tracked. The prior file contained only public browser configuration: Cognito
-User Pool and browser-client identifiers plus Job API and WebSocket endpoints.
-It did not contain a password, token, AWS credential, proxy URL, or Cognito
-client secret.
+**Historical caveat:** Git-history review found expired presigned S3 URLs in
+old mock/test content. They are recorded as SEC-19; this does not restore a
+tracked .env issue.
 
-Vite embeds all `VITE_*` values in browser assets, so these variables are
-configuration rather than secret storage. The local file is intentionally kept
-on the developer's machine after untracking; a new checkout must copy
-`.env.example` and configure the four public stack outputs.
+### SEC-14 — Partially fixed — TLS is mandatory for IaC-managed S3 buckets
 
-**Evidence:** `.gitignore`, `frontend-react/.gitignore`,
-`frontend-react/.env.example`, and the Vite configuration consumers.
+Explicit aws:SecureTransport=false deny statements now cover the uploads,
+processed-audio, website, and demo-assets buckets. The private/versioned/
+encrypted bucket controls remain in place.
 
-**Residual limitation:** Git ignores prevent accidental future additions but
-cannot remove a value already present in historical commits. If a genuine
-credential is ever committed, revoke/rotate it and use an appropriate
-server-side secret service; do not rely on history rewriting alone.
+**Evidence:** IaC/foundation.yaml and IaC/hosting.yaml.
 
-### SEC-14 — Partially fixed — Low — S3 TLS enforcement added; audit visibility remains out of scope
+**Remaining accepted risk:** repository-defined API Gateway access logging,
+CloudTrail data events, WAF, and alerting are still absent. Live AWS CLI drift
+verification could not run because the local session had expired.
 
-Both audio buckets now have an explicit bucket-policy `Deny` for every
-`s3:*` action when `aws:SecureTransport` is `false`. This applies to IAM
-callers, presigned browser transfers, and future service integrations, so a
-mistaken `http://` request cannot disclose, replay, or alter audio in transit.
-It does not alter the existing private-bucket, HTTPS presigned-URL workflow.
+### SEC-15 — Deferred — internal temporary-directory containment
 
-**Evidence:** `IaC/foundation.yaml`.
+LambdaYtDlp.py derives and clears /tmp/clouddsp-ytdlp/{job_id} before canonical
+UUID validation and durable job lookup. The normal caller is the authenticated
+Job API, which generates UUIDs, and the Lambda is not exposed as a public
+HTTP/S3/EventBridge/WebSocket target. That keeps current risk low, but it
+remains a future-integration boundary.
 
-**Remaining accepted risk:** HTTP and WebSocket stages still have no
-repository-defined API Gateway access logs. Account-level CloudTrail, S3 data
-events, WAF, and alerting may exist outside the repository but were not
-verified. Per the current decision, no audit-visibility infrastructure is
-added by this remediation.
+**Remediation:** parse the ID with uuid.UUID, use its canonical string for the
+path, verify resolved-path containment before either cleanup, and remove or
+explicitly gate the HTTP principalId compatibility fallback.
 
-### SEC-15 — Low — internal input hardening gaps
+### SEC-16 — Accepted risk — public Batch hosts retain unrestricted HTTPS egress
 
-`LambdaYtDlp.py` derives and removes a `/tmp` directory from an event `job_id` before canonical UUID validation and durable job lookup. The HTTP helper also permits an `authorizer.principalId` compatibility fallback rather than only JWT claims. Current IaC restricts invocations to trusted paths, so neither is publicly exposed today.
+Batch EC2 hosts launch in public subnets while running to avoid an always-on
+NAT Gateway cost. They have no security-group ingress and retain the S3 gateway
+endpoint, but TCP/443 may reach the public Internet through the Internet
+Gateway. A compromised codec, dependency, or container could exfiltrate audio
+or task-role credentials.
 
-**Evidence:** `src/DSP/src/Cloud/LambdaYtDlp.py:482-496`, `src/DSP/src/Cloud/job_api.py:104-114`, and `IaC/api.yaml:298-304`.
+**Evidence:** IaC/network.yaml.
 
-**Remediation:** Canonicalize `job_id` as a UUID and verify resolved temporary-path containment before cleanup. Remove or explicitly gate the `principalId` fallback in production HTTP API code.
-
-### SEC-16 — Accepted risk — Medium — public Batch hosts have unrestricted HTTPS egress
-
-Batch EC2 hosts now launch in public subnets with a public IPv4 address while
-they run. They have no security-group ingress, but the security group permits
-TCP/443 to `0.0.0.0/0` through the Internet Gateway. A compromised codec,
-dependency, or container can therefore exfiltrate audio or task-role credentials
-to arbitrary HTTPS destinations. This replaces the prior NAT-based design to
-avoid NAT's fixed monthly cost while Batch is scaled to zero.
-
-**Evidence:** `IaC/network.yaml` public-subnet mapping, Internet Gateway route,
-and Batch security-group egress.
-
-**Future remediation:** For production, prefer private Batch subnets plus
-required VPC endpoints or route the remaining public destinations through a
-controlled egress proxy with domain policy and logging. Keep IAM permissions
-least-privilege regardless of network topology.
+**Future remediation:** private Batch subnets with required VPC endpoints, or
+a controlled/logged egress proxy, are the production alternative.
 
 ### SEC-17 — Conditional high — dormant legacy handlers are unsafe if redeployed
 
-The following files are not referenced by current IaC but bypass the durable job/ownership model.
+The legacy presigned-URL generator, WebSocket notifier, and DSP plugin bypass
+the durable job/ownership model or insufficiently validate input. A targeted
+IaC search found no active reference to them, so they are not on the current
+deployment path.
 
-| File | Concern |
-| --- | --- |
-| `src/DSP/src/Cloud/presigned_url/lambda-s3-presigned.py` | unauthenticated wildcard-CORS presigned PUT generation without narrow type, size, or key limits |
-| `src/DSP/src/Cloud/webSocketAPI/WebSocketNotify.py` | trusts a connection ID and pushes presigned artifact URLs without durable owner verification |
-| `src/DSP/src/Cloud/plugin/dsp_bitcrush_flanger_ringmod.py` | insufficiently validated queue/path input and swallowed failures |
+**Evidence:** presigned_url/lambda-s3-presigned.py,
+webSocketAPI/WebSocketNotify.py, and plugin/dsp_bitcrush_flanger_ringmod.py.
 
-**Remediation:** Delete or archive these handlers outside deployable source, or add CI/IaC controls that prevent packaging them. Do not use them as a workflow fallback.
+**Remediation:** delete or archive them outside deployable source, or enforce
+CI/IaC packaging controls that prevent accidental deployment.
+
+### SEC-18 — New — Medium — vulnerable PyJWT in the WebSocket authorizer enables JWKS-refresh amplification
+
+requirements-websocket-authorizer.txt pins PyJWT with crypto extras at 2.10.1,
+and the root stack defaults to a ZIP artifact that packages that version.
+pip-audit reported the following advisories:
+
+| CVE / advisory | Fixed version | CloudDSP assessment |
+| --- | --- | --- |
+| CVE-2026-32597 / GHSA-752w-5fwx-jx9f | 2.12.0 | Affected dependency; exploitation would require a valid Cognito signature with an unknown critical header. |
+| CVE-2025-45768 | none; supplier disputes the finding | Not applicable to this RS256 Cognito verifier, which does not select a locally configured weak symmetric key. |
+| CVE-2026-48522 / GHSA-993g-76c3-p5m4 | 2.13.0 | Mitigated by a fixed Cognito issuer URL rather than a JWT-supplied JKU URL. |
+| CVE-2026-48523 / GHSA-jq35-7prp-9v3f | 2.12.1; upgrade to 2.13.0 | Mitigated: the code supplies signing_key.key and permits only RS256. |
+| CVE-2026-48524 / GHSA-fhv5-28vv-h8m8 | 2.13.0 | **Reachable:** an unauthenticated connection caller controls kid; an unknown key ID can force a JWKS refresh and amplify an upstream failure. |
+| CVE-2026-48525 / GHSA-w7vc-732c-9m39 | 2.13.0 | Detached-JWS parsing is not used by this authorizer. |
+| CVE-2026-48526 / GHSA-xgmm-8j9v-c9wx | 2.13.0 | HMAC/raw-JWK path is not used; RS256 is explicitly restricted. |
+
+The reachable case is an availability concern rather than an authentication
+bypass: repeated invalid connection attempts can amplify requests to Cognito's
+JWKS endpoint. There is no repository-defined connection throttle.
+
+**Remediation:** pin PyJWT with crypto extras to 2.13.0 or a reviewed compatible
+less-than-3 range, rebuild the authorizer ZIP for Lambda arm64 under a new
+immutable artifact key, deploy it, and test both a valid Cognito connection and
+malformed unknown-kid rejection. Add connection-attempt monitoring/limits
+separately.
+
+### SEC-19 — New — Low — expired S3 presigned URLs remain in Git history
+
+Targeted current-tree scanning found no AWS access keys, private-key blocks,
+GitHub/Slack tokens, or presigned URL credential parameters. A history scan
+did find old mock/test diffs containing S3 presigned URLs with temporary STS
+credentials. The most recent observed URL had already expired before this
+reassessment, so it cannot currently be replayed.
+
+**Impact:** if the repository was accessible while a URL remained valid, a
+reader could have fetched its specific S3 object. A history rewrite does not
+undo a prior download.
+
+**Remediation:** add a CI secret-scanning rule for presigned URL credential
+parameters, never commit generated links, and decide whether a coordinated
+history rewrite is warranted based on repository exposure. If future active
+credentials are committed, revoke/rotate them immediately rather than relying
+on Git history changes.
 
 ## Verified controls
 
-- All active Job API routes use the API Gateway JWT authorizer.
-- Job ownership comes from the Cognito `sub`; reads/deletion enforce ownership and use opaque 404 responses.
-- Browser uploads use exact-key, canonical-content-type, metadata, short-expiry, signed POST policies with a content-length range.
-- Batch verifies the durable job/key, object size, and FFprobe-readable audio duration before Demucs; it uses an argv list rather than a shell.
-- MIDI workers verify each stem key against durable job state.
-- The WebSocket authorizer validates issuer, audience, expiry, RS256, `sub`, and `token_use`; subscriptions check ownership.
-- S3 buckets are private, versioned, encrypted with SSE-S3, bucket-owner enforced, and use origin-specific CORS. DynamoDB tables have SSE, TTL, and point-in-time recovery.
-- Targeted current-tree and Git-history scans found no AWS access-key IDs, private-key blocks, GitHub tokens, Slack tokens, or standard secret-assignment patterns. This is not a replacement for a dedicated secret scanner in CI.
+- Active Job API routes use API Gateway JWT authorization; job reads,
+  subscriptions, and deletion enforce Cognito-sub ownership with opaque 404s.
+- Browser ingestion uses short-lived exact-key, canonical-content-type,
+  metadata-bearing presigned POST policies with a size range.
+- Batch validates durable job/key state, source byte size, and FFprobe-readable
+  audio duration before Demucs. Its subprocess invocation uses a fixed argv
+  list, shell=False, and a timeout; Bandit raised no high-severity Python
+  finding.
+- MIDI workers validate a stem key against durable job state before output.
+- S3 buckets are private, versioned, encrypted, bucket-owner-enforced, and
+  CORS-scoped; DynamoDB uses encryption, TTL, and point-in-time recovery.
+- The WebSocket authorizer validates issuer, audience, expiry, RS256, sub, and
+  token_use; SEC-18 concerns how it obtains a signing key for invalid requests,
+  not the normal validation rules.
+- The demo catalog uses same-origin asset paths, pending signup storage
+  contains only an email/display name, and the production bundle contains no
+  source maps.
 
 ## Commands and limitations
 
 | Check | Result |
 | --- | --- |
-| `npm audit --omit=dev --json` | 2 high production findings (React Router pair) |
-| `npm audit --json` | 4 high total findings (adds PostCSS and Nanoid) |
-| `npm audit fix --dry-run --json` | identified the patched versions in SEC-01; no files changed |
-| `npm run lint` | completed with pre-existing warnings; no security-lint rule set is configured |
-| `python3 -m py_compile` for active Cloud handlers | passed |
-| Targeted `git grep` / `git log -G` secret checks | no hits for the stated patterns |
-| Docker Scout, four local worker images | critical/high findings recorded in SEC-07 |
-| Source/IaC/Docker review | completed manually |
-| Live AWS review | not performed because the local AWS session expired |
+| npm audit --omit=dev --json | 2 high production advisories (React Router pair) |
+| npm audit --json | 4 high total advisories (adds PostCSS and Nanoid) |
+| npm audit fix --dry-run --json | identified the patched versions in SEC-01; no dependency files changed |
+| pip-audit against yt-dlp requirements | no known vulnerabilities |
+| local DSP virtual environment | not a deployment artifact; its ignored setuptools copy has a developer-hygiene advisory and should be refreshed separately |
+| pip-audit against WebSocket-authorizer requirements | PyJWT 2.10.1 advisories recorded in SEC-18 |
+| bandit -r src/DSP/src/Cloud -x lambdazip | 0 high; temporary-path and fixed-argv subprocess warnings were reviewed |
+| Docker Scout quickview | fresh local counts recorded for Basic Pitch, ADTOF, and yt-dlp; Demucs re-index did not complete |
+| Production build and targeted frontend sink search | build succeeds; no source maps or active unsafe DOM/script sinks found |
+| Targeted current-tree / Git-history secret review | current tree clear for targeted patterns; expired historical presigned URLs recorded in SEC-19 |
+| Live website header request | CSP, HSTS, DENY anti-framing, nosniff, and referrer policy verified |
+| Live AWS IAM/ECR/stack-drift review | not performed because the local AWS CLI session had expired |
 
-`semgrep`, `bandit`, `gitleaks`, `trivy`, `checkov`, `cfn-lint`, and `pip-audit` were not available in this environment. Add them to CI, scan published ECR images on every push, and repeat the review against the live account after authentication is restored.
+Docker Scout was version 1.15.1 and reported an available CLI update. Scout
+quickview counts are vulnerability inventory, not proof that every listed CVE
+is reachable in CloudDSP code. Run ECR image scans against deployed digest
+references after AWS reauthentication and gate releases on the resulting
+triage.
 
 ## Remediation order
 
-1. Update JavaScript dependencies and re-run the production audit.
-2. Add per-user quotas, throttles, and cost/abuse monitoring.
-3. Lock down deployment: immutable artifacts/images, signed releases, and a least-privilege deployment role.
-4. Close SSRF, unrestricted egress, and cross-job worker-role gaps.
-5. Add browser headers, token/logging protection, TLS enforcement, and secret management.
-6. Remove dormant legacy handlers and the old presigned-PUT compatibility path.
+1. Upgrade PyJWT and rebuild/deploy the WebSocket-authorizer ZIP; then update
+   the four JavaScript advisory paths in an isolated dependency change.
+2. Triage/refresh worker images, make tags immutable, deploy by digest, and
+   run Demucs as a non-root user.
+3. Reduce deployment authority and use immutable/signed templates and ZIPs.
+4. Add active-job/byte/rate abuse limits, route throttles, and operational
+   monitoring.
+5. Narrow worker S3 permissions and finish SSRF/egress containment.
+6. Replace the query-string socket token with a short-lived ticket, remove
+   dormant handlers, and add history-aware secret scanning.

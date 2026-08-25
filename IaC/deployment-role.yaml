@@ -17,7 +17,95 @@ Parameters:
     Description: Deployment environment included in the execution-role name.
     AllowedPattern: '^[a-z][a-z0-9-]{0,15}$'
 
+  WebsiteHostedZoneId:
+    Type: String
+    Default: ''
+    Description: >-
+      Optional Route 53 hosted-zone ID used by the CloudDSP website. When
+      supplied, the execution role may manage records only in this zone.
+    AllowedPattern: '^$|^Z[A-Z0-9]+$'
+
+Conditions:
+  HasWebsiteHostedZone: !Not [!Equals [!Ref WebsiteHostedZoneId, '']]
+
 Resources:
+  CloudDSPRuntimePermissionsBoundary:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${ProjectName}-${EnvironmentName}-CloudDSPRuntimeBoundary'
+      Description: !Sub 'Maximum permissions for ${ProjectName} ${EnvironmentName} runtime roles.'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          # Runtime identity policies grant the smaller operation-specific
+          # subsets. This boundary prevents a compromised deployment artifact
+          # from turning a CloudDSP runtime role into an account administrator.
+          - Sid: CloudDSPObjectStorage
+            Effect: Allow
+            Action: s3:*
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:s3:::${ProjectName}-*'
+              - !Sub 'arn:${AWS::Partition}:s3:::${ProjectName}-*/*'
+          - Sid: CloudDSPDataStores
+            Effect: Allow
+            Action: dynamodb:*
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProjectName}-${EnvironmentName}-*'
+              - !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProjectName}-${EnvironmentName}-*/index/*'
+          - Sid: CloudDSPFunctionInvocation
+            Effect: Allow
+            Action: lambda:InvokeFunction
+            Resource: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProjectName}-${EnvironmentName}-*'
+          - Sid: CloudDSPWebSocketNotifications
+            Effect: Allow
+            Action: execute-api:ManageConnections
+            Resource: !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:*/*'
+          - Sid: CloudDSPBatchSubmission
+            Effect: Allow
+            Action: batch:SubmitJob
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:batch:${AWS::Region}:${AWS::AccountId}:job-queue/${ProjectName}-${EnvironmentName}-*'
+              - !Sub 'arn:${AWS::Partition}:batch:${AWS::Region}:${AWS::AccountId}:job-definition/${ProjectName}-${EnvironmentName}-*:*'
+          - Sid: CloudDSPProxyParameter
+            Effect: Allow
+            Action:
+              - ssm:DeleteParameter
+              - ssm:GetParameter
+              - ssm:PutParameter
+            Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectName}/${EnvironmentName}/*'
+          - Sid: CloudDSPParameterCrypto
+            Effect: Allow
+            Action:
+              - kms:Decrypt
+              - kms:Encrypt
+            Resource: !Sub 'arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/*'
+          - Sid: RuntimeLogging
+            Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: '*'
+          - Sid: BatchEcsHost
+            Effect: Allow
+            Action:
+              - ec2:DescribeTags
+              - ecs:CreateCluster
+              - ecs:DeregisterContainerInstance
+              - ecs:DiscoverPollEndpoint
+              - ecs:Poll
+              - ecs:RegisterContainerInstance
+              - ecs:StartTelemetrySession
+              - ecs:TagResource
+              - ecs:UpdateContainerInstancesState
+              - ecs:Submit*
+              - ecs:ListTagsForResource
+              - ecr:GetAuthorizationToken
+              - ecr:BatchCheckLayerAvailability
+              - ecr:GetDownloadUrlForLayer
+              - ecr:BatchGetImage
+            Resource: '*'
+
   CloudFormationExecutionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -31,12 +119,399 @@ Resources:
             Principal:
               Service: cloudformation.amazonaws.com
             Action: sts:AssumeRole
-      # This role must create every resource in all nested components, including
-      # IAM roles, the Batch service-linked role, Lambda functions, networking,
-      # and their dependent policies. Start with this explicit bootstrap role;
-      # narrow it only after CloudTrail confirms the full required action set.
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/AdministratorAccess
+      # This bootstrap role is intentionally separate from the root stack:
+      # CloudFormation requires a service role to exist before it can assume it
+      # for a CreateStack or UpdateStack operation. The statements below cover
+      # only the CloudDSP component resource types and naming boundaries.
+      Policies:
+        - PolicyName: !Sub '${ProjectName}-${EnvironmentName}-CloudFormationIamProvisioning'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ManageCloudDSPRuntimeRoleConfiguration
+                Effect: Allow
+                Action:
+                  - iam:DeleteRole
+                  - iam:DeleteRolePolicy
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:ListAttachedRolePolicies
+                  - iam:ListRolePolicies
+                  - iam:PutRolePolicy
+                  - iam:TagRole
+                  - iam:UntagRole
+                  - iam:UpdateAssumeRolePolicy
+                  - iam:UpdateRole
+                  - iam:UpdateRoleDescription
+                Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ProjectName}-${EnvironmentName}-*'
+              - Sid: CreateAndBoundCloudDSPRuntimeRoles
+                Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:PutRolePermissionsBoundary
+                Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ProjectName}-${EnvironmentName}-*'
+                Condition:
+                  StringEquals:
+                    iam:PermissionsBoundary: !Ref CloudDSPRuntimePermissionsBoundary
+              - Sid: AttachOnlyRequiredAwsManagedRuntimePolicies
+                Effect: Allow
+                Action:
+                  - iam:AttachRolePolicy
+                  - iam:DetachRolePolicy
+                Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ProjectName}-${EnvironmentName}-*'
+                Condition:
+                  ArnEquals:
+                    iam:PolicyARN:
+                      - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+                      - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role'
+              - Sid: ManageCloudDSPInstanceProfiles
+                Effect: Allow
+                Action:
+                  - iam:AddRoleToInstanceProfile
+                  - iam:CreateInstanceProfile
+                  - iam:DeleteInstanceProfile
+                  - iam:GetInstanceProfile
+                  - iam:ListInstanceProfilesForRole
+                  - iam:RemoveRoleFromInstanceProfile
+                  - iam:TagInstanceProfile
+                  - iam:UntagInstanceProfile
+                Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:instance-profile/${ProjectName}-${EnvironmentName}-BatchEcsInstanceProfile'
+              - Sid: PassOnlyCloudDSPRuntimeRoles
+                Effect: Allow
+                Action: iam:PassRole
+                Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ProjectName}-${EnvironmentName}-*'
+                Condition:
+                  StringEquals:
+                    iam:PassedToService:
+                      - ec2.amazonaws.com
+                      - ecs-tasks.amazonaws.com
+                      - events.amazonaws.com
+                      - lambda.amazonaws.com
+              - Sid: ReadAwsManagedRuntimePolicies
+                Effect: Allow
+                Action:
+                  - iam:GetPolicy
+                  - iam:GetPolicyVersion
+                Resource: !Sub 'arn:${AWS::Partition}:iam::aws:policy/*'
+              - Sid: DenyCloudFormationExecutionRoleMutation
+                Effect: Deny
+                Action:
+                  - iam:AttachRolePolicy
+                  - iam:DeleteRole
+                  - iam:DeleteRolePolicy
+                  - iam:DeleteRolePermissionsBoundary
+                  - iam:DetachRolePolicy
+                  - iam:PassRole
+                  - iam:PutRolePolicy
+                  - iam:PutRolePermissionsBoundary
+                  - iam:TagRole
+                  - iam:UntagRole
+                  - iam:UpdateAssumeRolePolicy
+                  - iam:UpdateRole
+                  - iam:UpdateRoleDescription
+                Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${ProjectName}-${EnvironmentName}-CloudFormationExecutionRole'
+              - Sid: ReadCloudDSPRuntimeBoundary
+                Effect: Allow
+                Action:
+                  - iam:GetPolicy
+                  - iam:GetPolicyVersion
+                Resource: !Ref CloudDSPRuntimePermissionsBoundary
+              - Sid: CreateBatchServiceLinkedRole
+                Effect: Allow
+                Action:
+                  - iam:CreateServiceLinkedRole
+                  - iam:GetRole
+                Resource: !Sub 'arn:${AWS::Partition}:iam::*:role/aws-service-role/batch.amazonaws.com/*'
+                Condition:
+                  StringEquals:
+                    iam:AWSServiceName: batch.amazonaws.com
+
+        - PolicyName: !Sub '${ProjectName}-${EnvironmentName}-CloudFormationStorageAndData'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ManageCloudDSPS3Buckets
+                Effect: Allow
+                Action:
+                  - s3:CreateBucket
+                  - s3:DeleteBucket
+                  - s3:DeleteBucketPolicy
+                  - s3:DeleteBucketWebsite
+                  - s3:DeletePublicAccessBlock
+                  - s3:GetBucketAcl
+                  - s3:GetBucketCORS
+                  - s3:GetBucketEncryption
+                  - s3:GetBucketLifecycleConfiguration
+                  - s3:GetBucketLocation
+                  - s3:GetBucketNotification
+                  - s3:GetBucketOwnershipControls
+                  - s3:GetBucketPolicy
+                  - s3:GetBucketPolicyStatus
+                  - s3:GetBucketPublicAccessBlock
+                  - s3:GetBucketTagging
+                  - s3:GetBucketVersioning
+                  - s3:GetBucketWebsite
+                  - s3:ListBucket
+                  - s3:PutBucketCORS
+                  - s3:PutBucketEncryption
+                  - s3:PutBucketLifecycleConfiguration
+                  - s3:PutBucketNotification
+                  - s3:PutBucketOwnershipControls
+                  - s3:PutBucketPolicy
+                  - s3:PutBucketPublicAccessBlock
+                  - s3:PutBucketTagging
+                  - s3:PutBucketVersioning
+                  - s3:PutBucketWebsite
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${ProjectName}-*'
+              - Sid: ManageCloudDSPDynamoTables
+                Effect: Allow
+                Action:
+                  - dynamodb:CreateTable
+                  - dynamodb:DeleteTable
+                  - dynamodb:DescribeContinuousBackups
+                  - dynamodb:DescribeTable
+                  - dynamodb:DescribeTimeToLive
+                  - dynamodb:ListTagsOfResource
+                  - dynamodb:TagResource
+                  - dynamodb:UntagResource
+                  - dynamodb:UpdateContinuousBackups
+                  - dynamodb:UpdateTable
+                  - dynamodb:UpdateTimeToLive
+                Resource: !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProjectName}-${EnvironmentName}-*'
+              - Sid: ManageCloudDSPEcrRepositories
+                Effect: Allow
+                Action:
+                  - ecr:CreateRepository
+                  - ecr:DeleteLifecyclePolicy
+                  - ecr:DeleteRepository
+                  - ecr:DescribeImages
+                  - ecr:DescribeRepositories
+                  - ecr:GetLifecyclePolicy
+                  - ecr:GetRepositoryPolicy
+                  - ecr:ListTagsForResource
+                  - ecr:PutImageScanningConfiguration
+                  - ecr:PutImageTagMutability
+                  - ecr:PutLifecyclePolicy
+                  - ecr:SetRepositoryPolicy
+                  - ecr:TagResource
+                  - ecr:UntagResource
+                Resource: !Sub 'arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${ProjectName}/*'
+              - Sid: ManageCloudDSPSqsQueues
+                Effect: Allow
+                Action:
+                  - sqs:CreateQueue
+                  - sqs:DeleteQueue
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                  - sqs:ListQueueTags
+                  - sqs:SetQueueAttributes
+                  - sqs:TagQueue
+                  - sqs:UntagQueue
+                Resource: !Sub 'arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:${ProjectName}-${EnvironmentName}-*'
+
+        - PolicyName: !Sub '${ProjectName}-${EnvironmentName}-CloudFormationComputeAndApis'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ManageCloudDSPNetwork
+                Effect: Allow
+                Action:
+                  - ec2:AssociateRouteTable
+                  - ec2:AttachInternetGateway
+                  - ec2:AuthorizeSecurityGroupEgress
+                  - ec2:AuthorizeSecurityGroupIngress
+                  - ec2:CreateInternetGateway
+                  - ec2:CreateRoute
+                  - ec2:CreateRouteTable
+                  - ec2:CreateSecurityGroup
+                  - ec2:CreateSubnet
+                  - ec2:CreateTags
+                  - ec2:CreateVpc
+                  - ec2:CreateVpcEndpoint
+                  - ec2:DeleteInternetGateway
+                  - ec2:DeleteRoute
+                  - ec2:DeleteRouteTable
+                  - ec2:DeleteSecurityGroup
+                  - ec2:DeleteSubnet
+                  - ec2:DeleteTags
+                  - ec2:DeleteVpc
+                  - ec2:DeleteVpcEndpoints
+                  - ec2:Describe*
+                  - ec2:DetachInternetGateway
+                  - ec2:DisassociateRouteTable
+                  - ec2:ModifySubnetAttribute
+                  - ec2:ModifyVpcAttribute
+                  - ec2:ModifyVpcEndpoint
+                  - ec2:ReplaceRoute
+                  - ec2:RevokeSecurityGroupEgress
+                  - ec2:RevokeSecurityGroupIngress
+                Resource: '*'
+              - Sid: ManageCloudDSPBatch
+                Effect: Allow
+                Action:
+                  - batch:CreateComputeEnvironment
+                  - batch:CreateJobQueue
+                  - batch:DeleteComputeEnvironment
+                  - batch:DeleteJobQueue
+                  - batch:DeregisterJobDefinition
+                  - batch:DescribeComputeEnvironments
+                  - batch:DescribeJobDefinitions
+                  - batch:DescribeJobQueues
+                  - batch:RegisterJobDefinition
+                  - batch:TagResource
+                  - batch:UntagResource
+                  - batch:UpdateComputeEnvironment
+                  - batch:UpdateJobQueue
+                Resource: '*'
+              - Sid: ManageCloudDSPFunctions
+                Effect: Allow
+                Action:
+                  - lambda:AddPermission
+                  - lambda:CreateFunction
+                  - lambda:DeleteFunction
+                  - lambda:GetFunction
+                  - lambda:GetFunctionCodeSigningConfig
+                  - lambda:GetFunctionConfiguration
+                  - lambda:GetPolicy
+                  - lambda:RemovePermission
+                  - lambda:TagResource
+                  - lambda:UntagResource
+                  - lambda:UpdateFunctionCode
+                  - lambda:UpdateFunctionConfiguration
+                Resource: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProjectName}-${EnvironmentName}-*'
+              - Sid: ManageCloudDSPLogGroups
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:DeleteLogGroup
+                  - logs:ListTagsForResource
+                  - logs:PutRetentionPolicy
+                  - logs:TagResource
+                  - logs:UntagResource
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/*/${ProjectName}-${EnvironmentName}-*'
+              - Sid: DescribeLogGroupsForCloudFormationReconciliation
+                Effect: Allow
+                Action: logs:DescribeLogGroups
+                Resource: '*'
+              - Sid: ManageCloudDSPEventRules
+                Effect: Allow
+                Action:
+                  - events:DeleteRule
+                  - events:DescribeRule
+                  - events:ListTargetsByRule
+                  - events:PutRule
+                  - events:PutTargets
+                  - events:RemoveTargets
+                  - events:TagResource
+                  - events:UntagResource
+                Resource: !Sub 'arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/${ProjectName}-${EnvironmentName}-*'
+              - Sid: ManageCloudDSPHttpAndWebSocketApis
+                Effect: Allow
+                Action:
+                  - apigateway:DELETE
+                  - apigateway:GET
+                  - apigateway:PATCH
+                  - apigateway:POST
+                  - apigateway:PUT
+                  - apigateway:TagResource
+                  - apigateway:UntagResource
+                Resource: '*'
+              - Sid: ManageCloudDSPCognito
+                Effect: Allow
+                Action:
+                  - cognito-idp:CreateUserPool
+                  - cognito-idp:CreateUserPoolClient
+                  - cognito-idp:DeleteUserPool
+                  - cognito-idp:DeleteUserPoolClient
+                  - cognito-idp:DescribeUserPool
+                  - cognito-idp:DescribeUserPoolClient
+                  - cognito-idp:ListTagsForResource
+                  - cognito-idp:TagResource
+                  - cognito-idp:UntagResource
+                  - cognito-idp:UpdateUserPool
+                  - cognito-idp:UpdateUserPoolClient
+                Resource: '*'
+
+        - PolicyName: !Sub '${ProjectName}-${EnvironmentName}-CloudFormationEdgeAndCrypto'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ManageCloudDSPKmsKey
+                Effect: Allow
+                Action:
+                  - kms:CancelKeyDeletion
+                  - kms:CreateAlias
+                  - kms:CreateKey
+                  - kms:DeleteAlias
+                  - kms:DescribeKey
+                  - kms:DisableKey
+                  - kms:EnableKey
+                  - kms:EnableKeyRotation
+                  - kms:GetKeyPolicy
+                  - kms:GetKeyRotationStatus
+                  - kms:ListAliases
+                  - kms:ListResourceTags
+                  - kms:PutKeyPolicy
+                  - kms:ScheduleKeyDeletion
+                  - kms:TagResource
+                  - kms:UntagResource
+                  - kms:UpdateAlias
+                Resource: '*'
+              - Sid: ManageCloudDSPCloudFront
+                Effect: Allow
+                Action:
+                  - cloudfront:CreateDistribution
+                  - cloudfront:CreateFunction
+                  - cloudfront:CreateOriginAccessControl
+                  - cloudfront:CreateResponseHeadersPolicy
+                  - cloudfront:DeleteDistribution
+                  - cloudfront:DeleteFunction
+                  - cloudfront:DeleteOriginAccessControl
+                  - cloudfront:DeleteResponseHeadersPolicy
+                  - cloudfront:DescribeFunction
+                  - cloudfront:GetDistribution
+                  - cloudfront:GetDistributionConfig
+                  - cloudfront:GetFunction
+                  - cloudfront:GetFunctionConfig
+                  - cloudfront:GetOriginAccessControl
+                  - cloudfront:GetResponseHeadersPolicy
+                  - cloudfront:ListDistributions
+                  - cloudfront:ListOriginAccessControls
+                  - cloudfront:ListResponseHeadersPolicies
+                  - cloudfront:PublishFunction
+                  - cloudfront:TagResource
+                  - cloudfront:UntagResource
+                  - cloudfront:UpdateDistribution
+                  - cloudfront:UpdateFunction
+                  - cloudfront:UpdateOriginAccessControl
+                  - cloudfront:UpdateResponseHeadersPolicy
+                Resource: '*'
+              - Sid: ManageCloudDSPCertificate
+                Effect: Allow
+                Action:
+                  - acm:AddTagsToCertificate
+                  - acm:DeleteCertificate
+                  - acm:DescribeCertificate
+                  - acm:ListTagsForCertificate
+                  - acm:RequestCertificate
+                  - acm:RemoveTagsFromCertificate
+                Resource: '*'
+              - !If
+                - HasWebsiteHostedZone
+                - Sid: ManageConfiguredWebsiteHostedZone
+                  Effect: Allow
+                  Action:
+                    - route53:ChangeResourceRecordSets
+                    - route53:GetHostedZone
+                    - route53:ListResourceRecordSets
+                  Resource: !Sub 'arn:${AWS::Partition}:route53:::hostedzone/${WebsiteHostedZoneId}'
+                - !Ref AWS::NoValue
+              - Sid: ReadRoute53ChangeStatus
+                Effect: Allow
+                Action:
+                  - route53:GetChange
+                  - route53:ListHostedZonesByName
+                Resource: '*'
       Tags:
         - Key: Project
           Value: !Ref ProjectName
@@ -44,6 +519,46 @@ Resources:
           Value: !Ref EnvironmentName
         - Key: Component
           Value: deployment
+
+  CloudFormationOrchestrationPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${ProjectName}-${EnvironmentName}-CloudFormationOrchestration'
+      Roles:
+        - !Ref CloudFormationExecutionRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: ManageCloudDSPNestedStacks
+            Effect: Allow
+            Action:
+              - cloudformation:CreateStack
+              - cloudformation:UpdateStack
+              - cloudformation:DeleteStack
+              - cloudformation:CreateChangeSet
+              - cloudformation:ExecuteChangeSet
+              - cloudformation:DeleteChangeSet
+              - cloudformation:DescribeChangeSet
+              - cloudformation:DescribeStackEvents
+              - cloudformation:DescribeStackResource
+              - cloudformation:DescribeStackResources
+              - cloudformation:DescribeStacks
+              - cloudformation:GetTemplate
+              - cloudformation:ListStackResources
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ProjectName}'
+              - !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ProjectName}/*'
+              - !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ProjectName}-*/*'
+          - Sid: ReadCloudDSPDeploymentArtifacts
+            Effect: Allow
+            Action:
+              - s3:GetBucketLocation
+              - s3:ListBucket
+              - s3:GetObject
+              - s3:GetObjectVersion
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:s3:::${ProjectName}-*'
+              - !Sub 'arn:${AWS::Partition}:s3:::${ProjectName}-*/*'
 
 Outputs:
   CloudFormationExecutionRoleArn:

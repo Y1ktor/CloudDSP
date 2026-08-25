@@ -106,6 +106,7 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Sub '${ProjectName}-${EnvironmentName}-MidiExtractionRole'
+      PermissionsBoundary: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${ProjectName}-${EnvironmentName}-CloudDSPRuntimeBoundary'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -123,8 +124,11 @@ Resources:
               - Effect: Allow
                 Action:
                   - s3:GetObject
+                Resource: !Sub '${ProcessedAudioBucketArn}/stems/*'
+              - Effect: Allow
+                Action:
                   - s3:PutObject
-                Resource: !Sub '${ProcessedAudioBucketArn}/*'
+                Resource: !Sub '${ProcessedAudioBucketArn}/midi/*'
         - PolicyName: !Sub '${ProjectName}-${EnvironmentName}-MidiExtractionUpdateJobs'
           PolicyDocument:
             Version: '2012-10-17'

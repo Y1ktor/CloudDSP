@@ -139,6 +139,7 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Sub '${ProjectName}-${EnvironmentName}-JobApiRole'
+      PermissionsBoundary: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${ProjectName}-${EnvironmentName}-CloudDSPRuntimeBoundary'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -197,7 +198,9 @@ Resources:
               - Effect: Allow
                 Action:
                   - s3:GetObject
-                Resource: !Sub '${ProcessedAudioBucketArn}/*'
+                Resource:
+                  - !Sub '${ProcessedAudioBucketArn}/stems/*'
+                  - !Sub '${ProcessedAudioBucketArn}/midi/*'
               - Effect: Allow
                 Action:
                   - s3:ListBucketVersions

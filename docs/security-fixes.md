@@ -6,6 +6,30 @@ so its remediation remains traceable to the assessment. **Fixed** means the
 specified remediation is implemented in the repository; it does not imply that
 all residual risk has disappeared.
 
+## 2026-08-25 reassessment
+
+This scan did not implement another code or infrastructure change. It validates
+the controls recorded below against the current source/configuration and the
+available local images. The current finding status is maintained in
+[security.md](security.md#2026-08-25-reassessment-register); this register
+keeps the original implementation rationale and records the change in
+assessment.
+
+| Finding | Reassessment result |
+| --- | --- |
+| SEC-02 | The atomic UTC daily quota implementation is present and working as designed; it remains a submission-count limit, not full abuse control. |
+| SEC-03 | AdministratorAccess has been removed. The execution role is CloudDSP-scoped and runtime roles have a maximum-permission boundary; immutable artifact provenance remains a follow-up. |
+| SEC-04 | The initial URL allowlist/DNS control is implemented. It is now classified as partially fixed because redirects, DNS rebinding, and unrestricted ingestion egress remain. |
+| SEC-05 | Demucs, MIDI, and Job API S3 grants are separated by uploads/stems/MIDI prefix. Shared worker roles still cannot be constrained to one runtime job ID. |
+| SEC-06 | The 14-day Job API, DynamoDB, and S3 lifecycle boundary remains implemented. |
+| SEC-08 | The CSP is live at the CloudFront-hosted website, together with HSTS, anti-framing, nosniff, and referrer-policy headers. |
+| SEC-10 | The SSM SecureString/KMS design remains present in source. Live AWS drift could not be checked because the local AWS session expired. |
+| SEC-11 | POST-only browser/API handling is still implemented. S3 CORS retaining an unused PUT method is a cleanup item, not a restored bypass. |
+| SEC-13 | Environment-file tracking remains fixed. The history review found expired presigned URLs in old mock/test diffs; see new SEC-19. |
+| SEC-14 | TLS deny now covers the uploads, processed-audio, website, and demo-assets buckets; audit visibility remains intentionally deferred. |
+| SEC-15 / SEC-16 | The documented deferred temporary-path hardening and accepted public-Batch egress decision are unchanged. |
+| SEC-18 / SEC-19 | Newly discovered PyJWT CVEs and historic expired presigned URLs have no remediation yet. |
+
 ## SEC-02 — Partially fixed — per-user daily job quotas
 
 **Fixed on:** 2026-08-24
@@ -46,10 +70,72 @@ upload `jobs.yaml`, `api.yaml`, and `cloud-dsp.yaml`, then update the root stack
 with that new ZIP key. The root parameters default to five
 `MaxDailyDirectUploadJobs` and three `MaxDailyYtDlpJobs` per UTC day.
 
-## SEC-04 — Fixed — strict linked-media source allowlist
+## SEC-03 — Fixed, narrowed residual — bounded CloudFormation and runtime authority
+
+**Fixed on:** 2026-08-25
+
+### Implemented control
+
+`deployment-role.yaml` replaces the bootstrap role's
+`AdministratorAccess` attachment with CloudDSP-specific provisioning policies.
+It scopes name-addressable resources to the `ProjectName`/`EnvironmentName`
+namespace, confines Route 53 record updates to the supplied hosted zone, limits
+`iam:PassRole` to CloudDSP runtime roles and the four expected services, and
+allows only the two AWS-managed runtime policies actually used by the templates.
+The role is explicitly denied any mutation or pass-role use of itself.
+
+The same bootstrap stack creates the
+`${ProjectName}-${EnvironmentName}-CloudDSPRuntimeBoundary` managed policy.
+Every API, WebSocket, yt-dlp, Batch, Demucs, EventBridge, and MIDI runtime role
+declares it as `PermissionsBoundary`. The boundary is the maximum capability;
+the individual role policy remains the smaller operational grant. This blocks a
+template from escalating a runtime role into general account administration.
+
+### Verification
+
+The deployed `clouddsp-cloudformation-adminRole`, API, realtime, ingestion,
+processing, and MIDI stacks reached `UPDATE_COMPLETE`. IAM inspection confirmed
+that `AdministratorAccess` is not attached to the execution role and every
+active runtime role has the CloudDSP runtime boundary.
+
+### Residual risk
+
+Certain create APIs cannot be resource-scoped by AWS, so narrowly enumerated
+EC2, Batch, API Gateway, Cognito, KMS, CloudFront, and ACM actions retain
+`Resource: "*"`. Mutable template ZIP/S3 keys and mutable ECR tags remain an
+artifact-integrity concern. They can change CloudDSP resources within the
+boundary, but cannot recreate general administrator capability through a
+runtime role.
+
+## SEC-05 — Partially fixed — purpose-scoped worker artifact access
+
+**Fixed on:** 2026-08-25
+
+### Implemented control
+
+The deployed Demucs task role now has `s3:GetObject` on `uploads/*` and
+`s3:PutObject` on `stems/*` only. The shared Basic Pitch/ADTOF role has
+`s3:GetObject` on `stems/*` and `s3:PutObject` on `midi/*` only. The Job API
+has no broad processed-bucket read: it reads the uploads, stems, and MIDI
+prefixes required to issue URLs and delete an owned terminal job.
+
+### Residual risk
+
+The deployed identity is shared by all jobs. It cannot be parameterized by the
+event's job ID, so a compromised worker remains able to access a different
+valid job prefix within its operational category. Strong tenant isolation would
+require per-job STS credentials/session tags or a job-aware object-access
+broker.
+
+## SEC-04 — Partially fixed — strict linked-media source allowlist
 
 **Fixed on:** 2026-08-15
-**Original finding:** [SEC-04 in the security assessment](security.md#sec-04--fixed--medium--linked-media-url-validation-does-not-fully-contain-ssrf)
+
+**2026-08-25 status:** The allowlist implementation is verified, but the
+overall SSRF finding is **partially fixed**, not fully closed. The residual
+redirect/DNS/egress limitation below remains material.
+
+**Original finding:** [SEC-04 in the security assessment](security.md#sec-04--partially-fixed--medium--linked-media-url-validation-reduces-but-does-not-eliminate-ssrf)
 
 ### Implemented control
 
@@ -104,7 +190,7 @@ the prior artifact.
 
 **Fixed on:** 2026-08-16
 
-**Original finding:** [SEC-06 in the security assessment](security.md#sec-06--fixed--medium--s3-retention-was-not-aligned-with-job-retention)
+**Original finding:** [SEC-06 in the security assessment](security.md#sec-06--fixed--14-day-job-and-artifact-retention-is-aligned)
 
 ### Implemented control
 
@@ -131,7 +217,11 @@ window, not promise deletion at an exact clock time.
 
 **Fixed on:** 2026-08-16
 
-**Original finding:** [SEC-08 in the security assessment](security.md#sec-08--fixed--medium--browser-session-material-lacked-xss-containment)
+**2026-08-25 status:** Verified live at the CloudFront website. The response
+includes CSP, HSTS, X-Frame-Options DENY, X-Content-Type-Options nosniff, and
+the documented referrer policy.
+
+**Original finding:** [SEC-08 in the security assessment](security.md#sec-08--fixed--csp-based-xss-containment-is-live)
 
 ### Implemented control
 
@@ -150,20 +240,26 @@ and event-handler attributes are blocked.
 
 ### Residual limitation and deployment action
 
+**Reassessment correction:** The repository now has a CloudFront hosting
+component and the live production host sends the CSP as an HTTP response
+header, so frame-ancestors is enforced. The policy still permits wildcard
+virtual-hosted S3 origins for dynamic presigned URLs, and no Permissions-Policy
+header is currently sent. Narrow S3 origins where feasible and add a
+restrictive permissions policy as defense in depth.
+
 This is XSS containment, not a replacement for HttpOnly session cookies. A
 same-origin script that already runs can still read Cognito's browser storage.
-The static built HTML enforces the policy even on basic static hosting, but the
-production host must also send the exact production policy as a
-`Content-Security-Policy` response header. A header is also required for
-`frame-ancestors` to prevent CloudDSP itself from being framed. This repository
-has no frontend hosting component, so configure that header in the existing
-host/CDN.
+The static built HTML remains a useful secondary enforcement point, but the
+CloudFront response-header policy is the production enforcement boundary.
 
 ## SEC-10 — Fixed — encrypted Parameter Store proxy credential
 
 **Fixed on:** 2026-08-16
 
-**Original finding:** [SEC-10 in the security assessment](security.md#sec-10--fixed--medium--proxy-credentials-were-plaintext-lambda-configuration)
+**2026-08-25 status:** Source/IaC controls remain verified. The local AWS
+session expired before a live parameter/IAM drift check could run.
+
+**Original finding:** [SEC-10 in the security assessment](security.md#sec-10--fixed--proxy-credentials-are-not-plaintext-lambda-configuration)
 
 ### Implemented control
 
@@ -193,7 +289,11 @@ until the proxy provider offers a reliable rotation API.
 
 **Fixed on:** 2026-08-16
 
-**Original finding:** [SEC-11 in the security assessment](security.md#sec-11--fixed--legacy-presigned-put-upload-fallback-weakened-size-enforcement)
+**2026-08-25 status:** The active browser and Job API source still use only
+the content-length-constrained POST contract. The bucket CORS rule's unused
+PUT allowance should be removed when compatibility permits.
+
+**Original finding:** [SEC-11 in the security assessment](security.md#sec-11--fixed--direct-uploads-are-post-only-and-size-constrained)
 
 ### Implemented control
 
@@ -214,7 +314,12 @@ backend deployment alone.
 
 **Fixed on:** 2026-08-16
 
-**Original finding:** [SEC-13 in the security assessment](security.md#sec-13--fixed--tracked-frontend-env-invited-future-secret-exposure)
+**2026-08-25 status:** Environment-file tracking remains fixed. The old
+frontend environment file contained only public browser identifiers, but the
+history scan separately found expired presigned URLs in old mock/test diffs.
+See SEC-19 in security.md.
+
+**Original finding:** [SEC-13 in the security assessment](security.md#sec-13--fixed--frontend-environment-files-are-no-longer-tracked)
 
 ### Implemented control
 
@@ -236,20 +341,23 @@ only public identifiers/endpoints, so no credential rotation is required for
 this cleanup. Revoke and rotate any genuine secret immediately if one is ever
 committed in the future.
 
-## SEC-14 — Partially fixed — enforce TLS for audio buckets
+## SEC-14 — Partially fixed — enforce TLS for IaC-managed S3 buckets
 
 **Fixed on:** 2026-08-16
 
-**Original finding:** [SEC-14 in the security assessment](security.md#sec-14--partially-fixed--low--s3-tls-enforcement-added-audit-visibility-remains-out-of-scope)
+**2026-08-25 status:** The TLS deny control also covers the website and
+demo-assets buckets, not only the two audio buckets.
+
+**Original finding:** [SEC-14 in the security assessment](security.md#sec-14--partially-fixed--tls-is-mandatory-for-iac-managed-s3-buckets)
 
 ### Implemented control
 
-The uploads and processed-audio buckets each have a bucket-policy explicit
-deny for `s3:*` where `aws:SecureTransport` is `false`. The statement covers
-the bucket ARN and every object under it, and takes precedence over any IAM or
-presigned-URL allow. Browser uploads/downloads and AWS SDK calls already use
-HTTPS, but this policy makes transport encryption a non-bypassable S3 boundary
-for future callers as well.
+The uploads, processed-audio, website, and demo-assets buckets each have a
+bucket-policy explicit deny for `s3:*` where `aws:SecureTransport` is `false`. The
+statements cover each bucket ARN and every object under it, and take precedence
+over any IAM or presigned-URL allow. Browser transfers and AWS SDK calls
+already use HTTPS, but this policy makes transport encryption a
+non-bypassable S3 boundary for future callers as well.
 
 ### Remaining accepted risk
 
@@ -323,3 +431,21 @@ This removes idle NAT spend but does **not** remove general HTTPS egress. A
 public IPv4 and unrestricted outbound HTTPS remain the accepted SEC-16 risk;
 the production alternative is private Batch subnets with the required interface
 endpoints and/or controlled, logged egress.
+
+## Newly observed findings — not yet remediated
+
+### SEC-18 — vulnerable PyJWT in the WebSocket authorizer
+
+The authorizer requirements and deployable ZIP still package PyJWT 2.10.1.
+The 2026-08-25 dependency scan found several upstream CVEs fixed by 2.12.0 or
+2.13.0. The directly relevant one is CVE-2026-48524: an unauthenticated
+connection attempt with an unknown key ID can cause PyJWKClient to refresh the
+Cognito JWKS. See SEC-18 in security.md for reachability analysis and the
+required Lambda arm64 ZIP rebuild/deployment procedure.
+
+### SEC-19 — expired S3 presigned URLs in repository history
+
+The current tree contains no matching presigned URLs or standard credential
+patterns, but old mock/test diffs contain temporary S3 links that had expired
+before the reassessment. Add history-aware secret scanning and avoid committing
+generated URLs. See SEC-19 in security.md for impact and remediation guidance.
