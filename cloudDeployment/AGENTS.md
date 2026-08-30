@@ -1,5 +1,16 @@
 # AGENTS.md
 
+## Scope
+
+This file governs the AWS cloud deployment preserved in `cloudDeployment/`.
+Unless an instruction explicitly identifies the outer workspace, paths and
+commands in this file are relative to `cloudDeployment/`; start local cloud
+work from this directory. The parallel local-Kubernetes implementation belongs
+to `../k8Deployment/` and follows its own `AGENTS.md`; do not alter, replace,
+or repurpose this cloud deployment to implement the Kubernetes work unless the
+user explicitly requests a coordinated cloud change. The repository-level
+`.gitmsg` remains one directory above this file.
+
 ## 1. Project and Architecture
 
 CloudDSP is a cloud-powered, browser-based digital audio workstation. It

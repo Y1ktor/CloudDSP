@@ -431,7 +431,7 @@ on Git history changes.
 | pip-audit against yt-dlp requirements | no known vulnerabilities |
 | local DSP virtual environment | not a deployment artifact; its ignored setuptools copy has a developer-hygiene advisory and should be refreshed separately |
 | pip-audit against WebSocket-authorizer requirements | PyJWT 2.10.1 advisories recorded in SEC-18 |
-| bandit -r src/DSP/src/Cloud -x lambdazip | 0 high; temporary-path and fixed-argv subprocess warnings were reviewed |
+| bandit -r cloudDeployment/src/DSP/src/Cloud -x lambdazip | 0 high; temporary-path and fixed-argv subprocess warnings were reviewed |
 | Docker Scout quickview | fresh local counts recorded for Basic Pitch, ADTOF, and yt-dlp; Demucs re-index did not complete |
 | Production build and targeted frontend sink search | build succeeds; no source maps or active unsafe DOM/script sinks found |
 | Targeted current-tree / Git-history secret review | current tree clear for targeted patterns; expired historical presigned URLs recorded in SEC-19 |

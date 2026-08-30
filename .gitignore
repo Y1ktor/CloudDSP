@@ -2,5 +2,16 @@
 .env
 .env.*
 !.env.example
-src/DSP/venv3.11/
-src/DSP/venv3.14/
+
+# Local cloud-development dependencies now live below cloudDeployment/.
+cloudDeployment/src/DSP/venv3.11/
+cloudDeployment/src/DSP/venv3.14/
+cloudDeployment/frontend-react/node_modules/
+cloudDeployment/frontend-react/dist/
+__pycache__/
+*.py[cod]
+
+# Local Kubernetes runtime state and generated frontend dependencies.
+k8Deployment/.local/
+k8Deployment/**/node_modules/
+k8Deployment/**/dist/

@@ -165,6 +165,7 @@ lookalike-host rejection, port rejection, and an explicitly configured future
 provider. Local verification completed with:
 
 ```bash
+cd cloudDeployment
 python3 -m unittest src/DSP/tests/test_media_url_policy.py
 python3 -m py_compile src/DSP/src/Cloud/media_url_policy.py \
   src/DSP/src/Cloud/job_api.py src/DSP/src/Cloud/LambdaYtDlp.py
