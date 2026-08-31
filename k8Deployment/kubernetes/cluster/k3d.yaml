@@ -1,0 +1,88 @@
+# This file is the declarative definition of the local CloudDSP Kubernetes
+# cluster.  k3d reads it when a later, dedicated cluster-creation task runs
+# `k3d cluster create --config ...`; it does not create or alter a cluster by
+# itself.  Keeping this topology in version control makes each rebuild
+# repeatable and reviewable.
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+
+metadata:
+  # k3d derives Docker network, node, and kubeconfig-context names from this
+  # value (for example, the kubeconfig context will be `k3d-clouddsp-local`).
+  # It is deliberately separate from future Kubernetes namespaces.
+  name: clouddsp-local
+
+# Pin the K3s/Kubernetes distribution rather than relying on whatever image a
+# newer k3d release happens to select.  A later upgrade is an explicit,
+# reviewable compatibility decision, not an accidental local-environment
+# change.
+image: docker.io/rancher/k3s:v1.35.5-k3s1
+
+# One server provides the Kubernetes control plane.  Two agent nodes provide
+# schedulable worker capacity, so later deployment and job-controller lessons
+# can demonstrate replica placement and rescheduling across more than one
+# worker without introducing high-availability control-plane complexity.
+servers: 1
+agents: 2
+
+# Expose the Kubernetes API only on the loopback interface.  Port 6550 avoids
+# the conventional 6443, which can already be used by Docker Desktop or another
+# local cluster, while remaining a stable endpoint for this project's
+# kubeconfig.  It is an administrative API, so it must not be reachable from
+# the local network.
+kubeAPI:
+  hostIP: "127.0.0.1"
+  hostPort: "6550"
+
+# k3d creates an Nginx load-balancer container in front of the K3s server by
+# default.  These mappings target that container, not a future application Pod:
+# Traefik (K3s's bundled ingress controller) will later receive HTTP/HTTPS
+# traffic on its in-cluster ports 80 and 443.  Using high host ports avoids
+# requiring elevated privileges and leaves macOS's common development ports
+# free.  `loadbalancer` is the k3d node filter for that front-door container.
+ports:
+  - port: "127.0.0.1:8080:80"
+    nodeFilters:
+      - loadbalancer
+  - port: "127.0.0.1:8443:443"
+    nodeFilters:
+      - loadbalancer
+
+registries:
+  create:
+    # k3d creates a Docker Registry container alongside the cluster and
+    # configures K3s/containerd to pull from it.  `.localhost` is reserved for
+    # the loopback address, so image build/push commands on this Mac can use a
+    # stable name such as `clouddsp-registry.localhost:5001/frontend:dev`.
+    name: clouddsp-registry.localhost
+    # Bind the registry to loopback only.  This local development registry has
+    # no authentication or TLS in this first foundation task, so exposing it to
+    # a LAN would be unsafe.  The explicit port also prevents later build and
+    # manifest tasks from needing to discover a randomly assigned Docker port.
+    # `host` and `hostPort` are separate k3d fields (equivalent to the
+    # `NAME:HOST:HOSTPORT` registry-create CLI form), so the binding address
+    # and the numeric port stay unambiguous in the declarative configuration.
+    host: "127.0.0.1"
+    hostPort: "5001"
+
+options:
+  k3d:
+    # Keep the dedicated load-balancer enabled because the ingress mappings
+    # above and every later Ingress resource depend on it.  Waiting makes the
+    # future create command return only after the API server is reachable.
+    disableLoadbalancer: false
+    wait: true
+    timeout: "120s"
+  k3s:
+    # Labels are Kubernetes node metadata, applied by k3d during creation.
+    # They give future manifests a readable, project-specific scheduling
+    # vocabulary while retaining ordinary Kubernetes scheduling semantics.
+    # These labels are informational at first; no workload is constrained to
+    # them in this task.
+    nodeLabels:
+      - label: "clouddsp.io/role=control-plane"
+        nodeFilters:
+          - server:0
+      - label: "clouddsp.io/role=cpu-worker"
+        nodeFilters:
+          - agent:*

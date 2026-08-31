@@ -1,0 +1,55 @@
+# Namespaces are the first level of Kubernetes resource organization within the
+# clouddsp-local cluster.  They scope names, RBAC, quotas, network policies,
+# Secrets, and ConfigMaps, but they are not security boundaries by themselves.
+# Later tasks will add least-privilege access and default-deny NetworkPolicies
+# before application workloads rely on this separation.
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  # This namespace holds CloudDSP-owned platform configuration shared by more
+  # than one application: for example, ingress configuration and local support
+  # integrations.  It does not replace K3s's `kube-system` namespace, which
+  # remains owned by the Kubernetes distribution.
+  name: clouddsp-system
+  labels:
+    # Recommended `app.kubernetes.io` labels give every project namespace a
+    # common identity that later dashboards, policies, and scripts can select.
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    # This custom label states the namespace's intended responsibility.  It is
+    # declarative metadata only; no workload scheduling or policy depends on it
+    # until a later manifest deliberately selects it.
+    clouddsp.io/scope: system
+    clouddsp.io/environment: local
+
+---
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  # Stateless, user-facing CloudDSP services will live here: the frontend,
+  # authenticated Job API, realtime service, and upload-intake/dispatcher.
+  # Keeping them together enables later app-specific quotas and network rules.
+  name: clouddsp-app
+  labels:
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/scope: app
+    clouddsp.io/environment: local
+
+---
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  # Stateful local dependencies will live here: PostgreSQL, MinIO, RabbitMQ,
+  # and Keycloak.  Their PersistentVolumeClaims are still local-development
+  # storage, but separating them from application Pods makes their privileged
+  # network access and lifecycle easier to reason about in later tasks.
+  name: clouddsp-data
+  labels:
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/scope: data
+    clouddsp.io/environment: local

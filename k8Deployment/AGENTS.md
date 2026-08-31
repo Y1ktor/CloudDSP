@@ -14,6 +14,27 @@ the Kubernetes implementation. If a Kubernetes-specific public API, event,
 data model, or infrastructure boundary changes, update `plan.md` and the
 relevant K8 documentation in this tree.
 
+## Teaching and task scope
+
+This Kubernetes track is also a learning project. When creating or modifying
+code, Helm charts, Kubernetes manifests, scripts, or configuration files, add
+detailed inline documentation that explains the Kubernetes structure, the
+responsibility of each resource, and the reason for important settings. For
+example, explain non-obvious `apiVersion`, `kind`, metadata, selectors,
+resources, security, storage, and controller choices. Do not add comments that
+only repeat obvious syntax, and never place secrets in comments or examples.
+
+Work on one small, concrete task at a time. Do not bundle several milestones
+into one implementation turn. If the user request is generic, broad, or spans
+multiple deliverables, stop before making changes and present:
+
+1. A concise breakdown into small, independent tasks.
+2. The task that should be completed first and why.
+3. Any decision the user must make before that first task can start.
+
+Wait for the user to select or provide the next specific task. Do not begin
+later tasks merely because they appear in a plan.
+
 ## Layout and ownership
 
 - Put all Kubernetes source under `kubernetes/`.

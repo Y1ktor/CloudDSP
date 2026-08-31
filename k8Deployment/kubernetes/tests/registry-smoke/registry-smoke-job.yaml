@@ -1,0 +1,75 @@
+# This short-lived Job is a Kubernetes-level proof that a node can pull an
+# image from the CloudDSP local registry.  It is intentionally a Job rather
+# than a Deployment: image delivery is tested once, it must finish successfully,
+# and it must not leave a continuously running application Pod behind.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # The name is fixed so the companion script can safely delete and recreate
+  # only this test resource.  It is not a production CloudDSP workload.
+  name: registry-smoke
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: registry-smoke
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/component: integration-test
+    clouddsp.io/purpose: local-registry-verification
+spec:
+  # The completed Job and its Pod remain available for a short inspection
+  # window. The verification script deliberately leaves this new Job in place;
+  # the TTL controller is the ordinary cleanup path, including for a manual run.
+  ttlSecondsAfterFinished: 300
+  # A pull failure or a failing command should be reported directly instead of
+  # being retried repeatedly and hiding the original registry error.
+  backoffLimit: 0
+  # A registry smoke test should finish in seconds.  A deadline bounds a stuck
+  # image pull or scheduler issue and protects the small local cluster.
+  activeDeadlineSeconds: 60
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: registry-smoke
+        app.kubernetes.io/part-of: clouddsp
+        app.kubernetes.io/component: integration-test
+    spec:
+      # Jobs that run to completion must not restart their container in place;
+      # the Job controller owns any allowed retry behavior through backoffLimit.
+      restartPolicy: Never
+      # The smoke test does not call the Kubernetes API, so it receives no
+      # ServiceAccount token.  This models the least-privilege posture expected
+      # of future CloudDSP processing Jobs.
+      automountServiceAccountToken: false
+      containers:
+        - name: registry-smoke
+          # The companion script first pushes this exact repository and tag to
+          # the local registry.  `Always` requires the node's runtime to query
+          # the registry on every test run, rather than merely using a cached
+          # image from a previous successful run.
+          image: clouddsp-registry.localhost:5001/registry-smoke:1.37.0
+          imagePullPolicy: Always
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              echo "CloudDSP local-registry smoke image started successfully."
+              echo "Container architecture: $(uname -m)"
+          resources:
+            # Small explicit limits keep this verification workload from
+            # competing with later DSP workers, while requests make its modest
+            # scheduler requirement visible to Kubernetes.
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            # The test performs no privileged work and writes no files.  These
+            # settings provide a concrete example for future worker manifests.
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities:
+              drop:
+                - ALL
