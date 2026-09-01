@@ -81,6 +81,28 @@ smoke Job before it creates a fresh one. The harmless test image remains in the
 dedicated registry for future checks and is removed when the registry itself is
 cleaned up.
 
+## Verify HTTP routing on port 8080
+
+```bash
+./k8Deployment/kubernetes/scripts/verify-http-routing.sh
+```
+
+This test pushes a separate BusyBox HTTP-server image, deploys a `Deployment`,
+`ClusterIP` Service, and Traefik `Ingress`, then checks the exact response at:
+
+```text
+http://routing-smoke.localhost:8080/
+```
+
+The resources remain in `clouddsp-app` for inspection. They are deliberately
+isolated behind `routing-smoke.localhost`, so they do not match a future
+CloudDSP hostname. Remove only this routing test when finished:
+
+```bash
+kubectl --context k3d-clouddsp-local delete \
+  --filename k8Deployment/kubernetes/tests/routing-smoke/http-routing-smoke.yaml
+```
+
 ## Delete the local cluster
 
 ```bash
@@ -100,4 +122,5 @@ changing local resources:
 ./k8Deployment/kubernetes/scripts/cluster.sh --help
 ./k8Deployment/kubernetes/scripts/cleanup-cluster.sh --help
 ./k8Deployment/kubernetes/scripts/verify-registry.sh --help
+./k8Deployment/kubernetes/scripts/verify-http-routing.sh --help
 ```

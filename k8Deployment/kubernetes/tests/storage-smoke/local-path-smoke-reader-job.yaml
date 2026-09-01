@@ -1,0 +1,80 @@
+# This Job is the reader half of the local-path persistence smoke test. Apply it
+# only after local-path-smoke-writer has reached Complete. It mounts the same
+# PVC read-only and proves that the marker file survived the writer Pod's exit.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: local-path-smoke-reader
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: local-path-smoke-reader
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/component: integration-test
+    clouddsp.io/purpose: local-path-persistence-verification
+spec:
+  # Retain the terminal Job and Pod briefly so the successful read, selected
+  # node, volume events, and container logs can be inspected after completion.
+  ttlSecondsAfterFinished: 300
+  # A missing marker or failed read is the result this test must show directly;
+  # automatic retries would hide the original persistence failure.
+  backoffLimit: 0
+  activeDeadlineSeconds: 60
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: local-path-smoke-reader
+        app.kubernetes.io/part-of: clouddsp
+        app.kubernetes.io/component: integration-test
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: reader
+          # Reuse the locally verified BusyBox image. This keeps the test
+          # focused on the PVC rather than introducing a new external image
+          # dependency or a second image-delivery variable.
+          image: clouddsp-registry.localhost:5001/registry-smoke:1.37.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              marker_path=/data/persistence-marker.txt
+              test -f "${marker_path}"
+              test "$(cat "${marker_path}")" = 'CloudDSP local-path persistence marker v1'
+              printf 'Reader verified persisted marker at %s\n' "${marker_path}"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            # This process verifies data only. Its root filesystem and mounted
+            # PVC are both read-only, so it cannot accidentally repair, alter,
+            # or recreate the marker that the writer Job is meant to preserve.
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: persistent-data
+              mountPath: /data
+              # PVC access mode is ReadWriteOnce because the volume is local to
+              # one node; this per-container setting intentionally mounts the
+              # same claim read-only for the verification phase.
+              readOnly: true
+      volumes:
+        - name: persistent-data
+          persistentVolumeClaim:
+            # This is the exact claim previously mounted by the writer Job. The
+            # PV's node affinity causes the reader to run where that local data
+            # exists, rather than creating an unrelated empty node directory.
+            claimName: local-path-smoke

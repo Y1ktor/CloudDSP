@@ -1,0 +1,92 @@
+# This Job is the writer half of the local-path persistence smoke test. It
+# mounts the already-declared local-path-smoke PVC, writes one fixed marker, and
+# exits. A later, separate reader Job will mount the same claim after this Pod
+# is gone to prove the marker belongs to the PVC rather than this container.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: local-path-smoke-writer
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: local-path-smoke-writer
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/component: integration-test
+    clouddsp.io/purpose: local-path-persistence-verification
+spec:
+  # Keep the completed Job and its Pod available briefly for inspection. The
+  # PVC is independent of this Job and remains after this TTL cleanup happens.
+  ttlSecondsAfterFinished: 300
+  # One failed write should surface immediately. Retrying automatically could
+  # hide a volume mount, permission, or scheduling problem from this lesson.
+  backoffLimit: 0
+  # A local marker write should finish quickly; the deadline catches a stuck
+  # image pull, scheduling issue, or volume mount without leaving work active.
+  activeDeadlineSeconds: 60
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: local-path-smoke-writer
+        app.kubernetes.io/part-of: clouddsp
+        app.kubernetes.io/component: integration-test
+    spec:
+      # A Job completes when its Pod's container exits successfully. `Never`
+      # prevents the kubelet from restarting a failed container in that Pod;
+      # backoffLimit controls Job-level retry instead.
+      restartPolicy: Never
+      # The writer has no reason to call the Kubernetes API, so do not inject a
+      # ServiceAccount token into its filesystem.
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+        # The local-path provisioner creates node-local storage for this claim.
+        # Giving the Pod a filesystem group permits the non-root process to
+        # write to the mounted volume without a privileged init container.
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: writer
+          # This is the harmless BusyBox image previously proven through the
+          # local registry smoke test. The PVC test therefore needs no new
+          # external image pull and stays within the local image delivery path.
+          image: clouddsp-registry.localhost:5001/registry-smoke:1.37.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              marker_path=/data/persistence-marker.txt
+              printf 'CloudDSP local-path persistence marker v1\n' > "${marker_path}"
+              sync
+              test "$(cat "${marker_path}")" = 'CloudDSP local-path persistence marker v1'
+              printf 'Writer verified marker at %s\n' "${marker_path}"
+          resources:
+            # The writer handles one tiny text file. Explicit small bounds keep
+            # the storage lesson from competing with future application Pods.
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            # All writable data goes through the PVC mounted at /data. The
+            # image root filesystem remains read-only and the process receives
+            # no Linux capabilities or privilege-escalation path.
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: persistent-data
+              mountPath: /data
+      volumes:
+        - name: persistent-data
+          persistentVolumeClaim:
+            # The name refers to the separately versioned PVC manifest. This
+            # reference is the first consumer that causes WaitForFirstConsumer
+            # to select a node and provision the node-local PersistentVolume.
+            claimName: local-path-smoke

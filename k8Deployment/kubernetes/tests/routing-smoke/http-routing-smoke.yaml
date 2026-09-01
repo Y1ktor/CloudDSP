@@ -1,0 +1,158 @@
+# This manifest proves the local HTTP routing path without involving any
+# CloudDSP application code.  Its resources stay in clouddsp-app so they use
+# the same namespace, DNS, and ingress boundary as future user-facing services.
+# The dedicated routing-smoke.localhost hostname prevents it from matching a
+# future CloudDSP host or path.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  # A Deployment keeps one HTTP-serving Pod available while the external curl
+  # check runs. It is suitable here because routing must target a persistent
+  # Service endpoint; a short-lived Job could complete before Traefik routes.
+  name: routing-smoke
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: routing-smoke
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/component: integration-test
+    clouddsp.io/purpose: local-http-routing-verification
+spec:
+  # One replica is enough to prove routing. Production services will choose
+  # replica counts independently based on availability and workload needs.
+  replicas: 1
+  selector:
+    # The selector must match the Pod-template labels exactly. Kubernetes uses
+    # it to decide which Pods are owned by this Deployment during reconciliation.
+    matchLabels:
+      app.kubernetes.io/name: routing-smoke
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: routing-smoke
+        app.kubernetes.io/part-of: clouddsp
+        app.kubernetes.io/component: integration-test
+    spec:
+      # This server neither calls Kubernetes nor needs workload identity, so
+      # mounting a ServiceAccount token would provide unnecessary credentials.
+      automountServiceAccountToken: false
+      securityContext:
+        # RuntimeDefault applies the container runtime's standard seccomp
+        # profile to the whole Pod; the container adds further restrictions.
+        seccompProfile:
+          type: RuntimeDefault
+        # The emptyDir starts owned by the node runtime. Setting the Pod-level
+        # filesystem group makes the mounted response-content volume writable
+        # by the non-root BusyBox process without an init container or root.
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: routing-smoke
+          # verify-http-routing.sh pushes this image to the k3d-managed local
+          # registry before applying the manifest. `Always` makes a newly
+          # created Pod ask that registry rather than blindly trusting a cache.
+          image: clouddsp-registry.localhost:5001/routing-smoke:1.37.0
+          imagePullPolicy: Always
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              printf 'CloudDSP HTTP routing smoke test\n' > /work/index.html
+              exec httpd -f -p 8080 -h /work
+          ports:
+            # Naming this port lets the Service use a stable semantic target
+            # name rather than repeat the numeric container port.
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          resources:
+            # Requests expose this test Pod's scheduling footprint; limits keep
+            # it from consuming capacity reserved for future audio processing.
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            # BusyBox can serve a non-privileged port from a writable emptyDir,
+            # so this test demonstrates a restricted Pod without root access,
+            # Linux capabilities, privilege escalation, or a writable root FS.
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            # The immutable container root filesystem cannot hold index.html.
+            # This Pod-local temporary volume is the only writable location.
+            - name: response-content
+              mountPath: /work
+      volumes:
+        - name: response-content
+          emptyDir: {}
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  # A Service supplies a stable in-cluster DNS name and virtual IP while the
+  # Deployment is free to replace its Pod. Ingress routes to this Service—not
+  # directly to a Pod—so backend changes remain transparent to Traefik.
+  name: routing-smoke
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: routing-smoke
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/component: integration-test
+spec:
+  type: ClusterIP
+  selector:
+    # This selector intentionally matches the Deployment's Pod label, making
+    # the running test Pod an Endpoint for the Service.
+    app.kubernetes.io/name: routing-smoke
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: http
+
+---
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  # An Ingress is a Kubernetes routing declaration. It does not open a host
+  # port itself; Traefik watches it and programs its own HTTP router to use the
+  # existing k3d/K3s port-80 path exposed at the Mac's port 8080.
+  name: routing-smoke
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: routing-smoke
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/component: integration-test
+  annotations:
+    # Traefik's `web` entry point is its HTTP listener. This explicit
+    # controller-specific setting keeps the test focused on port-8080 HTTP;
+    # HTTPS and certificates are a separate future task.
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  # K3s packages Traefik with this IngressClass. Naming it avoids relying on a
+  # cluster-wide default that could differ in another Kubernetes environment.
+  ingressClassName: traefik
+  rules:
+    # `.localhost` resolves to loopback on macOS. curl also uses --resolve in
+    # the companion script so the host routing check stays explicit and local.
+    - host: routing-smoke.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: routing-smoke
+                port:
+                  name: http

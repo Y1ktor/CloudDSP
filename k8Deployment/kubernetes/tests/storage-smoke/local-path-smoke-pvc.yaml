@@ -1,0 +1,32 @@
+# This PersistentVolumeClaim is the first half of a local-path storage smoke
+# test. It declares the storage contract that a later writer and reader Pod
+# will both mount; it does not create a Pod, database, or application data by
+# itself.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  # The fixed test-only name lets later verification manifests reference the
+  # same claim and lets cleanup target only this disposable storage exercise.
+  name: local-path-smoke
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: local-path-smoke
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/component: integration-test
+    clouddsp.io/purpose: local-path-persistence-verification
+spec:
+  # `local-path` is the K3s-provided default StorageClass. Naming it explicitly
+  # makes this test reproducible even if another default StorageClass is added
+  # later, and records that this is node-local development storage.
+  storageClassName: local-path
+  accessModes:
+    # ReadWriteOnce permits read/write mounts from one Kubernetes node. It is
+    # the appropriate access contract for a node-local volume and prevents this
+    # test from implying that local-path supports multi-node shared storage.
+    - ReadWriteOnce
+  resources:
+    requests:
+      # This small request is ample for one text marker file. It expresses the
+      # PVC's desired capacity to Kubernetes; local-path is development storage
+      # and should not be treated as a quota-enforced production disk service.
+      storage: 64Mi
