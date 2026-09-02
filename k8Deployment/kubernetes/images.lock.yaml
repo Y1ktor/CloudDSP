@@ -1,0 +1,43 @@
+# This file is an image-lock catalog for CloudDSP's Kubernetes manifests.  It
+# is deliberately *not* a Kubernetes resource, so do not run `kubectl apply`
+# on it.  Workload manifests will copy an `immutableReference` from here into
+# their `image:` field.
+#
+# A tag such as `postgres:17-bookworm` is convenient for people but mutable: an
+# upstream publisher can point it at a newer patch release later.  A sha256
+# digest identifies exactly one published OCI object.  Pinning it makes a
+# rebuild or a new local cluster pull the reviewed image rather than whatever
+# the tag happens to mean at that later time.
+lockFormatVersion: 1
+images:
+  postgresql:
+    # Docker Official Images are hosted in Docker Hub's `library` namespace.
+    # Writing the registry and namespace explicitly avoids relying on Docker's
+    # shorthand rules when this reference is used by Kubernetes.
+    repository: docker.io/library/postgres
+
+    # This is the human-readable upstream tag inspected on 2026-09-01.  It is
+    # retained for auditability only; workloads must use `immutableReference`.
+    sourceTag: "17-bookworm"
+    resolvedVersion: "17.11-bookworm"
+
+    # This is the digest of the multi-architecture OCI image index currently
+    # published for the source tag.  The index lets Kubernetes select its
+    # matching child image automatically: linux/arm64 for the current Apple
+    # Silicon k3d nodes and linux/amd64 for the future native Linux GPU profile.
+    # It must be changed only after deliberately reviewing a new upstream image.
+    digest: sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+    immutableReference: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+
+    # These platforms were present in the resolved image index.  They are a
+    # compatibility record, not scheduling rules: Kubernetes still schedules
+    # Pods using the actual node architecture and pulls the matching child
+    # manifest from this pinned index.
+    supportedPlatforms:
+      - linux/arm64/v8
+      - linux/amd64
+
+    # Keep enough provenance to repeat the review later without placing any
+    # mutable image data or credentials in this repository.
+    upstream: https://hub.docker.com/_/postgres
+    resolvedAt: "2026-09-01"

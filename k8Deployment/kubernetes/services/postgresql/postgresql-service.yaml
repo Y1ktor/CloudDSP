@@ -1,0 +1,40 @@
+# This is PostgreSQL's client-facing Service inside the Kubernetes cluster.
+# Application Pods will connect to the stable DNS name
+# `clouddsp-postgresql.clouddsp-data.svc` instead of addressing the StatefulSet
+# Pod directly.  The separate headless Service remains responsible for the
+# StatefulSet's stable per-Pod DNS identity.
+apiVersion: v1
+kind: Service
+metadata:
+  name: clouddsp-postgresql
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: clouddsp-postgresql
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+spec:
+  # `ClusterIP` is Kubernetes' default internal-only Service type.  Unlike the
+  # headless Service, Kubernetes assigns this Service one virtual IP and
+  # forwards connections to selected ready Pod endpoints.  It does not open a
+  # port on the Mac host or make PostgreSQL publicly reachable.
+  type: ClusterIP
+
+  # A selector is a label query.  It must match the PostgreSQL StatefulSet Pod
+  # template exactly, so the EndpointSlice controller can add the ready
+  # `clouddsp-postgresql-0` Pod as a connection target.
+  selector:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: clouddsp-postgresql
+    app.kubernetes.io/component: database
+
+  ports:
+    # Clients connect to the Service on TCP 5432.  The named target port refers
+    # to the container port named `postgresql` in the StatefulSet, keeping this
+    # networking contract explicit without duplicating container details.
+    - name: postgresql
+      protocol: TCP
+      port: 5432
+      targetPort: postgresql

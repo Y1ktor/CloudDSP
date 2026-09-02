@@ -1,0 +1,45 @@
+# A StatefulSet needs a governing Service so Kubernetes can give each database
+# Pod a stable DNS name.  This Service is intentionally headless: it provides
+# DNS discovery but no shared virtual ClusterIP and no kube-proxy load
+# balancing.  The one future database Pod will be addressable as:
+# `clouddsp-postgresql-0.clouddsp-postgresql-headless.clouddsp-data.svc.cluster.local`.
+#
+# This is not the normal client-facing database endpoint.  A later, separate
+# task will create a regular ClusterIP Service for CloudDSP services to use.
+apiVersion: v1
+kind: Service
+metadata:
+  # The future StatefulSet's `spec.serviceName` must match this name exactly.
+  # Kubernetes combines the StatefulSet name, this Service name, and the
+  # namespace to form each Pod's stable DNS record.
+  name: clouddsp-postgresql-headless
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+spec:
+  # `None` makes this a headless Service.  Instead of one virtual Service IP,
+  # Kubernetes DNS returns the selected ready Pod IP address(es) directly.
+  # That stable identity is why StatefulSets use a governing Service.
+  clusterIP: None
+
+  # A Service selector is a label query.  Only Pods carrying every label below
+  # become Endpoints for this Service.  The StatefulSet added in the next task
+  # will deliberately apply this exact label set to its Pod template.
+  selector:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: clouddsp-postgresql
+    app.kubernetes.io/component: database
+
+  ports:
+    # The name is a contract with the future container port.  `targetPort`
+    # refers to that named container port instead of repeating the number,
+    # making the Service keep following the intended PostgreSQL listener if its
+    # implementation port ever changes deliberately.
+    - name: postgresql
+      protocol: TCP
+      port: 5432
+      targetPort: postgresql

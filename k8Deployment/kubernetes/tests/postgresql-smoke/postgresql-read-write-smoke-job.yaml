@@ -1,0 +1,140 @@
+# This short-lived Job verifies the real in-cluster PostgreSQL connection path:
+# Job Pod -> ClusterIP Service DNS -> ready PostgreSQL StatefulSet Pod.  It is
+# deliberately a Kubernetes workload instead of a command run on the Mac so it
+# also verifies Pod networking, Service endpoint selection, and Secret-based
+# credentials.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: postgresql-read-write-smoke
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: postgresql-read-write-smoke
+    app.kubernetes.io/component: test
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+spec:
+  # Keep the completed Job and its Pod long enough to inspect `kubectl logs`,
+  # then let the TTL controller remove these disposable test resources.
+  ttlSecondsAfterFinished: 300
+  # A failed database assertion should be visible immediately rather than
+  # retried automatically and possibly obscuring the original failure.
+  backoffLimit: 0
+  # Bound this diagnostic test even if DNS or the database becomes unavailable.
+  activeDeadlineSeconds: 60
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgresql-read-write-smoke
+        app.kubernetes.io/component: test
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      # The client does not call the Kubernetes API, so it receives no default
+      # ServiceAccount token.  Its database access is limited to the credential
+      # exposed through the Secret references below.
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        # The locked PostgreSQL image includes the `postgres` account at
+        # UID/GID 999.  The client can run as that ordinary user without root.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgresql-client
+          # Reuse the reviewed image lock.  The PostgreSQL image contains the
+          # `psql` client, so no unreviewed test image or package installation is
+          # required just to validate the database connection.
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          env:
+            # libpq (which `psql` uses) reads these standard `PG*` variables.
+            # The host is the ordinary ClusterIP Service, not a direct Pod IP,
+            # so this test verifies the connection path future app Pods use.
+            - name: PGHOST
+              value: clouddsp-postgresql
+            - name: PGPORT
+              value: "5432"
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_DB
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_USER
+            # `PGPASSWORD` is a libpq client variable.  It is intentionally
+            # mapped from the Secret's `POSTGRES_PASSWORD` key without ever
+            # echoing it or placing it in a command-line argument.
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_PASSWORD
+          resources:
+            # This client performs only a few SQL statements, so it has modest
+            # scheduling requests and strict development safety limits.
+            requests:
+              cpu: 10m
+              memory: 32Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -ec
+            - |
+              # `ON_ERROR_STOP` makes psql return failure for any SQL error so
+              # the Job accurately reports a failed read/write test.
+              printf 'Checking PostgreSQL read/write access through Service %s:%s\n' "$PGHOST" "$PGPORT"
+              psql --no-psqlrc --set=ON_ERROR_STOP=1 <<'SQL'
+              -- Remove a leftover table only if a prior interrupted smoke test
+              -- failed before cleanup.  The table name is reserved for this
+              -- isolated local test and is never used by CloudDSP application data.
+              DROP TABLE IF EXISTS clouddsp_k8_read_write_smoke;
+
+              -- A regular (not TEMP) table verifies real DDL and durable-write
+              -- permissions.  The Job drops it after verification so it leaves
+              -- no test schema behind on a normal successful run.
+              CREATE TABLE clouddsp_k8_read_write_smoke (
+                marker TEXT PRIMARY KEY,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+              );
+              INSERT INTO clouddsp_k8_read_write_smoke (marker)
+              VALUES ('kubernetes-read-write-ok');
+
+              -- Kubernetes reduces every `$$` in a container `command` to one
+              -- literal `$` while processing command-variable escapes.  The
+              -- PostgreSQL `DO` block needs `$$` when psql receives it, so the
+              -- manifest deliberately writes four dollar signs here and below.
+              -- Do not simplify them to `$$`: that caused the original Job to
+              -- send the invalid SQL `DO $` to PostgreSQL.
+              -- Raise a SQL error if the insert cannot be read back exactly.
+              DO $$$$
+              BEGIN
+                IF (SELECT COUNT(*) FROM clouddsp_k8_read_write_smoke
+                    WHERE marker = 'kubernetes-read-write-ok') <> 1 THEN
+                  RAISE EXCEPTION 'expected smoke-test marker was not readable';
+                END IF;
+              END
+              $$$$;
+              SELECT marker, created_at FROM clouddsp_k8_read_write_smoke;
+              DROP TABLE clouddsp_k8_read_write_smoke;
+              SQL
+              printf 'PostgreSQL read/write smoke test passed\n'

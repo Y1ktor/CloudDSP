@@ -1,0 +1,106 @@
+# This writer is the first half of a StatefulSet persistence test.  It creates
+# one ordinary PostgreSQL table and leaves a marker row in it.  After this Job
+# completes, the database Pod will be deliberately replaced; a separate reader
+# Job verifies that the same PVC-backed database retained this marker.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: postgresql-persistence-writer
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: postgresql-persistence-writer
+    app.kubernetes.io/component: test
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+spec:
+  # Preserve the completed writer and its logs for inspection, then remove the
+  # disposable Job/Pod automatically.  Its database marker deliberately lives
+  # in PostgreSQL's PVC-backed data directory, not in this Job's filesystem.
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 0
+  activeDeadlineSeconds: 60
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgresql-persistence-writer
+        app.kubernetes.io/component: test
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        # The pinned official PostgreSQL image includes this unprivileged
+        # account.  A client Job does not need root access or Linux privileges.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgresql-client
+          # The image is the immutable reference recorded in images.lock.yaml.
+          # It includes `psql`, so this test needs no mutable package install.
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          env:
+            # libpq reads standard PG* variables.  This host is the normal
+            # ClusterIP Service used by future CloudDSP application Pods.
+            - name: PGHOST
+              value: clouddsp-postgresql
+            - name: PGPORT
+              value: "5432"
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_DB
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -ec
+            - |
+              printf 'Writing PostgreSQL persistence marker through %s:%s\n' "$PGHOST" "$PGPORT"
+              psql --no-psqlrc --set=ON_ERROR_STOP=1 <<'SQL'
+              -- Remove a stale table only if an earlier test was interrupted.
+              DROP TABLE IF EXISTS clouddsp_k8_persistence_smoke;
+
+              -- This is an ordinary table, not a TEMP table.  Its row is
+              -- committed to PostgreSQL's data directory and must survive the
+              -- forthcoming replacement of only the StatefulSet Pod.
+              CREATE TABLE clouddsp_k8_persistence_smoke (
+                marker TEXT PRIMARY KEY,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+              );
+              INSERT INTO clouddsp_k8_persistence_smoke (marker)
+              VALUES ('kubernetes-persistence-ok');
+              SELECT marker, created_at FROM clouddsp_k8_persistence_smoke;
+              SQL
+              printf 'PostgreSQL persistence marker written\n'
