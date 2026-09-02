@@ -1,0 +1,201 @@
+# A StatefulSet runs MinIO with a predictable Pod identity and one durable
+# PersistentVolumeClaim.  Object storage must retain its objects when a Pod is
+# restarted, so a stateless Deployment and its replaceable ephemeral Pods would
+# be the wrong controller for this local single-server MinIO instance.
+#
+# This is intentionally one replica.  A multi-node MinIO cluster has different
+# erasure-coding, disk-count, network, recovery, and capacity requirements;
+# introducing it is a separate scalability design task, not simply increasing
+# this number.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: clouddsp-minio
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/instance: clouddsp-minio
+    app.kubernetes.io/component: object-storage
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+spec:
+  # The governing headless Service must exist before this StatefulSet.  It
+  # creates stable per-Pod DNS but is not the normal S3 client endpoint.
+  serviceName: clouddsp-minio-headless
+  replicas: 1
+
+  # Create/update one ordinal only after it is ready.  This avoids concurrent
+  # initialization against a writable object-store data directory.
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+
+  # PVCs generated below survive an accidental StatefulSet deletion or a
+  # future scale-down.  With the `local-path` StorageClass, an intentional
+  # later PVC deletion will still remove the dynamically provisioned PV and
+  # its local data, so this policy is safety against controller actions—not a
+  # backup strategy.
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+
+  # This immutable selector must match the Pod template labels exactly.  The
+  # governing Service uses the same three labels to discover the Pod endpoint.
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: minio
+      app.kubernetes.io/instance: clouddsp-minio
+      app.kubernetes.io/component: object-storage
+
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: minio
+        app.kubernetes.io/instance: clouddsp-minio
+        app.kubernetes.io/component: object-storage
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      # MinIO does not need to call the Kubernetes API.  Avoid mounting the
+      # default ServiceAccount token into the object-storage server Pod.
+      automountServiceAccountToken: false
+      # A controlled shutdown gives the server time to stop accepting requests
+      # and flush local writes.  It does not replace backups or replication.
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        # The locally built distroless image runs as UID/GID 65532.  `fsGroup`
+        # grants that process group write access to the PVC mounted at /data
+        # without needing a privileged init container on the local cluster.
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        # Avoid a full recursive ownership walk when the existing volume root
+        # already has the expected group after an ordinary Pod replacement.
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: minio
+          # Copy this immutable reference from `../../images.lock.yaml`.
+          # It resolves to the locally built and pushed arm64 image; never use
+          # its mutable release tag in a workload manifest.
+          image: clouddsp-registry.localhost:5001/minio@sha256:96dd150e3e8c93ebc407344078829c43240df19c74db58de17dd777d7d28ab5e
+          # The digest identifies one exact image, so a node can reuse a local
+          # cached copy safely and only contacts the registry when it lacks it.
+          imagePullPolicy: IfNotPresent
+          # The image ENTRYPOINT is the MinIO binary.  Explicit arguments make
+          # the server/data-directory/console-port contract visible here too.
+          args:
+            - server
+            - /data
+            - --console-address
+            - :9001
+          ports:
+            # Applications will eventually use this S3-compatible API port
+            # through an internal ClusterIP Service, never by mounting /data.
+            - name: s3-api
+              containerPort: 9000
+              protocol: TCP
+            # This administrative console remains private to the cluster.
+            - name: console
+              containerPort: 9001
+              protocol: TCP
+          env:
+            # The root account is injected from the ignored Secret already
+            # applied in this namespace.  It is not a browser credential and
+            # application services will later receive narrower access keys.
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_PASSWORD
+          resources:
+            # Modest development defaults reserve capacity while limiting this
+            # single-node object store's impact on the laptop.  The 10 GiB PVC
+            # capacity below is not physical disk reservation on macOS; both
+            # resource and storage limits must be benchmarked before scaling.
+            requests:
+              cpu: 250m
+              memory: 512Mi
+              ephemeral-storage: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+              ephemeral-storage: 1Gi
+          securityContext:
+            # The process writes only to its PVC and cannot gain Linux
+            # privileges or retain ambient capabilities.
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            # `minio-data` is generated per StatefulSet Pod.  For ordinal 0,
+            # Kubernetes creates the PVC `minio-data-clouddsp-minio-0` and
+            # mounts it at the only path where MinIO persists objects.
+            - name: minio-data
+              mountPath: /data
+          # The server image is intentionally shell-free.  Kubernetes sends
+          # these unauthenticated HTTP checks directly to MinIO's documented
+          # health endpoints instead of relying on curl or a shell in the Pod.
+          # Startup allows initial disk setup; readiness stops the future S3
+          # Service from sending traffic until MinIO can serve requests; and
+          # liveness restarts a stuck server process.
+          startupProbe:
+            httpGet:
+              path: /minio/health/live
+              port: s3-api
+              scheme: HTTP
+            periodSeconds: 5
+            failureThreshold: 30
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: s3-api
+              scheme: HTTP
+            periodSeconds: 5
+            failureThreshold: 3
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: s3-api
+              scheme: HTTP
+            periodSeconds: 10
+            failureThreshold: 6
+            timeoutSeconds: 3
+
+  volumeClaimTemplates:
+    - metadata:
+        # Kubernetes combines this name with the StatefulSet name and Pod
+        # ordinal, giving each future MinIO replica a separate writable disk.
+        name: minio-data
+        labels:
+          app.kubernetes.io/name: minio
+          app.kubernetes.io/instance: clouddsp-minio
+          app.kubernetes.io/component: object-storage
+          app.kubernetes.io/part-of: clouddsp
+          clouddsp.io/environment: local
+      spec:
+        # One local Pod may mount this volume read/write.  Object consumers use
+        # the S3 API rather than sharing MinIO's underlying filesystem.
+        accessModes:
+          - ReadWriteOnce
+        # This is K3s's default dynamic local storage provisioner.  Its
+        # WaitForFirstConsumer mode creates the node-local volume only after
+        # Kubernetes chooses a node for `clouddsp-minio-0`.
+        storageClassName: local-path
+        resources:
+          requests:
+            # A 10 GiB development request leaves room for source audio and
+            # generated stems while remaining a capacity guardrail, not a
+            # promised or production-grade object-storage allocation.
+            storage: 10Gi

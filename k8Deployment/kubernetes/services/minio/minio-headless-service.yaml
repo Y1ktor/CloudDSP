@@ -1,0 +1,49 @@
+# This headless Service is the governing Service for the MinIO StatefulSet.
+# StatefulSets use it to form a stable Pod DNS name, such as
+# `clouddsp-minio-0.clouddsp-minio-headless.clouddsp-data.svc.cluster.local`.
+# It deliberately has no virtual ClusterIP and does not load-balance traffic;
+# a later, regular ClusterIP Service will be the internal S3 client endpoint.
+apiVersion: v1
+kind: Service
+metadata:
+  # This must exactly match `spec.serviceName` in minio-statefulset.yaml.
+  name: clouddsp-minio-headless
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/instance: clouddsp-minio
+    app.kubernetes.io/component: object-storage
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+spec:
+  # `None` asks Kubernetes DNS to return the matching Pod IP address directly.
+  # This is the stable identity contract required by a StatefulSet, not a
+  # public endpoint and not an HTTP ingress configuration.
+  clusterIP: None
+
+  # Only the MinIO Pod template with all of these labels becomes an endpoint.
+  # Keeping the selector aligned with the StatefulSet prevents unrelated Pods
+  # from appearing under this storage service's DNS name.
+  selector:
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/instance: clouddsp-minio
+    app.kubernetes.io/component: object-storage
+
+  ports:
+    # This named port targets the named container port.  Using a name connects
+    # the Service contract to MinIO's S3 API listener without duplicating a
+    # numeric container-port assumption in several manifests.
+    - name: s3-api
+      protocol: TCP
+      port: 9000
+      targetPort: s3-api
+
+    # The administration console is included solely for the StatefulSet's
+    # stable internal identity.  Nothing here publishes it to the Mac host or
+    # to the browser; a separate, deliberately reviewed access path would be
+    # needed before anyone can use the console.
+    - name: console
+      protocol: TCP
+      port: 9001
+      targetPort: console

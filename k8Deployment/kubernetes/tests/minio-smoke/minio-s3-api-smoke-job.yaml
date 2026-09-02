@@ -1,0 +1,171 @@
+# This one-time Job verifies CloudDSP's real in-cluster object-storage path:
+# Job Pod -> ClusterIP Service DNS -> MinIO StatefulSet Pod -> persistent data.
+# It does not contact AWS.  The official AWS CLI is used only as an S3-protocol
+# client, with its endpoint explicitly set to the local MinIO Service.
+#
+# The test creates one reserved temporary bucket and object, downloads the
+# object to prove the bytes round-trip through the S3 API, then removes both.
+# It must never be adapted to create or delete CloudDSP application buckets.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # A fixed name makes the completed test easy to locate.  Delete this Job
+  # before applying it again; Kubernetes does not rerun an already-completed
+  # Job simply because the same manifest is applied a second time.
+  name: minio-s3-api-smoke
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: minio-s3-api-smoke
+    app.kubernetes.io/component: integration-test
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: minio-s3-api-verification
+spec:
+  # Retain a completed Job and its Pod briefly so `kubectl logs`, container
+  # status, scheduling, and events remain available for learning/diagnosis.
+  # The TTL controller removes these disposable resources after five minutes.
+  ttlSecondsAfterFinished: 300
+  # A smoke-test failure must be visible as-is.  Retries could hide a Service,
+  # credential, or S3-protocol problem behind a later successful attempt.
+  backoffLimit: 0
+  # Bound a stuck DNS lookup, image pull, or S3 request on the local cluster.
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: minio-s3-api-smoke
+        app.kubernetes.io/component: integration-test
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      # A completed test does not restart its container in place.  The Job
+      # controller would own any allowed retries through `backoffLimit`.
+      restartPolicy: Never
+      # The client communicates only with MinIO over the network and does not
+      # need Kubernetes API credentials, so omit the default token mount.
+      automountServiceAccountToken: false
+      securityContext:
+        # The image can run as this ordinary UID because all writable paths are
+        # supplied by the scratch volume below; no root filesystem writes or
+        # Kubernetes privileges are necessary for an S3 client command.
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: s3-client
+          # This exact multi-architecture image reference is recorded in
+          # `../../images.lock.yaml`.  It contains the `aws s3api` client; it
+          # does not provide or connect to AWS when `--endpoint-url` points at
+          # MinIO below.
+          image: public.ecr.aws/aws-cli/aws-cli@sha256:f0dcd994da5c36ab09becf4259bba4c45ed4ecfd03d51c701912f4d8425b2d49
+          imagePullPolicy: IfNotPresent
+          env:
+            # AWS CLI uses these standard variable names for S3 access keys.
+            # Their values come from MinIO's root Secret, whose values are not
+            # logged or embedded in this manifest.  A later application task
+            # will create narrower, bucket-specific service credentials.
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_USER
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_PASSWORD
+            # S3 request signing includes a region.  MinIO accepts this local
+            # development value; it is not an AWS-region deployment setting.
+            - name: AWS_DEFAULT_REGION
+              value: us-east-1
+            # Prevent the CLI from attempting to discover EC2 credentials.
+            # The only credentials it may use are the two Secret references.
+            - name: AWS_EC2_METADATA_DISABLED
+              value: "true"
+            # Disable interactive pagination and place any CLI scratch/config
+            # files on the writable `emptyDir`, not the read-only image layer.
+            - name: AWS_PAGER
+              value: ""
+            - name: HOME
+              value: /work
+          resources:
+            # The CLI handles one small object and has no reason to compete
+            # with stateful services or future DSP workers for laptop capacity.
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+              ephemeral-storage: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            # The test writes only its small expected/downloaded files here.
+            # `emptyDir` is per-Pod temporary storage and is removed with the
+            # Pod, so no client-side test artifact persists in the container.
+            - name: work
+              mountPath: /work
+          # The image normally starts the `aws` executable.  Overriding
+          # `command` starts its POSIX shell so this one container can execute
+          # the ordered create/upload/download/compare/cleanup sequence.
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              endpoint_url=http://clouddsp-minio:9000
+              bucket=clouddsp-s3-api-smoke
+              object_key=round-trip.txt
+              expected_file=/work/expected.txt
+              downloaded_file=/work/downloaded.txt
+
+              # If any assertion fails after the bucket/object was created,
+              # make a best-effort cleanup without masking the original error.
+              # Deleting an absent resource is harmless for this reserved test
+              # bucket, while a normal successful path deletes it explicitly.
+              cleanup() {
+                aws --no-cli-pager --endpoint-url "${endpoint_url}" s3api delete-object \
+                  --bucket "${bucket}" --key "${object_key}" >/dev/null 2>&1 || true
+                aws --no-cli-pager --endpoint-url "${endpoint_url}" s3api delete-bucket \
+                  --bucket "${bucket}" >/dev/null 2>&1 || true
+              }
+              trap cleanup EXIT
+
+              printf 'Checking MinIO S3 API through Service %s\n' "${endpoint_url}"
+              aws --no-cli-pager --endpoint-url "${endpoint_url}" s3api create-bucket \
+                --bucket "${bucket}" >/dev/null
+
+              printf 'CloudDSP MinIO S3 API round-trip marker v1\n' > "${expected_file}"
+              aws --no-cli-pager --endpoint-url "${endpoint_url}" s3api put-object \
+                --bucket "${bucket}" --key "${object_key}" --body "${expected_file}" >/dev/null
+              aws --no-cli-pager --endpoint-url "${endpoint_url}" s3api get-object \
+                --bucket "${bucket}" --key "${object_key}" "${downloaded_file}" >/dev/null
+
+              # The pinned AWS CLI image intentionally omits `cmp` but includes
+              # GNU `sha256sum` and `sed`.  Rewrite the expected file's checksum
+              # record to name the downloaded file, then let `sha256sum --check`
+              # fail the Job unless its bytes exactly match the uploaded marker.
+              sha256sum "${expected_file}" \
+                | sed "s|${expected_file}|${downloaded_file}|" \
+                | sha256sum --check --status
+
+              aws --no-cli-pager --endpoint-url "${endpoint_url}" s3api delete-object \
+                --bucket "${bucket}" --key "${object_key}" >/dev/null
+              aws --no-cli-pager --endpoint-url "${endpoint_url}" s3api delete-bucket \
+                --bucket "${bucket}" >/dev/null
+              printf 'MinIO S3 API create/read/delete smoke test passed\n'
+      volumes:
+        - name: work
+          emptyDir:
+            # The marker is tiny.  This size limit is a guardrail showing that
+            # smoke-test scratch data is not allowed to become general storage.
+            sizeLimit: 16Mi
