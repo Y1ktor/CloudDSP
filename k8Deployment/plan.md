@@ -138,6 +138,9 @@ PostgreSQL is authoritative.
 
 - Keycloak owns password hashing, registration, confirmation, resets, and MFA
   in local PostgreSQL; application services must not own a password table.
+- The local Keycloak issuer and browser entry point is
+  `http://keycloak.localhost:8080`. Traefik routes that host only to Keycloak's
+  application Service; never route its management health/metrics port.
 - The local frontend uses OIDC Authorization Code with PKCE. API and WebSocket
   services validate issuer, audience, expiration, signing keys, and immutable
   `sub` ownership.
@@ -180,9 +183,10 @@ or development servers as production-like runtime containers.
   retry limits. Use HPA for API, realtime, and dispatcher Deployments.
 - Apply `ResourceQuota`, `LimitRange`, `PriorityClass`, PodDisruptionBudgets,
   and default-deny `NetworkPolicy`.
-- MinIO, PostgreSQL, RabbitMQ, and Keycloak use PVCs. Local data is disposable
-  only when explicitly destroyed; provide backup guidance before claiming high
-  availability.
+- MinIO, PostgreSQL, and RabbitMQ use PVCs. Keycloak is a replaceable
+  Deployment whose durable identity data lives in its dedicated PostgreSQL
+  database. Local data is disposable only when explicitly destroyed; provide
+  backup guidance before claiming high availability.
 - Store credentials only in Kubernetes Secrets sourced from ignored local
   configuration. Never commit tokens, passwords, proxy addresses, presigned
   URLs, or live local data.

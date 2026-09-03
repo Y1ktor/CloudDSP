@@ -1,0 +1,210 @@
+# This one-shot Job creates the isolated PostgreSQL role and database consumed
+# by the future Keycloak Deployment.  Its network path is entirely internal:
+# Job Pod -> PostgreSQL ClusterIP Service -> PostgreSQL StatefulSet Pod.
+#
+# The Job is intentionally separate from the Keycloak workload.  It is the
+# only Keycloak-related workload that temporarily receives PostgreSQL's
+# administrator credentials; the long-running identity provider will receive
+# only its own dedicated database Secret.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # This fixed name makes database provisioning explicit and inspectable.  If
+  # it finishes, delete the Job before applying it again; Kubernetes will not
+  # rerun an already-completed Job merely because its manifest is reapplied.
+  name: keycloak-database-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: keycloak-database-bootstrap
+    app.kubernetes.io/component: database-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: keycloak-postgresql-provisioning
+spec:
+  # Retain the finished Job and Pod briefly for `kubectl logs` and inspection.
+  # The TTL controller removes these disposable administrator-credential users
+  # five minutes after their successful or failed execution.
+  ttlSecondsAfterFinished: 300
+  # Do not conceal a bad Secret, unavailable database, or SQL privilege issue
+  # with automatic retries.  A person should diagnose and deliberately rerun it.
+  backoffLimit: 0
+  # Creating a small local database should be quick.  This bound prevents a
+  # stuck image pull, DNS resolution, or database connection from lingering.
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: keycloak-database-bootstrap
+        app.kubernetes.io/component: database-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      # Jobs—not the kubelet restarting one container—own any allowed retry.
+      restartPolicy: Never
+      # This client calls PostgreSQL only; it has no reason to call Kubernetes
+      # APIs, so omit the default ServiceAccount token volume.
+      automountServiceAccountToken: false
+      securityContext:
+        # The reviewed PostgreSQL image includes the non-root `postgres`
+        # account at UID/GID 999.  No root process is needed to run `psql`.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgresql-bootstrap-client
+          # The PostgreSQL Official Image already contains the `psql` client.
+          # Reusing its recorded immutable reference avoids a new unreviewed
+          # helper image or a runtime package install for this small bootstrap.
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          env:
+            # libpq reads these `PG*` variables.  The stable ClusterIP Service
+            # is used rather than a Pod IP, verifying the normal in-cluster
+            # database connection route future workloads will use.
+            - name: PGHOST
+              value: clouddsp-postgresql
+            - name: PGPORT
+              value: "5432"
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_DB
+            # This administrator account is deliberately scoped to this brief
+            # bootstrap Job.  The later Keycloak Deployment must not reference
+            # this Secret or receive these values.
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_PASSWORD
+            # These future-Keycloak values are supplied independently from the
+            # ignored local Secret.  They are passed to psql as safely quoted
+            # variables and are never printed or embedded in the SQL text.
+            - name: KEYCLOAK_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keycloak-database-credentials
+                  key: KEYCLOAK_DB_NAME
+            - name: KEYCLOAK_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keycloak-database-credentials
+                  key: KEYCLOAK_DB_USERNAME
+            - name: KEYCLOAK_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keycloak-database-credentials
+                  key: KEYCLOAK_DB_PASSWORD
+          resources:
+            # This runs a handful of DDL statements once.  Small requests make
+            # it schedulable without competing with database or DSP workloads.
+            requests:
+              cpu: 10m
+              memory: 32Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            # The client needs neither Linux capabilities nor a writable image
+            # filesystem.  It sends SQL over the Service and retains no files.
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -ec
+            - |
+              # `ON_ERROR_STOP` makes psql exit non-zero for the first SQL
+              # error.  The Job controller therefore reports provisioning
+              # failure instead of a misleading completed status.
+              printf 'Provisioning the isolated Keycloak database through Service %s:%s\n' "$PGHOST" "$PGPORT"
+
+              # Pass the values as psql variables, not by splicing shell text
+              # into SQL.  `:"name"` safely quotes an SQL identifier and
+              # `:'name'` safely quotes an SQL literal in the SQL below.  This
+              # handles the requested hyphenated role name without treating it
+              # as a subtraction operator and keeps a future complex password
+              # from changing the SQL statement structure.
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                --set=keycloak_db_name="$KEYCLOAK_DB_NAME" \
+                --set=keycloak_db_username="$KEYCLOAK_DB_USERNAME" \
+                --set=keycloak_db_password="$KEYCLOAK_DB_PASSWORD" <<'SQL'
+              -- `CREATE ROLE` is emitted only for a missing account.  `format`
+              -- applies PostgreSQL's identifier/literal quoting before `gexec`
+              -- executes the generated statement outside an explicit transaction.
+              SELECT format(
+                'CREATE ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT PASSWORD %L',
+                :'keycloak_db_username',
+                :'keycloak_db_password'
+              )
+              WHERE NOT EXISTS (
+                SELECT 1 FROM pg_roles WHERE rolname = :'keycloak_db_username'
+              )
+              \gexec
+
+              -- Reapply the intended least-privilege role attributes and
+              -- password on every run.  That makes a deliberate Secret update
+              -- effective when this one-shot Job is manually rerun later.
+              ALTER ROLE :"keycloak_db_username"
+                LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT
+                PASSWORD :'keycloak_db_password';
+
+              -- `CREATE DATABASE` cannot run inside a transaction block, so
+              -- it is also generated and executed by `gexec`.  An existing
+              -- database is left intact; no Job path drops data or a role.
+              SELECT format(
+                'CREATE DATABASE %I OWNER %I ENCODING ''UTF8'' TEMPLATE template0',
+                :'keycloak_db_name',
+                :'keycloak_db_username'
+              )
+              WHERE NOT EXISTS (
+                SELECT 1 FROM pg_database WHERE datname = :'keycloak_db_name'
+              )
+              \gexec
+
+              -- Ensure the dedicated account owns the database even if a
+              -- prior interrupted provisioning run created it with another
+              -- owner.  Ownership permits Keycloak's future schema migrations
+              -- without granting it cluster-wide administrative capabilities.
+              ALTER DATABASE :"keycloak_db_name" OWNER TO :"keycloak_db_username";
+              SQL
+
+              # PostgreSQL's `public` schema exists in the new database.  Use
+              # a separate administrator connection so these schema statements
+              # run against Keycloak's database rather than the main CloudDSP
+              # application database selected by the PostgreSQL Secret above.
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                --dbname="$KEYCLOAK_DB_NAME" \
+                --set=keycloak_db_name="$KEYCLOAK_DB_NAME" \
+                --set=keycloak_db_username="$KEYCLOAK_DB_USERNAME" <<'SQL'
+              REVOKE ALL ON DATABASE :"keycloak_db_name" FROM PUBLIC;
+              GRANT CONNECT, TEMPORARY ON DATABASE :"keycloak_db_name" TO :"keycloak_db_username";
+              REVOKE ALL ON SCHEMA public FROM PUBLIC;
+              ALTER SCHEMA public OWNER TO :"keycloak_db_username";
+              GRANT USAGE, CREATE ON SCHEMA public TO :"keycloak_db_username";
+              SQL
+
+              # Finally authenticate using the dedicated account.  This proves
+              # that Keycloak will be able to reach its own database while this
+              # Job's logs reveal only public database/role identifiers.
+              PGDATABASE="$KEYCLOAK_DB_NAME" \
+              PGUSER="$KEYCLOAK_DB_USERNAME" \
+              PGPASSWORD="$KEYCLOAK_DB_PASSWORD" \
+                psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                  --command 'SELECT current_database() AS database, current_user AS role;'
+              printf 'Keycloak PostgreSQL role and database bootstrap passed\n'

@@ -1,0 +1,208 @@
+# A Deployment runs Keycloak as a replaceable identity-service Pod.  Unlike
+# PostgreSQL, MinIO, and RabbitMQ, Keycloak does not receive a PVC here: its
+# durable realms, users, credentials, roles, and migration history belong in
+# the dedicated PostgreSQL database created by keycloak-database-bootstrap.
+#
+# This first local profile has one replica.  Scaling Keycloak later requires a
+# deliberate cache/discovery, session-affinity, disruption, and recovery design;
+# changing `replicas` alone is not a complete high-availability configuration.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clouddsp-keycloak
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: keycloak
+    app.kubernetes.io/instance: clouddsp-keycloak
+    app.kubernetes.io/component: identity-provider
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+spec:
+  # One identity-service Pod is enough to learn the PostgreSQL/OIDC foundation.
+  # This is a count of Pods, not a count of containers within a Pod.
+  replicas: 1
+  # Retain two prior ReplicaSets for brief rollout diagnosis without keeping an
+  # unbounded history of obsolete Pod template revisions in the API server.
+  revisionHistoryLimit: 2
+  # Require the replacement Pod to stay Ready briefly before its ReplicaSet is
+  # considered available.  This avoids reporting a momentary health-check pass
+  # as a stable identity-service rollout.
+  minReadySeconds: 10
+  progressDeadlineSeconds: 300
+  strategy:
+    # A one-replica local Keycloak profile has no HA guarantee.  Recreate avoids
+    # briefly running two independently configured cache nodes during an image
+    # update.  A later reviewed multi-replica design can choose RollingUpdate
+    # with the required Keycloak clustering and traffic-draining configuration.
+    type: Recreate
+  # The Deployment controller uses this immutable label query to determine
+  # which Pods it owns.  It must match the Pod-template labels exactly.
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: keycloak
+      app.kubernetes.io/instance: clouddsp-keycloak
+      app.kubernetes.io/component: identity-provider
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: keycloak
+        app.kubernetes.io/instance: clouddsp-keycloak
+        app.kubernetes.io/component: identity-provider
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      # Keycloak talks to PostgreSQL but does not call the Kubernetes API.  Do
+      # not mount a default ServiceAccount token that the container cannot use.
+      automountServiceAccountToken: false
+      # Permit a controlled shutdown to stop accepting HTTP work before the
+      # kubelet forces termination.  PostgreSQL retains all durable identity
+      # data, so this grace period is for request draining, not data persistence.
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        # The official Keycloak image runs as a non-root account.  This setting
+        # makes an accidental future root image fail Pod admission at runtime.
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: keycloak
+          # This immutable multi-architecture reference is recorded in
+          # `../../images.lock.yaml`.  Never replace it with a mutable Quay tag:
+          # Kubernetes will automatically choose the arm64 child on this Mac
+          # cluster and the amd64 child on a future native Linux profile.
+          image: quay.io/keycloak/keycloak@sha256:ff4257d0d64efbe99ed1ddfaf07765cc3c36dc7518bf8324d41961327f441c54
+          imagePullPolicy: IfNotPresent
+          # Preserve the image's `/opt/keycloak/bin/kc.sh` entrypoint and pass
+          # its production `start` subcommand as an argument.  `start-dev` is
+          # intentionally not used because it enables development-only defaults.
+          args:
+            - start
+          ports:
+            # This is Keycloak's primary HTTP listener.  A later ClusterIP
+            # Service and Traefik Ingress will expose only this application port.
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            # Health and metrics use Keycloak's separate management interface.
+            # The later external Service/Ingress must not expose this port.
+            - name: management
+              containerPort: 9000
+              protocol: TCP
+          env:
+            # Explicitly select PostgreSQL.  Production `start` must not fall
+            # back to Keycloak's development-file database default.
+            - name: KC_DB
+              value: postgres
+            # Read the database name before KC_DB_URL below.  Kubernetes expands
+            # a `$(VARIABLE_NAME)` reference in a later env entry, so this keeps
+            # the JDBC URL aligned with the isolated database Secret.
+            - name: KEYCLOAK_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keycloak-database-credentials
+                  key: KEYCLOAK_DB_NAME
+            - name: KC_DB_URL
+              value: jdbc:postgresql://clouddsp-postgresql:5432/$(KEYCLOAK_DB_NAME)
+            - name: KC_DB_SCHEMA
+              # The bootstrap Job makes the dedicated account owner of this
+              # schema and removes broad PUBLIC write access.  Keycloak can run
+              # migrations here without PostgreSQL administrator credentials.
+              value: public
+            - name: KC_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keycloak-database-credentials
+                  key: KEYCLOAK_DB_USERNAME
+            - name: KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keycloak-database-credentials
+                  key: KEYCLOAK_DB_PASSWORD
+            # These bootstrap variables create the initial `master`-realm
+            # administrator only if it is absent.  Updating this Secret after
+            # first startup does not reset an existing Keycloak admin password.
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keycloak-bootstrap-admin
+                  key: KC_BOOTSTRAP_ADMIN_USERNAME
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keycloak-bootstrap-admin
+                  key: KC_BOOTSTRAP_ADMIN_PASSWORD
+            # Enable the management endpoints used only by the Kubernetes
+            # probes below.  Metrics are enabled for a later local observability
+            # task but no Service exposes port 9000 to the browser or Mac.
+            - name: KC_HEALTH_ENABLED
+              value: "true"
+            - name: KC_METRICS_ENABLED
+              value: "true"
+            # Keycloak's current local public issuer is deliberately fixed to
+            # the host and HTTP port reserved by the k3d foundation.  The next
+            # Service/Ingress task must route this exact hostname; changing an
+            # issuer after frontend clients exist is a deliberate migration.
+            - name: KC_HOSTNAME
+              value: http://keycloak.localhost:8080
+            # Traefik forwards HTTP after edge TLS/HTTP termination and sets
+            # X-Forwarded-* headers.  Keycloak needs this mode to validate
+            # request origins correctly through that proxy.  A later default-
+            # deny NetworkPolicy will restrict direct application-port access
+            # so untrusted Pods cannot forge those headers.
+            - name: KC_HTTP_ENABLED
+              value: "true"
+            - name: KC_PROXY_HEADERS
+              value: xforwarded
+          resources:
+            # Keycloak's JVM derives its heap from the memory limit.  A 1 GiB
+            # local limit gives it room for the server and cache while reserving
+            # capacity for PostgreSQL, RabbitMQ, MinIO, and later DSP workers.
+            requests:
+              cpu: 500m
+              memory: 768Mi
+              ephemeral-storage: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+              ephemeral-storage: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            # The standard unoptimized Keycloak image can write temporary/build
+            # data when `start` detects build-time settings.  Do not falsely
+            # force a read-only root filesystem now; a later optimized custom
+            # image can pair a read-only root with reviewed writable mounts.
+          startupProbe:
+            # `/health/started` permits a slower first database migration before
+            # liveness checks become eligible to restart the Pod.
+            httpGet:
+              path: /health/started
+              port: management
+              scheme: HTTP
+            periodSeconds: 5
+            failureThreshold: 60
+            timeoutSeconds: 3
+          readinessProbe:
+            # Only a ready Keycloak Pod should enter the upcoming ClusterIP
+            # Service EndpointSlice and receive OIDC/admin HTTP requests.
+            httpGet:
+              path: /health/ready
+              port: management
+              scheme: HTTP
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 3
+          livenessProbe:
+            # Liveness asks only whether Keycloak remains alive.  It is less
+            # strict than readiness so a transient dependency issue is visible
+            # rather than immediately triggering a destructive restart loop.
+            httpGet:
+              path: /health/live
+              port: management
+              scheme: HTTP
+            periodSeconds: 20
+            failureThreshold: 3
+            timeoutSeconds: 3

@@ -1,0 +1,145 @@
+# This one-time Job verifies the internal Keycloak OIDC discovery path:
+# Job Pod -> Keycloak ClusterIP Service DNS -> ready Keycloak Deployment Pod.
+# It deliberately does not use a Pod IP, an administrator credential, or the
+# management port.  The discovery document is public OIDC metadata, so this
+# test needs no Secret and creates no Keycloak users, clients, realms, or tokens.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Delete a completed fixed-name Job before applying it again.  Kubernetes
+  # preserves a completed Job rather than treating a second apply as a rerun.
+  name: keycloak-oidc-discovery-smoke
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: keycloak-oidc-discovery-smoke
+    app.kubernetes.io/component: integration-test
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: keycloak-oidc-discovery-verification
+spec:
+  # Keep logs and the completed Pod available for learning and diagnosis, then
+  # let the TTL controller remove these disposable resources after five minutes.
+  ttlSecondsAfterFinished: 300
+  # A discovery/issuer mismatch should remain visible rather than be hidden by
+  # a later retry.  The user can correct configuration and deliberately rerun.
+  backoffLimit: 0
+  # Bound an unavailable Service, DNS issue, or stalled HTTP response.
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: keycloak-oidc-discovery-smoke
+        app.kubernetes.io/component: integration-test
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      # The Job controller owns retry decisions; a completed/failing container
+      # itself must not restart in place.
+      restartPolicy: Never
+      # This client only makes one unauthenticated HTTP request to Keycloak.  It
+      # does not call the Kubernetes API and therefore gets no token volume.
+      automountServiceAccountToken: false
+      securityContext:
+        # The Python runtime can execute as this numeric ordinary account.  No
+        # home directory, persistent volume, or root process is required.
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: oidc-discovery-client
+          # This is the same official, multi-architecture Python runtime locked
+          # as `images.rabbitmq-amqp-client-python` in `../../images.lock.yaml`.
+          # It supplies Python's standard `urllib` and `json` libraries, so the
+          # Job installs no packages at runtime and needs no mutable image tag.
+          image: docker.io/library/python@sha256:ed86c82274b3c69b52fb5820f358f0bd7df0b603332063cb5c6e32bd220c3e6e
+          imagePullPolicy: IfNotPresent
+          env:
+            # The internal Service DNS name is the actual network target under
+            # test.  Calling it verifies DNS, EndpointSlice selection, and the
+            # ordinary application port without relying on the browser Ingress.
+            - name: OIDC_DISCOVERY_URL
+              value: http://clouddsp-keycloak:8080/realms/master/.well-known/openid-configuration
+            # The discovery payload must advertise the public issuer—not its
+            # private Service DNS name—because the browser and future API use
+            # this immutable issuer when validating OIDC tokens.
+            - name: EXPECTED_ISSUER
+              value: http://keycloak.localhost:8080/realms/master
+            # Avoid a Python bytecode write attempt on the read-only filesystem.
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+          resources:
+            # Fetching and parsing one small JSON document needs minimal local
+            # capacity and should not contend with identity or DSP workloads.
+            requests:
+              cpu: 25m
+              memory: 32Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          # The Python Official Image's ordinary command is overridden only to
+          # run this small inline, standard-library client.  Keeping the logic
+          # here makes this disposable integration assertion self-contained;
+          # it is not CloudDSP application code or an OIDC implementation.
+          command:
+            - python3
+            - -c
+            - |
+              import json
+              import os
+              import sys
+              from urllib.error import HTTPError, URLError
+              from urllib.request import Request, urlopen
+
+              discovery_url = os.environ["OIDC_DISCOVERY_URL"]
+              expected_issuer = os.environ["EXPECTED_ISSUER"]
+              expected_endpoints = {
+                  "authorization_endpoint": "/protocol/openid-connect/auth",
+                  "token_endpoint": "/protocol/openid-connect/token",
+                  "jwks_uri": "/protocol/openid-connect/certs",
+              }
+
+              try:
+                  request = Request(discovery_url, headers={"Accept": "application/json"})
+                  with urlopen(request, timeout=10) as response:
+                      if response.status != 200:
+                          raise RuntimeError("OIDC discovery did not return HTTP 200")
+                      # OIDC discovery metadata is small.  A size bound keeps a
+                      # broken endpoint from turning this diagnostic into an
+                      # unbounded in-memory download.
+                      payload = response.read(65_537)
+                  if len(payload) > 65_536:
+                      raise RuntimeError("OIDC discovery response exceeded 64 KiB")
+                  document = json.loads(payload)
+              except (HTTPError, URLError, TimeoutError, ValueError, RuntimeError) as error:
+                  # Do not print a full exception: future endpoint changes must
+                  # never risk putting sensitive URL query data into Job logs.
+                  print(
+                      f"Keycloak OIDC discovery smoke test failed: {type(error).__name__}",
+                      file=sys.stderr,
+                  )
+                  raise SystemExit(1) from None
+
+              if document.get("issuer") != expected_issuer:
+                  print("Keycloak OIDC discovery smoke test failed: issuer mismatch", file=sys.stderr)
+                  raise SystemExit(1)
+
+              for field, suffix in expected_endpoints.items():
+                  if document.get(field) != f"{expected_issuer}{suffix}":
+                      print(
+                          f"Keycloak OIDC discovery smoke test failed: {field} mismatch",
+                          file=sys.stderr,
+                      )
+                      raise SystemExit(1)
+
+              print("Keycloak OIDC discovery through ClusterIP Service passed")

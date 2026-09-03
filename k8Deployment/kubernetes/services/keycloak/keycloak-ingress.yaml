@@ -1,0 +1,51 @@
+# This Ingress declares the browser-facing HTTP route for Keycloak's fixed
+# local issuer address.  Traefik watches this Kubernetes resource and forwards
+# requests to the internal ClusterIP Service; Ingress never addresses a
+# replaceable Keycloak Pod IP directly.
+#
+# This is deliberately an HTTP-only local-learning route on the k3d foundation
+# host port 8080.  TLS on host port 8443, certificates, and browser production
+# hardening are a separate task.  Do not use this HTTP issuer in a deployment
+# that handles non-local identities or credentials.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: clouddsp-keycloak
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: keycloak
+    app.kubernetes.io/instance: clouddsp-keycloak
+    app.kubernetes.io/component: identity-provider
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+  annotations:
+    # K3s's bundled Traefik controller calls its HTTP listener `web`.  k3d
+    # maps that cluster listener to the Mac's host port 8080.  Naming it keeps
+    # this manifest independent of a possibly different cluster-wide default.
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  # K3s provides this standard IngressClass for Traefik.  An explicit class
+  # prevents a second controller—or a changed default—from claiming this rule.
+  ingressClassName: traefik
+  rules:
+    # `.localhost` is reserved for loopback resolution, so a macOS browser can
+    # reach this host without editing `/etc/hosts`.  It must match KC_HOSTNAME
+    # in keycloak-deployment.yaml exactly: that value is the OIDC issuer used
+    # in tokens and discovery metadata, not merely a convenient route alias.
+    - host: keycloak.localhost
+      http:
+        paths:
+          # Keycloak serves its console, OIDC discovery, authorization, token,
+          # logout, and Admin REST paths under `/`.  Prefix matching preserves
+          # every such path and avoids exposing a separate catch-all backend.
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                # This stable Service DNS/virtual-IP layer selects only ready
+                # Keycloak Pods.  The management port is absent from the Service
+                # and therefore cannot be reached through this Ingress.
+                name: clouddsp-keycloak
+                port:
+                  name: http

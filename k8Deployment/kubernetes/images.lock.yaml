@@ -36,6 +36,31 @@ images:
     upstream: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-docker.html
     resolvedAt: "2026-09-02"
 
+  keycloak:
+    # Keycloak publishes its own official server image in its Quay
+    # organization.  It will provide CloudDSP's local OIDC identity service;
+    # it is not the React frontend, an API gateway, or PostgreSQL itself.
+    repository: quay.io/keycloak/keycloak
+
+    # Keep the reviewed release tag so people can identify the selected
+    # Keycloak version.  Tags remain mutable registry pointers, therefore a
+    # future Deployment must copy only the immutableReference below.
+    sourceTag: "26.7.3"
+    resolvedVersion: "26.7.3"
+    digest: sha256:ff4257d0d64efbe99ed1ddfaf07765cc3c36dc7518bf8324d41961327f441c54
+    immutableReference: quay.io/keycloak/keycloak@sha256:ff4257d0d64efbe99ed1ddfaf07765cc3c36dc7518bf8324d41961327f441c54
+
+    # This OCI image index has a native arm64 child for today’s Apple Silicon
+    # k3d cluster and an amd64 child for the planned native Linux/GPU profile.
+    # Kubernetes selects the compatible child only after a Pod is scheduled;
+    # this compatibility record does not itself force node placement.
+    supportedPlatforms:
+      - linux/arm64/v8
+      - linux/amd64
+    upstream: https://www.keycloak.org/downloads
+    containerDocumentation: https://www.keycloak.org/server/containers
+    resolvedAt: "2026-09-02"
+
   minio-go-builder:
     # Build-only base for the self-built MinIO community binary.  The locked
     # source release declares Go 1.24.8 in its go.mod toolchain directive.
