@@ -1,0 +1,341 @@
+# This one-time Job proves the local Keycloak-to-Mailpit verification-email
+# transport end to end.  Its deliberately narrow path is:
+#
+#   Job Pod --Admin API--> Keycloak ClusterIP Service --> Keycloak Pod
+#       |                                              |
+#       |                                              | SMTP configured in realm
+#       |                                              v
+#       +--HTTP query--> Mailpit ClusterIP Service <-- Mailpit SMTP Service
+#
+# The Job creates one uniquely named disposable Keycloak user, asks Keycloak to
+# send that user's verification email, and waits for Mailpit to capture the
+# message.  It then deletes the temporary Keycloak user.  It does *not* click
+# the verification link, authenticate as the user, or test an application OIDC
+# client; those require a later browser/client integration task.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Kubernetes retains a completed fixed-name Job rather than executing it on
+  # another apply.  Delete the Job before a deliberate rerun; the new Pod name
+  # creates a fresh unique test email address for each execution.
+  name: keycloak-email-verification-mailpit-smoke
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: keycloak-email-verification-mailpit-smoke
+    app.kubernetes.io/component: integration-test
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: keycloak-verification-email-mailpit-capture
+spec:
+  # Preserve the Job and its safe diagnostic logs for five minutes, then let
+  # the TTL controller remove this disposable administrator-credential user.
+  ttlSecondsAfterFinished: 300
+  # An automatic retry would send another verification email and leave unclear
+  # which attempt Mailpit captured.  Diagnose failures, then rerun deliberately.
+  backoffLimit: 0
+  # Token retrieval, a user create/delete, email dispatch, and a short Mailpit
+  # poll should complete quickly.  This bound prevents a broken dependency from
+  # consuming a test Pod indefinitely.
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: keycloak-email-verification-mailpit-smoke
+        app.kubernetes.io/component: integration-test
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      # The Job controller owns its retry decision.  A failed container must
+      # not restart in the same Pod and emit duplicate test email.
+      restartPolicy: Never
+      # The standard-library client needs only internal HTTP/DNS access; it does
+      # not call Kubernetes APIs and therefore receives no token volume.
+      automountServiceAccountToken: false
+      securityContext:
+        # Use the ordinary numeric account supported by the official Python
+        # image.  This test needs no root process, home directory, or storage.
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: verification-email-client
+          # Reuse the reviewed multi-architecture official Python image locked
+          # as `images.rabbitmq-amqp-client-python` in ../../images.lock.yaml.
+          # Its standard library supplies HTTP, URL encoding, and JSON support,
+          # so the test installs no packages and needs no custom client image.
+          image: docker.io/library/python@sha256:ed86c82274b3c69b52fb5820f358f0bd7df0b603332063cb5c6e32bd220c3e6e
+          imagePullPolicy: IfNotPresent
+          env:
+            # Both URLs are ClusterIP Service DNS addresses.  The smoke test
+            # validates internal service discovery and endpoint routing without
+            # making the browser-facing Traefik Ingress a hidden dependency.
+            - name: KEYCLOAK_INTERNAL_BASE_URL
+              value: http://clouddsp-keycloak:8080
+            - name: MAILPIT_INTERNAL_BASE_URL
+              value: http://clouddsp-mailpit:8025
+            # Keycloak's public hostname is still important: verification links
+            # in a captured email must point users to the browser-reachable
+            # ingress address, not a private Kubernetes Service DNS name.
+            - name: KEYCLOAK_PUBLIC_BASE_URL
+              value: http://keycloak.localhost:8080
+            - name: KEYCLOAK_ADMIN_REALM
+              value: master
+            - name: CLOUDDSP_REALM
+              value: clouddsp
+            # Kubernetes injects this random Pod name at runtime.  It makes a
+            # unique test username/email per intentional rerun, preventing an
+            # older Mailpit message from satisfying a newer smoke assertion.
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            # The master-realm bootstrap administrator is needed only to obtain
+            # a short-lived Admin API token.  Values come from the ignored local
+            # Secret and are never written to logs or a file by this client.
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keycloak-bootstrap-admin
+                  key: KC_BOOTSTRAP_ADMIN_USERNAME
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keycloak-bootstrap-admin
+                  key: KC_BOOTSTRAP_ADMIN_PASSWORD
+            # Prevent Python from attempting bytecode writes on the read-only
+            # filesystem configured below.
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+          resources:
+            # One JSON token exchange, three small Admin API calls, and one
+            # bounded text-message fetch need minimal capacity beside the local
+            # identity and data services.
+            requests:
+              cpu: 25m
+              memory: 32Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          # The client remains inline because it is small, disposable test
+          # logic—not a CloudDSP service or an authentication implementation.
+          # It never prints access tokens, administrator passwords, action
+          # tokens, full email content, or Keycloak API response bodies.
+          command:
+            - python3
+            - -c
+            - |
+              import json
+              import os
+              import sys
+              import time
+              from urllib.error import HTTPError, URLError
+              from urllib.parse import quote, urlencode
+              from urllib.request import Request, urlopen
+
+              class SmokeFailure(RuntimeError):
+                  """A deliberately safe diagnostic: no response body or secret."""
+
+
+              class HttpFailure(SmokeFailure):
+                  """An HTTP status is useful for diagnosis but reveals no payload."""
+
+                  def __init__(self, operation, status):
+                      super().__init__(f"{operation} returned HTTP {status}")
+                      self.status = status
+
+
+              def request(operation, url, expected_statuses, method="GET", data=None, headers=None):
+                  """Send one bounded HTTP request and return only headers/body on success."""
+                  request_headers = headers or {}
+                  http_request = Request(url, data=data, headers=request_headers, method=method)
+                  try:
+                      with urlopen(http_request, timeout=10) as response:
+                          status = response.status
+                          # All responses here are small.  A bound ensures a
+                          # misrouted endpoint cannot turn this test into an
+                          # unbounded in-memory download.
+                          body = response.read(65_537)
+                          response_headers = response.headers
+                  except HTTPError as error:
+                      raise HttpFailure(operation, error.code) from None
+                  except (URLError, OSError, TimeoutError) as error:
+                      raise SmokeFailure(f"{operation} failed: {type(error).__name__}") from None
+
+                  if status not in expected_statuses:
+                      raise HttpFailure(operation, status)
+                  if len(body) > 65_536:
+                      raise SmokeFailure(f"{operation} response exceeded 64 KiB")
+                  return response_headers, body
+
+
+              keycloak_internal_url = os.environ["KEYCLOAK_INTERNAL_BASE_URL"].rstrip("/")
+              keycloak_public_url = os.environ["KEYCLOAK_PUBLIC_BASE_URL"].rstrip("/")
+              mailpit_internal_url = os.environ["MAILPIT_INTERNAL_BASE_URL"].rstrip("/")
+              admin_realm = os.environ["KEYCLOAK_ADMIN_REALM"]
+              clouddsp_realm = os.environ["CLOUDDSP_REALM"]
+              pod_name = os.environ["POD_NAME"]
+
+              # A Job Pod name ends with a short Kubernetes-generated random
+              # suffix.  Use only that suffix for a fresh test identity: the
+              # complete Pod name would make an SMTP address local part longer
+              # than the 64-character limit enforced by Keycloak's email
+              # validator.  The Mailpit query can still distinguish this run
+              # from any stale test email because the suffix changes per Pod.
+              pod_suffix = pod_name.rsplit("-", 1)[-1]
+              if not pod_suffix:
+                  raise SmokeFailure("Kubernetes did not provide a usable Pod suffix")
+              test_username = f"keycloak-mail-smoke-{pod_suffix}"
+              test_email = f"{test_username}@clouddsp.test"
+              test_user_id = None
+              access_token = None
+              failure = None
+              cleanup_failure = None
+
+              try:
+                  # Keycloak's built-in admin-cli client exchanges the ignored
+                  # bootstrap-admin credentials for a short-lived Admin API
+                  # token.  The token stays only in this process's memory.
+                  token_form = urlencode(
+                      {
+                          "grant_type": "password",
+                          "client_id": "admin-cli",
+                          "username": os.environ["KC_BOOTSTRAP_ADMIN_USERNAME"],
+                          "password": os.environ["KC_BOOTSTRAP_ADMIN_PASSWORD"],
+                      }
+                  ).encode("utf-8")
+                  _, token_body = request(
+                      "Keycloak administrator token request",
+                      f"{keycloak_internal_url}/realms/{quote(admin_realm, safe='')}/protocol/openid-connect/token",
+                      {200},
+                      method="POST",
+                      data=token_form,
+                      headers={"Content-Type": "application/x-www-form-urlencoded"},
+                  )
+                  access_token = json.loads(token_body).get("access_token")
+                  if not isinstance(access_token, str) or not access_token:
+                      raise SmokeFailure("Keycloak administrator token response was incomplete")
+                  admin_headers = {
+                      "Authorization": f"Bearer {access_token}",
+                      "Content-Type": "application/json",
+                  }
+
+                  # Create a temporary enabled user with an explicitly
+                  # unverified email.  The realm's default User Profile also
+                  # requires firstName and lastName for ordinary `user`-role
+                  # accounts, so include fixed harmless values.  No password
+                  # is supplied because the smoke test sends one verification
+                  # action only and the user is removed after Mailpit capture.
+                  user_payload = json.dumps(
+                      {
+                          "username": test_username,
+                          "email": test_email,
+                          "firstName": "Keycloak",
+                          "lastName": "Mailpit Smoke",
+                          "enabled": True,
+                          "emailVerified": False,
+                      }
+                  ).encode("utf-8")
+                  create_headers, _ = request(
+                      "Keycloak temporary-user creation",
+                      f"{keycloak_internal_url}/admin/realms/{quote(clouddsp_realm, safe='')}/users",
+                      {201},
+                      method="POST",
+                      data=user_payload,
+                      headers=admin_headers,
+                  )
+                  location = create_headers.get("Location")
+                  if not location or "/users/" not in location:
+                      raise SmokeFailure("Keycloak temporary-user creation omitted its location")
+                  test_user_id = location.rstrip("/").rsplit("/", 1)[-1]
+                  if not test_user_id:
+                      raise SmokeFailure("Keycloak temporary-user creation returned an empty identifier")
+
+                  # This documented Admin API action tells Keycloak to create
+                  # its real email-verification action token and deliver the
+                  # message through the realm SMTP configuration.  No redirect
+                  # client is supplied because no CloudDSP OIDC client exists
+                  # yet; Keycloak uses its normal account-action destination.
+                  request(
+                      "Keycloak verification-email dispatch",
+                      f"{keycloak_internal_url}/admin/realms/{quote(clouddsp_realm, safe='')}/users/{quote(test_user_id, safe='')}/send-verify-email",
+                      {204},
+                      method="PUT",
+                      headers=admin_headers,
+                  )
+
+                  # Mailpit returns 404 while no message matches the recipient
+                  # filter.  Poll briefly for this unique user rather than using
+                  # a global inbox count that older test messages could satisfy.
+                  mailpit_query = quote(f"to:{test_email}", safe="")
+                  expected_link_prefix = (
+                      f"{keycloak_public_url}/realms/{clouddsp_realm}/login-actions/action-token"
+                  ).encode("utf-8")
+                  for attempt in range(10):
+                      try:
+                          _, captured_text = request(
+                              "Mailpit verification-email capture",
+                              f"{mailpit_internal_url}/view/latest.txt?query={mailpit_query}",
+                              {200},
+                              headers={"Accept": "text/plain"},
+                          )
+                      except HttpFailure as error:
+                          if error.status == 404 and attempt < 9:
+                              time.sleep(1)
+                              continue
+                          raise
+
+                      # The exact public action-token prefix proves Mailpit
+                      # captured a Keycloak verification message that points to
+                      # the browser ingress, not merely an unrelated email.
+                      if expected_link_prefix not in captured_text:
+                          raise SmokeFailure(
+                              "Mailpit captured mail without Keycloak's public verification link"
+                          )
+                      break
+                  else:
+                      raise SmokeFailure("Mailpit did not capture the verification email")
+
+              except Exception as error:
+                  # The exception messages above contain only operation/status
+                  # facts.  For an unexpected standard-library parsing/runtime
+                  # error, retain only its type.  Do not print a traceback that
+                  # could expose a token through a future library error or URL
+                  # query string.
+                  failure = str(error) if isinstance(error, SmokeFailure) else type(error).__name__
+              finally:
+                  # Remove the test user even if dispatch/capture failed.  The
+                  # Mailpit copy stays intentionally for local inspection, but
+                  # the authoritative Keycloak database does not accumulate
+                  # smoke-test identities.  Cleanup failure makes the Job fail
+                  # so a user can remove that account deliberately.
+                  if access_token and test_user_id:
+                      try:
+                          request(
+                              "Keycloak temporary-user cleanup",
+                              f"{keycloak_internal_url}/admin/realms/{quote(clouddsp_realm, safe='')}/users/{quote(test_user_id, safe='')}",
+                              {204},
+                              method="DELETE",
+                              headers={"Authorization": f"Bearer {access_token}"},
+                          )
+                      except SmokeFailure as error:
+                          cleanup_failure = str(error)
+
+              if cleanup_failure:
+                  print(f"Keycloak email verification smoke test failed: {cleanup_failure}", file=sys.stderr)
+                  raise SystemExit(1)
+              if failure:
+                  print(f"Keycloak email verification smoke test failed: {failure}", file=sys.stderr)
+                  raise SystemExit(1)
+
+              print("Keycloak verification email captured by Mailpit through ClusterIP Services passed")

@@ -1,0 +1,196 @@
+# This one-time Job validates both of Mailpit's internal Kubernetes contracts:
+#
+#   Job Pod --SMTP--> clouddsp-mailpit-smtp Service --TCP--> Mailpit Pod
+#   Job Pod --HTTP--> clouddsp-mailpit Service      --HTTP--> Mailpit Pod
+#
+# The first connection proves an application can submit local test email using
+# the same SMTP Service that Keycloak will use.  The second asks Mailpit to
+# find the marked message, proving the server captured it rather than merely
+# accepting a TCP connection.  Nothing in this manifest sends email outside
+# the cluster, uses a browser Ingress, or creates a Keycloak user.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Delete a completed fixed-name Job before applying it again.  Kubernetes
+  # retains the completed object and `kubectl apply` does not treat it as a
+  # request to execute a second time.
+  name: mailpit-smtp-capture-smoke
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: mailpit-smtp-capture-smoke
+    app.kubernetes.io/component: integration-test
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: mailpit-smtp-capture-verification
+spec:
+  # Keep the completed Job and its Pod logs available for five minutes, then
+  # let Kubernetes' TTL controller clean up this disposable test resource.
+  ttlSecondsAfterFinished: 300
+  # A failed SMTP or capture assertion should remain visible.  Retrying can
+  # create duplicate test messages and make a configuration problem harder to
+  # diagnose, so a human deliberately reruns the Job after fixing it instead.
+  backoffLimit: 0
+  # DNS, a Service endpoint, or the Mailpit HTTP API must not leave this
+  # learning test running indefinitely.
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mailpit-smtp-capture-smoke
+        app.kubernetes.io/component: integration-test
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      # The Job controller decides whether to retry.  Its Pod should not
+      # restart a failed test client in place.
+      restartPolicy: Never
+      # This client needs only cluster DNS plus SMTP/HTTP network access.  It
+      # does not call the Kubernetes API, so omit its service-account token.
+      automountServiceAccountToken: false
+      securityContext:
+        # The official Python image can run this standard numeric unprivileged
+        # account.  The Job requires no home directory or persistent storage.
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: smtp-capture-client
+          # Reuse the existing official multi-architecture Python image lock
+          # `images.rabbitmq-amqp-client-python` in ../../images.lock.yaml.
+          # Python's standard library contains the SMTP and HTTP clients used
+          # here, so the Pod neither installs packages nor needs a custom
+          # smoke-client image solely for this small integration assertion.
+          image: docker.io/library/python@sha256:ed86c82274b3c69b52fb5820f358f0bd7df0b603332063cb5c6e32bd220c3e6e
+          imagePullPolicy: IfNotPresent
+          env:
+            # This Service is the exact cluster-internal SMTP hostname that
+            # later Keycloak realm configuration will use.  Port 1025 is
+            # Mailpit's local plaintext SMTP listener; production email will
+            # instead use an authenticated, TLS-enabled relay.
+            - name: SMTP_HOST
+              value: clouddsp-mailpit-smtp
+            - name: SMTP_PORT
+              value: "1025"
+            # Mailpit's separate HTTP Service provides its UI and queryable
+            # local inbox.  This is intentionally ClusterIP DNS rather than
+            # mailpit.localhost, so the smoke test does not depend on Traefik
+            # or the Mac host-port mapping.
+            - name: MAILPIT_HTTP_BASE_URL
+              value: http://clouddsp-mailpit:8025
+            # Every test run puts this fixed marker in both the Subject and
+            # plain-text body.  The HTTP query and body check can therefore
+            # distinguish this message from unrelated local test mail.
+            - name: MAILPIT_SMOKE_MARKER
+              value: clouddsp-kubernetes-mailpit-smtp-v1
+            - name: MAILPIT_SMOKE_RECIPIENT
+              value: mailpit-smoke@clouddsp.test
+            # Avoid Python writing bytecode files on the read-only root FS.
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+          resources:
+            # This is only one small email and a bounded HTTP response.  Small
+            # requests leave capacity for the data services being tested.
+            requests:
+              cpu: 25m
+              memory: 32Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          # Keep this disposable logic beside the Job that uses it.  It is a
+          # standard-library test client, not CloudDSP application code and
+          # not an implementation of Keycloak email configuration.
+          command:
+            - python3
+            - -c
+            - |
+              import os
+              import smtplib
+              import sys
+              import time
+              from email.message import EmailMessage
+              from urllib.error import HTTPError, URLError
+              from urllib.parse import quote
+              from urllib.request import Request, urlopen
+
+              smtp_host = os.environ["SMTP_HOST"]
+              smtp_port = int(os.environ["SMTP_PORT"])
+              http_base_url = os.environ["MAILPIT_HTTP_BASE_URL"].rstrip("/")
+              marker = os.environ["MAILPIT_SMOKE_MARKER"]
+              recipient = os.environ["MAILPIT_SMOKE_RECIPIENT"]
+
+              # Send a standards-compliant, deliberately harmless test email.
+              # No login or TLS is attempted: Mailpit's local capture listener
+              # accepts unauthenticated plaintext SMTP only within the cluster.
+              message = EmailMessage()
+              message["From"] = "mailer@clouddsp.test"
+              message["To"] = recipient
+              message["Subject"] = marker
+              message.set_content(f"Mailpit SMTP capture smoke marker: {marker}")
+
+              try:
+                  with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as smtp:
+                      smtp.ehlo()
+                      smtp.send_message(message)
+              except (OSError, ValueError, smtplib.SMTPException) as error:
+                  # Keep diagnostic logs safe for when this becomes a real
+                  # email provider: do not print server replies or mail data.
+                  print(
+                      f"Mailpit SMTP smoke test failed while sending: {type(error).__name__}",
+                      file=sys.stderr,
+                  )
+                  raise SystemExit(1) from None
+
+              # Mailpit's text-view endpoint returns HTTP 404 while no message
+              # matches.  A short bounded poll allows Mailpit to finish storing
+              # the SMTP submission without turning this into a sleep-heavy job.
+              search_query = quote(f'subject:"{marker}"', safe="")
+              capture_url = f"{http_base_url}/view/latest.txt?query={search_query}"
+              for attempt in range(10):
+                  try:
+                      request = Request(capture_url, headers={"Accept": "text/plain"})
+                      with urlopen(request, timeout=10) as response:
+                          if response.status != 200:
+                              raise RuntimeError("Mailpit capture endpoint did not return HTTP 200")
+                          # A size bound prevents a damaged test inbox endpoint
+                          # from becoming an unbounded diagnostic download.
+                          captured_message = response.read(65_537)
+                      if len(captured_message) > 65_536:
+                          raise RuntimeError("Mailpit capture response exceeded 64 KiB")
+                      if marker.encode("utf-8") not in captured_message:
+                          raise RuntimeError("Mailpit capture response omitted the smoke marker")
+                  except HTTPError as error:
+                      # Only a 404 is expected while Mailpit has not indexed
+                      # this exact message.  Other HTTP failures are terminal.
+                      if error.code == 404 and attempt < 9:
+                          time.sleep(1)
+                          continue
+                      print(
+                          f"Mailpit capture smoke test failed: HTTP {error.code}",
+                          file=sys.stderr,
+                      )
+                      raise SystemExit(1) from None
+                  except (URLError, TimeoutError, OSError, RuntimeError) as error:
+                      print(
+                          f"Mailpit capture smoke test failed: {type(error).__name__}",
+                          file=sys.stderr,
+                      )
+                      raise SystemExit(1) from None
+                  else:
+                      print("Mailpit SMTP send and capture through ClusterIP Services passed")
+                      raise SystemExit(0)
+
+              # The loop exits only if ten 404 results occurred.  Make the
+              # absence of the captured message explicit in the Job logs.
+              print("Mailpit capture smoke test failed: message was not captured", file=sys.stderr)
+              raise SystemExit(1)

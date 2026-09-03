@@ -1,0 +1,163 @@
+# This one-time Job creates the local CloudDSP Keycloak realm through the
+# Keycloak Admin API.  Its internal network path is:
+#
+#   Job Pod -> clouddsp-keycloak ClusterIP Service -> Keycloak Deployment Pod
+#
+# A realm is the isolated Keycloak space that will eventually contain only
+# CloudDSP users, clients, roles, authentication policy, and email settings.
+# The built-in `master` realm remains the control-plane realm containing the
+# bootstrap administrator; application users must never be created there.
+#
+# This task deliberately creates only an enabled `clouddsp` realm.  It does
+# not yet configure SMTP, user registration, email verification, an OIDC
+# client, roles, or users.  Keeping those policies in later Jobs makes each
+# configuration change reviewable and easy to learn in isolation.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # A completed Job with a fixed name is retained by Kubernetes rather than
+  # re-executed by a repeated `kubectl apply`.  Delete this Job before a
+  # deliberate rerun; the script itself is safe if the realm already exists.
+  name: keycloak-realm-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: keycloak-realm-bootstrap
+    app.kubernetes.io/component: identity-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: keycloak-clouddsp-realm-provisioning
+spec:
+  # Preserve the completed Job and its logs briefly for inspection, then let
+  # the TTL controller remove this disposable use of administrator credentials.
+  ttlSecondsAfterFinished: 300
+  # Do not hide a bad administrator Secret or unavailable Keycloak Service
+  # behind automatic retries.  Diagnose it, then explicitly delete and rerun.
+  backoffLimit: 0
+  # Realm creation is a few local HTTP calls.  This bound prevents a broken
+  # DNS name, Service endpoint, or Keycloak availability issue from lingering.
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: keycloak-realm-bootstrap
+        app.kubernetes.io/component: identity-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      # The Job controller owns retry policy; do not restart a failed Admin CLI
+      # client in the same Pod.
+      restartPolicy: Never
+      # `kcadm.sh` talks only to Keycloak's HTTP Admin API.  It has no reason
+      # to call Kubernetes APIs, so do not mount a service-account token.
+      automountServiceAccountToken: false
+      securityContext:
+        # The official Keycloak image already declares an ordinary non-root
+        # user.  Keep that image-defined UID while requiring non-root execution
+        # and the runtime's default seccomp profile at the Pod level.
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: keycloak-admin-cli
+          # Reuse the same immutable official Keycloak image as the identity
+          # Deployment (`images.keycloak` in ../../images.lock.yaml).  It ships
+          # `/opt/keycloak/bin/kcadm.sh`, avoiding a new helper image or any
+          # package installation while the Job runs.
+          image: quay.io/keycloak/keycloak@sha256:ff4257d0d64efbe99ed1ddfaf07765cc3c36dc7518bf8324d41961327f441c54
+          imagePullPolicy: IfNotPresent
+          env:
+            # The stable internal Service name tests the normal in-cluster
+            # route.  Do not use keycloak.localhost here: that hostname belongs
+            # to the browser-facing Traefik Ingress rather than this Job.
+            - name: KEYCLOAK_ADMIN_URL
+              value: http://clouddsp-keycloak:8080
+            # `master` is Keycloak's administration realm.  It is intentionally
+            # distinct from the new application realm created below.
+            - name: KEYCLOAK_ADMIN_REALM
+              value: master
+            # This public identifier is an explicit desired-state value, not a
+            # user-supplied runtime input.  Later realm configuration Jobs use
+            # the same value to target the CloudDSP identity boundary.
+            - name: CLOUDDSP_REALM
+              value: clouddsp
+            # The ignored local bootstrap Secret supplies the master-realm
+            # administrator.  Values never appear in this committed manifest,
+            # the Job command text, or its normal output.
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keycloak-bootstrap-admin
+                  key: KC_BOOTSTRAP_ADMIN_USERNAME
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keycloak-bootstrap-admin
+                  key: KC_BOOTSTRAP_ADMIN_PASSWORD
+          resources:
+            # The CLI sends at most a few small Admin API requests.  These
+            # bounds make the bootstrap schedulable beside identity services
+            # without competing with persistent data or future DSP workloads.
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 100m
+              memory: 256Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            # Every kcadm invocation uses `--no-config`, so it authenticates
+            # only for that HTTP call and writes no cached access/refresh token
+            # to disk.  This lets the Job keep its image filesystem read-only.
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -ec
+            - |
+              # The Keycloak Admin CLI maps `get` and `create` to the Admin
+              # REST API.  `--no-config` deliberately avoids kcadm's normal
+              # token cache, so this disposable Pod retains no token file after
+              # an individual command ends.
+              KCADM=/opt/keycloak/bin/kcadm.sh
+              # Store the complete authentication option list in the shell's
+              # positional parameters.  Quoting `"$@"` below preserves each
+              # value as one argument, including a future password containing
+              # whitespace or shell-significant punctuation.
+              set -- --no-config \
+                --server "$KEYCLOAK_ADMIN_URL" \
+                --realm "$KEYCLOAK_ADMIN_REALM" \
+                --user "$KC_BOOTSTRAP_ADMIN_USERNAME" \
+                --password "$KC_BOOTSTRAP_ADMIN_PASSWORD"
+
+              # A successful read means a prior run already created the realm.
+              # Leave it exactly as it is: this create-only task must never
+              # overwrite later SMTP, login, or OIDC-client configuration.
+              if "$KCADM" get "realms/$CLOUDDSP_REALM" "$@" >/dev/null 2>&1; then
+                printf 'Keycloak realm %s already exists; leaving its configuration unchanged\n' "$CLOUDDSP_REALM"
+                exit 0
+              fi
+
+              # New realms are disabled by Keycloak's default.  Enable this
+              # one immediately so later tasks can configure and test it, but
+              # intentionally set no registration or email-verification policy
+              # yet—those are separate, reviewable next tasks.
+              "$KCADM" create realms "$@" \
+                --set="realm=$CLOUDDSP_REALM" \
+                --set='enabled=true' >/dev/null
+
+              # Read back the realm using the same in-cluster Service endpoint.
+              # The assertion proves creation persisted, without printing the
+              # full realm JSON or any possible sensitive future configuration.
+              CREATED_REALM=$("$KCADM" get "realms/$CLOUDDSP_REALM" "$@" \
+                --fields realm --format csv --noquotes)
+              if [ "$CREATED_REALM" != "$CLOUDDSP_REALM" ]; then
+                printf 'Keycloak realm bootstrap failed: creation read-back mismatch\n' >&2
+                exit 1
+              fi
+
+              printf 'Keycloak realm %s bootstrap passed\n' "$CLOUDDSP_REALM"

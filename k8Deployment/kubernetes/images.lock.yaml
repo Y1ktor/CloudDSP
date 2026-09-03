@@ -61,6 +61,29 @@ images:
     containerDocumentation: https://www.keycloak.org/server/containers
     resolvedAt: "2026-09-02"
 
+  mailpit:
+    # Mailpit publishes this official image for local SMTP capture and a web
+    # inbox.  It will receive Keycloak verification/reset email only inside the
+    # local cluster; it is not a real mail relay and must never be presented as
+    # a production mailbox or external email-delivery service.
+    repository: docker.io/axllent/mailpit
+
+    # Retain the reviewed stable release tag for auditability.  The Deployment
+    # must use immutableReference rather than this mutable tag, so a later
+    # upstream retag cannot silently change the test-mail server Kubernetes runs.
+    sourceTag: "v1.30.6"
+    resolvedVersion: "1.30.6"
+    digest: sha256:7f33095f80e901f6ad08028f06ca284aa58fe84942be5496008d041d3b9f4d4d
+    immutableReference: docker.io/axllent/mailpit@sha256:7f33095f80e901f6ad08028f06ca284aa58fe84942be5496008d041d3b9f4d4d
+
+    # This OCI image index selects a matching native child image for both the
+    # current Apple Silicon k3d profile and the future x86_64 Linux/GPU profile.
+    supportedPlatforms:
+      - linux/arm64/v8
+      - linux/amd64
+    upstream: https://mailpit.axllent.org/docs/install/docker/
+    resolvedAt: "2026-09-03"
+
   minio-go-builder:
     # Build-only base for the self-built MinIO community binary.  The locked
     # source release declares Go 1.24.8 in its go.mod toolchain directive.

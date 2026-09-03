@@ -1,0 +1,170 @@
+# This one-time Job declares the SMTP transport used by the existing `clouddsp`
+# Keycloak realm.  Its network path is entirely inside Kubernetes:
+#
+#   Job Pod -> clouddsp-keycloak ClusterIP Service -> Keycloak Deployment Pod
+#                         |
+#                         | (saved realm configuration, used later by Keycloak)
+#                         v
+#                 clouddsp-mailpit-smtp ClusterIP Service -> Mailpit Pod
+#
+# The Job configures Keycloak only; it does not itself send a message.  A later
+# task will enable the user flow that sends verification email and independently
+# test that Keycloak uses these saved settings.  Mailpit is a local email
+# catcher, so plaintext unauthenticated SMTP is correct only for this local
+# cluster and must never be copied to a production SMTP relay configuration.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # A completed fixed-name Job is not rerun by a repeated apply.  Delete it
+  # before a deliberate rerun; each execution reapplies this desired SMTP
+  # configuration without creating an additional realm or Mailpit message.
+  name: keycloak-realm-smtp-config
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: keycloak-realm-smtp-config
+    app.kubernetes.io/component: identity-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: keycloak-local-mailpit-smtp-configuration
+spec:
+  # Retain the finished Job and its safe status log long enough to inspect,
+  # then remove this disposable administrator-credential consumer automatically.
+  ttlSecondsAfterFinished: 300
+  # A bad Keycloak administrator Secret, missing realm, or unavailable Service
+  # must be diagnosed rather than retried silently by another client Pod.
+  backoffLimit: 0
+  # The Job makes a small number of local Admin API requests.  A time limit
+  # prevents an unhealthy identity service from consuming a Pod indefinitely.
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: keycloak-realm-smtp-config
+        app.kubernetes.io/component: identity-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      # A Job controller—not the kubelet restarting the container in place—owns
+      # its retry policy, which is deliberately set to no automatic retries.
+      restartPolicy: Never
+      # The Admin CLI contacts Keycloak's HTTP API only.  It has no Kubernetes
+      # API work, so omit the default service-account token volume.
+      automountServiceAccountToken: false
+      securityContext:
+        # The official Keycloak image defines an ordinary non-root user.  Keep
+        # that image-defined identity while requiring non-root execution and
+        # the runtime's default seccomp profile for this short-lived client.
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: keycloak-admin-cli
+          # Reuse the digest-pinned official Keycloak image from the identity
+          # Deployment (`images.keycloak` in ../../images.lock.yaml).  The
+          # image already includes kcadm.sh, avoiding a new helper image or
+          # runtime package installation for this declarative configuration.
+          image: quay.io/keycloak/keycloak@sha256:ff4257d0d64efbe99ed1ddfaf07765cc3c36dc7518bf8324d41961327f441c54
+          imagePullPolicy: IfNotPresent
+          env:
+            # Use the private Service DNS name rather than keycloak.localhost:
+            # this Job validates the normal Pod-to-Service path and does not
+            # depend on Traefik or the Mac's browser-facing port mapping.
+            - name: KEYCLOAK_ADMIN_URL
+              value: http://clouddsp-keycloak:8080
+            # The administrator lives in `master`; it updates the distinct
+            # application realm named `clouddsp` below.
+            - name: KEYCLOAK_ADMIN_REALM
+              value: master
+            - name: CLOUDDSP_REALM
+              value: clouddsp
+            # Mailpit's SMTP ClusterIP Service is the durable local hostname
+            # that Keycloak will store.  A Pod IP would change on replacement;
+            # no hostname here is externally reachable or a real SMTP relay.
+            - name: SMTP_HOST
+              value: clouddsp-mailpit-smtp
+            - name: SMTP_PORT
+              value: "1025"
+            - name: SMTP_FROM_ADDRESS
+              value: noreply@clouddsp.test
+            - name: SMTP_FROM_DISPLAY_NAME
+              value: CloudDSP local
+            # Read the already-applied ignored bootstrap-admin Secret.  No
+            # password appears in this manifest, its shell text, or safe logs.
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keycloak-bootstrap-admin
+                  key: KC_BOOTSTRAP_ADMIN_USERNAME
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keycloak-bootstrap-admin
+                  key: KC_BOOTSTRAP_ADMIN_PASSWORD
+          resources:
+            # A realm update is a few tiny local HTTP calls.  Small bounds keep
+            # this setup Job from competing with persistent data services or
+            # later CPU/GPU audio-processing workloads.
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 100m
+              memory: 256Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            # `kcadm.sh --no-config` authenticates each command without writing
+            # its usual token cache.  That lets this credentials-using client
+            # retain an immutable root filesystem and no temporary volume.
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -ec
+            - |
+              # The Keycloak Admin CLI maps these commands to authenticated
+              # Admin REST requests.  `--no-config` ensures it stores no access
+              # or refresh token on disk between invocations.
+              KCADM=/opt/keycloak/bin/kcadm.sh
+              set -- --no-config \
+                --server "$KEYCLOAK_ADMIN_URL" \
+                --realm "$KEYCLOAK_ADMIN_REALM" \
+                --user "$KC_BOOTSTRAP_ADMIN_USERNAME" \
+                --password "$KC_BOOTSTRAP_ADMIN_PASSWORD"
+
+              # Fail with a purposeful safe message if task 1 did not create
+              # the realm.  The command output is suppressed so API responses
+              # cannot put a future sensitive configuration in Job logs.
+              if ! "$KCADM" get "realms/$CLOUDDSP_REALM" "$@" >/dev/null 2>&1; then
+                printf 'Keycloak SMTP configuration failed: CloudDSP realm is unavailable\n' >&2
+                exit 1
+              fi
+
+              # `update` gets and merges the realm representation by default.
+              # The partial JSON below therefore changes only its smtpServer
+              # map and preserves all unrelated realm settings created by later
+              # tasks.  This exact map intentionally clears any stale SMTP
+              # username/password or TLS choice instead of relying on defaults.
+              "$KCADM" update "realms/$CLOUDDSP_REALM" "$@" -f - >/dev/null <<JSON
+              {
+                "smtpServer": {
+                  "host": "$SMTP_HOST",
+                  "port": "$SMTP_PORT",
+                  "from": "$SMTP_FROM_ADDRESS",
+                  "fromDisplayName": "$SMTP_FROM_DISPLAY_NAME",
+                  "auth": "false",
+                  "ssl": "false",
+                  "starttls": "false"
+                }
+              }
+              JSON
+
+              # Do not print the resulting SMTP map: a later production profile
+              # may include confidential relay credentials.  Success here means
+              # Keycloak accepted the realm update; the next small task verifies
+              # the stored transport independently without exposing secrets.
+              printf 'Keycloak SMTP transport configuration for realm %s passed\n' "$CLOUDDSP_REALM"

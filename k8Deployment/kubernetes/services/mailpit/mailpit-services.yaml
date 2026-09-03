@@ -1,0 +1,74 @@
+# These two ClusterIP Services give Mailpit separate stable internal addresses
+# for two different protocols.  Both select the same ready Mailpit Pod, but the
+# split keeps SMTP delivery and the browser inbox distinct Kubernetes contracts.
+# Neither Service opens a port on the Mac; only a later Traefik Ingress may
+# expose the web-UI Service, while SMTP remains cluster-internal.
+
+apiVersion: v1
+kind: Service
+metadata:
+  # Keycloak will use this DNS name as its SMTP host.  A caller in this
+  # namespace can connect to `clouddsp-mailpit-smtp:1025`; a caller elsewhere
+  # uses `clouddsp-mailpit-smtp.clouddsp-data.svc.cluster.local`.
+  name: clouddsp-mailpit-smtp
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: mailpit
+    app.kubernetes.io/instance: clouddsp-mailpit
+    app.kubernetes.io/component: test-email
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: local-smtp-capture
+spec:
+  # A ClusterIP is a stable virtual address available only inside Kubernetes.
+  # It is not a host port, public SMTP server, or external email relay.
+  type: ClusterIP
+  # This label query must match the Mailpit Deployment Pod template.  Kubernetes
+  # adds ready matching Pods to this Service's EndpointSlice automatically.
+  selector:
+    app.kubernetes.io/name: mailpit
+    app.kubernetes.io/instance: clouddsp-mailpit
+    app.kubernetes.io/component: test-email
+  ports:
+    - name: smtp
+      protocol: TCP
+      # This Service port is the stable SMTP connection contract for Keycloak.
+      port: 1025
+      # The named target resolves to the Mailpit container's port 1025 without
+      # duplicating a Pod-level port number in later client configuration.
+      targetPort: smtp
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  # This second internal DNS address is only for Mailpit's browser UI and HTTP
+  # API.  Keeping it separate means an Ingress backend has no SMTP port in its
+  # own Service definition to select accidentally.
+  name: clouddsp-mailpit
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: mailpit
+    app.kubernetes.io/instance: clouddsp-mailpit
+    app.kubernetes.io/component: test-email
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: local-test-inbox-ui
+spec:
+  type: ClusterIP
+  # Use the same ready-Pod selection as the SMTP Service.  One Pod can listen
+  # on both ports, but different Services express different consumers/policies.
+  selector:
+    app.kubernetes.io/name: mailpit
+    app.kubernetes.io/instance: clouddsp-mailpit
+    app.kubernetes.io/component: test-email
+  ports:
+    - name: web-ui
+      protocol: TCP
+      # A future Traefik Ingress will route HTTP traffic to this port only.
+      # Port 8025 is Mailpit's documented web UI/API listener.
+      port: 8025
+      targetPort: web-ui

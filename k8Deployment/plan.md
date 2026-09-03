@@ -71,6 +71,7 @@ configuration separate.
 | --- | --- | --- |
 | Frontend | Static React delivery | Node build stage and NGINX Deployment behind Traefik |
 | Identity | Local credentials and OIDC | Keycloak with a dedicated PostgreSQL database |
+| Test email | Local SMTP capture and browser inbox | Mailpit; never an external mail relay |
 | Job API | Authenticated job contracts and snapshots | K8-specific long-running service |
 | Realtime | Best-effort WebSocket notifications | K8-specific realtime Deployment |
 | Job state | Durable records, UTC quotas, revisions, and outbox | PostgreSQL |
@@ -141,6 +142,9 @@ PostgreSQL is authoritative.
 - The local Keycloak issuer and browser entry point is
   `http://keycloak.localhost:8080`. Traefik routes that host only to Keycloak's
   application Service; never route its management health/metrics port.
+- The local Mailpit browser inbox is `http://mailpit.localhost:8080`. Traefik
+  routes that host only to Mailpit's web-UI Service; SMTP stays internal at
+  `clouddsp-mailpit-smtp:1025` and must never receive an Ingress route.
 - The local frontend uses OIDC Authorization Code with PKCE. API and WebSocket
   services validate issuer, audience, expiration, signing keys, and immutable
   `sub` ownership.

@@ -1,0 +1,50 @@
+# This Ingress publishes Mailpit's local browser inbox through Traefik's shared
+# HTTP entry point.  It routes only the web UI/API Service on port 8025; SMTP is
+# a non-HTTP protocol and remains reachable only at its internal ClusterIP
+# Service, `clouddsp-mailpit-smtp:1025`.
+#
+# Mailpit captures verification and password-reset links, so this unauthenticated
+# local UI is deliberately limited to the `.localhost` learning profile.  Do not
+# copy this route into staging/production without an explicit authentication and
+# privacy review.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: clouddsp-mailpit
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: mailpit
+    app.kubernetes.io/instance: clouddsp-mailpit
+    app.kubernetes.io/component: test-email
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+  annotations:
+    # K3s's bundled Traefik controller calls its HTTP listener `web`; k3d maps
+    # that listener to the Mac's local port 8080.  HTTPS on host port 8443 is a
+    # separate future task and is not silently implied by this HTTP route.
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  # An explicit class ensures Traefik, rather than any future controller or a
+  # changed default, owns and configures this host/path routing declaration.
+  ingressClassName: traefik
+  rules:
+    # `.localhost` resolves to the local loopback address in a browser.  Using
+    # a distinct host keeps this catch-all path from competing with Keycloak or
+    # future CloudDSP frontend/API routing rules on the same shared Traefik port.
+    - host: mailpit.localhost
+      http:
+        paths:
+          # Mailpit serves its web UI and HTTP API at the root.  Prefix matching
+          # preserves UI assets and API paths while sending no other host's
+          # traffic to this sensitive local test-mail inbox.
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                # Ingress references the stable Service, not a Pod IP.  The
+                # Service's EndpointSlice follows whichever Mailpit Pod the
+                # Deployment currently marks ready after a restart or update.
+                name: clouddsp-mailpit
+                port:
+                  name: web-ui

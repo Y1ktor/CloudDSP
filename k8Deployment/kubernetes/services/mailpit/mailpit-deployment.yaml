@@ -1,0 +1,162 @@
+# A Deployment runs Mailpit as CloudDSP's local-only test mailbox.  It captures
+# SMTP messages from Keycloak and later exposes them through a browser UI, but
+# it never relays messages to an external provider or a real user mailbox.
+#
+# Mailpit state is intentionally ephemeral in this first profile.  The attached
+# emptyDir survives while this Pod runs but is removed when Kubernetes replaces
+# the Pod, preventing development verification/reset messages from becoming a
+# second durable identity-data store alongside PostgreSQL.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clouddsp-mailpit
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: mailpit
+    app.kubernetes.io/instance: clouddsp-mailpit
+    app.kubernetes.io/component: test-email
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+spec:
+  # One disposable mailbox is sufficient.  Increasing this value would split
+  # captured messages between independent inboxes, not create high availability.
+  replicas: 1
+  revisionHistoryLimit: 2
+  strategy:
+    # Recreate prevents an update from running two separate temporary inboxes
+    # at once.  Brief SMTP/UI downtime and loss of the old test inbox are both
+    # acceptable and intentional for this non-production local component.
+    type: Recreate
+  # This immutable selector identifies the Pods this Deployment owns.  The
+  # later ClusterIP Service uses this same label contract to find the ready Pod.
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mailpit
+      app.kubernetes.io/instance: clouddsp-mailpit
+      app.kubernetes.io/component: test-email
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mailpit
+        app.kubernetes.io/instance: clouddsp-mailpit
+        app.kubernetes.io/component: test-email
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      # Mailpit accepts SMTP and serves its UI; it has no Kubernetes API use.
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        # Run the static Mailpit binary as an arbitrary ordinary account rather
+        # than the image's default root user.  fsGroup makes the mounted emptyDir
+        # writable by that account without a privileged ownership-fixing Pod.
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mailpit
+          # This immutable multi-architecture reference is recorded in
+          # `../../images.lock.yaml`.  It is Mailpit's local SMTP-capture and
+          # web-inbox image—not an external email relay or user-mailbox server.
+          image: docker.io/axllent/mailpit@sha256:7f33095f80e901f6ad08028f06ca284aa58fe84942be5496008d041d3b9f4d4d
+          imagePullPolicy: IfNotPresent
+          ports:
+            # The later internal Service exposes this port to Keycloak only as
+            # its local SMTP host.  It must never be published to the Mac host.
+            - name: smtp
+              containerPort: 1025
+              protocol: TCP
+            # The browser inbox/API listens here.  A later dedicated Service and
+            # Traefik Ingress can expose this local-only UI under its own host.
+            - name: web-ui
+              containerPort: 8025
+              protocol: TCP
+          env:
+            # Store Mailpit's temporary SQLite file on the Pod-local emptyDir.
+            # No PersistentVolumeClaim is used, so a replacement Pod starts with
+            # a clean inbox even though the running Pod can retain messages.
+            - name: MP_DATABASE
+              value: /data/mailpit.db
+            # Bound retention keeps a busy local test suite from filling the
+            # node disk with messages.  Both limits are intentionally far below
+            # a production mail-archive policy and can be revised per test need.
+            - name: MP_MAX_MESSAGES
+              value: "100"
+            - name: MP_MAX_AGE
+              value: 24h
+            - name: MP_MAX_MESSAGE_SIZE
+              value: "1"
+            # Reverse-DNS lookup is unnecessary for local Pod-to-Pod SMTP and
+            # can otherwise add avoidable lookup delay to test email delivery.
+            - name: MP_SMTP_DISABLE_RDNS
+              value: "true"
+            # Do not let an HTML email silently fetch remote stylesheets/fonts
+            # merely because somebody opens it in the shared local inbox.
+            - name: MP_BLOCK_REMOTE_CSS_AND_FONTS
+              value: "true"
+            # Keep Mailpit's internal-network link-check/screenshot access off.
+            # A future test must not enable this SSRF-sensitive capability simply
+            # to make an email preview follow local Kubernetes URLs.
+            - name: MP_ALLOW_INTERNAL_HTTP_REQUESTS
+              value: "false"
+          resources:
+            # Mailpit handles small text emails only.  These local guardrails
+            # keep it from competing with Keycloak, storage, or DSP workloads.
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+              ephemeral-storage: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            # This is the only writable path.  It holds the temporary SQLite
+            # inbox and is deleted automatically with a replaced Mailpit Pod.
+            - name: mailpit-data
+              mountPath: /data
+          startupProbe:
+            # Mailpit documents /livez and /readyz for Kubernetes health checks.
+            # Startup allows initial SQLite creation before liveness can restart.
+            httpGet:
+              path: /livez
+              port: web-ui
+              scheme: HTTP
+            periodSeconds: 5
+            failureThreshold: 12
+            timeoutSeconds: 3
+          readinessProbe:
+            # The future SMTP/UI Services receive endpoints only after Mailpit
+            # reports it is ready to accept the local test-mail workload.
+            httpGet:
+              path: /readyz
+              port: web-ui
+              scheme: HTTP
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: web-ui
+              scheme: HTTP
+            periodSeconds: 20
+            failureThreshold: 3
+            timeoutSeconds: 3
+      volumes:
+        - name: mailpit-data
+          emptyDir:
+            # The volume's limit is lower than the container's general ephemeral
+            # storage limit so Mailpit's inbox cannot become general node storage.
+            sizeLimit: 256Mi

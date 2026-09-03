@@ -1,0 +1,145 @@
+# This one-time Job configures the CloudDSP realm's local user-onboarding
+# policy.  It intentionally changes only three realm-level switches:
+#
+#   registrationAllowed  — show Keycloak's self-registration link
+#   verifyEmail          — require a user to confirm their email address
+#   resetPasswordAllowed — let an unverified user recover/resend via email
+#
+# Keycloak stores this policy durably in its dedicated PostgreSQL database.  It
+# does not create a user, an OIDC client, a role, or an email message itself.
+# A following smoke Job will create a disposable test user and prove that the
+# enabled verification policy uses the already-configured Mailpit transport.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # A completed Job keeps its result rather than rerunning on a repeated apply.
+  # Delete it before an intentional rerun; it reapplies only these three policy
+  # fields and leaves all later client and user configuration untouched.
+  name: keycloak-realm-registration-policy
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: keycloak-realm-registration-policy
+    app.kubernetes.io/component: identity-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: keycloak-registration-email-verification-policy
+spec:
+  # Preserve this short-lived administrator-credential consumer and its safe
+  # logs for five minutes, then let the TTL controller remove it automatically.
+  ttlSecondsAfterFinished: 300
+  # A policy update must not retry unexpectedly.  An incorrect administrator
+  # Secret or unavailable realm should remain visible for deliberate diagnosis.
+  backoffLimit: 0
+  # This Job makes a few local Admin API calls, so a short deadline prevents a
+  # failed Service/DNS path from retaining a Pod indefinitely.
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: keycloak-realm-registration-policy
+        app.kubernetes.io/component: identity-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      # The Job controller owns the zero-retry policy rather than restarting a
+      # failed Admin CLI client inside its existing Pod.
+      restartPolicy: Never
+      # This container calls Keycloak's HTTP Admin API only, not Kubernetes API
+      # endpoints, so it receives no unnecessary service-account token volume.
+      automountServiceAccountToken: false
+      securityContext:
+        # Preserve the official Keycloak image's unprivileged runtime user and
+        # request the default seccomp profile for this disposable client Pod.
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: keycloak-admin-cli
+          # Keycloak's reviewed immutable image already includes kcadm.sh.  By
+          # reusing `images.keycloak` from ../../images.lock.yaml, this policy
+          # has the same documented Admin CLI version as the identity server.
+          image: quay.io/keycloak/keycloak@sha256:ff4257d0d64efbe99ed1ddfaf07765cc3c36dc7518bf8324d41961327f441c54
+          imagePullPolicy: IfNotPresent
+          env:
+            # Call Keycloak through its normal in-cluster Service.  The browser
+            # hostname keycloak.localhost and its Traefik Ingress are not part
+            # of this administration Job's private network path.
+            - name: KEYCLOAK_ADMIN_URL
+              value: http://clouddsp-keycloak:8080
+            - name: KEYCLOAK_ADMIN_REALM
+              value: master
+            - name: CLOUDDSP_REALM
+              value: clouddsp
+            # This ignored local Secret contains only the initial master-realm
+            # administrator.  The values stay out of Git, command output, and
+            # logs; application users never receive this Secret.
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keycloak-bootstrap-admin
+                  key: KC_BOOTSTRAP_ADMIN_USERNAME
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keycloak-bootstrap-admin
+                  key: KC_BOOTSTRAP_ADMIN_PASSWORD
+          resources:
+            # This controller performs only authenticated configuration calls;
+            # it should remain small beside the stateful data services and the
+            # future CPU/GPU processing workloads.
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 100m
+              memory: 256Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            # Every kcadm call uses --no-config.  No access or refresh token is
+            # cached on disk, making a writable root filesystem unnecessary.
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -ec
+            - |
+              # Authenticate each Admin CLI request without writing kcadm's
+              # usual credential cache.  Positional parameters plus "$@" keep
+              # each Secret value as one quoted argument if it has punctuation.
+              KCADM=/opt/keycloak/bin/kcadm.sh
+              set -- --no-config \
+                --server "$KEYCLOAK_ADMIN_URL" \
+                --realm "$KEYCLOAK_ADMIN_REALM" \
+                --user "$KC_BOOTSTRAP_ADMIN_USERNAME" \
+                --password "$KC_BOOTSTRAP_ADMIN_PASSWORD"
+
+              # Require the preceding realm-bootstrap Job to have succeeded.
+              # Suppressing the full API response avoids leaking any future
+              # realm settings into a broadly readable Kubernetes Job log.
+              if ! "$KCADM" get "realms/$CLOUDDSP_REALM" "$@" >/dev/null 2>&1; then
+                printf 'Keycloak registration policy failed: CloudDSP realm is unavailable\n' >&2
+                exit 1
+              fi
+
+              # `update` fetches and merges a realm representation by default.
+              # This partial JSON therefore preserves SMTP transport, clients,
+              # roles, themes, and other configuration while changing only the
+              # three reviewed onboarding-policy fields below.
+              "$KCADM" update "realms/$CLOUDDSP_REALM" "$@" -f - >/dev/null <<'JSON'
+              {
+                "registrationAllowed": true,
+                "verifyEmail": true,
+                "resetPasswordAllowed": true
+              }
+              JSON
+
+              # Deliberately retain Keycloak's defaults for login-with-email,
+              # username format, password policy, CAPTCHA, and registration
+              # profile.  Each is a separate product/security decision rather
+              # than an accidental side effect of enabling verification.
+              printf 'Keycloak self-registration and email-verification policy passed\n'
