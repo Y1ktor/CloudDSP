@@ -1,0 +1,66 @@
+# This is the governing headless Service for the RabbitMQ StatefulSet.  It
+# gives every broker Pod a stable DNS identity such as
+# `clouddsp-rabbitmq-0.clouddsp-rabbitmq-headless.clouddsp-data.svc.cluster.local`.
+# RabbitMQ is sensitive to hostname changes because its node name and on-disk
+# data directory incorporate that hostname, so this stable identity is part of
+# keeping a restarted broker attached to its own persistent data.
+#
+# This is not the ordinary AMQP client endpoint.  A later regular ClusterIP
+# Service will provide a stable broker address for CloudDSP services and will
+# expose only the AMQP listener on port 5672.
+apiVersion: v1
+kind: Service
+metadata:
+  # The StatefulSet's `spec.serviceName` must match this exact name.
+  name: clouddsp-rabbitmq-headless
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: rabbitmq
+    app.kubernetes.io/instance: clouddsp-rabbitmq
+    app.kubernetes.io/component: message-broker
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+spec:
+  # A headless Service has no virtual ClusterIP and no kube-proxy load
+  # balancing.  DNS returns the selected broker Pod address directly, which is
+  # necessary for stable StatefulSet identity and later cluster peer discovery.
+  clusterIP: None
+  # Publish the StatefulSet Pod's DNS record before its readiness probe passes.
+  # This is safe because application clients will use a separate ready-only
+  # ClusterIP Service, while future RabbitMQ peers need resolvable identities
+  # during their own startup and cluster-formation sequence.
+  publishNotReadyAddresses: true
+
+  # Only Pods with all three labels become endpoints for this governing Service.
+  # The exact same labels appear in the StatefulSet selector and Pod template.
+  selector:
+    app.kubernetes.io/name: rabbitmq
+    app.kubernetes.io/instance: clouddsp-rabbitmq
+    app.kubernetes.io/component: message-broker
+
+  ports:
+    # AMQP 0-9-1 application protocol.  The future normal Service will expose
+    # this same port to CloudDSP API and worker Pods.
+    - name: amqp
+      protocol: TCP
+      port: 5672
+      targetPort: amqp
+    # The management plugin's HTTP UI/API is useful for local administration,
+    # but remains internal.  We will use a temporary Pod port-forward rather
+    # than make it a normal app Service or browser-facing ingress.
+    - name: management
+      protocol: TCP
+      port: 15672
+      targetPort: management
+    # These two ports are not needed by a single broker's application clients.
+    # They document and preserve the stable-DNS network contract needed by a
+    # later, deliberately designed multi-node RabbitMQ cluster.
+    - name: epmd
+      protocol: TCP
+      port: 4369
+      targetPort: epmd
+    - name: cluster
+      protocol: TCP
+      port: 25672
+      targetPort: cluster

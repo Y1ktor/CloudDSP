@@ -1,0 +1,6 @@
+# This one dependency speaks the actual AMQP 0-9-1 protocol used on RabbitMQ
+# port 5672.  It is pinned to one universal wheel and its PyPI SHA-256, so the
+# Docker build fails rather than accepting a substituted or unreviewed package.
+# The version and hash are recorded again in `../../../images.lock.yaml`.
+pika==1.4.4 \
+    --hash=sha256:48de960c97a93b55db06b8be4c53eb977c9c8a2754c57cdae9097abcbd70ce04

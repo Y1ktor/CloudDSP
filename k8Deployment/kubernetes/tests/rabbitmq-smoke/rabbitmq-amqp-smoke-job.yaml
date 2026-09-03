@@ -1,0 +1,114 @@
+# This one-time Job verifies CloudDSP's AMQP client path inside Kubernetes:
+# Job Pod -> RabbitMQ ClusterIP Service DNS -> RabbitMQ StatefulSet Pod.
+# It uses an isolated, auto-deleting queue and never creates a production
+# processing queue, changes broker topology, or exposes AMQP outside the
+# cluster.  The custom client image uses Pika to speak AMQP 0-9-1 directly,
+# which proves the normal client protocol rather than only the management API.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # A fixed name keeps this learning smoke test easy to inspect.  Delete the
+  # completed Job before applying this same manifest again: applying an
+  # unchanged, completed Job does not ask Kubernetes to execute it a second time.
+  name: rabbitmq-amqp-smoke
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: rabbitmq-amqp-smoke
+    app.kubernetes.io/component: integration-test
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: rabbitmq-amqp-verification
+spec:
+  # Keep the completed Job and its Pod available for a short investigation
+  # window.  The TTL controller cleans up these intentionally disposable
+  # resources five minutes after either success or failure.
+  ttlSecondsAfterFinished: 300
+  # A test failure must stay visible.  A retry could hide an invalid Service,
+  # a missing Endpoint, or an authentication issue behind a later success.
+  backoffLimit: 0
+  # Bound an unavailable broker, malformed image pull, or stalled connection.
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rabbitmq-amqp-smoke
+        app.kubernetes.io/component: integration-test
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      # A Job owns retries at the Pod level.  Its test container must not
+      # restart by itself after failure or completion.
+      restartPolicy: Never
+      # The client only calls the RabbitMQ Service and does not interact with
+      # the Kubernetes API, so remove the automatically mounted API token.
+      automountServiceAccountToken: false
+      securityContext:
+        # The purpose-built client image itself runs as UID/GID 10001.  This
+        # Pod-level setting makes the requirement explicit to Kubernetes too.
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: amqp-client
+          # This digest-pinned local-registry image is recorded in
+          # `../../images.lock.yaml`.  A mutable local tag is never enough for
+          # a reproducible Kubernetes workload.  k3d nodes know this registry
+          # as part of the cluster foundation configuration.
+          image: clouddsp-registry.localhost:5001/rabbitmq-amqp-smoke-client@sha256:4f4564fca1c8080688396e9b7f1457def92e720c1826083189eccff38629c4d2
+          imagePullPolicy: IfNotPresent
+          env:
+            # The ordinary ClusterIP Service is deliberately used instead of
+            # the headless StatefulSet Service or a Pod IP.  This is the stable
+            # DNS name future publishers and workers will use: its target port
+            # is RabbitMQ's named `amqp` port (TCP 5672).
+            - name: AMQP_HOST
+              value: clouddsp-rabbitmq
+            - name: AMQP_PORT
+              value: "5672"
+            # `/` is RabbitMQ's default virtual host.  The foundation has not
+            # yet created a narrower application vhost; that belongs to the
+            # later production-topology task.
+            - name: AMQP_VHOST
+              value: "/"
+            # These values come from the ignored local Secret rather than this
+            # versioned manifest.  The client never logs either credential.
+            - name: AMQP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_USER
+            - name: AMQP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_PASS
+            # This reserved name is exclusive and auto-deleting, so it cannot
+            # interfere with future durable CloudDSP processing queues.
+            - name: AMQP_SMOKE_QUEUE
+              value: clouddsp-amqp-smoke
+            # A known message makes the client reject a wrong or corrupt
+            # delivery before it acknowledges it to the broker.
+            - name: AMQP_SMOKE_MARKER
+              value: clouddsp-kubernetes-amqp-round-trip-v1
+          resources:
+            # Pika moves one small test message.  These bounds keep it from
+            # competing with the broker or future DSP workload containers.
+            requests:
+              cpu: 25m
+              memory: 32Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            # The client has no reason to modify its image, gain privileges,
+            # or retain Linux capabilities.  It writes no files at runtime.
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL

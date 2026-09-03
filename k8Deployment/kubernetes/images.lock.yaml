@@ -122,7 +122,85 @@ images:
     upstream: https://hub.docker.com/_/postgres
     resolvedAt: "2026-09-01"
 
+  rabbitmq-amqp-client-python:
+    # This official Python runtime is the base for the small local AMQP
+    # smoke-client image.  It is distinct from CloudDSP's future worker
+    # images: its only purpose is to prove that a Pod can use the AMQP 0-9-1
+    # protocol through the RabbitMQ ClusterIP Service.
+    repository: docker.io/library/python
+    sourceTag: "3.13.15-slim-bookworm"
+    resolvedVersion: "3.13.15"
+    digest: sha256:ed86c82274b3c69b52fb5820f358f0bd7df0b603332063cb5c6e32bd220c3e6e
+    immutableReference: docker.io/library/python@sha256:ed86c82274b3c69b52fb5820f358f0bd7df0b603332063cb5c6e32bd220c3e6e
+    supportedPlatforms:
+      - linux/arm64/v8
+      - linux/amd64
+    upstream: https://hub.docker.com/_/python
+    resolvedAt: "2026-09-02"
+
+  rabbitmq-amqp-smoke-client:
+    # This is the locally built and registry-published output of
+    # buildSources.rabbitmq-amqp-smoke-client below.  The descriptive tag is
+    # retained for traceability, but its immutableReference is the only value
+    # a Kubernetes workload may use.  It resolves to an arm64 child image for
+    # the current Apple Silicon k3d nodes.
+    repository: clouddsp-registry.localhost:5001/rabbitmq-amqp-smoke-client
+    sourceTag: "1.0.0-pika-1.4.4"
+    digest: sha256:4f4564fca1c8080688396e9b7f1457def92e720c1826083189eccff38629c4d2
+    immutableReference: clouddsp-registry.localhost:5001/rabbitmq-amqp-smoke-client@sha256:4f4564fca1c8080688396e9b7f1457def92e720c1826083189eccff38629c4d2
+    supportedPlatforms:
+      - linux/arm64/v8
+    builtFrom:
+      sourceLock: buildSources.rabbitmq-amqp-smoke-client
+      baseImageLock: images.rabbitmq-amqp-client-python
+      dockerfile: kubernetes/services/rabbitmq/amqp-smoke-client/Dockerfile
+    pushedAt: "2026-09-02"
+
+  rabbitmq:
+    # RabbitMQ's Docker Official Image provides the AMQP broker used for
+    # durable, at-least-once worker handoff.  The `management` variant also
+    # includes RabbitMQ's administrator UI and `rabbitmqadmin` client tool for
+    # local learning and later smoke tests.  Those interfaces will remain
+    # cluster-internal or use a temporary port-forward; this image lock does
+    # not by itself expose any RabbitMQ port to the Mac or browser.
+    repository: docker.io/library/rabbitmq
+
+    # RabbitMQ publishes a mutable `management` convenience tag.  Retain this
+    # exact reviewed release tag for people, but all future workloads must use
+    # the immutable manifest-list reference below so a later retag cannot
+    # silently update a running broker.
+    sourceTag: "4.3.5-management"
+    resolvedVersion: "4.3.5"
+    digest: sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+    immutableReference: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+
+    # This OCI image index contains the matching child images for the current
+    # Apple Silicon k3d nodes and a future native Linux x86_64/GPU profile.
+    # These are compatibility facts, not Kubernetes scheduling constraints.
+    supportedPlatforms:
+      - linux/arm64/v8
+      - linux/amd64
+    upstream: https://hub.docker.com/_/rabbitmq
+    resolvedAt: "2026-09-02"
+
 buildSources:
+  rabbitmq-amqp-smoke-client:
+    # This source lock makes the test image reproducible without installing
+    # packages from PyPI when the Kubernetes Job starts.  Pika is a pure-Python
+    # AMQP 0-9-1 client, so its universal wheel works on both intended Linux
+    # architectures and needs no compiler or native extension dependencies.
+    baseImageLock: images.rabbitmq-amqp-client-python
+    pythonPackage:
+      name: pika
+      version: "1.4.4"
+      wheelSha256: 48de960c97a93b55db06b8be4c53eb977c9c8a2754c57cdae9097abcbd70ce04
+      upstream: https://pypi.org/project/pika/1.4.4/
+    sourceDirectory: kubernetes/services/rabbitmq/amqp-smoke-client
+    dockerfile: kubernetes/services/rabbitmq/amqp-smoke-client/Dockerfile
+    intendedRepository: clouddsp-registry.localhost:5001/rabbitmq-amqp-smoke-client
+    targetPlatform: linux/arm64
+    resolvedAt: "2026-09-02"
+
   minio:
     # The MinIO community edition is source-distributed.  This is the final
     # upstream security/CVE release selected for the private local-learning
