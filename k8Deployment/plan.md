@@ -148,6 +148,11 @@ PostgreSQL is authoritative.
 - The local frontend uses OIDC Authorization Code with PKCE. API and WebSocket
   services validate issuer, audience, expiration, signing keys, and immutable
   `sub` ownership.
+- The local React SPA has the browser origin `http://clouddsp.localhost:8080`
+  and a Keycloak public client named `clouddsp-react`.  Its only redirect and
+  post-logout URL is `http://clouddsp.localhost:8080/`; it uses Authorization
+  Code with S256 PKCE and never has a browser-visible client secret, implicit
+  flow, direct password grant, or service-account grant.
 - Keep browser uploads presigned and private. Store object keys—not signed
   URLs—in durable state.
 - Preserve browser polling as the artifact-retrieval fallback. WebSocket

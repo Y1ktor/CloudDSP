@@ -1,0 +1,197 @@
+# This one-time Job declares Keycloak's browser-facing OIDC client for the
+# future local React Deployment.  The client is a public SPA client: browser
+# JavaScript cannot safely keep a client secret, so it uses Authorization Code
+# flow with PKCE instead of a secret-bearing confidential-client flow.
+#
+# This Job changes Keycloak configuration only.  It does not build the React
+# image, expose the frontend through Traefik, change the preserved cloud React
+# Cognito adapter, or create a browser user session.  Those are later, separate
+# local-deployment tasks.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Delete a completed Job before deliberately rerunning it.  The script looks
+  # up a client by clientId and then reapplies this exact desired configuration,
+  # so rerunning it does not create duplicate `clouddsp-react` clients.
+  name: keycloak-frontend-oidc-client-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: keycloak-frontend-oidc-client-bootstrap
+    app.kubernetes.io/component: identity-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: keycloak-local-react-oidc-client-provisioning
+spec:
+  # Retain this disposable administrator-credential consumer and its safe
+  # status log for five minutes, then let the Kubernetes TTL controller clean it.
+  ttlSecondsAfterFinished: 300
+  # Do not create repeated client updates after an authentication, DNS, or
+  # validation failure.  A user should diagnose and explicitly rerun this Job.
+  backoffLimit: 0
+  # A client lookup/create/update is a few small local Admin API calls.  Bound
+  # the Job so an unavailable identity service cannot retain a Pod indefinitely.
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: keycloak-frontend-oidc-client-bootstrap
+        app.kubernetes.io/component: identity-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      # The Job controller owns retry behavior; this client must not restart in
+      # place and make an unobserved duplicate configuration attempt.
+      restartPolicy: Never
+      # The Keycloak Admin CLI needs only Keycloak's HTTP API, never Kubernetes
+      # API access, so omit a service-account token from this Pod.
+      automountServiceAccountToken: false
+      securityContext:
+        # The official Keycloak image declares a non-root runtime user.  Keep
+        # that identity while enforcing non-root execution and default seccomp.
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: keycloak-admin-cli
+          # Reuse the same digest-pinned official Keycloak image as the server
+          # itself (`images.keycloak` in ../../images.lock.yaml).  Its bundled
+          # kcadm.sh CLI avoids a separate mutable helper image or package install.
+          image: quay.io/keycloak/keycloak@sha256:ff4257d0d64efbe99ed1ddfaf07765cc3c36dc7518bf8324d41961327f441c54
+          imagePullPolicy: IfNotPresent
+          env:
+            # Call Keycloak through its ordinary ClusterIP Service.  The public
+            # issuer hostname is for browser redirects, not this internal Job.
+            - name: KEYCLOAK_ADMIN_URL
+              value: http://clouddsp-keycloak:8080
+            - name: KEYCLOAK_ADMIN_REALM
+              value: master
+            - name: CLOUDDSP_REALM
+              value: clouddsp
+            # This public clientId is an identifier, not a credential.  APIs
+            # will later use it as the expected OIDC audience/client binding.
+            - name: OIDC_CLIENT_ID
+              value: clouddsp-react
+            # The React app is an SPA served at the root of this exact browser
+            # origin.  A precise trailing-slash callback avoids a broad redirect
+            # wildcard; the later OIDC adapter will process `code` and `state`
+            # query parameters on this root route before cleaning the URL.
+            - name: FRONTEND_ORIGIN
+              value: http://clouddsp.localhost:8080
+            - name: FRONTEND_CALLBACK_URL
+              value: http://clouddsp.localhost:8080/
+            # Read the ignored local bootstrap-admin Secret only for this brief
+            # configuration call.  Neither value is committed or printed.
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keycloak-bootstrap-admin
+                  key: KC_BOOTSTRAP_ADMIN_USERNAME
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keycloak-bootstrap-admin
+                  key: KC_BOOTSTRAP_ADMIN_PASSWORD
+          resources:
+            # This controller performs only a small configuration transaction;
+            # its bounds leave local capacity for identity/data services and DSP.
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 100m
+              memory: 256Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            # `kcadm.sh --no-config` keeps its short-lived access token in
+            # process memory rather than writing a token cache to the image FS.
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -ec
+            - |
+              # Authenticate each Admin CLI request independently.  Storing the
+              # option list in positional parameters and passing `"$@"` keeps
+              # every Secret value quoted if it later contains punctuation.
+              KCADM=/opt/keycloak/bin/kcadm.sh
+              set -- --no-config \
+                --server "$KEYCLOAK_ADMIN_URL" \
+                --realm "$KEYCLOAK_ADMIN_REALM" \
+                --user "$KC_BOOTSTRAP_ADMIN_USERNAME" \
+                --password "$KC_BOOTSTRAP_ADMIN_PASSWORD"
+
+              # A shell function streams the same small JSON desired state to
+              # both `create` and `update`; no writable temporary file is needed.
+              # The values are fixed public local configuration, not user input
+              # or credentials.  `publicClient: true` means no client secret is
+              # issued or expected from browser JavaScript.
+              client_configuration() {
+                cat <<JSON
+              {
+                "clientId": "$OIDC_CLIENT_ID",
+                "name": "CloudDSP local React SPA",
+                "description": "Local Kubernetes browser client; Authorization Code with PKCE only.",
+                "enabled": true,
+                "protocol": "openid-connect",
+                "publicClient": true,
+                "standardFlowEnabled": true,
+                "implicitFlowEnabled": false,
+                "directAccessGrantsEnabled": false,
+                "serviceAccountsEnabled": false,
+                "authorizationServicesEnabled": false,
+                "fullScopeAllowed": false,
+                "rootUrl": "$FRONTEND_ORIGIN",
+                "baseUrl": "/",
+                "redirectUris": ["$FRONTEND_CALLBACK_URL"],
+                "webOrigins": ["$FRONTEND_ORIGIN"],
+                "attributes": {
+                  "pkce.code.challenge.method": "S256",
+                  "post.logout.redirect.uris": "$FRONTEND_CALLBACK_URL"
+                }
+              }
+              JSON
+              }
+
+              # The preceding realm-bootstrap Job is a strict prerequisite.
+              # Suppress a full representation so future sensitive settings do
+              # not accidentally enter a broadly readable Kubernetes Job log.
+              if ! "$KCADM" get "realms/$CLOUDDSP_REALM" "$@" >/dev/null 2>&1; then
+                printf 'Keycloak OIDC client bootstrap failed: CloudDSP realm is unavailable\n' >&2
+                exit 1
+              fi
+
+              # Keycloak addresses clients internally by generated UUID, but
+              # CloudDSP declares its stable clientId.  Query first to make the
+              # Job idempotent and avoid duplicate public clients on a rerun.
+              CLIENT_UUID=$("$KCADM" get clients "$@" -r "$CLOUDDSP_REALM" \
+                --query "clientId=$OIDC_CLIENT_ID" \
+                --fields id --format csv --noquotes)
+
+              if [ -z "$CLIENT_UUID" ]; then
+                client_configuration | "$KCADM" create clients "$@" -r "$CLOUDDSP_REALM" -f - >/dev/null
+                CLIENT_UUID=$("$KCADM" get clients "$@" -r "$CLOUDDSP_REALM" \
+                  --query "clientId=$OIDC_CLIENT_ID" \
+                  --fields id --format csv --noquotes)
+              fi
+
+              if [ -z "$CLIENT_UUID" ]; then
+                printf 'Keycloak OIDC client bootstrap failed: client lookup was empty\n' >&2
+                exit 1
+              fi
+
+              # `update` merges this partial representation with the current
+              # client, preserving Keycloak-generated IDs and default scopes.
+              # It also ensures a later deliberate rerun restores the reviewed
+              # redirect, PKCE, and disabled-flow policy after accidental drift.
+              client_configuration | "$KCADM" update "clients/$CLIENT_UUID" "$@" \
+                -r "$CLOUDDSP_REALM" -f - >/dev/null
+
+              # Do not print the whole client representation.  The next small
+              # task can verify discovery/client behavior; this Job reports only
+              # that Keycloak accepted the desired configuration.
+              printf 'Keycloak public OIDC client %s bootstrap passed\n' "$OIDC_CLIENT_ID"
