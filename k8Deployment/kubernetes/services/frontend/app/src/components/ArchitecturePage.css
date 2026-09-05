@@ -1,0 +1,331 @@
+.architecture-page {
+    width: min(1180px, calc(100vw - 40px));
+    box-sizing: border-box;
+    margin: 0 auto 68px;
+    padding: 32px;
+    border: 1px solid #cbd4dc;
+    border-radius: 0;
+    background: #fff;
+    box-shadow: none;
+    color: #182230;
+}
+
+.architecture-hero {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 28px;
+    margin: 10px 0 30px;
+}
+
+.architecture-hero > div:first-child { min-width: 0; }
+
+.architecture-section-kicker,
+.architecture-node-eyebrow,
+.architecture-component-card-top > span:last-child {
+    color: #44657f;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+}
+
+.architecture-hero h1,
+.architecture-diagram-heading h2,
+.architecture-components-intro h2,
+.ingestion-diagram-heading h3 {
+    margin: 8px 0 0;
+    color: #1b2734;
+    letter-spacing: -.025em;
+}
+
+.architecture-hero h1 {
+    max-width: 760px;
+    text-align: left;
+    font-size: clamp(30px, 4vw, 48px);
+    line-height: 1.04;
+}
+
+.architecture-hero p {
+    max-width: 710px;
+    margin: 14px 0 0;
+    color: #566777;
+    font-size: 16px;
+    line-height: 1.55;
+}
+
+.architecture-icons-credit {
+    flex: 0 0 auto;
+    padding: 9px 12px;
+    border: 1px solid #aebdca;
+    border-radius: 0;
+    color: #355d7f;
+    font-size: 12px;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.architecture-icons-credit:hover { border-color: #547a9b; color: #1d4263; }
+
+.architecture-tabs {
+    display: flex;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    margin: 0 0 24px;
+    padding: 0;
+    gap: 0;
+    overflow-x: auto;
+    scrollbar-gutter: stable;
+    border: 0;
+    border-bottom: 1px solid #b9c6d0;
+    border-radius: 0;
+    background: transparent;
+}
+
+.architecture-tabs button {
+    flex: 0 0 auto;
+    padding: 9px 16px 8px;
+    border: 0;
+    border-bottom: 3px solid transparent;
+    background: transparent;
+    color: #526272;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.architecture-tabs button:hover { color: #182230; }
+.architecture-tabs button.is-active { border-bottom-color: #1f6f9f; color: #18374f; }
+.architecture-tabs button:focus-visible { outline: 2px solid #4e7897; outline-offset: -2px; }
+
+.architecture-diagram-shell,
+.architecture-components {
+    border: 1px solid #c4ced8;
+    border-radius: 0;
+    background: #fff;
+    box-shadow: none;
+}
+
+.architecture-diagram-shell { padding: 24px; }
+.architecture-diagram-heading,
+.architecture-components-intro {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 24px;
+}
+
+.architecture-diagram-heading h2,
+.architecture-components-intro h2 { font-size: 21px; }
+
+.architecture-legend {
+    display: flex;
+    gap: 14px;
+    color: #526474;
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.architecture-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.architecture-legend-line { display: inline-block; width: 18px; height: 1px; background: #486f8c; }
+.architecture-legend-line--dashed { background: repeating-linear-gradient(90deg, #765184 0 4px, transparent 4px 7px); }
+
+.architecture-diagram-scroll { overflow-x: auto; padding: 22px 0 4px; }
+.architecture-diagram { min-width: 1110px; }
+
+.architecture-lane-label {
+    margin: 12px 0 7px;
+    color: #536c80;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}
+
+.architecture-lane {
+    display: grid;
+    grid-template-columns: 150px 48px 150px 48px 150px 48px 150px 48px 150px;
+    align-items: stretch;
+    padding: 14px;
+    border: 1px solid #c7d0d8;
+    border-radius: 0;
+    background: #f9fbfc;
+}
+
+.architecture-lane--processing { background: #f7fafb; }
+.architecture-lane--delivery { background: #faf9fb; }
+
+.architecture-node {
+    display: flex;
+    min-height: 96px;
+    gap: 10px;
+    align-items: center;
+    padding: 11px;
+    border: 1px solid #c6d1da;
+    border-radius: 0;
+    background: #fff;
+    box-sizing: border-box;
+}
+
+.architecture-node--client { border-color: #7396ae; background: #f4f8fb; }
+.architecture-service-icon { width: 42px; height: 42px; flex: 0 0 42px; object-fit: contain; }
+.architecture-node .architecture-service-icon { width: 36px; height: 36px; flex-basis: 36px; }
+
+.architecture-browser-icon {
+    display: grid;
+    width: 36px;
+    height: 36px;
+    flex: 0 0 36px;
+    place-items: center;
+    border: 1px solid #648ba7;
+    border-radius: 0;
+    color: #2f658c;
+    font-size: 29px;
+    font-weight: 300;
+    line-height: 1;
+}
+
+.architecture-browser-icon--small { width: 42px; height: 42px; flex-basis: 42px; }
+.architecture-node-title { margin-top: 3px; color: #1f2b36; font-size: 13px; font-weight: 750; line-height: 1.2; }
+.architecture-node-detail { margin-top: 5px; color: #5a6976; font-size: 10px; line-height: 1.25; }
+
+.architecture-arrow {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    color: #466f8b;
+}
+
+.architecture-arrow span { max-width: 48px; margin-bottom: 4px; color: #617180; font-size: 9px; line-height: 1.1; text-align: center; }
+.architecture-arrow i { font-size: 23px; font-style: normal; line-height: 1; }
+.architecture-arrow--dashed { color: #80538a; }
+.architecture-arrow--dashed i { border-bottom: 1px dashed #80538a; }
+
+.architecture-flow-notes {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-top: 22px;
+}
+
+.architecture-flow-notes p {
+    margin: 0;
+    padding: 11px 12px;
+    border-left: 2px solid #5b87a7;
+    background: #f5f8fa;
+    color: #526474;
+    font-size: 12px;
+    line-height: 1.5;
+}
+.architecture-flow-notes b { color: #28628e; }
+
+.architecture-components { padding: 24px; }
+.architecture-components-intro p { max-width: 450px; margin: 0; color: #566777; font-size: 13px; line-height: 1.55; }
+
+.architecture-ingestion,
+.architecture-hosting { padding: 28px; }
+
+.architecture-overview-figure { margin-top: 22px; }
+
+.ingestion-reference-diagram {
+    margin: 0;
+    padding: 16px;
+    border: 1px solid #c4ced8;
+    background: #fff;
+}
+
+.architecture-diagram-image-scroll {
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+}
+
+.ingestion-reference-diagram img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border: 0;
+}
+
+.ingestion-reference-diagram figcaption {
+    margin-top: 13px;
+    padding-top: 12px;
+    border-top: 1px solid #d7dee5;
+    color: #536171;
+    font-size: 12px;
+    line-height: 1.55;
+}
+
+.ingestion-reference-diagram code,
+.ingestion-walkthrough code {
+    color: #255f89;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: .95em;
+}
+
+.ingestion-walkthrough {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 30px;
+    margin: 22px 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.ingestion-walkthrough li {
+    display: grid;
+    grid-template-columns: 27px minmax(0, 1fr);
+    gap: 11px;
+    padding: 15px 0;
+    border-top: 1px solid #b9c6d0;
+}
+
+.ingestion-walkthrough li > span {
+    display: grid;
+    width: 22px;
+    height: 22px;
+    place-items: center;
+    border-radius: 50%;
+    background: #243444;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 800;
+}
+
+.ingestion-walkthrough h2 {
+    margin: 1px 0 5px;
+    color: #273847;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 18px;
+    line-height: 1.25;
+}
+
+.ingestion-walkthrough p {
+    margin: 0;
+    color: #526474;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 15px;
+    line-height: 1.65;
+}
+
+@media (max-width: 760px) {
+    .architecture-page { width: min(100% - 24px, 1180px); padding: 18px; }
+    .architecture-hero,
+    .architecture-diagram-heading,
+    .architecture-components-intro { align-items: flex-start; flex-direction: column; }
+    .architecture-hero { margin-top: 0; }
+    .architecture-legend { flex-wrap: wrap; white-space: normal; }
+    .architecture-diagram-shell,
+    .architecture-components { padding: 16px; }
+    .architecture-flow-notes,
+    .ingestion-walkthrough { grid-template-columns: 1fr; }
+    .architecture-ingestion,
+    .architecture-hosting { padding: 18px; }
+    .ingestion-reference-diagram { padding: 8px; }
+    .architecture-diagram-image-scroll img { min-width: 760px; }
+    .architecture-overview-figure .architecture-diagram-image-scroll img { min-width: 900px; }
+}

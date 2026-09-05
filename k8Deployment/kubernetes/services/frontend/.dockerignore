@@ -1,0 +1,10 @@
+# The Docker build context is the Kubernetes-local frontend directory. Exclude
+# generated files and host-only configuration so a build is reproducible from
+# tracked source plus the explicit public build arguments in the script.
+app/node_modules
+app/dist
+app/.env
+app/.env.*
+!app/.env.example
+app/*.log
+.DS_Store

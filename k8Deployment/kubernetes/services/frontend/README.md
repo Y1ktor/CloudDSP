@@ -1,0 +1,126 @@
+# Local React frontend build boundary
+
+## Purpose of this directory
+
+This directory owns the **Kubernetes-local frontend variant and delivery
+layer** for CloudDSP's browser application. Its [`app/`](app/) directory is a
+versioned copy of the React application, reserved for local-only OIDC and
+local-service integration. It also owns the multi-stage Dockerfile, local
+image-build script, and Kubernetes Deployment, Service, and Ingress manifests.
+
+The cloud implementation remains preserved in
+[`../../../../cloudDeployment/frontend-react/`](../../../../cloudDeployment/frontend-react/).
+The two trees must not be edited as though they were the same deployment.
+Instead, any UI change needed in both environments is deliberately reviewed
+and copied in the appropriate direction. This prevents a local Keycloak/API
+change from accidentally changing the existing Cognito/AWS deployment.
+
+## Current result of this task
+
+The initial local source copy now exists in [`app/`](app/). Its exact cloud
+source revision, copy scope, and synchronization rules are recorded in
+[`app/PROVENANCE.md`](app/PROVENANCE.md). It now has a local Keycloak OIDC
+adapter, image recipe, locally built image, and applied Kubernetes delivery
+resources. The one-replica
+[`frontend-deployment.yaml`](frontend-deployment.yaml) serves generated React
+assets through NGINX on a non-root container port. The matching ClusterIP
+[`frontend-service.yaml`](frontend-service.yaml) owns stable in-cluster DNS and
+routes its HTTP port 80 only to ready Pods on their named container port
+`http` (8080). The browser-facing
+[`frontend-ingress.yaml`](frontend-ingress.yaml) makes that Service available
+at `http://clouddsp.localhost:8080/` through Traefik.
+
+An end-to-end local check has passed: a user can register in Keycloak, receive
+and verify Mailpit email, create a password on the registration form, return
+through the PKCE callback, and reach the signed-in React app. The frontend is
+not yet connected to a local Job API or WebSocket service; those are separate,
+later backend tasks.
+
+## Ownership boundary
+
+| Concern | Owner | Reason |
+| --- | --- | --- |
+| Cloud React screens, audio UX, and Cognito implementation | `cloudDeployment/frontend-react/` | Preserved cloud deployment; it remains independent of the local variant. |
+| Local React screens and local-only OIDC/API integration | `app/` | Starts from a recorded cloud revision, then changes only for the Kubernetes-local runtime. |
+| Local container build, image provenance, and Kubernetes resources | This `k8Deployment/kubernetes/services/frontend/` directory | Keep delivery configuration versioned and independently reviewable. |
+| Local identity server, realm, SMTP, and public browser client | `../keycloak/` | Keycloak is the identity provider; the frontend is only an OIDC public client. |
+| Browser URL | `http://clouddsp.localhost:8080/` | This is the exact origin/callback registered as `clouddsp-react`; do not substitute a Pod IP or Service DNS name. |
+
+## Build contract
+
+The local image uses a **versioned build recipe in this directory** and builds
+only [`app/`](app/). The Dockerfile must not silently read a
+developer's globally installed Node modules, an untracked `.env.production`
+file, or uncommitted cloud changes.
+
+The container build has these stages:
+
+```text
+reviewed Node image
+  -> npm ci from app/package-lock.json
+  -> Vite production build
+  -> reviewed NGINX image serving only generated dist/ assets
+```
+
+The digest-pinned official Node and NGINX bases are now recorded in
+[`../../images.lock.yaml`](../../images.lock.yaml). Build and push the current
+Apple-Silicon image with:
+
+```bash
+./k8Deployment/kubernetes/scripts/build-frontend-image.sh
+```
+
+The script reads only public browser values from the ignored
+`app/.env.production`, passes them explicitly as Docker build arguments, and
+prints the resulting immutable local-registry reference and Docker image size.
+It does not copy that file into the Docker context. Do not use the Vite
+development server as a Kubernetes runtime; it has different behavior,
+development headers, and an unsuitable delivery model.
+
+## Local OIDC boundary
+
+The cloud baseline imported `amazon-cognito-identity-js` directly. The local
+variant replaces that boundary with [`app/src/auth/oidc.js`](app/src/auth/oidc.js),
+which implements Authorization Code + S256 PKCE against Keycloak discovery.
+It validates callback `state`, keeps the PKCE verifier and token session in
+`sessionStorage`, uses the OAuth access token for API/WebSocket authorization,
+and delegates registration, email verification, and password reset to
+Keycloak's own browser UI.
+
+That adapter will use Keycloak's public metadata and client, not administrator
+credentials:
+
+| Public browser setting | Local value | Why it is safe in built assets |
+| --- | --- | --- |
+| OIDC issuer | `http://keycloak.localhost:8080/realms/clouddsp` | Identifies the public issuer and its discovery document. |
+| OIDC client ID | `clouddsp-react` | Public SPA identifier; it is not a password. |
+| Redirect URI | `http://clouddsp.localhost:8080/` | Exact URL registered in Keycloak for Authorization Code + PKCE. |
+| Post-logout URI | `http://clouddsp.localhost:8080/` | Exact Keycloak post-logout destination. |
+
+Never place the following in a Vite value, frontend image, ConfigMap visible to
+the frontend, or browser storage: a Keycloak administrator password, a client
+secret, a database password, a MinIO credential, or a RabbitMQ password. A
+public SPA uses PKCE specifically because it cannot keep a client secret. Its
+PKCE verifier is the one exception to ordinary browser-storage guidance: it is
+kept only in `sessionStorage` for the few minutes required to survive the
+Keycloak redirect, then removed before the authorization code is exchanged.
+It is never placed in a Vite value, long-lived `localStorage`, log, image, or
+Kubernetes resource.
+
+`app/.env.production` is intentionally ignored by Git. When the local adapter
+exists, it may contain only public browser configuration such as the issuer,
+public client ID, and local API origins. Vite embeds every `VITE_*` value in
+the built JavaScript, so an API key that must remain secret never belongs in
+this file. Kubernetes Secrets are for server-side workloads, not browser
+assets.
+
+## Completed delivery sequence
+
+1. **Image build:** Node/NGINX bases are digest-pinned; the script builds and
+   pushes the static arm64 image and records its immutable registry digest.
+2. **Kubernetes delivery:** the one-replica Deployment, ClusterIP Service, and
+   Traefik Ingress are applied for `clouddsp.localhost`.
+3. **Browser integration:** sign-up, Mailpit confirmation, password creation,
+   OIDC code exchange, and authenticated frontend return have passed. Session
+   refresh/expiry behavior should be revisited once the local protected API
+   exists, because that is the resource server that will enforce access tokens.

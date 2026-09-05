@@ -1,0 +1,136 @@
+# This Deployment is the Kubernetes controller for CloudDSP's local static
+# frontend. It maintains one replaceable Pod today; the separate Service and
+# Traefik Ingress tasks will later make that Pod reachable at the browser URL.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clouddsp-frontend
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: clouddsp-frontend
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: browser-static-application
+spec:
+  # One local replica gives a complete browser path without needlessly using a
+  # second laptop node. A later scale task can change this independently of the
+  # Service because Services select labels rather than Pod names.
+  replicas: 1
+  # Keep a small rollback history while avoiding a large collection of old
+  # ReplicaSets in this learning cluster.
+  revisionHistoryLimit: 2
+  # A rollout that cannot make one ready static-site Pod should surface quickly
+  # rather than remaining ambiguous while other local workloads are being used.
+  progressDeadlineSeconds: 120
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # Preserve the working Pod until its replacement passes readiness. With
+      # one replica, this avoids an avoidable browser outage during an update.
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    # The selector is immutable after Deployment creation. It must match the
+    # Pod-template labels exactly so this controller owns only frontend Pods.
+    matchLabels:
+      app.kubernetes.io/name: clouddsp-frontend
+      app.kubernetes.io/component: frontend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: clouddsp-frontend
+        app.kubernetes.io/component: frontend
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      # The container needs no Kubernetes API access. Removing the automatically
+      # mounted ServiceAccount token reduces what a static browser server could
+      # expose if its process were ever compromised.
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 15
+      securityContext:
+        # The image is explicitly designed for the official NGINX account
+        # (UID/GID 101) and container port 8080, so Kubernetes need not grant
+        # root privileges to bind a privileged port or write configuration.
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        # Kubelet applies this group to mounted volumes, ensuring the non-root
+        # NGINX process can create its PID and temporary files in /tmp.
+        fsGroup: 101
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: frontend
+          # This value is copied from images.frontend.immutableReference in
+          # ../../images.lock.yaml. The digest, rather than the friendly tag,
+          # fixes the exact NGINX/static-asset bytes Kubernetes may run.
+          image: clouddsp-registry.localhost:5001/frontend@sha256:00255544e4517dcb44c8136fe386c93e1c4be0fba0039dc5ba16d6cfa66427bf
+          # A digest cannot move to a different image. If a node already has
+          # these exact bytes, reusing its cache is safe and starts locally fast.
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          resources:
+            # These conservative values leave laptop capacity for Keycloak,
+            # databases, RabbitMQ, and future DSP workers. NGINX serves static
+            # assets, so it does not need worker-like CPU or memory requests.
+            requests:
+              cpu: 50m
+              memory: 64Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 250m
+              memory: 192Mi
+              ephemeral-storage: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            # The generated site is immutable. NGINX writes only its PID and
+            # temporary request buffers under the separately mounted /tmp
+            # emptyDir volume below.
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          startupProbe:
+            # Image pull happens before a container starts; this probe covers
+            # only NGINX startup. It permits up to one minute before Kubernetes
+            # treats a consistently failing new image as a failed rollout.
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 12
+          readinessProbe:
+            # A ready Pod is safe for the future Service to receive browser
+            # traffic. No real user request must be used as a health check.
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            # If NGINX stops answering its local health endpoint after startup,
+            # the Deployment controller replaces this stateless Pod.
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 2
+            failureThreshold: 3
+          volumeMounts:
+            - name: nginx-tmp
+              mountPath: /tmp
+      volumes:
+        - name: nginx-tmp
+          # This is intentionally ephemeral: it contains only NGINX PID and
+          # temporary request buffers, never uploaded audio, tokens, or app data.
+          emptyDir:
+            sizeLimit: 32Mi

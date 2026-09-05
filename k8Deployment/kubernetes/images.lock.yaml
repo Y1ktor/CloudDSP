@@ -15,6 +15,63 @@
 # be added under `images`; do not deploy a locally built image by mutable tag.
 lockFormatVersion: 1
 images:
+  frontend:
+    # This is the first locally built browser image. The readable tag records
+    # the local feature milestone, but a future Deployment must use only the
+    # immutable registry digest so an accidental retag cannot alter a Pod.
+    repository: clouddsp-registry.localhost:5001/frontend
+    sourceTag: "0.1.0-local-oidc"
+    digest: sha256:00255544e4517dcb44c8136fe386c93e1c4be0fba0039dc5ba16d6cfa66427bf
+    immutableReference: clouddsp-registry.localhost:5001/frontend@sha256:00255544e4517dcb44c8136fe386c93e1c4be0fba0039dc5ba16d6cfa66427bf
+    supportedPlatforms:
+      - linux/arm64/v8
+    builtFrom:
+      # The application baseline began at this recorded cloud revision, then
+      # gained local-only OIDC/CSP changes in the current Kubernetes worktree.
+      # It is intentionally called out as a working-tree build until this task
+      # is committed; the output digest above still identifies its exact bytes.
+      sourceBaselineCommit: 6393ae3eb4153b883baf993e7c1d887252f8de1f
+      sourceRevision: local-kubernetes-working-tree
+      sourceDirectory: kubernetes/services/frontend/app
+      dockerfile: kubernetes/services/frontend/Dockerfile
+      builderImageLock: images.frontend-node-builder
+      runtimeImageLock: images.frontend-nginx-runtime
+      publicConfigurationFile: kubernetes/services/frontend/app/.env.production
+    localDockerSizeBytes: 33624066
+    localDockerSize: "32.07 MiB"
+    pushedAt: "2026-09-04"
+
+  frontend-node-builder:
+    # Official Node image used only while compiling the local React source.
+    # This multi-platform OCI index selects arm64 for the current Mac/k3d
+    # cluster and amd64 for a future native Linux profile; the final image does
+    # not retain Node, npm, source, or node_modules.
+    repository: docker.io/library/node
+    sourceTag: "24-bookworm-slim"
+    resolvedVersion: "24.20.0"
+    digest: sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e
+    immutableReference: docker.io/library/node@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e
+    supportedPlatforms:
+      - linux/arm64/v8
+      - linux/amd64
+    upstream: https://hub.docker.com/_/node
+    resolvedAt: "2026-09-04"
+
+  frontend-nginx-runtime:
+    # Official NGINX Alpine runtime for the local static site. It contains
+    # only NGINX and the generated Vite assets copied by the multi-stage build,
+    # not the frontend source tree or its Node build dependencies.
+    repository: docker.io/library/nginx
+    sourceTag: "1.28-alpine"
+    resolvedVersion: "1.28-alpine"
+    digest: sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236
+    immutableReference: docker.io/library/nginx@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236
+    supportedPlatforms:
+      - linux/arm64/v8
+      - linux/amd64
+    upstream: https://hub.docker.com/_/nginx
+    resolvedAt: "2026-09-04"
+
   aws-cli:
     # AWS publishes this official AWS CLI v2 image in Amazon ECR Public.  The
     # later S3 smoke Job uses its `aws s3api` commands with a custom endpoint

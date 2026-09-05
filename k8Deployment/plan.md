@@ -46,7 +46,7 @@ k8Deployment/
     cluster/                # k3d configuration, namespaces, bootstrap files
     helm/                   # CloudDSP chart and local/GPU values
     services/               # K8-specific API, realtime, and worker code
-      frontend/
+      frontend/              # K8-specific React variant, image recipe, and delivery manifests
       api/
       realtime/
       upload-intake/
@@ -139,20 +139,33 @@ PostgreSQL is authoritative.
 
 - Keycloak owns password hashing, registration, confirmation, resets, and MFA
   in local PostgreSQL; application services must not own a password table.
+- Local self-registration requires password and confirmation on its initial
+  Keycloak form, then email verification. The dedicated Password Validation
+  configuration Job documents that deliberate UX choice and is idempotent;
+  revalidate it when upgrading Keycloak because Keycloak marks the setting
+  deprecated in favor of deferred password creation after verification.
 - The local Keycloak issuer and browser entry point is
   `http://keycloak.localhost:8080`. Traefik routes that host only to Keycloak's
   application Service; never route its management health/metrics port.
 - The local Mailpit browser inbox is `http://mailpit.localhost:8080`. Traefik
   routes that host only to Mailpit's web-UI Service; SMTP stays internal at
   `clouddsp-mailpit-smtp:1025` and must never receive an Ingress route.
-- The local frontend uses OIDC Authorization Code with PKCE. API and WebSocket
-  services validate issuer, audience, expiration, signing keys, and immutable
-  `sub` ownership.
+- The local frontend uses OIDC Authorization Code with PKCE. Its local React
+  variant redirects credential entry to Keycloak, validates callback state,
+  and uses OAuth access tokens for API/WebSocket calls; it does not handle a
+  password or contain a client secret. API and WebSocket services validate
+  issuer, audience, expiration, signing keys, and immutable `sub` ownership.
 - The local React SPA has the browser origin `http://clouddsp.localhost:8080`
   and a Keycloak public client named `clouddsp-react`.  Its only redirect and
   post-logout URL is `http://clouddsp.localhost:8080/`; it uses Authorization
   Code with S256 PKCE and never has a browser-visible client secret, implicit
   flow, direct password grant, or service-account grant.
+- The local frontend delivery layer lives under
+  `kubernetes/services/frontend/`. Its `app/` directory is a K8-specific React
+  variant copied from a recorded cloud Git revision. The local Keycloak
+  adapter, container recipe, and manifests are versioned in that local layer;
+  they must not change the preserved cloud source tree. Synchronization between
+  the two variants is deliberate and documented in the local app provenance.
 - Keep browser uploads presigned and private. Store object keys—not signed
   URLs—in durable state.
 - Preserve browser polling as the artifact-retrieval fallback. WebSocket

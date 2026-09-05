@@ -81,6 +81,21 @@ smoke Job before it creates a fresh one. The harmless test image remains in the
 dedicated registry for future checks and is removed when the registry itself is
 cleaned up.
 
+## Build the local frontend image
+
+```bash
+./k8Deployment/kubernetes/scripts/build-frontend-image.sh
+```
+
+This uses the local frontend's two-stage Dockerfile: the pinned official Node
+image builds Vite assets, then the pinned official NGINX image serves only those
+assets as a non-root process on container port 8080. The script reads the
+public Keycloak/browser settings from the ignored
+`services/frontend/app/.env.production`, pushes the arm64 image to
+`clouddsp-registry.localhost:5001/frontend`, and prints its immutable registry
+digest plus Docker's local uncompressed size. It does not deploy a Pod; that is
+the following Kubernetes delivery task.
+
 ## Verify HTTP routing on port 8080
 
 ```bash

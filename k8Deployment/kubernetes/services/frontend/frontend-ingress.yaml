@@ -1,0 +1,40 @@
+# This is the browser-facing rule for the local frontend. Traefik watches the
+# Ingress and routes clouddsp.localhost requests to the stable ClusterIP Service;
+# it never connects a browser directly to a replaceable frontend Pod.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: clouddsp-frontend
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: clouddsp-frontend
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+  annotations:
+    # k3d maps Traefik's HTTP entrypoint `web` to the Mac loopback port 8080.
+    # This remains an HTTP-only local-learning route; TLS is a later task.
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  # Explicitly select K3s's bundled Traefik controller instead of relying on a
+  # cluster-wide default that could change if another controller is installed.
+  ingressClassName: traefik
+  rules:
+    # `.localhost` resolves to loopback and exactly matches the redirect URL
+    # registered on the Keycloak public OIDC client.
+    - host: clouddsp.localhost
+      http:
+        # Ingress HTTP rules always use the plural `paths` list, even when
+        # there is only one route. `Prefix` forwards the React root and every
+        # future client-side route through the same static-site Service.
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: clouddsp-frontend
+                # This is the Service port *name* (`80/TCP`), not the
+                # container's port or an arbitrary string scalar.
+                port:
+                  name: http
