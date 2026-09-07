@@ -1,0 +1,508 @@
+# This one-time Job proves the complete *internal* authenticated read path:
+#
+#   disposable Keycloak user -> short-lived access token -> Job API ClusterIP
+#        ^                              |                          |
+#        |--- validated `sub` ---------+--- empty `jobs` list -----|
+#
+# It deliberately creates a separate, uniquely named Keycloak public client
+# with the password grant enabled. The production React client remains an
+# Authorization Code + PKCE client and is never weakened for automated tests.
+# The Job adds the Job API audience to the temporary client's access tokens,
+# creates one user with a random in-memory password, calls `/auth/me` and
+# `GET /jobs`, then removes both Keycloak records. It does not use a browser
+# session, a real CloudDSP user, a browser token, Traefik, or the public Mac
+# hostnames.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Kubernetes keeps a completed fixed-name Job instead of executing it again
+  # on a second apply. Delete the completed Job before an intentional rerun;
+  # its Pod receives a new random suffix and therefore new temporary names.
+  name: keycloak-job-api-auth-me-smoke
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: keycloak-job-api-auth-me-smoke
+    app.kubernetes.io/component: integration-test
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: keycloak-job-api-authenticated-empty-job-list-verification
+spec:
+  # Retain the completed Pod and its safe log messages briefly for learning and
+  # diagnosis. Kubernetes' TTL controller then removes the disposable Job.
+  ttlSecondsAfterFinished: 300
+  # A failed identity cleanup or authorization assertion needs diagnosis. An
+  # automatic retry could create a second temporary Keycloak identity and make
+  # it unclear which client/user needs removal, so rerun deliberately instead.
+  backoffLimit: 0
+  # This covers a few bounded HTTP requests to Keycloak and two API requests.
+  # It prevents an unavailable Service or stalled dependency from keeping the
+  # temporary administrator-credential client Pod running indefinitely.
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: keycloak-job-api-auth-me-smoke
+        app.kubernetes.io/component: integration-test
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      # The Job controller owns the single deliberate execution. Do not let a
+      # failed client process restart inside the same Pod.
+      restartPolicy: Never
+      # This standard-library client uses only cluster DNS and HTTP. It does
+      # not call Kubernetes APIs, so a ServiceAccount token would add needless
+      # credentials to a Pod that is already deliberately short lived.
+      automountServiceAccountToken: false
+      securityContext:
+        # The official Python image can run under this ordinary numeric UID.
+        # No root process, persistent home directory, or writable volume is
+        # required by the inline smoke-test program.
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: authenticated-identity-client
+          # Reuse the reviewed, multi-architecture official Python runtime
+          # locked as `images.rabbitmq-amqp-client-python` in
+          # ../../images.lock.yaml. Its standard library supplies JSON, random
+          # generation, URL encoding, and HTTP; the Job installs no packages
+          # and therefore needs no mutable custom client image.
+          image: docker.io/library/python@sha256:ed86c82274b3c69b52fb5820f358f0bd7df0b603332063cb5c6e32bd220c3e6e
+          imagePullPolicy: IfNotPresent
+          env:
+            # Both target addresses are internal ClusterIP Service DNS names.
+            # The test proves in-cluster service discovery and routing, while
+            # leaving Traefik/browser exposure as a separate later task.
+            - name: KEYCLOAK_INTERNAL_BASE_URL
+              value: http://clouddsp-keycloak:8080
+            - name: JOB_API_INTERNAL_BASE_URL
+              value: http://clouddsp-job-api.clouddsp-app.svc:80
+            - name: KEYCLOAK_ADMIN_REALM
+              value: master
+            - name: CLOUDDSP_REALM
+              value: clouddsp
+            # The API must reject a token unless this resource audience is
+            # present. The temporary client creates that exact access-token
+            # audience through a disposable protocol mapper below.
+            - name: JOB_API_CLIENT_ID
+              value: clouddsp-job-api
+            # Kubernetes supplies the Pod name at runtime. Its generated
+            # suffix keeps a deliberate rerun independent of previous users
+            # and clients without writing random values to a volume.
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            # The existing ignored local Secret supplies the master-realm
+            # bootstrap administrator only long enough to obtain a short-lived
+            # Admin API token. Values are never printed or written to a file.
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keycloak-bootstrap-admin
+                  key: KC_BOOTSTRAP_ADMIN_USERNAME
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keycloak-bootstrap-admin
+                  key: KC_BOOTSTRAP_ADMIN_PASSWORD
+            # Prevent Python from attempting a bytecode write on the read-only
+            # container filesystem configured below.
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+          resources:
+            # This is a small HTTP integration assertion—not DSP processing.
+            # Tight bounds preserve local capacity for PostgreSQL, Keycloak,
+            # MinIO, RabbitMQ, and future audio-processing worker Pods.
+            requests:
+              cpu: 25m
+              memory: 32Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            # The program stores the admin token, generated password, and
+            # received user token in process memory only. A read-only image
+            # filesystem makes that guarantee visible at the Pod level.
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          # This self-contained code is disposable integration-test logic, not
+          # a production identity client or a replacement for the React OIDC
+          # adapter. It deliberately never prints passwords, access tokens,
+          # token claims, Keycloak response bodies, or full exception traces.
+          command:
+            - python3
+            - -c
+            - |
+              import json
+              import os
+              import secrets
+              import sys
+              from urllib.error import HTTPError, URLError
+              from urllib.parse import quote, urlencode
+              from urllib.request import Request, urlopen
+
+
+              class SmokeFailure(RuntimeError):
+                  """A safe diagnostic category that never contains HTTP response data."""
+
+
+              class HttpFailure(SmokeFailure):
+                  """Preserve an HTTP status for diagnosis without preserving a body."""
+
+                  def __init__(self, operation, status):
+                      super().__init__(f"{operation} returned HTTP {status}")
+                      self.status = status
+
+
+              def request(operation, url, expected_statuses, method="GET", data=None, headers=None):
+                  """Make one bounded HTTP request and return safe success data to this process."""
+
+                  http_request = Request(
+                      url,
+                      data=data,
+                      headers=headers or {},
+                      method=method,
+                  )
+                  try:
+                      with urlopen(http_request, timeout=10) as response:
+                          status = response.status
+                          # These Admin/API responses are tiny. The bound prevents
+                          # a misrouted endpoint becoming an unlimited memory read.
+                          body = response.read(65_537)
+                          response_headers = response.headers
+                  except HTTPError as error:
+                      raise HttpFailure(operation, error.code) from None
+                  except (URLError, OSError, TimeoutError) as error:
+                      raise SmokeFailure(f"{operation} failed: {type(error).__name__}") from None
+
+                  if status not in expected_statuses:
+                      raise HttpFailure(operation, status)
+                  if len(body) > 65_536:
+                      raise SmokeFailure(f"{operation} response exceeded 64 KiB")
+                  return response_headers, body
+
+
+              def json_request(operation, url, expected_statuses, method="GET", payload=None, headers=None):
+                  """Encode JSON and parse a bounded JSON response without logging it."""
+
+                  request_headers = dict(headers or {})
+                  request_headers["Content-Type"] = "application/json"
+                  encoded_payload = None if payload is None else json.dumps(payload).encode("utf-8")
+                  _, response_body = request(
+                      operation,
+                      url,
+                      expected_statuses,
+                      method=method,
+                      data=encoded_payload,
+                      headers=request_headers,
+                  )
+                  if not response_body:
+                      return None
+                  try:
+                      return json.loads(response_body)
+                  except json.JSONDecodeError as error:
+                      raise SmokeFailure(f"{operation} returned invalid JSON") from error
+
+
+              def keycloak_identifier_from_location(operation, headers, resource_segment):
+                  """Extract only a final Keycloak resource ID from a create response Location."""
+
+                  location = headers.get("Location")
+                  marker = f"/{resource_segment}/"
+                  if not location or marker not in location:
+                      raise SmokeFailure(f"{operation} omitted its location")
+                  identifier = location.rstrip("/").rsplit("/", 1)[-1]
+                  if not identifier:
+                      raise SmokeFailure(f"{operation} returned an empty identifier")
+                  return identifier
+
+
+              keycloak_internal_url = os.environ["KEYCLOAK_INTERNAL_BASE_URL"].rstrip("/")
+              job_api_internal_base_url = os.environ["JOB_API_INTERNAL_BASE_URL"].rstrip("/")
+              admin_realm = os.environ["KEYCLOAK_ADMIN_REALM"]
+              clouddsp_realm = os.environ["CLOUDDSP_REALM"]
+              job_api_client_id = os.environ["JOB_API_CLIENT_ID"]
+
+              # A Job Pod name receives a short random suffix from Kubernetes.
+              # Keep only that suffix in externally visible test names so the
+              # temporary username also remains comfortably below email-local
+              # part length limits enforced by Keycloak.
+              pod_suffix = os.environ["POD_NAME"].rsplit("-", 1)[-1]
+              if not pod_suffix:
+                  raise SmokeFailure("Kubernetes did not provide a usable Pod suffix")
+              test_client_id = f"clouddsp-auth-me-smoke-{pod_suffix}"
+              test_username = f"keycloak-auth-me-smoke-{pod_suffix}"
+              test_email = f"{test_username}@clouddsp.test"
+              # This non-predictable value exists only in process memory until
+              # the temporary user receives one short-lived access token.
+              test_password = secrets.token_urlsafe(32)
+
+              admin_access_token = None
+              test_client_uuid = None
+              test_user_id = None
+              primary_failure = None
+              cleanup_failures = []
+
+              try:
+                  # Keycloak's built-in `admin-cli` client exchanges the ignored
+                  # local bootstrap credentials for a short-lived Admin API token.
+                  # This is distinct from the temporary CloudDSP user token below.
+                  admin_token_form = urlencode(
+                      {
+                          "grant_type": "password",
+                          "client_id": "admin-cli",
+                          "username": os.environ["KC_BOOTSTRAP_ADMIN_USERNAME"],
+                          "password": os.environ["KC_BOOTSTRAP_ADMIN_PASSWORD"],
+                      }
+                  ).encode("utf-8")
+                  _, admin_token_body = request(
+                      "Keycloak administrator token request",
+                      f"{keycloak_internal_url}/realms/{quote(admin_realm, safe='')}/protocol/openid-connect/token",
+                      {200},
+                      method="POST",
+                      data=admin_token_form,
+                      headers={"Content-Type": "application/x-www-form-urlencoded"},
+                  )
+                  try:
+                      admin_access_token = json.loads(admin_token_body).get("access_token")
+                  except json.JSONDecodeError as error:
+                      raise SmokeFailure("Keycloak administrator token response was invalid JSON") from error
+                  if not isinstance(admin_access_token, str) or not admin_access_token:
+                      raise SmokeFailure("Keycloak administrator token response was incomplete")
+                  admin_headers = {
+                      "Authorization": f"Bearer {admin_access_token}",
+                      "Content-Type": "application/json",
+                  }
+
+                  # This direct-grant client is deliberately disposable. The
+                  # permanent React client keeps password grants disabled and
+                  # continues to use Authorization Code + PKCE in the browser.
+                  print("Keycloak Job API auth/me smoke: creating disposable test client")
+                  client_payload = {
+                      "clientId": test_client_id,
+                      "name": "CloudDSP disposable Job API authenticated-read smoke client",
+                      "description": "Removed by the local authenticated-read smoke Job.",
+                      "enabled": True,
+                      "protocol": "openid-connect",
+                      "publicClient": True,
+                      "standardFlowEnabled": False,
+                      "implicitFlowEnabled": False,
+                      "directAccessGrantsEnabled": True,
+                      "serviceAccountsEnabled": False,
+                      "authorizationServicesEnabled": False,
+                      "fullScopeAllowed": False,
+                  }
+                  client_headers, _ = request(
+                      "Keycloak temporary-client creation",
+                      f"{keycloak_internal_url}/admin/realms/{quote(clouddsp_realm, safe='')}/clients",
+                      {201},
+                      method="POST",
+                      data=json.dumps(client_payload).encode("utf-8"),
+                      headers=admin_headers,
+                  )
+                  test_client_uuid = keycloak_identifier_from_location(
+                      "Keycloak temporary-client creation",
+                      client_headers,
+                      "clients",
+                  )
+
+                  # The API validates an audience, so simply obtaining a valid
+                  # realm token is insufficient. Put an audience mapper on this
+                  # disposable client exactly as the permanent React client has.
+                  mapper_payload = {
+                      "name": "job-api-access-token-audience",
+                      "protocol": "openid-connect",
+                      "protocolMapper": "oidc-audience-mapper",
+                      "consentRequired": False,
+                      "config": {
+                          "included.client.audience": job_api_client_id,
+                          "access.token.claim": "true",
+                          "id.token.claim": "false",
+                          "introspection.token.claim": "true",
+                          "userinfo.token.claim": "false",
+                      },
+                  }
+                  json_request(
+                      "Keycloak temporary-client audience mapper creation",
+                      (
+                          f"{keycloak_internal_url}/admin/realms/{quote(clouddsp_realm, safe='')}"
+                          f"/clients/{quote(test_client_uuid, safe='')}/protocol-mappers/models"
+                      ),
+                      {201},
+                      method="POST",
+                      payload=mapper_payload,
+                      headers=admin_headers,
+                  )
+
+                  # This user is enabled and marked email-verified so normal
+                  # realm required actions do not interrupt its one password
+                  # grant. Keycloak's local user profile requires first/last
+                  # name, hence the harmless fixed display values.
+                  print("Keycloak Job API auth/me smoke: creating temporary user")
+                  user_payload = {
+                      "username": test_username,
+                      "email": test_email,
+                      "firstName": "CloudDSP",
+                      "lastName": "Auth Me Smoke",
+                      "enabled": True,
+                      "emailVerified": True,
+                  }
+                  user_headers, _ = request(
+                      "Keycloak temporary-user creation",
+                      f"{keycloak_internal_url}/admin/realms/{quote(clouddsp_realm, safe='')}/users",
+                      {201},
+                      method="POST",
+                      data=json.dumps(user_payload).encode("utf-8"),
+                      headers=admin_headers,
+                  )
+                  test_user_id = keycloak_identifier_from_location(
+                      "Keycloak temporary-user creation",
+                      user_headers,
+                      "users",
+                  )
+
+                  # The Keycloak Admin API receives the random password over
+                  # internal cluster HTTP only. `temporary: false` prevents an
+                  # update-password required action from blocking the grant.
+                  json_request(
+                      "Keycloak temporary-user password setup",
+                      (
+                          f"{keycloak_internal_url}/admin/realms/{quote(clouddsp_realm, safe='')}"
+                          f"/users/{quote(test_user_id, safe='')}/reset-password"
+                      ),
+                      {204},
+                      method="PUT",
+                      payload={"type": "password", "temporary": False, "value": test_password},
+                      headers=admin_headers,
+                  )
+
+                  # The temporary user now receives a real short-lived realm
+                  # access token. The response is intentionally parsed only in
+                  # memory and its JWT is never decoded, displayed, or retained.
+                  print("Keycloak Job API auth/me smoke: requesting temporary-user access token")
+                  user_token_form = urlencode(
+                      {
+                          "grant_type": "password",
+                          "client_id": test_client_id,
+                          "username": test_username,
+                          "password": test_password,
+                      }
+                  ).encode("utf-8")
+                  _, user_token_body = request(
+                      "Keycloak temporary-user token request",
+                      f"{keycloak_internal_url}/realms/{quote(clouddsp_realm, safe='')}/protocol/openid-connect/token",
+                      {200},
+                      method="POST",
+                      data=user_token_form,
+                      headers={"Content-Type": "application/x-www-form-urlencoded"},
+                  )
+                  try:
+                      user_access_token = json.loads(user_token_body).get("access_token")
+                  except json.JSONDecodeError as error:
+                      raise SmokeFailure("Keycloak temporary-user token response was invalid JSON") from error
+                  if not isinstance(user_access_token, str) or not user_access_token:
+                      raise SmokeFailure("Keycloak temporary-user token response was incomplete")
+
+                  # The Job API must validate signature, expiry, public issuer,
+                  # and `clouddsp-job-api` audience before its route runs. The
+                  # only allowed response data is the same user UUID Keycloak
+                  # assigned when the disposable identity was created above.
+                  print("Keycloak Job API authenticated-read smoke: calling /auth/me")
+                  _, api_body = request(
+                      "Job API authenticated identity request",
+                      f"{job_api_internal_base_url}/auth/me",
+                      {200},
+                      headers={"Authorization": f"Bearer {user_access_token}", "Accept": "application/json"},
+                  )
+                  try:
+                      api_response = json.loads(api_body)
+                  except json.JSONDecodeError as error:
+                      raise SmokeFailure("Job API authenticated identity response was invalid JSON") from error
+                  if api_response != {"subject": test_user_id}:
+                      raise SmokeFailure("Job API authenticated identity response did not match the temporary user")
+
+                  # This just-created Keycloak user has never submitted a job.
+                  # Reuse the same genuine access token to prove `GET /jobs`
+                  # validates the token, reaches PostgreSQL through Service DNS,
+                  # binds the immutable `sub` as its owner filter, and returns a
+                  # successful empty array rather than another user's history.
+                  print("Keycloak Job API authenticated-read smoke: calling /jobs")
+                  _, jobs_body = request(
+                      "Job API empty job-list request",
+                      f"{job_api_internal_base_url}/jobs",
+                      {200},
+                      headers={"Authorization": f"Bearer {user_access_token}", "Accept": "application/json"},
+                  )
+                  try:
+                      jobs_response = json.loads(jobs_body)
+                  except json.JSONDecodeError as error:
+                      raise SmokeFailure("Job API empty job-list response was invalid JSON") from error
+                  if jobs_response != {"jobs": []}:
+                      raise SmokeFailure("Job API empty job-list response did not match the temporary user")
+
+              except Exception as error:
+                  # Planned failures expose only operation names/statuses.
+                  # Unexpected errors retain only their type so a future stack
+                  # trace cannot accidentally reveal an in-memory token/password.
+                  primary_failure = str(error) if isinstance(error, SmokeFailure) else type(error).__name__
+              finally:
+                  # Delete the temporary user first, then its temporary client.
+                  # Cleanup executes after either a success or a failure, so a
+                  # normal failed assertion does not accumulate test identities
+                  # in the local Keycloak database. An interrupted Pod can still
+                  # leave a record; its unique `clouddsp-auth-me-smoke-` prefix
+                  # makes that exception safe and easy to find/delete manually.
+                  if admin_access_token:
+                      if test_user_id:
+                          try:
+                              request(
+                                  "Keycloak temporary-user cleanup",
+                                  (
+                                      f"{keycloak_internal_url}/admin/realms/{quote(clouddsp_realm, safe='')}"
+                                      f"/users/{quote(test_user_id, safe='')}"
+                                  ),
+                                  {204},
+                                  method="DELETE",
+                                  headers={"Authorization": f"Bearer {admin_access_token}"},
+                              )
+                          except Exception as error:
+                              cleanup_failures.append(
+                                  str(error) if isinstance(error, SmokeFailure) else type(error).__name__
+                              )
+                      if test_client_uuid:
+                          try:
+                              request(
+                                  "Keycloak temporary-client cleanup",
+                                  (
+                                      f"{keycloak_internal_url}/admin/realms/{quote(clouddsp_realm, safe='')}"
+                                      f"/clients/{quote(test_client_uuid, safe='')}"
+                                  ),
+                                  {204},
+                                  method="DELETE",
+                                  headers={"Authorization": f"Bearer {admin_access_token}"},
+                              )
+                          except Exception as error:
+                              cleanup_failures.append(
+                                  str(error) if isinstance(error, SmokeFailure) else type(error).__name__
+                              )
+
+              if cleanup_failures:
+                  print(
+                      "Keycloak Job API authenticated-read smoke test failed: temporary-resource cleanup failed",
+                      file=sys.stderr,
+                  )
+                  raise SystemExit(1)
+              if primary_failure:
+                  print(f"Keycloak Job API authenticated-read smoke test failed: {primary_failure}", file=sys.stderr)
+                  raise SystemExit(1)
+
+              print("Keycloak Job API authenticated read smoke test passed")

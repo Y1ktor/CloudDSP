@@ -1,0 +1,291 @@
+# This one-time Job establishes the resource-server binding between the local
+# React SPA and the local Job API. Its Keycloak configuration outcome is:
+#
+#   clouddsp-react access token
+#     ├── iss: http://keycloak.localhost:8080/realms/clouddsp
+#     └── aud: clouddsp-job-api
+#
+# The frontend remains a public OAuth/OIDC client using Authorization Code +
+# PKCE. `clouddsp-job-api` is different: it represents the API resource that
+# may accept an access token. It has no browser redirect, login flow, service
+# account, or client secret. The audience mapper below adds its stable name only
+# to the *access tokens* that Keycloak issues to the existing React client.
+#
+# This Job deliberately changes Keycloak desired state only. It does not apply
+# the Job API Deployment, rebuild its image, expose an Ingress route, create a
+# user, or call the API. A following smoke-test task will obtain a real token
+# and prove it carries the expected audience before `/jobs` is exposed.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Kubernetes does not rerun an already-completed fixed-name Job on another
+  # apply. Delete this Job before an intentional rerun; its script is safe to
+  # rerun because it looks up, creates missing resources, and verifies the
+  # same named Keycloak records without creating duplicates.
+  name: keycloak-job-api-audience-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: keycloak-job-api-audience-bootstrap
+    app.kubernetes.io/component: identity-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: keycloak-job-api-access-token-audience-provisioning
+spec:
+  # Keep the safe completion/failure log available briefly for learning and
+  # diagnosis, then let the TTL controller remove this admin-credential client.
+  ttlSecondsAfterFinished: 300
+  # A Keycloak configuration error needs an explicit diagnosis and rerun. Do
+  # not repeat updates automatically or obscure the original failure output.
+  backoffLimit: 0
+  # Each `kcadm.sh` invocation starts a small JVM and obtains a fresh temporary
+  # Admin API token because this Job intentionally keeps no token-cache file.
+  # Five minutes is still a firm local diagnostic bound while leaving enough
+  # time for the full create-or-update/read-back sequence on an Apple Silicon
+  # development cluster under load.
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: keycloak-job-api-audience-bootstrap
+        app.kubernetes.io/component: identity-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      # The Job controller owns failure semantics; its administrative command
+      # must not restart repeatedly in one Pod.
+      restartPolicy: Never
+      # The bundled Keycloak CLI talks only to the Keycloak Admin API. It does
+      # not need a Kubernetes identity, so do not mount a ServiceAccount token.
+      automountServiceAccountToken: false
+      securityContext:
+        # Keep the official Keycloak image's ordinary runtime UID while making
+        # root execution and an unconfined syscall profile invalid at Pod start.
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: keycloak-admin-cli
+          # Reuse the immutable official Keycloak image that already runs the
+          # identity Deployment. Its `kcadm.sh` tool avoids a mutable helper
+          # image or a package installation in this short-lived Job.
+          image: quay.io/keycloak/keycloak@sha256:ff4257d0d64efbe99ed1ddfaf07765cc3c36dc7518bf8324d41961327f441c54
+          imagePullPolicy: IfNotPresent
+          env:
+            # Connect via the in-cluster Service. The public Keycloak hostname
+            # belongs in signed token claims and browser redirects, not here.
+            - name: KEYCLOAK_ADMIN_URL
+              value: http://clouddsp-keycloak:8080
+            - name: KEYCLOAK_ADMIN_REALM
+              value: master
+            - name: CLOUDDSP_REALM
+              value: clouddsp
+            # This existing public SPA client receives the audience mapper.
+            # Client IDs are public identifiers, not authentication secrets.
+            - name: REACT_CLIENT_ID
+              value: clouddsp-react
+            # This resource-client ID becomes the expected `aud` value in the
+            # Job API's own Keycloak validator configuration.
+            - name: JOB_API_CLIENT_ID
+              value: clouddsp-job-api
+            # A stable mapper name lets a rerun update one configuration record
+            # rather than append duplicate audience claims to an access token.
+            - name: AUDIENCE_MAPPER_NAME
+              value: clouddsp-job-api-access-token-audience
+            # Only this temporary Job reads the existing master-realm
+            # administrator Secret; the client/mapping values above are public.
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keycloak-bootstrap-admin
+                  key: KC_BOOTSTRAP_ADMIN_USERNAME
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keycloak-bootstrap-admin
+                  key: KC_BOOTSTRAP_ADMIN_PASSWORD
+          resources:
+            # This is control-plane configuration work, not DSP processing.
+            # Tight bounds preserve local capacity for storage, database,
+            # identity, and eventual audio-processing worker Pods.
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 100m
+              memory: 256Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            # Every kcadm invocation uses `--no-config`, retaining no cached
+            # token file; that makes the image filesystem safely read-only.
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -ec
+            - |
+              # Use a fresh in-memory Admin CLI authentication context for each
+              # call. Positional parameters preserve a future Secret containing
+              # whitespace or punctuation without exposing it in this manifest.
+              KCADM=/opt/keycloak/bin/kcadm.sh
+              set -- --no-config \
+                --server "$KEYCLOAK_ADMIN_URL" \
+                --realm "$KEYCLOAK_ADMIN_REALM" \
+                --user "$KC_BOOTSTRAP_ADMIN_USERNAME" \
+                --password "$KC_BOOTSTRAP_ADMIN_PASSWORD"
+
+              # Both existing realm and React client are prerequisites. Refuse
+              # to create partial state that might be mistaken for a working
+              # browser-to-API authorization boundary.
+              printf 'Keycloak Job API audience bootstrap: verifying realm\n'
+              if ! "$KCADM" get "realms/$CLOUDDSP_REALM" "$@" >/dev/null 2>&1; then
+                printf 'Keycloak Job API audience bootstrap failed: CloudDSP realm is unavailable\n' >&2
+                exit 1
+              fi
+
+              printf 'Keycloak Job API audience bootstrap: locating React client\n'
+              REACT_CLIENT_UUID=$("$KCADM" get clients "$@" -r "$CLOUDDSP_REALM" \
+                --query "clientId=$REACT_CLIENT_ID" \
+                --fields id --format csv --noquotes)
+              if [ -z "$REACT_CLIENT_UUID" ]; then
+                printf 'Keycloak Job API audience bootstrap failed: React client is unavailable\n' >&2
+                exit 1
+              fi
+
+              # This representation deliberately disables every grant/login
+              # mechanism. Keycloak only needs a stable resource-client ID for
+              # the token audience and does not issue a secret for this API.
+              job_api_client_configuration() {
+                cat <<JSON
+              {
+                "clientId": "$JOB_API_CLIENT_ID",
+                "name": "CloudDSP local Job API resource",
+                "description": "Resource-server audience for the local Kubernetes Job API.",
+                "enabled": true,
+                "protocol": "openid-connect",
+                "publicClient": true,
+                "standardFlowEnabled": false,
+                "implicitFlowEnabled": false,
+                "directAccessGrantsEnabled": false,
+                "serviceAccountsEnabled": false,
+                "authorizationServicesEnabled": false,
+                "fullScopeAllowed": false
+              }
+              JSON
+              }
+
+              # A Keycloak client UUID is internal implementation data. Look it
+              # up by the declared clientId so creation and deliberate reruns
+              # address the same resource identity without hard-coding a UUID.
+              printf 'Keycloak Job API audience bootstrap: reconciling resource client\n'
+              JOB_API_CLIENT_UUID=$("$KCADM" get clients "$@" -r "$CLOUDDSP_REALM" \
+                --query "clientId=$JOB_API_CLIENT_ID" \
+                --fields id --format csv --noquotes)
+              if [ -z "$JOB_API_CLIENT_UUID" ]; then
+                job_api_client_configuration | "$KCADM" create clients "$@" \
+                  -r "$CLOUDDSP_REALM" -f - >/dev/null
+                JOB_API_CLIENT_UUID=$("$KCADM" get clients "$@" -r "$CLOUDDSP_REALM" \
+                  --query "clientId=$JOB_API_CLIENT_ID" \
+                  --fields id --format csv --noquotes)
+              fi
+              if [ -z "$JOB_API_CLIENT_UUID" ]; then
+                printf 'Keycloak Job API audience bootstrap failed: resource client lookup was empty\n' >&2
+                exit 1
+              fi
+              job_api_client_configuration | "$KCADM" update "clients/$JOB_API_CLIENT_UUID" "$@" \
+                -r "$CLOUDDSP_REALM" -f - >/dev/null
+
+              # This mapper belongs to `clouddsp-react`, not the resource
+              # client: therefore a successful browser login receives the API
+              # audience in its access token. Do not put it in `id.token.claim`;
+              # ID tokens identify browser sessions and are not API credentials.
+              audience_mapper_configuration() {
+                cat <<JSON
+              {
+                "name": "$AUDIENCE_MAPPER_NAME",
+                "protocol": "openid-connect",
+                "protocolMapper": "oidc-audience-mapper",
+                "consentRequired": false,
+                "config": {
+                  "included.client.audience": "$JOB_API_CLIENT_ID",
+                  "access.token.claim": "true",
+                  "id.token.claim": "false",
+                  "introspection.token.claim": "true"
+                }
+              }
+              JSON
+              }
+
+              # kcadm's CSV output lets this read-only shell find the mapper by
+              # name without jq, awk, or a writable temporary JSON file. Mapper
+              # names are fixed repository values and contain no commas.
+              printf 'Keycloak Job API audience bootstrap: locating access-token mapper\n'
+              MAPPER_UUID=$("$KCADM" get "clients/$REACT_CLIENT_UUID/protocol-mappers/models" "$@" \
+                -r "$CLOUDDSP_REALM" --fields id,name --format csv --noquotes \
+                | while IFS=, read -r mapper_id mapper_name; do
+                    if [ "$mapper_name" = "$AUDIENCE_MAPPER_NAME" ]; then
+                      printf '%s\n' "$mapper_id"
+                      break
+                    fi
+                  done)
+              if [ -z "$MAPPER_UUID" ]; then
+                printf 'Keycloak Job API audience bootstrap: creating access-token mapper\n'
+                audience_mapper_configuration | "$KCADM" create \
+                  "clients/$REACT_CLIENT_UUID/protocol-mappers/models" "$@" \
+                  -r "$CLOUDDSP_REALM" -f - >/dev/null
+                MAPPER_UUID=$("$KCADM" get "clients/$REACT_CLIENT_UUID/protocol-mappers/models" "$@" \
+                  -r "$CLOUDDSP_REALM" --fields id,name --format csv --noquotes \
+                  | while IFS=, read -r mapper_id mapper_name; do
+                      if [ "$mapper_name" = "$AUDIENCE_MAPPER_NAME" ]; then
+                        printf '%s\n' "$mapper_id"
+                        break
+                      fi
+                    done)
+              fi
+              if [ -z "$MAPPER_UUID" ]; then
+                printf 'Keycloak Job API audience bootstrap failed: audience mapper lookup was empty\n' >&2
+                exit 1
+              fi
+              # Keycloak 26.7.3 persists a just-created audience mapper but its
+              # CLI can block on an immediate redundant `update` of that mapper.
+              # Do not issue that no-op write. Instead, fetch the public mapper
+              # representation and fail closed if a pre-existing mapper drifted
+              # from the reviewed audience/access-token policy. A deliberate
+              # mapper reconfiguration is a separate, explicit maintenance task.
+              printf 'Keycloak Job API audience bootstrap: verifying access-token mapper\n'
+              MAPPER_REPRESENTATION=$("$KCADM" get \
+                "clients/$REACT_CLIENT_UUID/protocol-mappers/models/$MAPPER_UUID" "$@" \
+                -r "$CLOUDDSP_REALM")
+              mapper_has() {
+                case "$MAPPER_REPRESENTATION" in
+                  *"$1"*) return 0 ;;
+                  *) return 1 ;;
+                esac
+              }
+              if ! mapper_has '"protocolMapper" : "oidc-audience-mapper"' \
+                || ! mapper_has '"included.client.audience" : "clouddsp-job-api"' \
+                || ! mapper_has '"access.token.claim" : "true"' \
+                || ! mapper_has '"id.token.claim" : "false"'; then
+                printf 'Keycloak Job API audience bootstrap failed: existing audience mapper differs from the reviewed policy\n' >&2
+                exit 1
+              fi
+
+              # Read only stable identifiers back. Avoid printing Keycloak
+              # representations, access tokens, or a future client secret.
+              printf 'Keycloak Job API audience bootstrap: verifying configuration\n'
+              VERIFIED_RESOURCE_CLIENT_ID=$("$KCADM" get "clients/$JOB_API_CLIENT_UUID" "$@" \
+                -r "$CLOUDDSP_REALM" --fields clientId --format csv --noquotes)
+              VERIFIED_MAPPER_NAME=$("$KCADM" get \
+                "clients/$REACT_CLIENT_UUID/protocol-mappers/models/$MAPPER_UUID" "$@" \
+                -r "$CLOUDDSP_REALM" --fields name --format csv --noquotes)
+              if [ "$VERIFIED_RESOURCE_CLIENT_ID" != "$JOB_API_CLIENT_ID" ] \
+                || [ "$VERIFIED_MAPPER_NAME" != "$AUDIENCE_MAPPER_NAME" ]; then
+                printf 'Keycloak Job API audience bootstrap failed: read-back mismatch\n' >&2
+                exit 1
+              fi
+
+              printf 'Keycloak Job API resource audience bootstrap passed\n'

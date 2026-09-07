@@ -30,11 +30,13 @@ routes its HTTP port 80 only to ready Pods on their named container port
 [`frontend-ingress.yaml`](frontend-ingress.yaml) makes that Service available
 at `http://clouddsp.localhost:8080/` through Traefik.
 
-An end-to-end local check has passed: a user can register in Keycloak, receive
-and verify Mailpit email, create a password on the registration form, return
-through the PKCE callback, and reach the signed-in React app. The frontend is
-not yet connected to a local Job API or WebSocket service; those are separate,
-later backend tasks.
+An end-to-end local identity check has passed: a user can register in Keycloak,
+receive and verify Mailpit email, create a password on the registration form,
+return through the PKCE callback, and reach the signed-in React app. The
+frontend now calls the local Job API through its same-origin Ingress and may
+post the API-issued form directly to the one public MinIO S3 origin. The API's
+upload-intake, job-detail, queue, and worker stages remain separate later
+tasks; a successful browser object upload is not processing completion.
 
 ## Ownership boundary
 
@@ -96,6 +98,7 @@ credentials:
 | OIDC client ID | `clouddsp-react` | Public SPA identifier; it is not a password. |
 | Redirect URI | `http://clouddsp.localhost:8080/` | Exact URL registered in Keycloak for Authorization Code + PKCE. |
 | Post-logout URI | `http://clouddsp.localhost:8080/` | Exact Keycloak post-logout destination. |
+| Object-storage origin | `http://minio.localhost:8080` | Exact CSP `connect-src` destination for API-issued MinIO presigned POSTs; it contains no credential and does not make the bucket public. |
 
 Never place the following in a Vite value, frontend image, ConfigMap visible to
 the frontend, or browser storage: a Keycloak administrator password, a client
@@ -109,10 +112,10 @@ Kubernetes resource.
 
 `app/.env.production` is intentionally ignored by Git. When the local adapter
 exists, it may contain only public browser configuration such as the issuer,
-public client ID, and local API origins. Vite embeds every `VITE_*` value in
-the built JavaScript, so an API key that must remain secret never belongs in
-this file. Kubernetes Secrets are for server-side workloads, not browser
-assets.
+public client ID, local API origin, and one local object-storage origin. Vite
+embeds every `VITE_*` value in the built JavaScript, so an API key that must
+remain secret never belongs in this file. Kubernetes Secrets are for
+server-side workloads, not browser assets.
 
 ## Completed delivery sequence
 

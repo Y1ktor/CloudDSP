@@ -22,6 +22,7 @@ ARG VITE_OIDC_CLIENT_ID
 ARG VITE_OIDC_REDIRECT_URI
 ARG VITE_OIDC_POST_LOGOUT_REDIRECT_URI
 ARG VITE_JOB_API_URL
+ARG VITE_OBJECT_STORAGE_URL
 ARG VITE_WEBSOCKET_URL
 ARG VITE_DEMO_ASSET_ORIGIN
 ENV VITE_OIDC_ISSUER=${VITE_OIDC_ISSUER} \
@@ -29,6 +30,7 @@ ENV VITE_OIDC_ISSUER=${VITE_OIDC_ISSUER} \
     VITE_OIDC_REDIRECT_URI=${VITE_OIDC_REDIRECT_URI} \
     VITE_OIDC_POST_LOGOUT_REDIRECT_URI=${VITE_OIDC_POST_LOGOUT_REDIRECT_URI} \
     VITE_JOB_API_URL=${VITE_JOB_API_URL} \
+    VITE_OBJECT_STORAGE_URL=${VITE_OBJECT_STORAGE_URL} \
     VITE_WEBSOCKET_URL=${VITE_WEBSOCKET_URL} \
     VITE_DEMO_ASSET_ORIGIN=${VITE_DEMO_ASSET_ORIGIN}
 
@@ -49,12 +51,20 @@ FROM docker.io/library/nginx@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a
 LABEL org.opencontainers.image.title="CloudDSP local frontend" \
       org.opencontainers.image.description="Static local React frontend with Keycloak OIDC" \
       org.opencontainers.image.source="k8Deployment/kubernetes/services/frontend/app" \
-      org.opencontainers.image.version="0.1.0-local-oidc"
+      org.opencontainers.image.version="0.5.0-cross-tab-email-oidc"
 
 # Replace the root-oriented default configuration with an explicit unprivileged
 # listener, then copy only Vite's immutable output into NGINX's document root.
 COPY nginx.conf /etc/nginx/nginx.conf
 COPY --from=builder --chown=nginx:nginx /src/app/dist/ /usr/share/nginx/html/
+# Vite writes this generated NGINX include from the same csp.js policy used by
+# index.html. Keeping it outside the document root prevents it being served as
+# a browser asset while `include` below makes NGINX send the matching header.
+COPY --from=builder /src/app/dist/csp-header.conf /etc/nginx/csp-header.conf
+
+# Validate the exact final NGINX configuration and generated header include
+# during the image build, before a malformed CSP could reach the local registry.
+RUN nginx -t
 
 # The official image supplies this ordinary runtime account. Binding 8080 rather
 # than privileged port 80 lets a future Pod enforce runAsNonRoot cleanly.

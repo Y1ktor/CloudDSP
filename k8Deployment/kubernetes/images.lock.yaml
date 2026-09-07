@@ -15,14 +15,70 @@
 # be added under `images`; do not deploy a locally built image by mutable tag.
 lockFormatVersion: 1
 images:
+  api-python-runtime:
+    # Cloud Job API Lambda code runs on Python 3.12. The local container keeps
+    # that language version so replacing AWS integrations is an explicit code
+    # change rather than an accidental simultaneous interpreter migration.
+    # This official multi-platform image index is the sole API base image.
+    repository: docker.io/library/python
+    sourceTag: "3.12.14-slim-bookworm"
+    resolvedVersion: "3.12.14"
+    digest: sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254
+    immutableReference: docker.io/library/python@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254
+    supportedPlatforms:
+      - linux/arm64/v8
+      - linux/amd64
+    upstream: https://hub.docker.com/_/python
+    resolvedAt: "2026-09-04"
+
+  job-api:
+    # This is the locally built Job API runtime. Its readable tag names the
+    # current code milestone, but every future Deployment must use only the
+    # immutable digest: a tag can be moved while an OCI digest cannot.
+    repository: clouddsp-registry.localhost:5001/job-api
+    # This owner-bound detail-snapshot build passed all fifty-one local JWT,
+    # request-contract, database, route-composition, and presigned-POST tests
+    # before push. Workloads use its immutable digest rather than this readable
+    # provenance tag, which a later build may move.
+    sourceTag: "0.0.7-job-detail-snapshot"
+    digest: sha256:2cc80aeea5ecf4b1c4e1491518c79bc7112b88c0e0dc12bc84c2b21abb1b1f80
+    immutableReference: clouddsp-registry.localhost:5001/job-api@sha256:2cc80aeea5ecf4b1c4e1491518c79bc7112b88c0e0dc12bc84c2b21abb1b1f80
+    supportedPlatforms:
+      - linux/arm64/v8
+    builtFrom:
+      # The application source is still uncommitted Kubernetes-local work. The
+      # registry digest above nevertheless identifies the exact pushed bytes;
+      # replace this working-tree note with a commit after the task is reviewed.
+      sourceRevision: local-kubernetes-working-tree
+      sourceDirectory: kubernetes/services/api/app
+      dockerfile: kubernetes/services/api/Dockerfile
+      requirementsLock: kubernetes/services/api/requirements.lock
+      authenticationTests: kubernetes/services/api/tests/test_authentication.py
+      jobListTests: kubernetes/services/api/tests/test_jobs.py
+      directUploadContractTests: kubernetes/services/api/tests/test_direct_upload_contract.py
+      jobCreationTests: kubernetes/services/api/tests/test_job_creation.py
+      jobCreationRouteTests: kubernetes/services/api/tests/test_job_creation_route.py
+      jobDetailTests: kubernetes/services/api/tests/test_jobs.py
+      presignedUploadTests: kubernetes/services/api/tests/test_presigned_upload.py
+      runtimeImageLock: images.api-python-runtime
+      sourceLock: buildSources.api
+    localDockerSizeBytes: 77903372
+    localDockerSize: "74.29 MiB"
+    pushedAt: "2026-09-06"
+
   frontend:
-    # This is the first locally built browser image. The readable tag records
-    # the local feature milestone, but a future Deployment must use only the
+    # This browser image embeds the reviewed public Job API and private-MinIO
+    # browser origins alongside local OIDC configuration. The readable tag
+    # records the local feature milestone, but a Deployment must use only the
     # immutable registry digest so an accidental retag cannot alter a Pod.
     repository: clouddsp-registry.localhost:5001/frontend
-    sourceTag: "0.1.0-local-oidc"
-    digest: sha256:00255544e4517dcb44c8136fe386c93e1c4be0fba0039dc5ba16d6cfa66427bf
-    immutableReference: clouddsp-registry.localhost:5001/frontend@sha256:00255544e4517dcb44c8136fe386c93e1c4be0fba0039dc5ba16d6cfa66427bf
+    # This revision also recovers when a Mailpit verification link is opened
+    # in another tab. The original tab's PKCE verifier is intentionally absent
+    # there, so the frontend discards the unusable code and starts a new secure
+    # PKCE request instead of reporting a misleading state-mismatch error.
+    sourceTag: "0.5.0-cross-tab-email-oidc"
+    digest: sha256:f6a2b991b9dfba9675a9aa24b19157157d90ca5c8744aa0ac977c4bbc8945eb5
+    immutableReference: clouddsp-registry.localhost:5001/frontend@sha256:f6a2b991b9dfba9675a9aa24b19157157d90ca5c8744aa0ac977c4bbc8945eb5
     supportedPlatforms:
       - linux/arm64/v8
     builtFrom:
@@ -37,9 +93,14 @@ images:
       builderImageLock: images.frontend-node-builder
       runtimeImageLock: images.frontend-nginx-runtime
       publicConfigurationFile: kubernetes/services/frontend/app/.env.production
-    localDockerSizeBytes: 33624066
+      # These URLs are JavaScript configuration sent to the browser, not
+      # Secrets. The image checks confirm no internal `*.svc` address is
+      # bundled: browser code cannot resolve Kubernetes Service DNS.
+      publicJobApiBaseUrl: http://clouddsp.localhost:8080
+      publicObjectStorageOrigin: http://minio.localhost:8080
+    localDockerSizeBytes: 33626105
     localDockerSize: "32.07 MiB"
-    pushedAt: "2026-09-04"
+    pushedAt: "2026-09-06"
 
   frontend-node-builder:
     # Official Node image used only while compiling the local React source.
@@ -55,7 +116,7 @@ images:
       - linux/arm64/v8
       - linux/amd64
     upstream: https://hub.docker.com/_/node
-    resolvedAt: "2026-09-04"
+    resolvedAt: "2026-09-05"
 
   frontend-nginx-runtime:
     # Official NGINX Alpine runtime for the local static site. It contains
@@ -92,6 +153,30 @@ images:
       - linux/amd64
     upstream: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-docker.html
     resolvedAt: "2026-09-02"
+
+  minio-mc:
+    # MinIO publishes this official command-line administration client. The
+    # short-lived bootstrap Job uses it to create the permanent private uploads
+    # bucket and a least-privileged Job API identity; it is never an
+    # application runtime or the MinIO server image itself.
+    #
+    # This release's image is intentionally a `scratch` image with only the
+    # statically linked `mc` binary. The bootstrap Job therefore uses ordered
+    # init containers instead of relying on a shell to chain admin commands.
+    # The manifest-list digest fixes the command implementation while allowing
+    # k3d on arm64 and a future native amd64 cluster to choose their matching
+    # image child.
+    repository: docker.io/minio/mc
+    sourceTag: "RELEASE.2025-08-13T08-35-41Z"
+    resolvedVersion: "RELEASE.2025-08-13T08-35-41Z"
+    digest: sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+    immutableReference: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+    supportedPlatforms:
+      - linux/arm64/v8
+      - linux/amd64
+    upstream: https://github.com/minio/mc/releases/tag/RELEASE.2025-08-13T08-35-41Z
+    containerSource: https://github.com/minio/mc/blob/RELEASE.2025-08-13T08-35-41Z/Dockerfile
+    resolvedAt: "2026-09-06"
 
   keycloak:
     # Keycloak publishes its own official server image in its Quay
@@ -289,6 +374,55 @@ images:
     resolvedAt: "2026-09-02"
 
 buildSources:
+  api:
+    # This source lock produced `images.job-api` above. Future API source changes
+    # must deliberately rebuild, push, and record a new output digest; do not
+    # deploy the mutable readable tag from the build script.
+    baseImageLock: images.api-python-runtime
+    sourceDirectory: kubernetes/services/api/app
+    dockerfile: kubernetes/services/api/Dockerfile
+    requirementsLock: kubernetes/services/api/requirements.lock
+    intendedRepository: clouddsp-registry.localhost:5001/job-api
+    publishedImageLock: images.job-api
+    targetPlatform: linux/arm64
+    directPythonPackages:
+      - name: fastapi
+        version: "0.141.1"
+        upstream: https://pypi.org/project/fastapi/0.141.1/
+      - name: uvicorn
+        version: "0.52.4"
+        upstream: https://pypi.org/project/uvicorn/0.52.4/
+      - name: psycopg
+        version: "3.2.13"
+        installationExtra: binary
+        binaryPackage: psycopg-binary
+        # Psycopg 3.3.5 is newer but its matching binary package is not yet
+        # published. This latest matching pair is locked for the current
+        # Linux/ARM64 target, avoiding a source build or external libpq layer.
+        upstream: https://www.psycopg.org/psycopg3/docs/basic/install.html
+      - name: PyJWT
+        version: "2.13.0"
+        installationExtra: crypto
+        # PyJWT verifies the Keycloak access-token signature. Its `crypto`
+        # extra adds the reviewed Cryptography backend needed for RSA/RS256.
+        cryptoBackend:
+          name: cryptography
+          # Version 50.0.1's ARM64 wheel faults during RSA work under this
+          # Docker Desktop Linux VM. 46.0.7 passed isolated RSA generation;
+          # revisit only with a reviewed Docker/Desktop compatibility upgrade.
+          version: "46.0.7"
+        upstream: https://pypi.org/project/PyJWT/2.13.0/
+      - name: boto3
+        version: "1.43.89"
+        # The local API uses Boto3 only for Signature V4 presigned POST/GET
+        # generation. Its configured endpoint determines the returned browser
+        # URL; signing itself performs no network request to MinIO or AWS.
+        # Botocore and s3transfer are transitive packages locked with hashes in
+        # requirements.lock, while Boto3 is listed here as the direct source
+        # dependency that a future image rebuild must review.
+        upstream: https://pypi.org/project/boto3/1.43.89/
+    resolvedAt: "2026-09-06"
+
   rabbitmq-amqp-smoke-client:
     # This source lock makes the test image reproducible without installing
     # packages from PyPI when the Kubernetes Job starts.  Pika is a pure-Python

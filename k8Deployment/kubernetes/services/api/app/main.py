@@ -1,0 +1,396 @@
+"""Minimal HTTP boundary for CloudDSP's local Job API.
+
+The cloud implementation is a Python 3.12 Lambda handler. This ASGI process
+does not copy that handler yet because its DynamoDB, S3, Lambda, and API Gateway
+assumptions must be replaced deliberately by PostgreSQL, MinIO, RabbitMQ, and
+Keycloak-aware components. `GET /auth/me` proves that a Keycloak access token
+reaches this process and yields a verified owner identity. `GET /jobs` lists
+only that verified owner's non-expired database rows, while
+`GET /jobs/{job_id}` returns one current owner-bound snapshot. `POST /jobs`
+creates an upload-pending PostgreSQL row and returns a short-lived, constrained
+MinIO form; the browser uploads audio directly to MinIO, not through this API
+Pod. None of these routes publishes RabbitMQ work or starts a processing worker
+yet.
+`readyz` continues to prove only that the API can reach its restricted
+PostgreSQL database.
+"""
+
+from typing import Annotated
+from uuid import UUID
+
+from fastapi import Depends, FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from pydantic import ValidationError
+
+from app.authentication import AuthenticatedPrincipal, require_authenticated_principal
+from app.database import (
+    DatabaseConfigurationError,
+    DatabaseUnavailable,
+    create_direct_upload_pending_job,
+    get_retained_job_snapshot_for_owner,
+    list_retained_jobs_for_owner,
+    verify_database_connection,
+)
+from app.direct_upload_contract import DirectUploadJobCreatedResponse, DirectUploadJobRequest
+from app.object_storage import ObjectStorageConfigurationError, ObjectStorageSettings
+from app.presigned_upload import (
+    PresignedUploadContractError,
+    PresignedUploadSigningError,
+    create_constrained_source_upload_post,
+)
+
+SERVICE_NAME = "clouddsp-job-api"
+# This value appears only in the non-sensitive health/readiness responses. It
+# must track the immutable local image milestone so `kubectl exec`/port-forward
+# diagnostics can confirm which API code Kubernetes actually rolled out.
+SERVICE_VERSION = "0.0.7-job-detail-snapshot"
+
+
+# Disable FastAPI's generated schema and interactive documentation until the
+# browser contract in ../README.md is implemented and protected. Publishing
+# half-finished routes or an unstable schema would make this preliminary
+# boundary appear like a supported public API.
+app = FastAPI(
+    title="CloudDSP local Job API",
+    version=SERVICE_VERSION,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+)
+
+
+@app.exception_handler(RequestValidationError)
+async def direct_upload_request_validation_error(
+    request: Request,
+    error: RequestValidationError,
+):
+    """Keep malformed direct-upload input aligned with the cloud API's 400.
+
+    FastAPI normally returns a detailed 422 response for request-model errors.
+    The preserved cloud endpoint instead exposes one small 400 contract, so a
+    browser cannot depend on framework-specific validation details. Other
+    routes retain FastAPI's standard validation behaviour for future focused
+    work. The original error is passed to FastAPI only on those other routes.
+    """
+
+    if request.method == "POST" and request.url.path == "/jobs":
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Invalid direct-upload request."},
+            headers={"cache-control": "no-store"},
+        )
+    return await request_validation_exception_handler(request, error)
+
+
+def health_response(*, readiness: bool) -> JSONResponse:
+    """Return a successful probe response without serializing private details."""
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "status": "ok",
+            "service": SERVICE_NAME,
+            "version": SERVICE_VERSION,
+            "readiness": readiness,
+        },
+        headers={"cache-control": "no-store"},
+    )
+
+
+def readiness_failure_response(*, reason: str) -> JSONResponse:
+    """Return a non-sensitive readiness failure while keeping liveness healthy.
+
+    `reason` is deliberately a short, fixed category. Driver errors could
+    contain hostnames, usernames, or implementation details, so they are never
+    exposed to the browser or a Kubernetes probe response.
+    """
+
+    return JSONResponse(
+        status_code=503,
+        content={
+            "status": "not_ready",
+            "service": SERVICE_NAME,
+            "version": SERVICE_VERSION,
+            "readiness": False,
+            "reason": reason,
+        },
+        headers={"cache-control": "no-store"},
+    )
+
+
+def authenticated_identity_response(principal: AuthenticatedPrincipal) -> JSONResponse:
+    """Serialize the one trusted identity value safe for this diagnostic route.
+
+    This response intentionally omits the original JWT, its email/name/profile
+    claims, roles, Keycloak URLs, and database data. The caller already owns
+    its own immutable `sub`; returning it here proves the *API* independently
+    validated the signature, issuer, audience, and expiry before a future
+    `/jobs` route uses the same value for `jobs.owner_sub`.
+    """
+
+    return JSONResponse(
+        status_code=200,
+        content={"subject": principal.subject},
+        # Identity responses must not be stored by a shared browser/proxy cache.
+        headers={"cache-control": "no-store"},
+    )
+
+
+def saved_jobs_response(rows: list[dict[str, object]]) -> JSONResponse:
+    """Return compact retained job history without exposing database internals.
+
+    ``list_retained_jobs_for_owner`` already selects only the reviewed public
+    fields. ``jsonable_encoder`` then serializes PostgreSQL timestamps and
+    JSONB tempo values into browser JSON without returning a driver row object,
+    an input bucket/key, private artifact metadata, or an error message.
+    """
+
+    return JSONResponse(
+        status_code=200,
+        content=jsonable_encoder({"jobs": rows}),
+        # Job history is user-specific and should never be stored by a shared
+        # browser/proxy cache between two signed-in users.
+        headers={"cache-control": "no-store"},
+    )
+
+
+def job_history_unavailable_response() -> JSONResponse:
+    """Return a safe retryable database failure for the browser job library."""
+
+    return JSONResponse(
+        status_code=503,
+        # The existing React client already reads `error` from non-2xx JSON.
+        # Keep this wording generic: database host/role/SQL errors stay only in
+        # private server-side exception chains, never in browser responses.
+        content={"error": "Job history is temporarily unavailable."},
+        headers={"cache-control": "no-store"},
+    )
+
+
+def job_snapshot_response(row: dict[str, object]) -> JSONResponse:
+    """Serialize one already-owner-filtered durable job snapshot.
+
+    The database helper selects this small reviewed shape explicitly. Encoding
+    it here handles timestamps and JSONB fields without giving the browser a
+    raw driver row, a MinIO bucket/key, credential, or a stored presigned URL.
+    A later artifact task may add fresh signed URLs to this public snapshot;
+    this read-only task intentionally reports only currently durable state.
+    """
+
+    return JSONResponse(
+        status_code=200,
+        content=jsonable_encoder(row),
+        headers={"cache-control": "no-store"},
+    )
+
+
+def job_not_found_response() -> JSONResponse:
+    """Hide missing, expired, and foreign jobs behind one non-enumerating 404."""
+
+    return JSONResponse(
+        status_code=404,
+        content={"error": "Job not found."},
+        headers={"cache-control": "no-store"},
+    )
+
+
+def job_snapshot_unavailable_response() -> JSONResponse:
+    """Give browser polling one safe retryable failure category for detail reads."""
+
+    return JSONResponse(
+        status_code=503,
+        content={"error": "Job details are temporarily unavailable."},
+        headers={"cache-control": "no-store"},
+    )
+
+
+def direct_upload_unavailable_response() -> JSONResponse:
+    """Return one retryable error without leaking a storage or database cause.
+
+    A client cannot safely distinguish a temporary PostgreSQL failure, a
+    missing MinIO environment value, or a local signing-library failure. All
+    are server-side conditions, so this shared response avoids exposing
+    credentials, object names, endpoint details, or implementation state.
+    """
+
+    return JSONResponse(
+        status_code=503,
+        content={"error": "Direct upload is temporarily unavailable."},
+        headers={"cache-control": "no-store"},
+    )
+
+
+def created_direct_upload_response(
+    payload: DirectUploadJobCreatedResponse,
+) -> JSONResponse:
+    """Serialize only the reviewed browser upload contract with HTTP 201."""
+
+    return JSONResponse(
+        status_code=201,
+        content=jsonable_encoder(payload.model_dump(mode="json")),
+        # Presigned form values authorize one short-lived upload. A browser or
+        # intermediary must not cache and later replay this response.
+        headers={"cache-control": "no-store"},
+    )
+
+
+@app.get("/healthz", include_in_schema=False)
+def healthz() -> JSONResponse:
+    """Liveness endpoint: only prove this Python HTTP process is running.
+
+    Kubernetes should restart a Pod that cannot serve HTTP. It should *not*
+    restart every API Pod merely because PostgreSQL has a short outage; that is
+    why database validation belongs to the separate readiness endpoint below.
+    """
+
+    return health_response(readiness=False)
+
+
+@app.get("/readyz", include_in_schema=False)
+def readyz() -> JSONResponse:
+    """Readiness endpoint: verify a bounded PostgreSQL `SELECT 1` succeeds.
+
+    A `503` makes a future Kubernetes Service remove this Pod from its ready
+    endpoints while retaining the process for diagnosis. This is not yet a
+    schema, Keycloak, MinIO, or RabbitMQ health check; those dependencies are
+    deliberately introduced in later focused tasks.
+    """
+
+    try:
+        verify_database_connection()
+    except DatabaseConfigurationError:
+        return readiness_failure_response(reason="database_configuration")
+    except DatabaseUnavailable:
+        return readiness_failure_response(reason="database_unavailable")
+
+    return health_response(readiness=True)
+
+
+@app.get("/auth/me", include_in_schema=False)
+def authenticated_identity(
+    principal: Annotated[AuthenticatedPrincipal, Depends(require_authenticated_principal)],
+) -> JSONResponse:
+    """Prove one Bearer token is valid without creating any durable state.
+
+    FastAPI resolves `require_authenticated_principal` *before* this handler
+    runs. Missing/invalid tokens return its generic 401 response; a Keycloak
+    signing-key outage returns its generic retryable 503 response. Therefore no
+    route body can accidentally read a browser-supplied user ID or run work for
+    an unauthenticated caller.
+    """
+
+    return authenticated_identity_response(principal)
+
+
+@app.get("/jobs", include_in_schema=False)
+def list_jobs(
+    principal: Annotated[AuthenticatedPrincipal, Depends(require_authenticated_principal)],
+) -> JSONResponse:
+    """List only the authenticated user's non-expired job summaries.
+
+    FastAPI resolves the Keycloak validator before entering this function, so
+    `principal.subject` is a signed immutable owner identity—not an HTTP
+    parameter supplied by the browser. The database query is intentionally a
+    narrow read-only operation: it does not create records, calculate quotas,
+    sign MinIO URLs, publish RabbitMQ messages, or start processing work.
+    """
+
+    try:
+        rows = list_retained_jobs_for_owner(principal.subject)
+    except (DatabaseConfigurationError, DatabaseUnavailable):
+        return job_history_unavailable_response()
+
+    return saved_jobs_response(rows)
+
+
+@app.get("/jobs/{job_id}", include_in_schema=False)
+def get_job_detail(
+    job_id: UUID,
+    principal: Annotated[AuthenticatedPrincipal, Depends(require_authenticated_principal)],
+) -> JSONResponse:
+    """Return one retained snapshot only when its immutable owner matches.
+
+    ``job_id`` is parsed by FastAPI as a UUID before this handler runs, while
+    ``principal.subject`` comes only from Keycloak's validated access token.
+    The query binds both values and retention time in PostgreSQL, so neither a
+    guessed UUID nor a browser-supplied owner can retrieve another account's
+    row. A missing, expired, or foreign row shares one 404 response; it does
+    not reveal the reason or make a MinIO call. For a new direct upload the
+    result is simply the durable ``upload_pending`` record with empty artifact
+    maps until the later upload-intake pipeline updates it.
+    """
+
+    try:
+        row = get_retained_job_snapshot_for_owner(
+            job_id=str(job_id),
+            owner_sub=principal.subject,
+        )
+    except (DatabaseConfigurationError, DatabaseUnavailable):
+        return job_snapshot_unavailable_response()
+
+    if row is None:
+        return job_not_found_response()
+    return job_snapshot_response(row)
+
+
+@app.post("/jobs", include_in_schema=False)
+def create_direct_upload_job(
+    submission: DirectUploadJobRequest,
+    principal: Annotated[AuthenticatedPrincipal, Depends(require_authenticated_principal)],
+) -> JSONResponse:
+    """Create one durable upload intent and its browser-to-Minio form.
+
+    The verified Keycloak subject supplies ownership; the browser cannot choose
+    an owner, bucket, object key, job ID, status, or expiry. Configuration is
+    validated before the insert so a malformed Pod environment never creates a
+    row that cannot be signed. PostgreSQL commits the row before local signing,
+    ensuring every returned form refers to a durable job. Signature generation
+    is pure local cryptography and makes no MinIO network request.
+
+    This route intentionally ends after issuing the form. A later small task
+    will confirm upload completion, change upload_pending state, and publish a
+    RabbitMQ message for processing; no audio bytes or worker trigger pass
+    through this HTTP request today.
+    """
+
+    try:
+        storage = ObjectStorageSettings.from_environment()
+    except ObjectStorageConfigurationError:
+        return direct_upload_unavailable_response()
+
+    try:
+        created_job = create_direct_upload_pending_job(
+            owner_sub=principal.subject,
+            request=submission,
+            input_bucket=storage.uploads_bucket,
+        )
+    except (DatabaseConfigurationError, DatabaseUnavailable):
+        return direct_upload_unavailable_response()
+
+    try:
+        upload_post = create_constrained_source_upload_post(
+            storage,
+            job_id=created_job.job_id,
+            input_object_key=created_job.input_object_key,
+            content_type=submission.canonical_source_content_type,
+            stem_mode=submission.stem_mode,
+        )
+        response_payload = DirectUploadJobCreatedResponse(
+            job_id=created_job.job_id,
+            status=created_job.status,
+            revision=created_job.revision,
+            expires_at=created_job.expires_at,
+            upload_url=upload_post.url,
+            upload_fields=dict(upload_post.fields),
+            max_source_bytes=upload_post.maximum_source_bytes,
+        )
+    except (PresignedUploadContractError, PresignedUploadSigningError, ValidationError):
+        # The durable row remains upload_pending if a local implementation
+        # problem prevents form creation. That is safer than issuing a form
+        # without state; expiration/reconciliation is a later intake task.
+        return direct_upload_unavailable_response()
+
+    return created_direct_upload_response(response_payload)

@@ -103,6 +103,75 @@ spec:
               containerPort: 9001
               protocol: TCP
           env:
+            # This self-built MinIO Community server does not implement the
+            # S3 PutBucketCors API, so per-bucket CORS XML is unavailable. Its
+            # supported local alternative is this server-level list of allowed
+            # browser origins. A comma-separated list could be used later, but
+            # this learning cluster intentionally permits only the React origin.
+            #
+            # CORS is not authentication: an allowed browser still needs a
+            # valid presigned S3 request, and the private-bucket IAM policy
+            # continues to deny anonymous reads/writes and unauthorized paths.
+            - name: MINIO_API_CORS_ALLOW_ORIGIN
+              value: http://clouddsp.localhost:8080
+            # This block stages MinIO's native AMQP target with the stable
+            # identifier intake. That identifier becomes part of MinIO's target
+            # ARN when a later root-only bootstrap Job attaches a bucket event
+            # rule.
+            #
+            # Keep the target disabled in this task. With off, MinIO does not
+            # open an AMQP connection, declare an exchange, or publish an
+            # object event. That lets us roll out and inspect configuration
+            # separately from later, observable event-rule activation.
+            - name: MINIO_NOTIFY_AMQP_ENABLE_INTAKE
+              value: "off"
+            # The AMQP URI is the only target value that contains a password.
+            # It comes from the ignored local Secret rather than this versioned
+            # StatefulSet. The URI names the internal RabbitMQ ClusterIP and
+            # encoded /clouddsp virtual host; it is never browser-facing.
+            - name: MINIO_NOTIFY_AMQP_URL_INTAKE
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-source-intake-rabbitmq-credentials
+                  key: MINIO_NOTIFY_AMQP_URL_INTAKE
+            # The remaining fields are reviewed, non-secret AMQP topology
+            # settings. They exactly match the exchange and binding created by
+            # the RabbitMQ source-intake bootstrap Job.
+            - name: MINIO_NOTIFY_AMQP_EXCHANGE_INTAKE
+              value: clouddsp.source-events
+            - name: MINIO_NOTIFY_AMQP_EXCHANGE_TYPE_INTAKE
+              value: direct
+            - name: MINIO_NOTIFY_AMQP_ROUTING_KEY_INTAKE
+              value: source.upload.created
+            # Mandatory delivery makes a missing queue binding visible to
+            # MinIO instead of silently discarding a notification. Durable
+            # exchange declaration and persistent AMQP delivery agree with the
+            # already-declared RabbitMQ topology.
+            - name: MINIO_NOTIFY_AMQP_MANDATORY_INTAKE
+              value: "on"
+            - name: MINIO_NOTIFY_AMQP_DURABLE_INTAKE
+              value: "on"
+            - name: MINIO_NOTIFY_AMQP_NO_WAIT_INTAKE
+              value: "off"
+            - name: MINIO_NOTIFY_AMQP_INTERNAL_INTAKE
+              value: "off"
+            - name: MINIO_NOTIFY_AMQP_AUTO_DELETED_INTAKE
+              value: "off"
+            - name: MINIO_NOTIFY_AMQP_DELIVERY_MODE_INTAKE
+              value: "2"
+            # Publisher confirms plus an on-PVC MinIO event store make an
+            # accepted broker delivery observable and retain an event while
+            # RabbitMQ is briefly unavailable. They do not make RabbitMQ or
+            # MinIO globally synchronous with a browser upload request.
+            - name: MINIO_NOTIFY_AMQP_PUBLISHING_CONFIRMS_INTAKE
+              value: "on"
+            - name: MINIO_NOTIFY_AMQP_QUEUE_DIR_INTAKE
+              value: /data/.minio-events/amqp-intake
+            # Bound the local persistent backlog to 10,000 undelivered events.
+            # This development guardrail does not replace the later
+            # PostgreSQL-driven reconciler when MinIO cannot retain an event.
+            - name: MINIO_NOTIFY_AMQP_QUEUE_LIMIT_INTAKE
+              value: "10000"
             # The root account is injected from the ignored Secret already
             # applied in this namespace.  It is not a browser credential and
             # application services will later receive narrower access keys.

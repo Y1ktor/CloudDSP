@@ -92,7 +92,13 @@ Browser ── OIDC ──> Keycloak
    ├─ Job API ──> PostgreSQL (job, quota, task lease, outbox)
    └─ presigned POST ──> MinIO uploads/{job_id}/...
                                │
-                    object-created event / reconciler
+              native ObjectCreated AMQP event / reconciler
+                               │
+                RabbitMQ clouddsp.source-intake queue
+                               │
+                    upload-intake Deployment consumer
+                               │
+                 PostgreSQL source state / future outbox
                                │
                      RabbitMQ demucs.requested
                                │
@@ -116,9 +122,15 @@ Browser ── OIDC ──> Keycloak
 1. The local API validates the Keycloak subject, atomically reserves the UTC
    quota, creates the durable job, and returns a size-constrained MinIO
    presigned POST contract.
-2. The upload-intake service validates the object and creates
-   `demucs.requested`. A reconciler verifies pending uploads so a missed object
-   event cannot strand work.
+   Its owner-bound `GET /jobs/{job_id}` companion returns the current durable
+   snapshot for browser polling. Before intake/processing exists, that is an
+   `upload_pending` record with empty artifact maps—not a claim that MinIO has
+   received the object or that Demucs has started.
+2. MinIO publishes an S3-compatible source-created notification natively to
+   RabbitMQ's dedicated `clouddsp.source-intake` queue. The upload-intake
+   Deployment consumes it, re-verifies the object, and idempotently records
+   `source_uploaded`. A reconciler verifies pending uploads so a missed event,
+   broker outage, or bounded MinIO event queue cannot strand work.
 3. A Demucs worker claims its stage lease, validates source size, metadata,
    duration, and audio stream, then writes stable stem keys to MinIO.
 4. After its artifact and PostgreSQL commit succeed, Demucs writes one outbox
@@ -128,6 +140,25 @@ Browser ── OIDC ──> Keycloak
    terminal state before acknowledging its RabbitMQ message.
 6. A linked-media request first runs yt-dlp. Its normalized WAV enters the
    same ordinary upload-intake path; it never creates a second Demucs trigger.
+
+### Upload-intake event contract
+
+The MinIO StatefulSet now stages the native AMQP target and its Secret-backed
+connection URI with the target disabled. The prepared RabbitMQ bootstrap Job
+grants MinIO configure and write permission for only the source exchange; a
+later activation task must rerun that Job and attach the bucket notification
+rule before MinIO can publish any source-created event.
+
+The versioned local [upload-intake contract](kubernetes/services/upload-intake/README.md)
+defines the boundary before implementation: MinIO will natively publish
+S3-compatible `clouddsp-uploads/uploads/*` object-created notifications to a
+dedicated RabbitMQ source-intake queue. The consumer re-verifies private
+storage and performs an idempotent PostgreSQL transition. Delivery is
+at-least-once and is never authoritative by itself, so a PostgreSQL-driven
+reconciler uses the same verification/transition logic. The first
+implementation deliberately stops after durable `source_uploaded` state; a
+later transactional outbox and dispatcher will safely publish
+`demucs.requested` to RabbitMQ.
 
 Workers do not create Kubernetes Jobs or invoke other workers directly. They
 use stable `(job_id, stage, stem_name)` idempotency keys, manual

@@ -1,0 +1,197 @@
+# This one-shot Job provisions the Job API's isolated PostgreSQL database and
+# least-privileged login. Its network path is fully internal:
+#
+#   Job Pod -> PostgreSQL ClusterIP Service -> PostgreSQL StatefulSet Pod
+#
+# It is intentionally separate from the future long-running Job API Pod. This
+# brief Job is the only Job-API-related workload that receives PostgreSQL's
+# administrator credential. The application Pod receives only the dedicated
+# `clouddsp-job-api` login from its Secret in `clouddsp-app`.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # A fixed name makes provisioning visible and reviewable. Kubernetes will
+  # not rerun a completed Job merely because this manifest is reapplied: delete
+  # the completed Job before a deliberate rerun, such as password rotation.
+  name: job-api-database-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: job-api-database-bootstrap
+    app.kubernetes.io/component: database-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: job-api-postgresql-provisioning
+spec:
+  # Keep the completed Job and its Pod for five minutes so its non-sensitive
+  # provisioning result is inspectable with `kubectl logs`.
+  ttlSecondsAfterFinished: 300
+  # A role, database, or credential error requires human review. Retrying it
+  # automatically could hide the first useful failure signal.
+  backoffLimit: 0
+  # This performs only local PostgreSQL DDL. The deadline prevents a stuck DNS
+  # lookup, image pull, or connection attempt from lingering indefinitely.
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: job-api-database-bootstrap
+        app.kubernetes.io/component: database-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # This client only connects to PostgreSQL. It never calls the Kubernetes
+      # API, so omit the default ServiceAccount token volume.
+      automountServiceAccountToken: false
+      securityContext:
+        # The locked PostgreSQL image provides a non-root `postgres` account
+        # at UID/GID 999, sufficient for the `psql` client.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgresql-bootstrap-client
+          # The PostgreSQL Official Image already includes `psql`. Reusing the
+          # digest pinned in `images.lock.yaml` avoids a new helper image or a
+          # runtime package installation.
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          env:
+            # Connect through the ordinary stable Service name. This verifies
+            # the same in-cluster route the future API will use, not a Pod IP.
+            - name: PGHOST
+              value: clouddsp-postgresql
+            - name: PGPORT
+              value: "5432"
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_DB
+            # Only this short-lived provisioning client receives the database
+            # administrator credentials. The future API Deployment must not
+            # reference this Secret.
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_PASSWORD
+            # This temporary data-namespace Secret holds the desired
+            # application identity. Its values are supplied to psql as safely
+            # quoted variables and are never printed in the Job log.
+            - name: JOB_API_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-database-bootstrap-credentials
+                  key: JOB_API_DB_NAME
+            - name: JOB_API_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-database-bootstrap-credentials
+                  key: JOB_API_DB_USERNAME
+            - name: JOB_API_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-database-bootstrap-credentials
+                  key: JOB_API_DB_PASSWORD
+          resources:
+            # A few local DDL commands should not compete with the database or
+            # later audio-processing workloads for meaningful resources.
+            requests:
+              cpu: 10m
+              memory: 32Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -ec
+            - |
+              # `ON_ERROR_STOP` makes `psql` exit non-zero at the first SQL
+              # error, so Kubernetes reports a failed Job rather than a false
+              # success after a partial provisioning attempt.
+              printf 'Provisioning the isolated Job API database through Service %s:%s\n' "$PGHOST" "$PGPORT"
+
+              # `:"variable"` produces a safely quoted PostgreSQL identifier;
+              # `:'variable'` produces a safely quoted SQL literal. This
+              # accommodates the hyphen in `clouddsp-job-api` and ensures a
+              # password with punctuation cannot change the SQL structure.
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                --set=job_api_db_name="$JOB_API_DB_NAME" \
+                --set=job_api_db_username="$JOB_API_DB_USERNAME" \
+                --set=job_api_db_password="$JOB_API_DB_PASSWORD" <<'SQL'
+              -- `gexec` runs generated DDL outside an explicit transaction,
+              -- which is required by CREATE DATABASE. Existing resources are
+              -- left intact: this bootstrap never drops a role or database.
+              SELECT format(
+                'CREATE ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT PASSWORD %L',
+                :'job_api_db_username',
+                :'job_api_db_password'
+              )
+              WHERE NOT EXISTS (
+                SELECT 1 FROM pg_roles WHERE rolname = :'job_api_db_username'
+              )
+              \gexec
+
+              -- Reassert least-privilege attributes and apply a deliberate
+              -- password update when this Job is manually rerun after rotation.
+              ALTER ROLE :"job_api_db_username"
+                LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT
+                PASSWORD :'job_api_db_password';
+
+              SELECT format(
+                'CREATE DATABASE %I OWNER %I ENCODING ''UTF8'' TEMPLATE template0',
+                :'job_api_db_name',
+                :'job_api_db_username'
+              )
+              WHERE NOT EXISTS (
+                SELECT 1 FROM pg_database WHERE datname = :'job_api_db_name'
+              )
+              \gexec
+
+              -- The role owns only its own database. It cannot create roles,
+              -- databases, or modify the PostgreSQL cluster itself.
+              ALTER DATABASE :"job_api_db_name" OWNER TO :"job_api_db_username";
+              SQL
+
+              # Make the dedicated account the only ordinary application user
+              # of this database. The next schema task can safely create its
+              # tables in the owned `public` schema without global privileges.
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                --dbname="$JOB_API_DB_NAME" \
+                --set=job_api_db_name="$JOB_API_DB_NAME" \
+                --set=job_api_db_username="$JOB_API_DB_USERNAME" <<'SQL'
+              REVOKE ALL ON DATABASE :"job_api_db_name" FROM PUBLIC;
+              GRANT CONNECT, TEMPORARY ON DATABASE :"job_api_db_name" TO :"job_api_db_username";
+              REVOKE ALL ON SCHEMA public FROM PUBLIC;
+              ALTER SCHEMA public OWNER TO :"job_api_db_username";
+              GRANT USAGE, CREATE ON SCHEMA public TO :"job_api_db_username";
+              SQL
+
+              # Authenticate with the dedicated role to prove the future API
+              # will be able to use its own connection details. The query emits
+              # only public identifiers, never the password.
+              PGDATABASE="$JOB_API_DB_NAME" \
+              PGUSER="$JOB_API_DB_USERNAME" \
+              PGPASSWORD="$JOB_API_DB_PASSWORD" \
+                psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                  --command 'SELECT current_database() AS database, current_user AS role;'
+              printf 'Job API PostgreSQL role and database bootstrap passed\n'

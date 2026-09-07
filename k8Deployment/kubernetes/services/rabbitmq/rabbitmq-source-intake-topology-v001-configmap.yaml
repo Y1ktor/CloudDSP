@@ -1,0 +1,137 @@
+# This ConfigMap stores a versioned RabbitMQ *definition*, not a running queue.
+# Applying a ConfigMap only stores text in Kubernetes; it does not contact
+# RabbitMQ. A later administrator-only bootstrap Job will mount this exact JSON
+# file and import it after the app-specific credentials have been created.
+#
+# Keeping topology in an immutable, versioned resource gives a learner one
+# reviewable declaration of the virtual host, exchanges, queues, and bindings.
+# Never edit this v001 object after applying it: topology changes must use a
+# new v002 ConfigMap and a deliberate migration/compatibility task.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rabbitmq-source-intake-topology-v001
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: rabbitmq
+    app.kubernetes.io/component: message-topology
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: minio-source-intake-queue-definition
+# The API server rejects in-place modifications after the ConfigMap is applied.
+# That protects queue declarations from being changed invisibly beneath a
+# running consumer, where RabbitMQ property-equivalence checks would otherwise
+# fail at an unexpected time.
+immutable: true
+data:
+  # This is RabbitMQ definitions JSON, the documented portable representation
+  # of virtual hosts, exchanges, queues, and bindings. It deliberately omits
+  # `users`, `permissions`, and password hashes: credentials remain separate,
+  # ignored Kubernetes Secrets and are created by a later bootstrap Job.
+  rabbitmq-source-intake-topology-v001.json: |
+    {
+      "vhosts": [
+        {
+          "name": "/clouddsp"
+        }
+      ],
+      "exchanges": [
+        {
+          "name": "clouddsp.source-events",
+          "vhost": "/clouddsp",
+          "type": "direct",
+          "durable": true,
+          "auto_delete": false,
+          "internal": false,
+          "arguments": {}
+        },
+        {
+          "name": "clouddsp.source-retry",
+          "vhost": "/clouddsp",
+          "type": "direct",
+          "durable": true,
+          "auto_delete": false,
+          "internal": false,
+          "arguments": {}
+        },
+        {
+          "name": "clouddsp.source-dead-letter",
+          "vhost": "/clouddsp",
+          "type": "direct",
+          "durable": true,
+          "auto_delete": false,
+          "internal": false,
+          "arguments": {}
+        }
+      ],
+      "queues": [
+        {
+          "name": "clouddsp.source-intake",
+          "vhost": "/clouddsp",
+          "durable": true,
+          "auto_delete": false,
+          "arguments": {
+            "x-queue-type": "quorum",
+            "x-delivery-limit": 5,
+            "x-max-length": 10000,
+            "x-overflow": "reject-publish",
+            "x-dead-letter-exchange": "clouddsp.source-dead-letter",
+            "x-dead-letter-routing-key": "source.upload.dead-letter",
+            "x-dead-letter-strategy": "at-least-once"
+          }
+        },
+        {
+          "name": "clouddsp.source-intake.retry.30s",
+          "vhost": "/clouddsp",
+          "durable": true,
+          "auto_delete": false,
+          "arguments": {
+            "x-queue-type": "quorum",
+            "x-message-ttl": 30000,
+            "x-max-length": 10000,
+            "x-overflow": "reject-publish",
+            "x-dead-letter-exchange": "clouddsp.source-events",
+            "x-dead-letter-routing-key": "source.upload.created",
+            "x-dead-letter-strategy": "at-least-once"
+          }
+        },
+        {
+          "name": "clouddsp.source-intake.dlq",
+          "vhost": "/clouddsp",
+          "durable": true,
+          "auto_delete": false,
+          "arguments": {
+            "x-queue-type": "quorum",
+            "x-max-length": 1000,
+            "x-overflow": "reject-publish"
+          }
+        }
+      ],
+      "bindings": [
+        {
+          "source": "clouddsp.source-events",
+          "vhost": "/clouddsp",
+          "destination": "clouddsp.source-intake",
+          "destination_type": "queue",
+          "routing_key": "source.upload.created",
+          "arguments": {}
+        },
+        {
+          "source": "clouddsp.source-retry",
+          "vhost": "/clouddsp",
+          "destination": "clouddsp.source-intake.retry.30s",
+          "destination_type": "queue",
+          "routing_key": "source.upload.retry",
+          "arguments": {}
+        },
+        {
+          "source": "clouddsp.source-dead-letter",
+          "vhost": "/clouddsp",
+          "destination": "clouddsp.source-intake.dlq",
+          "destination_type": "queue",
+          "routing_key": "source.upload.dead-letter",
+          "arguments": {}
+        }
+      ]
+    }

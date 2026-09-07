@@ -11,6 +11,11 @@
  * only to display a signed-in user's name and expiry.
  */
 
+import {
+    isKeycloakPostActionRedirect,
+    isRecoverableCrossTabAuthorizationCallback,
+} from './keycloakPostActionRedirect';
+
 // The issuer names one exact Keycloak realm. Removing a trailing slash keeps
 // this value comparable with the `issuer` field Keycloak returns from discovery.
 const oidcIssuer = import.meta.env.VITE_OIDC_ISSUER?.replace(/\/$/, '');
@@ -20,6 +25,10 @@ const postLogoutRedirectUri = import.meta.env.VITE_OIDC_POST_LOGOUT_REDIRECT_URI
 
 const OIDC_TRANSACTION_STORAGE_KEY = 'clouddsp.oidc.transaction.v1';
 const OIDC_SESSION_STORAGE_KEY = 'clouddsp.oidc.session.v1';
+// A Symbol cannot collide with a normalized session object. It lets App.jsx
+// distinguish a safe retry instruction from an authentication error without
+// ever treating an unverified response as a signed-in user.
+export const OIDC_SIGN_IN_RESTART_REQUIRED = Symbol('oidc-sign-in-restart-required');
 const TRANSACTION_MAX_AGE_MS = 10 * 60 * 1_000;
 // Refresh slightly before expiry so an API call is not sent with a token that
 // expires while the request is in flight.
@@ -206,14 +215,26 @@ async function discover() {
 }
 
 /**
- * Remove one-time OIDC callback values from the current browser history entry.
- * The app stays on the same React route, but a refresh no longer leaks a code
- * to history or attempts a second exchange of an already-consumed code.
+ * Remove temporary OIDC and Keycloak post-action values from the current
+ * browser history entry. The app stays on the same React route, but a refresh
+ * no longer leaks a code to history, attempts a second token exchange, or
+ * looks like an incomplete authentication callback after email verification.
  */
 function cleanCallbackParameters() {
     const url = new URL(window.location.href);
     let changed = false;
-    for (const name of ['code', 'state', 'error', 'error_description', 'kc_action', 'kc_action_status']) {
+    for (const name of [
+        'code',
+        'state',
+        'error',
+        'error_description',
+        'kc_action',
+        'kc_action_status',
+        // Keycloak sends these after its email-verification required action.
+        // They describe the browser's Keycloak session, not an OAuth token.
+        'iss',
+        'session_state',
+    ]) {
         if (url.searchParams.has(name)) {
             url.searchParams.delete(name);
             changed = true;
@@ -402,6 +423,10 @@ export async function completeSignInFromCallback() {
     if (!authorizationCode && !returnedError) return null;
 
     const transaction = readJsonFromSessionStorage(OIDC_TRANSACTION_STORAGE_KEY);
+    // Evaluate the recovery condition before URL cleanup removes the opaque
+    // Keycloak routing values that identify this cross-tab return.
+    const crossTabRecoveryRequired = !transaction
+        && isRecoverableCrossTabAuthorizationCallback(window.location.search, oidcIssuer);
     removeFromSessionStorage(OIDC_TRANSACTION_STORAGE_KEY);
     cleanCallbackParameters();
 
@@ -412,6 +437,15 @@ export async function completeSignInFromCallback() {
         throw new Error('Keycloak sign-in was cancelled or denied.');
     }
     if (!returnedState || !transaction || returnedState !== transaction.state) {
+        // sessionStorage is intentionally scoped to one browser tab. If a
+        // Mailpit email-verification link opened in a second tab, this tab has
+        // no original PKCE verifier and cannot safely exchange Keycloak's code.
+        // Discard it and let React begin a brand-new PKCE transaction instead.
+        // A present-but-mismatched transaction remains a hard state-validation
+        // failure, preserving the normal OAuth CSRF protection boundary.
+        if (crossTabRecoveryRequired) {
+            return OIDC_SIGN_IN_RESTART_REQUIRED;
+        }
         throw new Error('OIDC callback state did not match the sign-in request.');
     }
     if (Date.now() - Number(transaction.createdAt) > TRANSACTION_MAX_AGE_MS) {
@@ -426,6 +460,25 @@ export async function completeSignInFromCallback() {
         code_verifier: transaction.codeVerifier,
     });
     return saveSession(sessionFromTokenResponse(tokenResponse));
+}
+
+/**
+ * Consume Keycloak's return URL after a required action such as email
+ * verification. Unlike an OAuth callback it has no code to exchange, so this
+ * function only verifies the expected issuer, clears the harmless routing
+ * markers, and reports that React should begin a fresh PKCE sign-in redirect.
+ *
+ * The `session_state` query value is intentionally never persisted or used as
+ * a credential. `beginSignIn` creates a new unpredictable PKCE transaction;
+ * Keycloak then reuses its browser SSO session to return a real code safely.
+ */
+export function consumeKeycloakPostActionRedirect() {
+    if (!isKeycloakPostActionRedirect(window.location.search, oidcIssuer)) {
+        return false;
+    }
+
+    cleanCallbackParameters();
+    return true;
 }
 
 /**

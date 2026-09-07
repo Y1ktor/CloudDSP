@@ -1,0 +1,141 @@
+# This ConfigMap carries one versioned, non-secret SQL migration into a
+# short-lived PostgreSQL client Job. A ConfigMap is appropriate because schema
+# structure is source code, not a credential. The Job receives database
+# credentials separately from a Kubernetes Secret.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  # The version is part of the resource name. Never edit an already-applied
+  # migration in place; create a new v002 ConfigMap and Job for a later schema
+  # change, so a fresh cluster and an existing cluster follow the same history.
+  name: job-api-schema-migration-v001
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: job-api-schema-migration-v001
+    app.kubernetes.io/component: database-migration
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: job-api-initial-schema
+immutable: true
+data:
+  001_initial_jobs.sql: |
+    -- CloudDSP Job API schema migration v001
+    --
+    -- This migration preserves the durable fields that the browser-visible
+    -- cloud Job API already uses. It deliberately creates only the job record
+    -- and migration ledger. Daily quotas, task leases, the outbox, and
+    -- normalized per-stem work records are separate migrations/tasks.
+
+    BEGIN;
+
+    -- A transaction-scoped advisory lock serializes schema migrations if a
+    -- person accidentally starts two migration Jobs. It is released
+    -- automatically at COMMIT or ROLLBACK and requires no cleanup row.
+    SELECT pg_advisory_xact_lock(834929517101);
+
+    -- This small ledger tells a future operator which immutable migrations
+    -- have completed. It is not application job state and contains no user
+    -- data, credentials, tokens, object URLs, or processing messages.
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      migration_id TEXT PRIMARY KEY,
+      description TEXT NOT NULL,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- A single row is the durable, authoritative state for one browser
+    -- submission. `owner_sub` is the immutable Keycloak token subject, not a
+    -- browser-provided user ID or mutable email address.
+    CREATE TABLE IF NOT EXISTS jobs (
+      job_id UUID PRIMARY KEY,
+      owner_sub TEXT NOT NULL,
+
+      -- The source URL for yt-dlp is intentionally absent. URLs can contain
+      -- private query strings; a future message carries it only to the
+      -- ingestion worker. PostgreSQL retains the safe source type and stable
+      -- MinIO object location instead.
+      source_type TEXT NOT NULL CHECK (source_type IN ('direct_upload', 'yt_dlp')),
+      input_bucket TEXT NOT NULL CHECK (length(btrim(input_bucket)) > 0),
+      input_object_key TEXT NOT NULL UNIQUE,
+      source_filename TEXT NOT NULL CHECK (length(btrim(source_filename)) > 0),
+      source_content_type TEXT,
+      source_size_bytes BIGINT CHECK (source_size_bytes IS NULL OR source_size_bytes > 0),
+      source_uploaded BOOLEAN NOT NULL DEFAULT FALSE,
+
+      -- These values remain aligned with the existing cloud/browser contract.
+      stem_mode TEXT NOT NULL CHECK (stem_mode IN ('2-stems', '4-stems', '6-stems')),
+      status TEXT NOT NULL CHECK (status IN (
+        'upload_pending',
+        'source_ingestion',
+        'source_uploaded',
+        'stem_processing',
+        'midi_processing',
+        'completed',
+        'failed'
+      )),
+
+      -- `revision` supports later optimistic concurrency. A worker will use
+      -- `WHERE job_id = ... AND revision = ...`, then increment it in the
+      -- same UPDATE, so a stale worker cannot overwrite newer durable state.
+      revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+
+      -- MinIO object metadata is durable; presigned URLs are intentionally
+      -- never stored because they expire and should be generated per request.
+      stems JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(stems) = 'object'),
+      midi JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(midi) = 'object'),
+      tempo JSONB CHECK (tempo IS NULL OR jsonb_typeof(tempo) = 'object'),
+
+      -- Application code must write a reviewed, user-safe error. Do not store
+      -- raw exceptions, access tokens, source URLs, presigned URLs, or secrets.
+      error_message TEXT CHECK (error_message IS NULL OR length(error_message) <= 1000),
+
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      expires_at TIMESTAMPTZ NOT NULL,
+
+      -- Every source object belongs to exactly one job prefix. This blocks a
+      -- future buggy API/worker from making a job point to another job's input.
+      CONSTRAINT jobs_input_key_uses_own_prefix
+        CHECK (input_object_key LIKE ('uploads/' || job_id::text || '/%'))
+    );
+
+    -- The frontend lists one owner's recent retained jobs first. This index
+    -- supports that query without scanning every CloudDSP user’s history.
+    CREATE INDEX IF NOT EXISTS jobs_owner_updated_at_idx
+      ON jobs (owner_sub, updated_at DESC);
+
+    -- A later retention cleanup worker can efficiently locate expired records.
+    CREATE INDEX IF NOT EXISTS jobs_expires_at_idx
+      ON jobs (expires_at);
+
+    -- This trigger enforces a truthful modification timestamp even when a
+    -- future worker forgets to set `updated_at` in an UPDATE statement. It
+    -- deliberately does not alter `revision`; optimistic-locking callers must
+    -- increment that value explicitly and atomically.
+    CREATE OR REPLACE FUNCTION set_jobs_updated_at()
+    RETURNS TRIGGER
+    LANGUAGE plpgsql
+    AS $$
+    BEGIN
+      NEW.updated_at = CURRENT_TIMESTAMP;
+      RETURN NEW;
+    END;
+    $$;
+
+    DROP TRIGGER IF EXISTS jobs_set_updated_at ON jobs;
+    CREATE TRIGGER jobs_set_updated_at
+      BEFORE UPDATE ON jobs
+      FOR EACH ROW
+      EXECUTE FUNCTION set_jobs_updated_at();
+
+    -- Store v001 only after every preceding DDL statement succeeds. Reapplying
+    -- this same Job is safe: CREATE ... IF NOT EXISTS leaves existing data in
+    -- place and the ledger insert becomes a no-op.
+    INSERT INTO schema_migrations (migration_id, description)
+    VALUES (
+      'v001_initial_jobs',
+      'Initial durable CloudDSP jobs table, list/retention indexes, and updated_at trigger.'
+    )
+    ON CONFLICT (migration_id) DO NOTHING;
+
+    COMMIT;

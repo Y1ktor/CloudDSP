@@ -22,7 +22,7 @@ readonly DOCKERFILE="${FRONTEND_DIRECTORY}/Dockerfile"
 # learning cluster. The immutable repository digest printed after push is the
 # value a future Deployment will use; this descriptive tag is build traceability.
 readonly REGISTRY_HOST="clouddsp-registry.localhost:5001"
-readonly IMAGE_NAME="${REGISTRY_HOST}/frontend:0.1.0-local-oidc"
+readonly IMAGE_NAME="${REGISTRY_HOST}/frontend:0.5.0-cross-tab-email-oidc"
 
 usage() {
   cat <<'USAGE'
@@ -127,12 +127,15 @@ main() {
   require_prerequisites
 
   local oidc_issuer oidc_client_id redirect_uri post_logout_redirect_uri
-  local job_api_url websocket_url demo_asset_origin
+  local job_api_url object_storage_url websocket_url demo_asset_origin
   oidc_issuer="$(require_nonempty_environment_value VITE_OIDC_ISSUER)"
   oidc_client_id="$(require_nonempty_environment_value VITE_OIDC_CLIENT_ID)"
   redirect_uri="$(require_nonempty_environment_value VITE_OIDC_REDIRECT_URI)"
   post_logout_redirect_uri="$(require_nonempty_environment_value VITE_OIDC_POST_LOGOUT_REDIRECT_URI)"
   job_api_url="$(environment_value VITE_JOB_API_URL)"
+  # This is a public browser origin, not an S3 credential. It becomes an exact
+  # CSP connect-src entry so the browser may use a server-issued presigned POST.
+  object_storage_url="$(require_nonempty_environment_value VITE_OBJECT_STORAGE_URL)"
   websocket_url="$(environment_value VITE_WEBSOCKET_URL)"
   demo_asset_origin="$(environment_value VITE_DEMO_ASSET_ORIGIN)"
 
@@ -152,6 +155,7 @@ main() {
     --build-arg "VITE_OIDC_REDIRECT_URI=${redirect_uri}" \
     --build-arg "VITE_OIDC_POST_LOGOUT_REDIRECT_URI=${post_logout_redirect_uri}" \
     --build-arg "VITE_JOB_API_URL=${job_api_url}" \
+    --build-arg "VITE_OBJECT_STORAGE_URL=${object_storage_url}" \
     --build-arg "VITE_WEBSOCKET_URL=${websocket_url}" \
     --build-arg "VITE_DEMO_ASSET_ORIGIN=${demo_asset_origin}" \
     "${FRONTEND_DIRECTORY}"

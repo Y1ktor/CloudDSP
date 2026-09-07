@@ -1,0 +1,132 @@
+# This one-shot Job applies the non-secret v001 SQL file from the companion
+# ConfigMap. It proves the application credential—not the PostgreSQL admin—can
+# create and maintain its own schema through normal in-cluster DNS.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # A versioned fixed name makes the migration inspectable. Kubernetes does not
+  # rerun a completed Job when its manifest is reapplied; delete this Job only
+  # for a deliberate v001 verification rerun, never to create a new migration.
+  name: job-api-schema-migration-v001
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: job-api-schema-migration-v001
+    app.kubernetes.io/component: database-migration
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: job-api-initial-schema
+spec:
+  # Keep this completed Job and its Pod long enough for inspection, then let
+  # Kubernetes remove the disposable migration client after five minutes.
+  ttlSecondsAfterFinished: 300
+  # Schema errors must remain visible rather than being retried automatically.
+  backoffLimit: 0
+  # A local DDL transaction should be quick; bound a stuck pull, DNS lookup, or
+  # database connection rather than retaining a privileged client indefinitely.
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: job-api-schema-migration-v001
+        app.kubernetes.io/component: database-migration
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # The client calls PostgreSQL only. It needs neither a Kubernetes API
+      # token nor permissions to create other Pods, Jobs, or worker workloads.
+      automountServiceAccountToken: false
+      securityContext:
+        # The locked PostgreSQL image contains the ordinary `postgres` account
+        # at UID/GID 999, so the client needs no root Linux privileges.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgresql-migration-client
+          # The official PostgreSQL image already contains the `psql` client.
+          # Its digest is the recorded `images.postgresql` reference in
+          # `images.lock.yaml`; no package installation occurs at runtime.
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          env:
+            # The migration runs in clouddsp-app while PostgreSQL runs in
+            # clouddsp-data, so use the fully qualified Service DNS name.
+            # This avoids relying on namespace search-path behavior.
+            - name: PGHOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: PGPORT
+              value: "5432"
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+            # These are the restricted API role’s credentials. The migration
+            # cannot access clouddsp-postgresql-credentials (the admin Secret).
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-database-credentials
+                  key: JOB_API_DB_NAME
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-database-credentials
+                  key: JOB_API_DB_USERNAME
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-database-credentials
+                  key: JOB_API_DB_PASSWORD
+          resources:
+            # DDL and metadata queries have a tiny local resource footprint.
+            # Explicit limits prevent this disposable client from competing
+            # with PostgreSQL or future CPU/GPU audio-processing workloads.
+            requests:
+              cpu: 10m
+              memory: 32Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            # Kubernetes projects this ConfigMap key as a read-only file. The
+            # image and Pod do not need to embed mutable SQL source code.
+            - name: migration
+              mountPath: /migrations
+              readOnly: true
+          command:
+            - sh
+            - -ec
+            - |
+              # `ON_ERROR_STOP` maps the first SQL error to a non-zero process
+              # exit, so the Job accurately reports migration failure.
+              printf 'Applying Job API schema migration v001 through Service %s:%s\n' "$PGHOST" "$PGPORT"
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                --file /migrations/001_initial_jobs.sql
+
+              # Read only structural metadata and the migration ledger; never
+              # print rows from the jobs table, which will contain user data.
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                --command "SELECT migration_id, applied_at FROM schema_migrations WHERE migration_id = 'v001_initial_jobs';"
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                --command "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'jobs' ORDER BY ordinal_position;"
+              printf 'Job API schema migration v001 passed\n'
+      volumes:
+        - name: migration
+          configMap:
+            name: job-api-schema-migration-v001
+            # The ConfigMap is immutable, so this exact reviewed file cannot
+            # be edited after it has been applied to the cluster.
+            defaultMode: 0444
+            items:
+              - key: 001_initial_jobs.sql
+                path: 001_initial_jobs.sql

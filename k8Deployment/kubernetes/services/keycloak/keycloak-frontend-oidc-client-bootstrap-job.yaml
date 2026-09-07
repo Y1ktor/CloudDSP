@@ -68,8 +68,9 @@ spec:
               value: master
             - name: CLOUDDSP_REALM
               value: clouddsp
-            # This public clientId is an identifier, not a credential.  APIs
-            # will later use it as the expected OIDC audience/client binding.
+            # This public clientId is an identifier, not a credential. A later
+            # resource-audience Job attaches the Job API audience mapper here;
+            # the API does not treat this browser client ID as its own audience.
             - name: OIDC_CLIENT_ID
               value: clouddsp-react
             # The React app is an SPA served at the root of this exact browser

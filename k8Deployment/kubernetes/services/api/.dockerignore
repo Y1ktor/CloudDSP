@@ -1,0 +1,12 @@
+# The image needs only the application source and its reviewed dependency lock.
+# Excluding local editor files, Python caches, and the explanatory README keeps
+# the build context small and prevents accidental inclusion of developer data.
+.git
+.gitignore
+.dockerignore
+README.md
+__pycache__/
+*.py[cod]
+.DS_Store
+.env
+.env.*

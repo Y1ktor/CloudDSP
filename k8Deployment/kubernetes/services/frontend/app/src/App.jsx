@@ -11,8 +11,10 @@ import { createDemoJobSnapshot, loadDemoCatalog } from './utils/demoCatalog';
 import {
     beginSignIn,
     completeSignInFromCallback,
+    consumeKeycloakPostActionRedirect,
     getCurrentSession,
     isOidcConfigured,
+    OIDC_SIGN_IN_RESTART_REQUIRED,
     signOut,
 } from './auth/oidc';
 
@@ -240,8 +242,31 @@ export default function App() {
             // A Keycloak redirect returns to this same route carrying a
             // one-time code/state pair. Exchange it before reading any stored
             // session, then remove the sensitive query parameters from history.
-            const callbackSession = await completeSignInFromCallback();
-            const session = callbackSession || await getCurrentSession();
+            const callbackResult = await completeSignInFromCallback();
+            if (callbackResult === OIDC_SIGN_IN_RESTART_REQUIRED) {
+                // This tab received a Keycloak code after email verification,
+                // but its per-tab PKCE verifier belongs to the tab that began
+                // registration. Start over securely instead of using that code.
+                setStatusMessage('Email verified. Completing sign-in…');
+                await beginSignIn();
+                return null;
+            }
+            if (callbackResult) {
+                setAuthSession(callbackResult);
+                return callbackResult;
+            }
+
+            // An email-verification link returns from Keycloak with an issuer
+            // and opaque Keycloak session marker, but it is not an OAuth code
+            // callback. Start a fresh PKCE request so Keycloak can exchange its
+            // browser SSO session for a normal, validated access-token session.
+            if (consumeKeycloakPostActionRedirect()) {
+                setStatusMessage('Email verified. Completing sign-in…');
+                await beginSignIn();
+                return null;
+            }
+
+            const session = await getCurrentSession();
             setAuthSession(session);
             return session;
         } catch (error) {

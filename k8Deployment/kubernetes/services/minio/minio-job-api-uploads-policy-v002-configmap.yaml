@@ -1,0 +1,68 @@
+# This immutable ConfigMap contains the reviewed MinIO IAM policy for
+# CloudDSP's Job API. It is configuration rather than a credential, so it is
+# safe to commit and lets the bootstrap Job apply exactly the reviewed policy
+# document. Future permission changes must use a new versioned ConfigMap and
+# bootstrap Job; do not edit an already-applied immutable policy definition.
+#
+# This is v002 because v001 was applied but MinIO rejected it before any policy
+# or user was created: it incorrectly combined the bucket-level
+# `s3:GetBucketLocation` action with the object-prefix-only `s3:prefix`
+# condition. Kubernetes correctly prevented editing that applied ConfigMap in
+# place, so this corrected resource has a new name.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  # The version is intentionally in the Kubernetes resource name. It lets a
+  # future review compare a new policy with this least-privilege scope.
+  name: clouddsp-job-api-uploads-policy-v002
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/component: object-storage-policy
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: job-api-private-source-uploads
+# Kubernetes rejects in-place edits after this ConfigMap has been applied. That
+# protects a running system from an accidental broadening of this policy.
+immutable: true
+data:
+  # MinIO evaluates this AWS IAM-compatible JSON policy when the Job API's
+  # access key signs an S3 request. There is no anonymous/public statement:
+  # a browser or Pod needs the dedicated credentials before MinIO accepts it.
+  job-api-uploads-policy.json: |
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Sid": "LocateThePrivateUploadsBucket",
+          "Effect": "Allow",
+          "Action": "s3:GetBucketLocation",
+          "Resource": "arn:aws:s3:::clouddsp-uploads"
+        },
+        {
+          "Sid": "DiscoverOnlyTheApplicationUploadsPrefix",
+          "Effect": "Allow",
+          "Action": "s3:ListBucket",
+          "Resource": "arn:aws:s3:::clouddsp-uploads",
+          "Condition": {
+            "StringLike": {
+              "s3:prefix": [
+                "uploads/*"
+              ]
+            }
+          }
+        },
+        {
+          "Sid": "ReadAndWriteOnlySourceUploadObjects",
+          "Effect": "Allow",
+          "Action": [
+            "s3:GetObject",
+            "s3:PutObject",
+            "s3:AbortMultipartUpload",
+            "s3:ListMultipartUploadParts"
+          ],
+          "Resource": "arn:aws:s3:::clouddsp-uploads/uploads/*"
+        }
+      ]
+    }

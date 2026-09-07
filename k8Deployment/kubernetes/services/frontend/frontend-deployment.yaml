@@ -1,6 +1,7 @@
 # This Deployment is the Kubernetes controller for CloudDSP's local static
-# frontend. It maintains one replaceable Pod today; the separate Service and
-# Traefik Ingress tasks will later make that Pod reachable at the browser URL.
+# frontend. It maintains one replaceable Pod behind the applied Service and
+# Traefik Ingress, which make its static browser application reachable without
+# exposing a changing Pod IP.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -68,7 +69,7 @@ spec:
           # This value is copied from images.frontend.immutableReference in
           # ../../images.lock.yaml. The digest, rather than the friendly tag,
           # fixes the exact NGINX/static-asset bytes Kubernetes may run.
-          image: clouddsp-registry.localhost:5001/frontend@sha256:00255544e4517dcb44c8136fe386c93e1c4be0fba0039dc5ba16d6cfa66427bf
+          image: clouddsp-registry.localhost:5001/frontend@sha256:f6a2b991b9dfba9675a9aa24b19157157d90ca5c8744aa0ac977c4bbc8945eb5
           # A digest cannot move to a different image. If a node already has
           # these exact bytes, reusing its cache is safe and starts locally fast.
           imagePullPolicy: IfNotPresent
@@ -108,7 +109,7 @@ spec:
             timeoutSeconds: 2
             failureThreshold: 12
           readinessProbe:
-            # A ready Pod is safe for the future Service to receive browser
+            # A ready Pod is safe for the current Service to receive browser
             # traffic. No real user request must be used as a health check.
             httpGet:
               path: /healthz

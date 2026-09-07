@@ -1,0 +1,188 @@
+# This disposable integration Job proves the real restricted access boundary
+# that the future Job API will use:
+#
+#   smoke Job in clouddsp-app -> MinIO ClusterIP Service in clouddsp-data
+#
+# Unlike the earlier root-credential S3 API smoke test, this Job receives only
+# `clouddsp-job-api-minio-credentials`: the same namespaced Secret intended for
+# the future Job API Deployment. It never reads the MinIO root Secret or the
+# temporary bootstrap Secret.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # This fixed name makes the result simple to inspect. Delete a completed Job
+  # before a deliberate rerun; applying an identical completed Job does not
+  # start a new Pod.
+  name: minio-job-api-restricted-access-smoke
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: minio-job-api-restricted-access-smoke
+    app.kubernetes.io/component: integration-test
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: job-api-minio-least-privilege-verification
+spec:
+  # Retain the result briefly for `kubectl logs` and Pod inspection, then have
+  # Kubernetes clean up this disposable test workload automatically.
+  ttlSecondsAfterFinished: 300
+  # A permission result must be reproducible and visible. Retrying could hide
+  # the first useful policy/configuration failure behind a later success.
+  backoffLimit: 0
+  # Bound DNS, S3, and image-startup problems on the local learning cluster.
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: minio-job-api-restricted-access-smoke
+        app.kubernetes.io/component: integration-test
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # The client only calls MinIO's S3 endpoint. It does not need the
+      # Kubernetes API, so no default ServiceAccount token is mounted.
+      automountServiceAccountToken: false
+      securityContext:
+        # The official AWS CLI image works as this ordinary numeric identity
+        # when its small config/download files use the writable emptyDir below.
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: restricted-s3-client
+          # Reuse the official AWS CLI image already pinned in images.lock.yaml.
+          # It speaks the S3 protocol to MinIO through an explicit local Service
+          # endpoint; it does not contact or create resources in AWS.
+          image: public.ecr.aws/aws-cli/aws-cli@sha256:f0dcd994da5c36ab09becf4259bba4c45ed4ecfd03d51c701912f4d8425b2d49
+          imagePullPolicy: IfNotPresent
+          env:
+            # The conventional AWS variable names are simply what this S3
+            # client reads. These values are the restricted MinIO user keys.
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-minio-credentials
+                  key: JOB_API_S3_ACCESS_KEY
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-minio-credentials
+                  key: JOB_API_S3_SECRET_KEY
+            # S3 signing needs a region even for local MinIO. This is a local
+            # protocol value, not an AWS deployment region.
+            - name: AWS_DEFAULT_REGION
+              value: us-east-1
+            # Do not let the CLI probe for EC2 instance credentials. It may use
+            # only the two restricted values injected from the local Secret.
+            - name: AWS_EC2_METADATA_DISABLED
+              value: "true"
+            - name: AWS_PAGER
+              value: ""
+            # Keep CLI scratch/config data off the read-only image filesystem.
+            - name: HOME
+              value: /work
+          resources:
+            # One tiny S3 object and a few policy-denial checks should not
+            # compete with PostgreSQL, MinIO, or later audio worker Pods.
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+              ephemeral-storage: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: work
+              mountPath: /work
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              endpoint_url=http://clouddsp-minio.clouddsp-data.svc:9000
+              bucket=clouddsp-uploads
+
+              # This fixed, clearly named object is intentionally retained.
+              # The restricted policy correctly denies DeleteObject, so using a
+              # stable key prevents every re-run from leaving another artifact.
+              # It is overwritten on each successful smoke run and is never a
+              # user upload or a processing input.
+              allowed_key=uploads/_verification/restricted-access-smoke.txt
+              unexpected_key=private/this-must-not-be-written.txt
+              expected_file=/work/expected.txt
+              downloaded_file=/work/downloaded.txt
+
+              # Run a command expected to be rejected by the restricted policy.
+              # `if` prevents `set -e` from exiting before the deliberate denial
+              # is examined. A surprising success fails the Job immediately.
+              expect_denied() {
+                description="$1"
+                shift
+                if "$@" >/dev/null 2>&1; then
+                  printf 'Expected denial, but operation succeeded: %s\n' "${description}" >&2
+                  return 1
+                fi
+                printf 'Expected denial confirmed: %s\n' "${description}"
+              }
+
+              printf 'Checking restricted MinIO identity through Service %s\n' "${endpoint_url}"
+
+              # This succeeds through the bucket-level permission that has no
+              # object-prefix condition. It reveals only the bucket location;
+              # it does not grant listing, reading, or writing objects.
+              aws --no-cli-pager --endpoint-url "${endpoint_url}" s3api get-bucket-location \
+                --bucket "${bucket}" >/dev/null
+
+              # Listing is permitted only under the policy's `uploads/*` prefix.
+              aws --no-cli-pager --endpoint-url "${endpoint_url}" s3api list-objects-v2 \
+                --bucket "${bucket}" \
+                --prefix 'uploads/_verification/' \
+                --max-keys 1 >/dev/null
+
+              printf 'CloudDSP restricted Job API MinIO marker v1\n' > "${expected_file}"
+              aws --no-cli-pager --endpoint-url "${endpoint_url}" s3api put-object \
+                --bucket "${bucket}" \
+                --key "${allowed_key}" \
+                --body "${expected_file}" >/dev/null
+              aws --no-cli-pager --endpoint-url "${endpoint_url}" s3api get-object \
+                --bucket "${bucket}" \
+                --key "${allowed_key}" \
+                "${downloaded_file}" >/dev/null
+
+              # The image includes sha256sum. This fails the Job unless MinIO
+              # returned exactly the bytes written with the restricted identity.
+              sha256sum "${expected_file}" \
+                | sed "s|${expected_file}|${downloaded_file}|" \
+                | sha256sum --check --status
+
+              # The policy exposes no path outside `uploads/*`, and it omits
+              # DeleteObject even inside that prefix. Both denials are part of
+              # the success criteria; do not add cleanup that would weaken the
+              # production identity merely to make a test artifact disappear.
+              expect_denied 'write outside uploads prefix' \
+                aws --no-cli-pager --endpoint-url "${endpoint_url}" s3api put-object \
+                  --bucket "${bucket}" \
+                  --key "${unexpected_key}" \
+                  --body "${expected_file}"
+              expect_denied 'delete source-upload marker' \
+                aws --no-cli-pager --endpoint-url "${endpoint_url}" s3api delete-object \
+                  --bucket "${bucket}" \
+                  --key "${allowed_key}"
+
+              printf 'Restricted Job API MinIO access smoke test passed\n'
+      volumes:
+        - name: work
+          emptyDir:
+            # CLI scratch files and downloaded bytes disappear with this Pod;
+            # the only retained object is the explicit fixed MinIO marker above.
+            sizeLimit: 16Mi

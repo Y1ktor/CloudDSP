@@ -1,0 +1,227 @@
+# This Deployment runs the long-lived local Job API process. Its ClusterIP
+# Service and restricted same-origin Ingress already exist, but the Deployment
+# still owns the actual replaceable Pods and their PostgreSQL-aware readiness.
+# The browser reaches only `/auth/*` and `/jobs/*` through Traefik; it never
+# receives a Pod IP, database credential, or direct worker connection.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clouddsp-job-api
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: job-api
+    app.kubernetes.io/instance: clouddsp-job-api
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: authenticated-job-control-plane
+spec:
+  # One replica is enough to prove the complete local database/probe boundary.
+  # A later API-scale task can increase this independently because a future
+  # ClusterIP Service will select Pod labels, not one fixed Pod name.
+  replicas: 1
+  revisionHistoryLimit: 2
+  # Require a new Pod to remain Ready briefly before treating the rollout as
+  # available. This prevents a transient PostgreSQL connection from looking
+  # like a healthy Job API replacement.
+  minReadySeconds: 5
+  progressDeadlineSeconds: 120
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # Keep the existing working API Pod until its replacement passes the
+      # database-aware readiness probe. With one local replica this avoids an
+      # unnecessary control-plane outage while updating the immutable image.
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    # Deployment selectors are immutable after creation. These labels must
+    # match the Pod template exactly and will also be the future Service's
+    # endpoint-selection contract.
+    matchLabels:
+      app.kubernetes.io/name: job-api
+      app.kubernetes.io/instance: clouddsp-job-api
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: job-api
+        app.kubernetes.io/instance: clouddsp-job-api
+        app.kubernetes.io/component: api
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      # The API talks to PostgreSQL over its ClusterIP Service but never needs
+      # to call the Kubernetes API. Do not mount a default ServiceAccount token
+      # that a compromised HTTP process could otherwise read.
+      automountServiceAccountToken: false
+      # This permits Uvicorn to finish a bounded in-flight request during a
+      # rollout. PostgreSQL holds durable job data, so no Pod filesystem needs
+      # to persist after termination.
+      terminationGracePeriodSeconds: 20
+      securityContext:
+        # The Dockerfile creates `clouddspapi` as UID/GID 10001. Repeating that
+        # intent in Kubernetes makes an accidental future root image fail early.
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: job-api
+          # Copy only `images.job-api.immutableReference` from
+          # ../../images.lock.yaml. A digest identifies the exact Python API
+          # bytes reviewed and pushed to the local registry; the readable tag
+          # must never be used in a workload manifest.
+          image: clouddsp-registry.localhost:5001/job-api@sha256:2cc80aeea5ecf4b1c4e1491518c79bc7112b88c0e0dc12bc84c2b21abb1b1f80
+          # Exact digests are safe to reuse from a node cache. Kubernetes pulls
+          # only when the node lacks this immutable image, which keeps local
+          # startup fast without allowing a mutable retag to alter the Pod.
+          imagePullPolicy: IfNotPresent
+          ports:
+            # This is only a named container port today. It does not create a
+            # host port or Kubernetes Service. The future Service will map its
+            # stable internal port to this explicit target-port name.
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            # Non-secret connection routing belongs in the Deployment rather
+            # than the image. The fully qualified Service DNS works from the
+            # clouddsp-app namespace and avoids relying on DNS search paths.
+            - name: JOB_API_DB_HOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: JOB_API_DB_PORT
+              value: "5432"
+            # Keep readiness bounded. This reaches the settings parser in
+            # app/database.py; it is not a database-server timeout setting.
+            - name: JOB_API_DB_CONNECT_TIMEOUT_SECONDS
+              value: "3"
+            # Tokens carry this browser-facing issuer in their signed `iss`
+            # claim. It remains public even though the API retrieves signing
+            # keys below over internal Kubernetes Service DNS.
+            - name: JOB_API_OIDC_ISSUER
+              value: http://keycloak.localhost:8080/realms/clouddsp
+            # This names the Job API resource, not the React SPA. Keycloak
+            # already adds it to React access tokens, so this Deployment can
+            # validate the same audience at the `/auth/*` and `/jobs/*` routes.
+            - name: JOB_API_OIDC_AUDIENCE
+              value: clouddsp-job-api
+            # Pods use private DNS to fetch only Keycloak's public signing keys.
+            # This route never sends an access token or administrator credential.
+            - name: JOB_API_OIDC_JWKS_URL
+              value: http://clouddsp-keycloak.clouddsp-data.svc:8080/realms/clouddsp/protocol/openid-connect/certs
+            # The API uses this private ClusterIP address for future S3 calls
+            # that really originate from the Pod, such as a bounded object
+            # lookup or worker-control operation. It is stable within the
+            # cluster and never appears in browser JavaScript or a presigned URL.
+            - name: JOB_API_S3_INTERNAL_ENDPOINT
+              value: http://clouddsp-minio.clouddsp-data.svc:9000
+            # A presigned POST is a signed URL string returned to the browser;
+            # generating it does not contact this address. Its host must instead
+            # be reachable from the Mac browser through the S3-only Ingress.
+            # Pods must not use this `.localhost` address for server-side I/O.
+            - name: JOB_API_S3_PUBLIC_ENDPOINT
+              value: http://minio.localhost:8080
+            # These non-secret values identify the durable private bucket and
+            # S3 signing region. They are Deployment configuration rather than
+            # image constants so a later cluster can replace them deliberately.
+            - name: JOB_API_S3_UPLOADS_BUCKET
+              value: clouddsp-uploads
+            - name: JOB_API_S3_REGION
+              value: us-east-1
+            # MinIO is reached through one Ingress host, not virtual-hosted
+            # bucket subdomains. Future SDK code must therefore sign path-style
+            # URLs such as `minio.localhost:8080/clouddsp-uploads/...`.
+            - name: JOB_API_S3_ADDRESSING_STYLE
+              value: path
+            # The future API receives only its own database identity. It never
+            # mounts clouddsp-postgresql-credentials, which contains the
+            # administrator account used solely by short-lived bootstrap Jobs.
+            - name: JOB_API_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-database-credentials
+                  key: JOB_API_DB_NAME
+            - name: JOB_API_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-database-credentials
+                  key: JOB_API_DB_USERNAME
+            - name: JOB_API_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-database-credentials
+                  key: JOB_API_DB_PASSWORD
+            # These are the restricted MinIO credentials proven by the smoke
+            # Job. They can access only `clouddsp-uploads/uploads/*`; the API
+            # never receives MinIO's root administrator credential. Current
+            # read-only routes do not call MinIO yet, so simply injecting these
+            # values does not broaden `/readyz` or create an S3 side effect.
+            - name: JOB_API_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-minio-credentials
+                  key: JOB_API_S3_ACCESS_KEY
+            - name: JOB_API_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-minio-credentials
+                  key: JOB_API_S3_SECRET_KEY
+          resources:
+            # This lightweight read-only API has modest local limits. Requests
+            # guide the scheduler; limits prevent the HTTP control plane from
+            # taking capacity needed by PostgreSQL, identity, storage, or DSP
+            # workers.
+            requests:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+              ephemeral-storage: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            # The image smoke test already proved the API starts without a
+            # writable root filesystem. It has no local uploads, SQLite data,
+            # credentials, or generated source to retain in this Pod.
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          startupProbe:
+            # Image pulling happens before a container starts. This probe gives
+            # Uvicorn up to one minute to import and bind its local HTTP port
+            # before Kubernetes starts liveness restarts.
+            httpGet:
+              path: /healthz
+              port: http
+              scheme: HTTP
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 12
+          readinessProbe:
+            # A Pod joins a future Service only after its own restricted
+            # PostgreSQL credential can complete the bounded SELECT 1 query.
+            # S3 settings are now injected, but the current read-only routes
+            # make no MinIO call, so MinIO stays out of this focused probe.
+            httpGet:
+              path: /readyz
+              port: http
+              scheme: HTTP
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            # Liveness deliberately avoids PostgreSQL. A transient database
+            # issue should make a Pod unready, not make every API Pod restart
+            # in a loop while the true dependency problem is being diagnosed.
+            httpGet:
+              path: /healthz
+              port: http
+              scheme: HTTP
+            periodSeconds: 15
+            timeoutSeconds: 2
+            failureThreshold: 3

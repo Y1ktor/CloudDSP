@@ -90,11 +90,42 @@ cleaned up.
 This uses the local frontend's two-stage Dockerfile: the pinned official Node
 image builds Vite assets, then the pinned official NGINX image serves only those
 assets as a non-root process on container port 8080. The script reads the
-public Keycloak/browser settings from the ignored
+public Keycloak, Job API, and MinIO browser settings from the ignored
 `services/frontend/app/.env.production`, pushes the arm64 image to
 `clouddsp-registry.localhost:5001/frontend`, and prints its immutable registry
-digest plus Docker's local uncompressed size. It does not deploy a Pod; that is
-the following Kubernetes delivery task.
+digest plus Docker's local uncompressed size. Vite generates a CSP meta tag and
+matching NGINX response-header include, allowing only the explicit configured
+MinIO origin for direct presigned POSTs. It does not deploy a Pod; that is the
+following Kubernetes delivery task.
+
+## Build the local Job API image
+
+```bash
+./k8Deployment/kubernetes/scripts/build-job-api-image.sh
+```
+
+This builds the digest-pinned Python 3.12 Job API recipe for `linux/arm64`,
+installs its fully hashed FastAPI/Uvicorn/Psycopg/PyJWT/Boto3 dependencies, and
+runs the isolated JWT, job-history, direct-upload contract, PostgreSQL helper,
+route-composition, and presigned-POST unit tests before it pushes the result to
+`clouddsp-registry.localhost:5001/job-api`. It prints the immutable registry
+digest and Docker's local uncompressed size. The runtime image contains source
+for `/healthz`, database-aware `/readyz`, token validation, `GET /jobs`, and
+`POST /jobs`, but no test files, credentials, Pod, Service, or Ingress.
+
+## Smoke-test the local Job API image
+
+```bash
+./k8Deployment/kubernetes/scripts/verify-job-api-local-image.sh
+```
+
+This starts the immutable Job API image as a short-lived Docker container with
+no network and no database credential. It verifies that `/healthz` returns 200
+with the expected image version and that `/readyz` correctly returns a 503
+`database_configuration` response. It uses `docker exec` inside the
+network-isolated container, so it opens no Mac port, then removes the container
+at the end. This is an image/process test; it does not deploy Kubernetes
+resources or prove in-cluster PostgreSQL connectivity.
 
 ## Verify HTTP routing on port 8080
 

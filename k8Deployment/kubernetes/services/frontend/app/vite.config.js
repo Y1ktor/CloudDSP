@@ -1,5 +1,7 @@
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
+import { writeFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { contentSecurityPolicy } from './csp.js'
 
 // https://vite.dev/config/
@@ -15,6 +17,9 @@ export default defineConfig(({ mode }) => {
   }
   const policyOptions = {
     jobApiUrl: environment.VITE_JOB_API_URL,
+    // The direct-upload form posts to MinIO rather than relaying audio through
+    // the Job API. Its one public origin must enter connect-src explicitly.
+    objectStorageUrl: environment.VITE_OBJECT_STORAGE_URL,
     webSocketUrl: environment.VITE_WEBSOCKET_URL,
     // OIDC discovery and the code/token exchange are browser `fetch` calls.
     // Feed the Keycloak realm issuer into CSP generation so a strict policy
@@ -39,9 +44,30 @@ export default defineConfig(({ mode }) => {
       },
     },
   }
+  const cspResponseHeaderConfig = {
+    // A CSP meta tag protects ordinary browser navigation, but the production
+    // NGINX server must emit the identical policy as a response header too.
+    // Generating the include from the same function makes it impossible for a
+    // later local endpoint change to update one policy representation only.
+    name: 'clouddsp-csp-response-header',
+    apply: 'build',
+    closeBundle() {
+      // CSP source values are validated URL origins above, and the shared
+      // directive list contains no double quote or newline. Reject either
+      // defensively because this text becomes an NGINX quoted directive.
+      if (/["\r\n]/.test(productionPolicy)) {
+        throw new Error('Generated Content-Security-Policy cannot be emitted safely by NGINX.');
+      }
+      writeFileSync(
+        resolve(process.cwd(), 'dist', 'csp-header.conf'),
+        `# Generated from app/csp.js during the Vite production build.\nadd_header Content-Security-Policy "${productionPolicy}" always;\n`,
+        'utf8',
+      )
+    },
+  }
 
   return {
-    plugins: [react(), contentSecurityPolicyMeta],
+    plugins: [react(), contentSecurityPolicyMeta, cspResponseHeaderConfig],
     server: {
       // React Fast Refresh injects an inline preamble. Keep the production CSP
       // policy intact in development as well, so use ordinary browser refreshes
