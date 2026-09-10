@@ -1,0 +1,225 @@
+# This one-time administrator Job extends the existing restricted
+# `clouddsp-upload-intake` PostgreSQL login after schema migration v002 has
+# created `public.outbox_events`. It grants the narrow column-level INSERT and
+# idempotency-key SELECT permissions required to create a durable Demucs request
+# in the *same transaction* as the existing source-upload transition. It does
+# not grant any RabbitMQ, MinIO, Kubernetes API, table-ownership, schema-change,
+# or outbox-dispatcher authority.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Keep this privilege extension separate from the already-completed initial
+  # role bootstrap. A completed Kubernetes Job is not a mutable migration; a
+  # versioned second Job makes this new permission reviewable and auditable.
+  name: upload-intake-outbox-permissions-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: upload-intake-outbox-permissions-bootstrap
+    app.kubernetes.io/component: database-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: least-privilege-upload-intake-outbox-provisioning
+spec:
+  # Preserve the non-sensitive privilege report briefly for inspection, then
+  # remove the disposable Pod that temporarily mounted the administrator Secret.
+  ttlSecondsAfterFinished: 600
+  # A permission/schema error should be diagnosed, not silently retried with
+  # an administrator credential.
+  backoffLimit: 0
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: upload-intake-outbox-permissions-bootstrap
+        app.kubernetes.io/component: database-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # This Pod opens a private PostgreSQL connection only; it does not need
+      # a Kubernetes API token and must not be able to create Pods or Jobs.
+      automountServiceAccountToken: false
+      securityContext:
+        # UID/GID 999 is the ordinary non-root `postgres` user supplied by
+        # the pinned Docker Official Image used solely for its `psql` client.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgresql-bootstrap-client
+          # Pin the same reviewed official client image as the v001/v002
+          # migration Jobs. No package installation or mutable image tag is
+          # needed when this privileged maintenance Pod starts.
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          env:
+            # Fully qualified Service DNS reaches the stable PostgreSQL
+            # endpoint across namespaces; no StatefulSet Pod hostname or host
+            # port is used by this in-cluster client.
+            - name: PGHOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: PGPORT
+              value: "5432"
+            - name: PGDATABASE
+              value: clouddsp_job_api
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+            # Only the temporary bootstrap Pod receives the PostgreSQL admin
+            # Secret. The long-running upload-intake Deployment continues to
+            # use its separate restricted runtime credential in clouddsp-app.
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_PASSWORD
+          resources:
+            # Privilege DDL and boolean checks are tiny. Explicit bounds keep
+            # this administrative task from competing with local data services
+            # or later CPU/GPU audio-processing workloads.
+            requests:
+              cpu: 10m
+              memory: 32Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -ec
+            - |
+              # A non-zero `psql` exit immediately fails this Job. The SQL is
+              # intentionally small and uses the fixed, non-secret database
+              # role name established by the prior login bootstrap.
+              printf 'Granting restricted upload-intake outbox permission through Service %s:%s\n' "$PGHOST" "$PGPORT"
+
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 <<'SQL'
+              -- This zero-row query verifies that migration v002 exists and
+              -- that every column named in the grant is still canonical. It
+              -- reads no event payload, job, object key, identity, or secret.
+              SELECT
+                event_id,
+                job_id,
+                stage,
+                stem_name,
+                event_type,
+                payload,
+                publication_status,
+                delivery_attempts,
+                available_at,
+                lease_token,
+                lease_expires_at,
+                published_at,
+                last_error_code
+              FROM public.outbox_events
+              LIMIT 0;
+
+              -- Revoke any accidental broad table privilege before granting
+              -- the exact columns required by the fixed INSERT. The consumer
+              -- cannot set dispatcher-owned delivery, lease, retry, error, or
+              -- publication fields; database defaults supply the safe initial
+              -- pending state.
+              REVOKE ALL PRIVILEGES ON TABLE public.outbox_events
+                FROM "clouddsp-upload-intake";
+              GRANT INSERT (
+                event_id,
+                job_id,
+                stage,
+                stem_name,
+                event_type,
+                payload
+              ) ON TABLE public.outbox_events
+                TO "clouddsp-upload-intake";
+
+              -- PostgreSQL must read an `ON CONFLICT` arbiter's columns even
+              -- for `DO NOTHING`. Our named idempotency constraint uses only
+              -- these three columns, so grant SELECT only here—not on payload,
+              -- timestamps, delivery state, or every outbox row's contents.
+              -- This is an intentional least-privilege trade-off: the intake
+              -- login can enumerate this opaque compound key, but cannot read
+              -- a Demucs payload or operate the dispatch state machine.
+              GRANT SELECT (
+                job_id,
+                stage,
+                stem_name
+              ) ON TABLE public.outbox_events
+                TO "clouddsp-upload-intake";
+
+              -- Print only permission booleans. This proves the intended
+              -- login can create its fixed event record and read exactly the
+              -- conflict key PostgreSQL needs, but cannot read the payload,
+              -- rewrite, delete, or operate the dispatcher state machine.
+              SELECT
+                has_column_privilege(
+                  'clouddsp-upload-intake',
+                  'public.outbox_events',
+                  'event_id',
+                  'INSERT'
+                ) AS can_insert_event_id,
+                has_column_privilege(
+                  'clouddsp-upload-intake',
+                  'public.outbox_events',
+                  'payload',
+                  'INSERT'
+                ) AS can_insert_payload,
+                has_column_privilege(
+                  'clouddsp-upload-intake',
+                  'public.outbox_events',
+                  'job_id',
+                  'SELECT'
+                ) AS can_select_outbox_job_id_for_conflict,
+                has_column_privilege(
+                  'clouddsp-upload-intake',
+                  'public.outbox_events',
+                  'stage',
+                  'SELECT'
+                ) AS can_select_outbox_stage_for_conflict,
+                has_column_privilege(
+                  'clouddsp-upload-intake',
+                  'public.outbox_events',
+                  'stem_name',
+                  'SELECT'
+                ) AS can_select_outbox_stem_name_for_conflict,
+                has_column_privilege(
+                  'clouddsp-upload-intake',
+                  'public.outbox_events',
+                  'payload',
+                  'SELECT'
+                ) AS can_select_outbox_payload,
+                has_column_privilege(
+                  'clouddsp-upload-intake',
+                  'public.outbox_events',
+                  'publication_status',
+                  'INSERT'
+                ) AS can_set_publication_status,
+                has_table_privilege(
+                  'clouddsp-upload-intake',
+                  'public.outbox_events',
+                  'SELECT'
+                ) AS can_select_outbox_events,
+                has_table_privilege(
+                  'clouddsp-upload-intake',
+                  'public.outbox_events',
+                  'UPDATE'
+                ) AS can_update_outbox_events,
+                has_table_privilege(
+                  'clouddsp-upload-intake',
+                  'public.outbox_events',
+                  'DELETE'
+                ) AS can_delete_outbox_events;
+              SQL
+              printf 'Restricted upload-intake outbox permission bootstrap passed\n'

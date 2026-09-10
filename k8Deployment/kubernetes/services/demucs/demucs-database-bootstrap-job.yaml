@@ -1,0 +1,360 @@
+# This one-shot Job provisions the future Demucs worker's separate PostgreSQL
+# login and grants only the column-level operations frozen by the version-1
+# worker contract:
+#
+#   bootstrap Job Pod -> PostgreSQL ClusterIP Service -> PostgreSQL StatefulSet
+#
+# It does not create a Demucs Deployment, connect to RabbitMQ/MinIO, process
+# audio, create a queue, create a Kubernetes ServiceAccount, or run a schema
+# migration. The Job reads the PostgreSQL administrator Secret only because
+# creating a role and granting privileges are administrator operations. The
+# eventual long-running worker receives only its own restricted runtime Secret.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # A completed fixed-name Job remains inspectable and does not rerun simply
+  # because this manifest is reapplied. Delete it before intentionally rotating
+  # the role password or repairing its reviewed permissions, then reapply.
+  name: demucs-database-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: demucs-database-bootstrap
+    app.kubernetes.io/component: database-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: least-privilege-demucs-task-provisioning
+spec:
+  # Preserve non-sensitive privilege checks long enough for `kubectl logs`,
+  # then allow the TTL controller to remove this administrator-bearing Pod.
+  ttlSecondsAfterFinished: 600
+  # Credential/DDL failures need deliberate investigation; an automatic retry
+  # could obscure the first useful error and repeatedly use admin access.
+  backoffLimit: 0
+  # This Job runs only schema preflights plus short role/grant statements.
+  # Bound DNS, image-pull, and connection faults so it cannot run forever.
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: demucs-database-bootstrap
+        app.kubernetes.io/component: database-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # The Pod opens a single PostgreSQL connection and never calls the
+      # Kubernetes API, so do not mount a default ServiceAccount token.
+      automountServiceAccountToken: false
+      securityContext:
+        # The pinned official PostgreSQL image includes this non-root account,
+        # which is sufficient for the `psql` client used by this Job.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgresql-bootstrap-client
+          # Reuse the already reviewed official PostgreSQL image lock. It
+          # includes psql, avoiding a new helper image or package installation
+          # inside an administrator Pod at runtime.
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          env:
+            # Fully qualified Service DNS names the stable in-cluster endpoint,
+            # not a mutable StatefulSet Pod address or a host-forwarded port.
+            - name: PGHOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: PGPORT
+              value: "5432"
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+            # Administrator credentials are confined to this short Job. The
+            # future Demucs runtime manifest must never mount these values.
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_PASSWORD
+            # Create an ignored temporary Secret named
+            # `clouddsp-demucs-database-bootstrap-credentials` in this
+            # namespace. Its values must match the eventual app-namespace
+            # runtime Secret, but this manifest contains no usable password.
+            - name: DEMUCS_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-demucs-database-bootstrap-credentials
+                  key: DEMUCS_DB_NAME
+            - name: DEMUCS_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-demucs-database-bootstrap-credentials
+                  key: DEMUCS_DB_USERNAME
+            - name: DEMUCS_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-demucs-database-bootstrap-credentials
+                  key: DEMUCS_DB_PASSWORD
+          resources:
+            # Role/privilege DDL needs very little capacity. Explicit limits
+            # stop it competing with PostgreSQL or later CPU/GPU audio work.
+            requests:
+              cpu: 10m
+              memory: 32Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -ec
+            - |
+              # `ON_ERROR_STOP` makes the first PostgreSQL error terminate
+              # psql non-zero, which lets Kubernetes record a failed bootstrap
+              # rather than an accidental partial success.
+              printf 'Provisioning restricted Demucs access through Service %s:%s\n' "$PGHOST" "$PGPORT"
+
+              # `:"variable"` emits a safely quoted SQL identifier and
+              # `:'variable'` emits a safely quoted SQL literal. That permits
+              # the hyphenated role name and password punctuation without
+              # allowing a Secret value to change SQL syntax or structure.
+              PGDATABASE="$DEMUCS_DB_NAME" \
+                psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                  --set=demucs_db_name="$DEMUCS_DB_NAME" \
+                  --set=demucs_db_username="$DEMUCS_DB_USERNAME" \
+                  --set=demucs_db_password="$DEMUCS_DB_PASSWORD" <<'SQL'
+              -- Require the v001 Job table, v002 outbox, and v003 durable
+              -- task schema before creating a runtime role. LIMIT 0 returns
+              -- no job/task/event data, while PostgreSQL still reports an
+              -- exact missing relation or column if migration v003 was not
+              -- applied first.
+              SELECT
+                job_id,
+                input_bucket,
+                input_object_key,
+                source_content_type,
+                source_size_bytes,
+                source_uploaded,
+                stem_mode,
+                status,
+                revision,
+                stems,
+                expires_at,
+                error_message
+              FROM public.jobs
+              LIMIT 0;
+
+              SELECT
+                event_id,
+                job_id,
+                stage,
+                stem_name,
+                event_type,
+                publication_status
+              FROM public.outbox_events
+              LIMIT 0;
+
+              SELECT
+                task_id,
+                job_id,
+                stage,
+                stem_name,
+                request_event_id,
+                input_bucket,
+                input_object_key,
+                stem_mode,
+                status,
+                attempt_count,
+                available_at,
+                lease_token,
+                lease_expires_at,
+                started_at,
+                completed_at,
+                last_error_code,
+                created_at,
+                updated_at
+              FROM public.processing_tasks
+              LIMIT 0;
+
+              -- Create the login only once, then always restore restrictive
+              -- role attributes and rotate its password on a deliberate rerun.
+              SELECT format(
+                'CREATE ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT PASSWORD %L',
+                :'demucs_db_username',
+                :'demucs_db_password'
+              )
+              WHERE NOT EXISTS (
+                SELECT 1 FROM pg_roles WHERE rolname = :'demucs_db_username'
+              )
+              \gexec
+
+              ALTER ROLE :"demucs_db_username"
+                LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT
+                PASSWORD :'demucs_db_password';
+
+              -- Start from no direct database/schema/table grants, then add
+              -- only the exact columns the future adapter needs. This role
+              -- cannot administer PostgreSQL, run DDL, create/delete jobs,
+              -- or read an owner subject, browser filename, MIDI, tempo, or
+              -- event payload.
+              REVOKE ALL PRIVILEGES ON DATABASE :"demucs_db_name"
+                FROM :"demucs_db_username";
+              GRANT CONNECT ON DATABASE :"demucs_db_name"
+                TO :"demucs_db_username";
+
+              REVOKE ALL PRIVILEGES ON SCHEMA public
+                FROM :"demucs_db_username";
+              GRANT USAGE ON SCHEMA public
+                TO :"demucs_db_username";
+
+              REVOKE ALL PRIVILEGES ON TABLE public.processing_tasks
+                FROM :"demucs_db_username";
+              REVOKE ALL PRIVILEGES ON TABLE public.jobs
+                FROM :"demucs_db_username";
+              REVOKE ALL PRIVILEGES ON TABLE public.outbox_events
+                FROM :"demucs_db_username";
+
+              -- The worker creates/locks/reclaims one canonical task and
+              -- needs its own lease fields for recovery. It cannot alter the
+              -- immutable task identity, input object, stage, or event link
+              -- after insertion. `updated_at` stays trigger-maintained.
+              GRANT SELECT (
+                task_id,
+                job_id,
+                stage,
+                stem_name,
+                request_event_id,
+                input_bucket,
+                input_object_key,
+                stem_mode,
+                status,
+                attempt_count,
+                available_at,
+                lease_token,
+                lease_expires_at,
+                started_at,
+                completed_at,
+                last_error_code,
+                created_at,
+                updated_at
+              ) ON TABLE public.processing_tasks TO :"demucs_db_username";
+              GRANT INSERT (
+                task_id,
+                job_id,
+                stage,
+                stem_name,
+                request_event_id,
+                input_bucket,
+                input_object_key,
+                stem_mode,
+                status,
+                attempt_count,
+                available_at,
+                lease_token,
+                lease_expires_at,
+                started_at,
+                completed_at,
+                last_error_code
+              ) ON TABLE public.processing_tasks TO :"demucs_db_username";
+              GRANT UPDATE (
+                status,
+                attempt_count,
+                available_at,
+                lease_token,
+                lease_expires_at,
+                started_at,
+                completed_at,
+                last_error_code
+              ) ON TABLE public.processing_tasks TO :"demucs_db_username";
+
+              -- The authoritative Job row is re-read before a first task
+              -- claim and updated only through guarded `job_id`/revision/
+              -- state predicates. PostgreSQL column privileges cannot express
+              -- those row predicates, so the later adapter must bind them in
+              -- every statement; this role still cannot change ownership,
+              -- source coordinates/metadata, quota, expiry, MIDI, or tempo.
+              GRANT SELECT (
+                job_id,
+                input_bucket,
+                input_object_key,
+                source_content_type,
+                source_size_bytes,
+                source_uploaded,
+                stem_mode,
+                status,
+                revision,
+                stems,
+                expires_at
+              ) ON TABLE public.jobs TO :"demucs_db_username";
+              GRANT UPDATE (
+                status,
+                revision,
+                stems,
+                error_message
+              ) ON TABLE public.jobs TO :"demucs_db_username";
+
+              -- The worker confirms that its input event matches AMQP
+              -- properties/body, then may insert exactly one future-stage
+              -- request per reviewed stem through the guarded completion CTE.
+              -- It cannot lock/modify dispatch history, read any payload, or
+              -- set publication/lease/retry/error fields: those remain the
+              -- dispatcher boundary. On an existing cluster that already ran
+              -- this Job, the versioned extension Job adds these same grants
+              -- after migration v004; this baseline keeps a deliberate role
+              -- re-bootstrap from accidentally removing them later.
+              GRANT SELECT (
+                event_id,
+                job_id,
+                stage,
+                stem_name,
+                event_type,
+                publication_status
+              ) ON TABLE public.outbox_events TO :"demucs_db_username";
+              GRANT INSERT (
+                event_id,
+                job_id,
+                stage,
+                stem_name,
+                event_type,
+                payload
+              ) ON TABLE public.outbox_events TO :"demucs_db_username";
+              SQL
+
+              # Reconnect as the restricted role. These booleans expose only
+              # permission facts—never a job, event payload, object key, owner
+              # identity, or password—so the retained Job log is safe to read.
+              PGDATABASE="$DEMUCS_DB_NAME" \
+              PGUSER="$DEMUCS_DB_USERNAME" \
+              PGPASSWORD="$DEMUCS_DB_PASSWORD" \
+                psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 <<'SQL'
+              SELECT
+                current_database() AS database,
+                current_user AS role,
+                has_column_privilege(current_user, 'public.processing_tasks', 'task_id', 'INSERT') AS can_create_task,
+                has_column_privilege(current_user, 'public.processing_tasks', 'lease_token', 'UPDATE') AS can_renew_task_lease,
+                has_column_privilege(current_user, 'public.processing_tasks', 'input_object_key', 'UPDATE') AS can_replace_task_input,
+                has_column_privilege(current_user, 'public.jobs', 'input_object_key', 'SELECT') AS can_read_job_input,
+                has_column_privilege(current_user, 'public.jobs', 'owner_sub', 'SELECT') AS can_read_job_owner,
+                has_column_privilege(current_user, 'public.jobs', 'stems', 'UPDATE') AS can_record_stems,
+                has_column_privilege(current_user, 'public.jobs', 'input_object_key', 'UPDATE') AS can_replace_job_input,
+                has_column_privilege(current_user, 'public.outbox_events', 'publication_status', 'SELECT') AS can_read_outbox_publication_state,
+                has_column_privilege(current_user, 'public.outbox_events', 'payload', 'SELECT') AS can_read_outbox_payload,
+                has_column_privilege(current_user, 'public.outbox_events', 'payload', 'INSERT') AS can_insert_downstream_outbox_payload,
+                has_column_privilege(current_user, 'public.outbox_events', 'publication_status', 'UPDATE') AS can_update_outbox_publication_state,
+                has_table_privilege(current_user, 'public.jobs', 'DELETE') AS can_delete_jobs,
+                has_table_privilege(current_user, 'public.outbox_events', 'INSERT') AS can_insert_outbox_events;
+              SQL
+              printf 'Restricted Demucs PostgreSQL role bootstrap passed\n'

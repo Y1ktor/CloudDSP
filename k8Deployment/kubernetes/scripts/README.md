@@ -113,6 +113,71 @@ digest and Docker's local uncompressed size. The runtime image contains source
 for `/healthz`, database-aware `/readyz`, token validation, `GET /jobs`, and
 `POST /jobs`, but no test files, credentials, Pod, Service, or Ingress.
 
+## Build the MinIO-to-RabbitMQ smoke-client image
+
+```bash
+./k8Deployment/kubernetes/scripts/build-minio-source-intake-smoke-client-image.sh
+```
+
+This builds the small, purpose-built AMQP client used only by the later native
+MinIO-notification smoke Job. It has a pinned Python base and a hash-locked
+Pika dependency, targets the local ARM64 k3d nodes, pushes to the dedicated
+registry, and prints the immutable digest that must be copied into
+`images.lock.yaml`. It does not create a test Job, upload an object, read a
+RabbitMQ queue, or change MinIO configuration.
+
+## Build the upload-intake worker image
+
+```bash
+./k8Deployment/kubernetes/scripts/build-upload-intake-image.sh
+```
+
+This builds the local long-running upload-intake worker for `linux/arm64` from
+the pinned official Python 3.12 slim base. The Dockerfile installs the fully
+hash-locked Boto3, Psycopg, and Pika dependencies, then runs the parser,
+transaction, MinIO-HeadObject, manual-ack, graceful-shutdown, and reconnect
+unit suite while building. Its final non-root image contains only application
+source and validated runtime packages; it exposes no HTTP port and contains no
+cluster credentials. The script pushes the image to the dedicated local
+registry and prints the immutable digest and local Docker size. It does not
+create a Pod, Deployment, Service, Ingress, database change, MinIO object, or
+RabbitMQ message.
+
+## Build the outbox dispatcher image
+
+```bash
+./k8Deployment/kubernetes/scripts/build-dispatcher-image.sh
+```
+
+This builds the internal PostgreSQL-outbox dispatcher for `linux/arm64` from
+the pinned official Python 3.12 slim base. Its two-stage Dockerfile installs
+the fully hashed Pika/Psycopg dependencies and runs the Demucs-compatible and
+generic outbox lease, route-selection, publisher-confirmation,
+database-transaction, one-attempt composition, and graceful-shutdown tests
+before it copies only validated source and runtime packages into a non-root
+final image. The image deliberately keeps the Demucs-only runtime as its
+default entrypoint; a later generic Deployment must select
+`app.dispatcher_generic_runtime` explicitly. The dispatcher accepts no inbound
+HTTP traffic and therefore exposes no port. The script pushes the image to the
+dedicated local registry and prints the immutable digest and local Docker size;
+it does not create or update a Deployment, Pod, Service, Ingress, database row,
+or RabbitMQ message.
+
+## Build the dispatcher smoke-client image
+
+```bash
+./k8Deployment/kubernetes/scripts/build-dispatcher-smoke-client-image.sh
+```
+
+This builds the disposable normal-upload smoke client for `linux/arm64` from
+the pinned Python 3.12 runtime. Its validation stage installs hash-locked
+Boto3, Psycopg, and Pika packages and runs the isolated orchestrator/verifier
+unit tests. The non-root final image contains only the two smoke modules and
+their runtime dependencies, then the script pushes it to the dedicated local
+registry and prints an immutable digest and local image size. It does not
+create a Kubernetes Job, Keycloak identity, MinIO object, RabbitMQ delivery, or
+PostgreSQL record.
+
 ## Smoke-test the local Job API image
 
 ```bash

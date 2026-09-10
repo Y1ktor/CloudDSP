@@ -1,0 +1,217 @@
+# This administrator-only Job imports the immutable v002 downstream definition
+# after verifying that v001's shared processing exchanges already exist. It is
+# deliberately separate from the original v001 importer: a completed Job is
+# operational evidence, not mutable configuration, and an additive topology
+# change should remain independently reviewable and runnable.
+#
+# Applying this YAML would make broker-side changes. It creates no application
+# Deployment, worker identity, AMQP runtime connection, PostgreSQL record,
+# Kubernetes ServiceAccount, or processing message by itself.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rabbitmq-processing-topology-v002-downstream-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: rabbitmq-processing-topology-v002-downstream-bootstrap
+    app.kubernetes.io/component: message-topology-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: provision-basic-pitch-adtof-request-topology
+spec:
+  # Keep the safe topology inventory available briefly for inspection, then
+  # remove the disposable Pod that mounted the RabbitMQ administrator Secret.
+  ttlSecondsAfterFinished: 600
+  # A partial/invalid broker import needs diagnosis. Automatic retries could
+  # conceal the first useful management API error or repeat an admin operation.
+  backoffLimit: 0
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rabbitmq-processing-topology-v002-downstream-bootstrap
+        app.kubernetes.io/component: message-topology-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # This Job calls only RabbitMQ's management API. It must not receive a
+      # Kubernetes API credential because it never reads or creates resources.
+      automountServiceAccountToken: false
+      securityContext:
+        # The pinned Docker Official RabbitMQ image provides `rabbitmqadmin`
+        # and the ordinary non-root rabbitmq account as UID/GID 999.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: wait-for-rabbitmq-management-api
+          # This exact official digest is recorded under images.rabbitmq in
+          # images.lock.yaml and contains the management-client CLI.
+          image: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+          imagePullPolicy: IfNotPresent
+          env: &rabbitmq-admin-environment
+            # The headless ordinal DNS targets the local broker's private
+            # management listener. Runtime workers use the AMQP ClusterIP
+            # Service instead, and this Job exposes no management port.
+            - name: RABBITMQADMIN_TARGET_HOST
+              value: clouddsp-rabbitmq-0.clouddsp-rabbitmq-headless.clouddsp-data.svc.cluster.local
+            - name: RABBITMQADMIN_TARGET_PORT
+              value: "15672"
+            - name: RABBITMQADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_USER
+            - name: RABBITMQADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_PASS
+            # Avoid an interactive credential prompt. All target settings are
+            # explicit above, so the client does not need a writable config.
+            - name: RABBITMQADMIN_NON_INTERACTIVE_MODE
+              value: "true"
+          resources: &rabbitmq-admin-resources
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext: &rabbitmq-admin-security-context
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          # An authenticated vhost query proves management readiness without
+          # emitting credential values or any queued message body to logs.
+          command:
+            - sh
+            - -ec
+            - |
+              attempt=1
+              while [ "$attempt" -le 24 ]; do
+                if rabbitmqadmin --quiet vhosts list >/dev/null 2>&1; then
+                  exit 0
+                fi
+                sleep 5
+                attempt=$((attempt + 1))
+              done
+              echo "RabbitMQ management API did not become ready before downstream topology bootstrap timeout." >&2
+              exit 1
+
+        - name: verify-v001-processing-exchanges
+          image: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+          imagePullPolicy: IfNotPresent
+          env: *rabbitmq-admin-environment
+          resources: *rabbitmq-admin-resources
+          securityContext: *rabbitmq-admin-security-context
+          # v002 binds queues to exactly these existing v001 direct exchanges.
+          # Checking them before import prevents an incomplete prerequisite from
+          # creating some new queues before RabbitMQ rejects missing bindings.
+          command:
+            - sh
+            - -ec
+            - |
+              exchanges="$(rabbitmqadmin --quiet exchanges list --vhost /clouddsp)"
+              for required_exchange in \
+                clouddsp.processing-events \
+                clouddsp.processing-retry \
+                clouddsp.processing-dead-letter; do
+                if ! printf '%s\n' "$exchanges" | grep -F -- "$required_exchange" >/dev/null; then
+                  echo "Required v001 processing exchange is absent: $required_exchange" >&2
+                  exit 1
+                fi
+              done
+              printf 'RabbitMQ v001 processing-exchange prerequisite passed\n'
+
+        - name: import-v002-downstream-topology
+          image: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+          imagePullPolicy: IfNotPresent
+          env: *rabbitmq-admin-environment
+          resources: *rabbitmq-admin-resources
+          securityContext: *rabbitmq-admin-security-context
+          volumeMounts:
+            # The mounted file is the exact immutable ConfigMap source. No
+            # inline JSON or mutable shell-generated queue declaration exists.
+            - name: downstream-topology
+              mountPath: /definitions
+              readOnly: true
+          command:
+            - rabbitmqadmin
+          args:
+            - definitions
+            - import
+            - --file
+            - /definitions/rabbitmq-processing-topology-v002-downstream.json
+
+        - name: verify-v002-downstream-topology
+          image: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+          imagePullPolicy: IfNotPresent
+          env: *rabbitmq-admin-environment
+          resources: *rabbitmq-admin-resources
+          securityContext: *rabbitmq-admin-security-context
+          # Verify names/routes only. The Job never lists messages, consumes a
+          # queue, displays credentials, or reports a user/application value.
+          command:
+            - sh
+            - -ec
+            - |
+              queues="$(rabbitmqadmin --quiet queues list --vhost /clouddsp)"
+              for required_queue in \
+                clouddsp.basic-pitch.requests \
+                clouddsp.basic-pitch.requests.retry.30s \
+                clouddsp.basic-pitch.requests.dlq \
+                clouddsp.adtof.requests \
+                clouddsp.adtof.requests.retry.30s \
+                clouddsp.adtof.requests.dlq; do
+                if ! printf '%s\n' "$queues" | grep -F -- "$required_queue" >/dev/null; then
+                  echo "Required v002 downstream queue is absent: $required_queue" >&2
+                  exit 1
+                fi
+              done
+
+              bindings="$(rabbitmqadmin --quiet bindings list --vhost /clouddsp)"
+              for required_route in \
+                basic-pitch.requested \
+                basic-pitch.retry \
+                basic-pitch.dead-letter \
+                adtof.requested \
+                adtof.retry \
+                adtof.dead-letter; do
+                if ! printf '%s\n' "$bindings" | grep -F -- "$required_route" >/dev/null; then
+                  echo "Required v002 downstream binding is absent: $required_route" >&2
+                  exit 1
+                fi
+              done
+              printf 'RabbitMQ v002 Basic Pitch/ADTOF topology verification passed\n'
+      containers:
+        - name: completion-marker
+          image: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+          imagePullPolicy: IfNotPresent
+          resources: *rabbitmq-admin-resources
+          securityContext: *rabbitmq-admin-security-context
+          # The preceding init containers perform all broker administration in
+          # order. Kubernetes records Job completion only after this ordinary
+          # non-privileged marker exits successfully.
+          command:
+            - rabbitmqadmin
+          args:
+            - --version
+      volumes:
+        - name: downstream-topology
+          configMap:
+            # This exact immutable source is the v002 artifact reviewed above.
+            # A future version must use a distinct ConfigMap/Job, never edit it.
+            name: rabbitmq-processing-topology-v002-downstream
+            defaultMode: 0444
+            items:
+              - key: rabbitmq-processing-topology-v002-downstream.json
+                path: rabbitmq-processing-topology-v002-downstream.json

@@ -1,0 +1,129 @@
+# This one-shot Job applies the immutable v003 processing-task SQL through the
+# private PostgreSQL Service. It uses the existing Job API schema-owner Secret,
+# not PostgreSQL administration and not the future restricted Demucs runtime
+# identity. Applying it creates only table/index/trigger/ledger schema objects;
+# it does not create a worker Pod, RabbitMQ user/message, MinIO object, or task.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # A fixed versioned name is inspectable. Kubernetes will not rerun a complete
+  # Job when this YAML is reapplied; delete this exact name only to deliberately
+  # verify the already-immutable migration, never to revise its SQL.
+  name: job-api-schema-migration-v003-processing-tasks
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: job-api-schema-migration-v003-processing-tasks
+    app.kubernetes.io/component: database-migration
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: durable-demucs-task-lease-schema
+spec:
+  # Retain safe structural/ledger logs briefly, then let Kubernetes remove the
+  # password-consuming migration Pod. The schema remains in PostgreSQL.
+  ttlSecondsAfterFinished: 300
+  # DDL failures need one visible outcome; automatic retry could conceal which
+  # immutable migration/precondition needs attention.
+  backoffLimit: 0
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: job-api-schema-migration-v003-processing-tasks
+        app.kubernetes.io/component: database-migration
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # This client opens one PostgreSQL connection through ClusterIP DNS only.
+      # It never needs the Kubernetes API or authority to create worker Pods.
+      automountServiceAccountToken: false
+      securityContext:
+        # The pinned PostgreSQL image includes its non-root postgres account.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgresql-migration-client
+          # This official digest is `images.postgresql` in images.lock.yaml.
+          # It supplies psql at runtime without downloading a package in the Pod.
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PGHOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: PGPORT
+              value: "5432"
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+            # This app-namespace Secret has the schema-owner login for the
+            # authoritative Job API database. The data-namespace root/admin
+            # credentials and future Demucs least-privilege Secret stay absent.
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-database-credentials
+                  key: JOB_API_DB_NAME
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-database-credentials
+                  key: JOB_API_DB_USERNAME
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-database-credentials
+                  key: JOB_API_DB_PASSWORD
+          resources:
+            # This is small DDL/metadata work, not audio processing. Bounded
+            # resources protect PostgreSQL and leave space for local workloads.
+            requests:
+              cpu: 10m
+              memory: 32Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            # The SQL source is an immutable, read-only ConfigMap projection;
+            # the client image never embeds mutable migration text.
+            - name: migration
+              mountPath: /migrations
+              readOnly: true
+          command:
+            - sh
+            - -ec
+            - |
+              # ON_ERROR_STOP turns the first migration error into a nonzero
+              # container exit, so Kubernetes accurately marks this Job Failed.
+              printf 'Applying CloudDSP processing-task schema migration v003 through Service %s:%s\n' "$PGHOST" "$PGPORT"
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                --file /migrations/003_processing_tasks.sql
+
+              # Output only migration/structural facts. It intentionally does
+              # not select jobs, task input keys, owner subjects, errors, or
+              # credentials from the durable application database.
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                --command "SELECT migration_id, applied_at FROM schema_migrations WHERE migration_id = 'v003_processing_tasks';"
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                --command "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'processing_tasks' ORDER BY ordinal_position;"
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                --command "SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'processing_tasks' ORDER BY indexname;"
+              printf 'CloudDSP processing-task schema migration v003 passed\n'
+      volumes:
+        - name: migration
+          configMap:
+            name: job-api-schema-migration-v003-processing-tasks
+            defaultMode: 0444
+            items:
+              - key: 003_processing_tasks.sql
+                path: 003_processing_tasks.sql

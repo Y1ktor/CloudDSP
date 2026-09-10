@@ -1,0 +1,122 @@
+# This one-time Job mounts the immutable v002 SQL ConfigMap and applies it
+# through PostgreSQL's private ClusterIP Service. It uses the Job API schema
+# owner credential, not the PostgreSQL administrator and not the restricted
+# upload-intake runtime credential. It does not publish RabbitMQ messages or
+# grant the intake role permission to insert rows—that is the next task.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: job-api-schema-migration-v002-outbox
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: job-api-schema-migration-v002-outbox
+    app.kubernetes.io/component: database-migration
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: durable-processing-outbox-schema
+spec:
+  # Leave the completed client available briefly for `kubectl logs`, then let
+  # the TTL controller remove this disposable password-consuming Pod.
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 0
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: job-api-schema-migration-v002-outbox
+        app.kubernetes.io/component: database-migration
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # The container opens one PostgreSQL connection only. It never needs a
+      # Kubernetes API token or the ability to create a worker Job/Pod.
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgresql-migration-client
+          # The locked official PostgreSQL image contains `psql`; no package is
+          # downloaded at Job start. The digest is images.postgresql in the
+          # versioned image catalog, never a mutable upstream tag.
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PGHOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: PGPORT
+              value: "5432"
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+            # This schema-owner credential is already scoped to the Job API
+            # database. The migration never mounts the data-namespace root or
+            # administrator Secret, and it never exposes these values in logs.
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-database-credentials
+                  key: JOB_API_DB_NAME
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-database-credentials
+                  key: JOB_API_DB_USERNAME
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-database-credentials
+                  key: JOB_API_DB_PASSWORD
+          resources:
+            # DDL and metadata checks are small. Limits protect local stateful
+            # services and future DSP work from a hung migration client.
+            requests:
+              cpu: 10m
+              memory: 32Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: migration
+              mountPath: /migrations
+              readOnly: true
+          command:
+            - sh
+            - -ec
+            - |
+              # Stop at the first SQL failure so Kubernetes reports Failed
+              # rather than hiding a partially applied migration behind a
+              # successful shell process.
+              printf 'Applying CloudDSP outbox schema migration v002 through Service %s:%s\n' "$PGHOST" "$PGPORT"
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                --file /migrations/002_outbox_events.sql
+
+              # Show only structural/ledger facts—not jobs, payloads, object
+              # keys, user identities, credentials, or unpublished events.
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                --command "SELECT migration_id, applied_at FROM schema_migrations WHERE migration_id = 'v002_outbox_events';"
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                --command "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'outbox_events' ORDER BY ordinal_position;"
+              printf 'CloudDSP outbox schema migration v002 passed\n'
+      volumes:
+        - name: migration
+          configMap:
+            name: job-api-schema-migration-v002-outbox
+            # The immutable ConfigMap projects the exact reviewed SQL as a
+            # read-only file; no mutable migration text lives in the image.
+            defaultMode: 0444
+            items:
+              - key: 002_outbox_events.sql
+                path: 002_outbox_events.sql

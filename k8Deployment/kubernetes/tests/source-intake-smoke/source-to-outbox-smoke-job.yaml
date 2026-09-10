@@ -1,0 +1,715 @@
+# This disposable integration Job verifies the durable handoff now performed by
+# the rolled-out upload-intake Deployment:
+#
+# temporary Keycloak user -> authenticated Job API POST /jobs -> presigned POST
+#   -> private MinIO object -> native source notification -> upload-intake
+#   -> PostgreSQL source_uploaded + exactly one pending demucs.requested event
+#
+# It then publishes one deliberately duplicated *source notification* through
+# RabbitMQ's management API and verifies the same single outbox row remains.
+# That covers the normal MinIO-triggered route plus at-least-once redelivery
+# behavior without adding a Demucs queue, dispatcher, worker, or browser route.
+#
+# The Job uses existing pinned Job API dependencies (`psycopg` and `boto3`) by
+# overriding the API image's normal Uvicorn entrypoint. It creates no new image,
+# never logs a password, JWT, presigned form, object key, user ID, or SQL row,
+# and removes the exact temporary user/client/object/job after its assertions.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Delete this completed Job before deliberately rerunning it. Kubernetes does
+  # not execute an already-complete fixed-name Job when its YAML is reapplied.
+  name: source-to-outbox-smoke
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: source-to-outbox-smoke
+    app.kubernetes.io/component: integration-test
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: source-upload-to-atomic-demucs-outbox-verification
+spec:
+  # Keep only safe progress/assertion logs briefly, then let Kubernetes remove
+  # the administrator-credential-bearing test Pod automatically.
+  ttlSecondsAfterFinished: 600
+  # A failed integration test needs diagnosis. Retrying would create a new
+  # temporary identity and make the first failing dependency harder to inspect.
+  backoffLimit: 0
+  # Covers bounded HTTP polling plus cleanup while preventing a dependency
+  # outage from retaining multiple infrastructure administrator credentials.
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: source-to-outbox-smoke
+        app.kubernetes.io/component: integration-test
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # This test calls ClusterIP Services only. It never needs to create or
+      # inspect Kubernetes resources, so no ServiceAccount API token is mounted.
+      automountServiceAccountToken: false
+      securityContext:
+        # The pinned Job API image created this non-root account. Repeating it
+        # here makes an unexpected root-capable test image fail immediately.
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: source-to-outbox-client
+          # Reuse images.job-api.immutableReference from ../../images.lock.yaml.
+          # Its production Uvicorn ENTRYPOINT is replaced below with this
+          # disposable client program; no application server starts in this Pod.
+          image: clouddsp-registry.localhost:5001/job-api@sha256:2cc80aeea5ecf4b1c4e1491518c79bc7112b88c0e0dc12bc84c2b21abb1b1f80
+          imagePullPolicy: IfNotPresent
+          env:
+            # Every service route is private in-cluster DNS. The Job API's
+            # response intentionally contains a browser-facing MinIO hostname;
+            # the script validates it then swaps only its origin for this
+            # Pod's internal upload connection, preserving the signed path/form.
+            - name: KEYCLOAK_INTERNAL_BASE_URL
+              value: http://clouddsp-keycloak:8080
+            - name: JOB_API_INTERNAL_BASE_URL
+              value: http://clouddsp-job-api.clouddsp-app.svc:80
+            - name: MINIO_INTERNAL_BASE_URL
+              value: http://clouddsp-minio:9000
+            # The normal RabbitMQ ClusterIP Service intentionally exposes only
+            # AMQP on port 5672 to application workloads. This administrator-
+            # credential-bearing smoke Job alone needs the management API to
+            # publish one controlled duplicate notification. The headless
+            # StatefulSet DNS name selects the sole local broker (ordinal 0)
+            # directly, matching the topology bootstrap Job. It is private
+            # cluster DNS, not an Ingress or browser-facing endpoint.
+            - name: RABBITMQ_MANAGEMENT_BASE_URL
+              value: http://clouddsp-rabbitmq-0.clouddsp-rabbitmq-headless.clouddsp-data.svc.cluster.local:15672
+            - name: POSTGRESQL_HOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: POSTGRESQL_PORT
+              value: "5432"
+            - name: POSTGRESQL_JOB_DATABASE
+              value: clouddsp_job_api
+            - name: KEYCLOAK_ADMIN_REALM
+              value: master
+            - name: CLOUDDSP_REALM
+              value: clouddsp
+            - name: JOB_API_CLIENT_ID
+              value: clouddsp-job-api
+            - name: UPLOADS_BUCKET
+              value: clouddsp-uploads
+            - name: SOURCE_INTAKE_VHOST
+              value: /clouddsp
+            - name: SOURCE_INTAKE_EXCHANGE
+              value: clouddsp.source-events
+            - name: SOURCE_INTAKE_ROUTING_KEY
+              value: source.upload.created
+            - name: SOURCE_INTAKE_QUEUE
+              value: clouddsp.source-intake
+            # The generated Pod suffix is sufficient entropy to keep ephemeral
+            # Keycloak client/user names independent across deliberate reruns.
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            # Keycloak's bootstrap administrator obtains one short-lived Admin
+            # API token. It creates/removes only a uniquely named test client
+            # and user; the permanent React client remains PKCE-only.
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keycloak-bootstrap-admin
+                  key: KC_BOOTSTRAP_ADMIN_USERNAME
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keycloak-bootstrap-admin
+                  key: KC_BOOTSTRAP_ADMIN_PASSWORD
+            # PostgreSQL administration is used only for boolean/count
+            # assertions and exact test-row cleanup. The upload-intake runtime
+            # credential is deliberately not mounted in this smoke Pod.
+            - name: POSTGRESQL_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_USER
+            - name: POSTGRESQL_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_PASSWORD
+            # The RabbitMQ administrator publishes one exact duplicate test
+            # notification and observes the dedicated queue drain. Production
+            # intake Pods retain their restricted consume-only identity.
+            - name: RABBITMQ_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_USER
+            - name: RABBITMQ_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_PASS
+            # MinIO root credentials exist only to remove the exact temporary
+            # source object after assertions. The browser/API/consumer runtime
+            # identities remain narrower and are not reused by this test.
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_PASSWORD
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: AWS_EC2_METADATA_DISABLED
+              value: "true"
+          resources:
+            # The client performs short HTTP/SQL/S3 control-plane assertions;
+            # it never downloads or decodes audio and must not compete with
+            # stateful services or future DSP worker Pods.
+            requests:
+              cpu: 50m
+              memory: 96Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+              ephemeral-storage: 96Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            # The temporary password, JWT, presigned form, and test identifiers
+            # exist in process memory only. The client writes no files or cache.
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - python3
+            - -c
+            - |
+              import base64
+              import json
+              import os
+              import secrets
+              import struct
+              import sys
+              import time
+              from urllib.error import HTTPError, URLError
+              from urllib.parse import quote, urlencode, urlsplit
+              from urllib.request import Request, urlopen
+
+              import boto3
+              import psycopg
+              from botocore.config import Config
+
+
+              class SmokeFailure(RuntimeError):
+                  """A safe test category whose text never contains secret values."""
+
+
+              def http_request(name, url, expected_statuses, *, method="GET", data=None, headers=None):
+                  """Make one bounded HTTP request without logging its URL or body."""
+
+                  request_headers = {} if headers is None else headers
+                  try:
+                      request = Request(url, data=data, headers=request_headers, method=method)
+                      with urlopen(request, timeout=10) as response:
+                          status = response.getcode()
+                          response_headers = dict(response.headers.items())
+                          response_body = response.read()
+                  except HTTPError as error:
+                      raise SmokeFailure(f"{name} returned HTTP {error.code}") from error
+                  except URLError as error:
+                      raise SmokeFailure(f"{name} could not reach its private Service") from error
+
+                  if status not in expected_statuses:
+                      raise SmokeFailure(f"{name} returned unexpected HTTP {status}")
+                  return response_headers, response_body
+
+
+              def json_request(name, url, expected_statuses, *, method, payload, headers):
+                  """Send JSON while keeping request/response contents out of logs."""
+
+                  request_headers = {**headers, "Content-Type": "application/json"}
+                  _, body = http_request(
+                      name,
+                      url,
+                      expected_statuses,
+                      method=method,
+                      data=json.dumps(payload, separators=(",", ":")).encode("utf-8"),
+                      headers=request_headers,
+                  )
+                  return body
+
+
+              def location_identifier(name, headers, path_segment):
+                  """Read one opaque Keycloak identifier without displaying it."""
+
+                  location = headers.get("Location")
+                  marker = f"/{path_segment}/"
+                  if not isinstance(location, str) or marker not in location:
+                      raise SmokeFailure(f"{name} omitted its created-resource location")
+                  identifier = location.rstrip("/").rsplit("/", 1)[-1]
+                  if not identifier:
+                      raise SmokeFailure(f"{name} returned an empty created-resource identifier")
+                  return identifier
+
+
+              def json_response(name, body):
+                  """Parse JSON without turning an upstream body into a test log."""
+
+                  try:
+                      return json.loads(body)
+                  except json.JSONDecodeError as error:
+                      raise SmokeFailure(f"{name} returned invalid JSON") from error
+
+
+              def multipart_upload_body(fields, file_bytes):
+                  """Build one browser-equivalent multipart form in process memory."""
+
+                  boundary = f"----CloudDSPSmoke{secrets.token_hex(12)}"
+                  chunks = []
+                  for name, value in fields.items():
+                      if not isinstance(name, str) or not isinstance(value, str):
+                          raise SmokeFailure("Job API upload form contained invalid field text")
+                      chunks.extend(
+                          (
+                              f"--{boundary}\r\n".encode("ascii"),
+                              f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode("utf-8"),
+                              value.encode("utf-8"),
+                              b"\r\n",
+                          )
+                      )
+                  chunks.extend(
+                      (
+                          f"--{boundary}\r\n".encode("ascii"),
+                          b'Content-Disposition: form-data; name="file"; filename="source-to-outbox-smoke.wav"\r\n',
+                          b"Content-Type: audio/wav\r\n\r\n",
+                          file_bytes,
+                          b"\r\n",
+                          f"--{boundary}--\r\n".encode("ascii"),
+                      )
+                  )
+                  return b"".join(chunks), f"multipart/form-data; boundary={boundary}"
+
+
+              def upload_through_internal_minio(contract, file_bytes):
+                  """Use the API-issued form while routing this Pod through private DNS."""
+
+                  upload_url = contract.get("upload_url")
+                  upload_fields = contract.get("upload_fields")
+                  if not isinstance(upload_url, str) or not isinstance(upload_fields, dict):
+                      raise SmokeFailure("Job API upload contract was incomplete")
+                  parsed = urlsplit(upload_url)
+                  # The API must provide the browser-facing Traefik origin. A
+                  # Pod cannot use *.localhost, so only this test changes the
+                  # destination origin; its signed path/form fields stay exact.
+                  if parsed.scheme != "http" or parsed.hostname != "minio.localhost" or parsed.port != 8080:
+                      raise SmokeFailure("Job API upload contract used an unexpected browser MinIO origin")
+                  if parsed.query or parsed.fragment or not parsed.path:
+                      raise SmokeFailure("Job API upload contract used an unexpected S3 path")
+                  body, content_type = multipart_upload_body(upload_fields, file_bytes)
+                  internal_upload_url = os.environ["MINIO_INTERNAL_BASE_URL"].rstrip("/") + parsed.path
+                  http_request(
+                      "MinIO presigned source upload",
+                      internal_upload_url,
+                      {204},
+                      method="POST",
+                      data=body,
+                      headers={"Content-Type": content_type, "Content-Length": str(len(body))},
+                  )
+
+
+              def wait_for_source_uploaded(job_api_base_url, access_token, job_id):
+                  """Poll the normal owner-bound API snapshot until intake commits state."""
+
+                  headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
+                  job_url = f"{job_api_base_url}/jobs/{quote(job_id, safe='')}"
+                  for _ in range(60):
+                      _, body = http_request("Job API source-state poll", job_url, {200}, headers=headers)
+                      snapshot = json_response("Job API source-state poll", body)
+                      if snapshot.get("status") == "source_uploaded":
+                          return
+                      time.sleep(1)
+                  raise SmokeFailure("upload-intake did not reach source_uploaded before the smoke timeout")
+
+
+              def post_duplicate_source_notification(object_key):
+                  """Publish one at-least-once-shaped duplicate to the source exchange."""
+
+                  event_body = json.dumps(
+                      {
+                          "Records": [
+                              {
+                                  "eventName": "s3:ObjectCreated:Post",
+                                  "s3": {
+                                      "bucket": {"name": os.environ["UPLOADS_BUCKET"]},
+                                      "object": {"key": object_key},
+                                  },
+                              }
+                          ]
+                      },
+                      separators=(",", ":"),
+                  )
+                  vhost = quote(os.environ["SOURCE_INTAKE_VHOST"], safe="")
+                  exchange = quote(os.environ["SOURCE_INTAKE_EXCHANGE"], safe="")
+                  credentials = (
+                      f"{os.environ['RABBITMQ_ADMIN_USERNAME']}:{os.environ['RABBITMQ_ADMIN_PASSWORD']}"
+                  ).encode("utf-8")
+                  headers = {
+                      "Authorization": "Basic " + base64.b64encode(credentials).decode("ascii"),
+                      "Content-Type": "application/json",
+                  }
+                  body = json_request(
+                      "RabbitMQ duplicate source-notification publish",
+                      f"{os.environ['RABBITMQ_MANAGEMENT_BASE_URL'].rstrip('/')}/api/exchanges/{vhost}/{exchange}/publish",
+                      {200},
+                      method="POST",
+                      payload={
+                          "properties": {},
+                          "routing_key": os.environ["SOURCE_INTAKE_ROUTING_KEY"],
+                          "payload": event_body,
+                          "payload_encoding": "string",
+                      },
+                      headers=headers,
+                  )
+                  if json_response("RabbitMQ duplicate source-notification publish", body) != {"routed": True}:
+                      raise SmokeFailure("RabbitMQ did not route the duplicate source notification")
+                  return headers
+
+
+              def wait_for_source_queue_to_drain(rabbitmq_headers):
+                  """Require the duplicate message to leave the source queue before SQL checks."""
+
+                  vhost = quote(os.environ["SOURCE_INTAKE_VHOST"], safe="")
+                  queue = quote(os.environ["SOURCE_INTAKE_QUEUE"], safe="")
+                  queue_url = (
+                      f"{os.environ['RABBITMQ_MANAGEMENT_BASE_URL'].rstrip('/')}/api/queues/{vhost}/{queue}"
+                  )
+                  for _ in range(30):
+                      _, body = http_request("RabbitMQ source-queue poll", queue_url, {200}, headers=rabbitmq_headers)
+                      queue_details = json_response("RabbitMQ source-queue poll", body)
+                      messages = queue_details.get("messages")
+                      if isinstance(messages, int) and messages == 0:
+                          return
+                      time.sleep(1)
+                  raise SmokeFailure("upload-intake did not drain the duplicate source notification")
+
+
+              def database_connection():
+                  """Open the private administrative connection only for test assertions/cleanup."""
+
+                  return psycopg.connect(
+                      host=os.environ["POSTGRESQL_HOST"],
+                      port=int(os.environ["POSTGRESQL_PORT"]),
+                      dbname=os.environ["POSTGRESQL_JOB_DATABASE"],
+                      user=os.environ["POSTGRESQL_ADMIN_USERNAME"],
+                      password=os.environ["POSTGRESQL_ADMIN_PASSWORD"],
+                      connect_timeout=5,
+                      options="-c statement_timeout=5000",
+                  )
+
+
+              def verify_atomic_outbox_state(job_id):
+                  """Assert source state and one pending event without selecting payload/key data."""
+
+                  with database_connection() as connection:
+                      with connection.cursor() as cursor:
+                          cursor.execute(
+                              """
+                              SELECT
+                                (SELECT source_uploaded AND status = 'source_uploaded'
+                                   FROM public.jobs
+                                  WHERE job_id = %s::uuid) AS job_is_source_uploaded,
+                                COUNT(*) FILTER (
+                                  WHERE job_id = %s::uuid
+                                    AND stage = 'demucs'
+                                    AND stem_name = ''
+                                    AND event_type = 'demucs.requested'
+                                    AND publication_status = 'pending'
+                                ) AS pending_demucs_event_count
+                              FROM public.outbox_events
+                              WHERE job_id = %s::uuid
+                              """,
+                              (job_id, job_id, job_id),
+                          )
+                          row = cursor.fetchone()
+                  if not isinstance(row, tuple) or row != (True, 1):
+                      raise SmokeFailure("PostgreSQL did not retain one atomic pending Demucs outbox event")
+
+
+              def cleanup_source_object_and_database_row(job_id, owner_sub, object_key):
+                  """Remove only this Job's temporary object and FK-cascaded event after success/failure."""
+
+                  # Delete storage first. If this fails, leave the database row
+                  # intact so it never points at a silently removed source.
+                  s3 = boto3.client(
+                      "s3",
+                      endpoint_url=os.environ["MINIO_INTERNAL_BASE_URL"],
+                      aws_access_key_id=os.environ["MINIO_ROOT_USER"],
+                      aws_secret_access_key=os.environ["MINIO_ROOT_PASSWORD"],
+                      region_name="us-east-1",
+                      config=Config(s3={"addressing_style": "path"}),
+                  )
+                  try:
+                      s3.delete_object(Bucket=os.environ["UPLOADS_BUCKET"], Key=object_key)
+                  except Exception as error:
+                      raise SmokeFailure("MinIO temporary source-object cleanup failed") from error
+
+                  # The owner predicate prevents an in-memory test value from
+                  # ever deleting another account's job. ON DELETE CASCADE then
+                  # removes the matching test outbox event as designed by v002.
+                  with database_connection() as connection:
+                      with connection.cursor() as cursor:
+                          cursor.execute(
+                              "DELETE FROM public.jobs WHERE job_id = %s::uuid AND owner_sub = %s",
+                              (job_id, owner_sub),
+                          )
+                          if cursor.rowcount != 1:
+                              raise SmokeFailure("PostgreSQL temporary job cleanup did not delete exactly one row")
+
+
+              keycloak_base_url = os.environ["KEYCLOAK_INTERNAL_BASE_URL"].rstrip("/")
+              job_api_base_url = os.environ["JOB_API_INTERNAL_BASE_URL"].rstrip("/")
+              admin_realm = os.environ["KEYCLOAK_ADMIN_REALM"]
+              clouddsp_realm = os.environ["CLOUDDSP_REALM"]
+              pod_suffix = os.environ["POD_NAME"].rsplit("-", 1)[-1]
+              if not pod_suffix:
+                  raise SmokeFailure("Kubernetes did not provide a usable Pod suffix")
+
+              # These random values are retained only in process memory. Their
+              # unique prefixes make a rare interrupted test easy to identify
+              # in Keycloak without colliding with a real local account/client.
+              test_client_id = f"clouddsp-source-outbox-smoke-{pod_suffix}"
+              test_username = f"source-outbox-smoke-{pod_suffix}"
+              test_email = f"{test_username}@clouddsp.test"
+              test_password = secrets.token_urlsafe(32)
+              wav_bytes = (
+                  b"RIFF" + struct.pack("<I", 36) + b"WAVEfmt " + struct.pack("<I", 16)
+                  + struct.pack("<HHIIHH", 1, 1, 8000, 8000, 1, 8)
+                  + b"data" + struct.pack("<I", 0)
+              )
+
+              admin_access_token = None
+              test_client_uuid = None
+              test_user_id = None
+              test_job_id = None
+              test_object_key = None
+              primary_failure = None
+              cleanup_failures = []
+
+              try:
+                  print("Source-to-outbox smoke: requesting Keycloak administrator token")
+                  admin_token_form = urlencode(
+                      {
+                          "grant_type": "password",
+                          "client_id": "admin-cli",
+                          "username": os.environ["KC_BOOTSTRAP_ADMIN_USERNAME"],
+                          "password": os.environ["KC_BOOTSTRAP_ADMIN_PASSWORD"],
+                      }
+                  ).encode("utf-8")
+                  _, admin_token_body = http_request(
+                      "Keycloak administrator token request",
+                      f"{keycloak_base_url}/realms/{quote(admin_realm, safe='')}/protocol/openid-connect/token",
+                      {200},
+                      method="POST",
+                      data=admin_token_form,
+                      headers={"Content-Type": "application/x-www-form-urlencoded"},
+                  )
+                  admin_access_token = json_response("Keycloak administrator token request", admin_token_body).get("access_token")
+                  if not isinstance(admin_access_token, str) or not admin_access_token:
+                      raise SmokeFailure("Keycloak administrator token response was incomplete")
+                  admin_headers = {"Authorization": f"Bearer {admin_access_token}", "Content-Type": "application/json"}
+
+                  print("Source-to-outbox smoke: creating disposable Keycloak client and user")
+                  client_headers, _ = http_request(
+                      "Keycloak temporary-client creation",
+                      f"{keycloak_base_url}/admin/realms/{quote(clouddsp_realm, safe='')}/clients",
+                      {201},
+                      method="POST",
+                      data=json.dumps(
+                          {
+                              "clientId": test_client_id,
+                              "enabled": True,
+                              "protocol": "openid-connect",
+                              "publicClient": True,
+                              "standardFlowEnabled": False,
+                              "implicitFlowEnabled": False,
+                              "directAccessGrantsEnabled": True,
+                              "serviceAccountsEnabled": False,
+                              "fullScopeAllowed": False,
+                          },
+                          separators=(",", ":"),
+                      ).encode("utf-8"),
+                      headers=admin_headers,
+                  )
+                  test_client_uuid = location_identifier("Keycloak temporary-client creation", client_headers, "clients")
+                  json_request(
+                      "Keycloak temporary-client audience mapper creation",
+                      (
+                          f"{keycloak_base_url}/admin/realms/{quote(clouddsp_realm, safe='')}"
+                          f"/clients/{quote(test_client_uuid, safe='')}/protocol-mappers/models"
+                      ),
+                      {201},
+                      method="POST",
+                      payload={
+                          "name": "job-api-access-token-audience",
+                          "protocol": "openid-connect",
+                          "protocolMapper": "oidc-audience-mapper",
+                          "consentRequired": False,
+                          "config": {
+                              "included.client.audience": os.environ["JOB_API_CLIENT_ID"],
+                              "access.token.claim": "true",
+                              "id.token.claim": "false",
+                              "introspection.token.claim": "true",
+                              "userinfo.token.claim": "false",
+                          },
+                      },
+                      headers=admin_headers,
+                  )
+                  user_headers, _ = http_request(
+                      "Keycloak temporary-user creation",
+                      f"{keycloak_base_url}/admin/realms/{quote(clouddsp_realm, safe='')}/users",
+                      {201},
+                      method="POST",
+                      data=json.dumps(
+                          {
+                              "username": test_username,
+                              "email": test_email,
+                              "firstName": "CloudDSP",
+                              "lastName": "Source Outbox Smoke",
+                              "enabled": True,
+                              "emailVerified": True,
+                          },
+                          separators=(",", ":"),
+                      ).encode("utf-8"),
+                      headers=admin_headers,
+                  )
+                  test_user_id = location_identifier("Keycloak temporary-user creation", user_headers, "users")
+                  json_request(
+                      "Keycloak temporary-user password setup",
+                      (
+                          f"{keycloak_base_url}/admin/realms/{quote(clouddsp_realm, safe='')}"
+                          f"/users/{quote(test_user_id, safe='')}/reset-password"
+                      ),
+                      {204},
+                      method="PUT",
+                      payload={"type": "password", "temporary": False, "value": test_password},
+                      headers=admin_headers,
+                  )
+
+                  print("Source-to-outbox smoke: requesting temporary-user access token")
+                  token_form = urlencode(
+                      {
+                          "grant_type": "password",
+                          "client_id": test_client_id,
+                          "username": test_username,
+                          "password": test_password,
+                      }
+                  ).encode("utf-8")
+                  _, token_body = http_request(
+                      "Keycloak temporary-user token request",
+                      f"{keycloak_base_url}/realms/{quote(clouddsp_realm, safe='')}/protocol/openid-connect/token",
+                      {200},
+                      method="POST",
+                      data=token_form,
+                      headers={"Content-Type": "application/x-www-form-urlencoded"},
+                  )
+                  user_access_token = json_response("Keycloak temporary-user token request", token_body).get("access_token")
+                  if not isinstance(user_access_token, str) or not user_access_token:
+                      raise SmokeFailure("Keycloak temporary-user token response was incomplete")
+                  user_headers = {"Authorization": f"Bearer {user_access_token}", "Content-Type": "application/json"}
+
+                  print("Source-to-outbox smoke: creating authenticated direct-upload job")
+                  _, create_body = http_request(
+                      "Job API direct-upload creation",
+                      f"{job_api_base_url}/jobs",
+                      {201},
+                      method="POST",
+                      data=json.dumps(
+                          {
+                              "filename": "source-to-outbox-smoke.wav",
+                              "content_type": "audio/wav",
+                              "size_bytes": len(wav_bytes),
+                              "stem_mode": "4-stems",
+                          },
+                          separators=(",", ":"),
+                      ).encode("utf-8"),
+                      headers=user_headers,
+                  )
+                  contract = json_response("Job API direct-upload creation", create_body)
+                  test_job_id = contract.get("job_id")
+                  if not isinstance(test_job_id, str) or contract.get("status") != "upload_pending":
+                      raise SmokeFailure("Job API direct-upload creation returned an invalid job contract")
+                  fields = contract.get("upload_fields")
+                  if not isinstance(fields, dict) or not isinstance(fields.get("key"), str):
+                      raise SmokeFailure("Job API direct-upload creation omitted the server-owned upload key")
+                  test_object_key = fields["key"]
+
+                  print("Source-to-outbox smoke: uploading MinIO source through the presigned form")
+                  upload_through_internal_minio(contract, wav_bytes)
+                  print("Source-to-outbox smoke: waiting for upload-intake source transition")
+                  wait_for_source_uploaded(job_api_base_url, user_access_token, test_job_id)
+                  verify_atomic_outbox_state(test_job_id)
+
+                  print("Source-to-outbox smoke: publishing and draining one duplicate source notification")
+                  rabbitmq_headers = post_duplicate_source_notification(test_object_key)
+                  wait_for_source_queue_to_drain(rabbitmq_headers)
+                  verify_atomic_outbox_state(test_job_id)
+
+              except Exception as error:
+                  # Unexpected exception details could contain a token/form/SQL
+                  # value, so logs retain only the safe category or type name.
+                  primary_failure = str(error) if isinstance(error, SmokeFailure) else type(error).__name__
+              finally:
+                  # Cleanup runs after both pass and fail. It targets only IDs
+                  # produced in this Pod; each failure is reported generically
+                  # so no secret or private object identifier reaches the log.
+                  if test_job_id and test_user_id and test_object_key:
+                      try:
+                          cleanup_source_object_and_database_row(test_job_id, test_user_id, test_object_key)
+                      except Exception:
+                          cleanup_failures.append("temporary source job cleanup")
+                  if admin_access_token and test_user_id:
+                      try:
+                          http_request(
+                              "Keycloak temporary-user cleanup",
+                              (
+                                  f"{keycloak_base_url}/admin/realms/{quote(clouddsp_realm, safe='')}"
+                                  f"/users/{quote(test_user_id, safe='')}"
+                              ),
+                              {204},
+                              method="DELETE",
+                              headers={"Authorization": f"Bearer {admin_access_token}"},
+                          )
+                      except Exception:
+                          cleanup_failures.append("temporary Keycloak user cleanup")
+                  if admin_access_token and test_client_uuid:
+                      try:
+                          http_request(
+                              "Keycloak temporary-client cleanup",
+                              (
+                                  f"{keycloak_base_url}/admin/realms/{quote(clouddsp_realm, safe='')}"
+                                  f"/clients/{quote(test_client_uuid, safe='')}"
+                              ),
+                              {204},
+                              method="DELETE",
+                              headers={"Authorization": f"Bearer {admin_access_token}"},
+                          )
+                      except Exception:
+                          cleanup_failures.append("temporary Keycloak client cleanup")
+
+              if cleanup_failures:
+                  print("Source-to-outbox smoke test failed: cleanup did not complete", file=sys.stderr)
+                  raise SystemExit(1)
+              if primary_failure:
+                  print(f"Source-to-outbox smoke test failed: {primary_failure}", file=sys.stderr)
+                  raise SystemExit(1)
+
+              print("Source-to-outbox smoke test passed")

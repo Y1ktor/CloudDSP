@@ -1,0 +1,48 @@
+# This immutable ConfigMap contains the reviewed MinIO IAM policy for the
+# future Demucs worker. A policy is authorization configuration rather than a
+# password, so Git can review its exact scope. The access and secret keys that
+# receive this policy live only in ignored local Secret files.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  # The policy version is part of the name because an immutable ConfigMap can
+  # never be edited in place. Any future scope change needs a reviewed v002
+  # resource and bootstrap Job, rather than silently broadening a live worker.
+  name: clouddsp-demucs-artifacts-policy-v001
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: demucs
+    app.kubernetes.io/component: object-storage-policy
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: private-demucs-source-read-and-stem-write
+immutable: true
+data:
+  # MinIO evaluates this AWS IAM-compatible document for every signed S3 API
+  # request. There is no anonymous or bucket-wide ListBucket statement: a
+  # worker must already know a durable object key from PostgreSQL before it can
+  # read or write an object.
+  demucs-artifacts-policy.json: |
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Sid": "ReadOnlyPrivateSourceUploads",
+          "Effect": "Allow",
+          "Action": "s3:GetObject",
+          "Resource": "arn:aws:s3:::clouddsp-uploads/uploads/*"
+        },
+        {
+          "Sid": "WriteAndVerifyPrivateDemucsStems",
+          "Effect": "Allow",
+          "Action": [
+            "s3:GetObject",
+            "s3:PutObject",
+            "s3:AbortMultipartUpload",
+            "s3:ListMultipartUploadParts"
+          ],
+          "Resource": "arn:aws:s3:::clouddsp-uploads/stems/*"
+        }
+      ]
+    }

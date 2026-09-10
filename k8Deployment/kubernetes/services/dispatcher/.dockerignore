@@ -1,0 +1,13 @@
+# The dispatcher image needs only its reviewed source, test suite, lock, and
+# Dockerfile. Excluding host bytecode/editor artifacts keeps the build context
+# reproducible and prevents a developer's local generated files from being
+# copied into either validation or runtime image stage.
+.git
+.gitignore
+.dockerignore
+README.md
+__pycache__/
+*.py[cod]
+.DS_Store
+.env
+.env.*

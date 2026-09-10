@@ -1,0 +1,83 @@
+# This immutable ConfigMap carries the reviewed v004 PostgreSQL schema source.
+# Applying it stores the non-secret SQL inside Kubernetes only; the companion
+# versioned Job is the separate, explicit action that can run the migration.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  # Never change a migration after it has been applied. This new version
+  # evolves the already-applied v002 outbox constraints without rewriting
+  # history, so an existing local cluster retains an auditable DDL sequence.
+  name: job-api-schema-migration-v004-downstream-outbox
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: job-api-schema-migration-v004-downstream-outbox
+    app.kubernetes.io/component: database-migration
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: downstream-stem-outbox-schema
+immutable: true
+data:
+  004_downstream_outbox_events.sql: |
+    -- CloudDSP Job API schema migration v004
+    --
+    -- v002 deliberately admitted one job-wide `demucs.requested` outbox row.
+    -- This additive migration expands that finite vocabulary only after
+    -- Demucs has created stable private stem objects: Basic Pitch may receive
+    -- each non-drum stem, while ADTOF receives drums. It creates no message,
+    -- queue, worker task, RabbitMQ user, MinIO request, or application event.
+
+    BEGIN;
+
+    -- Serialize v001-v004 with one transaction-scoped advisory lock. A second
+    -- accidentally started migration waits here, and an invalid historic row
+    -- rolls back every constraint/ledger change rather than leaving a partial
+    -- stage vocabulary behind.
+    SELECT pg_advisory_xact_lock(834929517101);
+
+    -- Require the existing table and reveal a clear relation error before any
+    -- ALTER statement if v002 has not been applied. This reads no event data.
+    SELECT event_id, job_id, stage, stem_name, event_type
+    FROM public.outbox_events
+    LIMIT 0;
+
+    -- Remove only v002's three single-column checks. IF EXISTS makes a
+    -- deliberate rerun of this exact immutable file a repair-safe operation;
+    -- the new composite check below is also replaced in the same transaction.
+    ALTER TABLE public.outbox_events
+      DROP CONSTRAINT IF EXISTS outbox_events_stage_check,
+      DROP CONSTRAINT IF EXISTS outbox_events_stem_name_check,
+      DROP CONSTRAINT IF EXISTS outbox_events_event_type_check,
+      DROP CONSTRAINT IF EXISTS outbox_events_downstream_stage_stem_event_type_matches;
+
+    -- One compound constraint prevents invalid combinations such as an ADTOF
+    -- request for vocals or a Basic Pitch request with empty stem name. The
+    -- underlying per-job/stage/stem unique key from v002 now naturally allows
+    -- one durable request per actual stem while preserving Demucs idempotency.
+    ALTER TABLE public.outbox_events
+      ADD CONSTRAINT outbox_events_downstream_stage_stem_event_type_matches
+      CHECK (
+        (stage = 'demucs'
+          AND stem_name = ''
+          AND event_type = 'demucs.requested')
+        OR
+        (stage = 'basic-pitch'
+          AND stem_name IN ('vocals', 'no_vocals', 'bass', 'other', 'guitar', 'piano')
+          AND event_type = 'basic-pitch.requested')
+        OR
+        (stage = 'adtof'
+          AND stem_name = 'drums'
+          AND event_type = 'adtof.requested')
+      );
+
+    -- Record completion only after the new constraint accepts the existing
+    -- Demucs history. A later processing-task migration must independently
+    -- extend task-stage checks before downstream workers can claim these rows.
+    INSERT INTO schema_migrations (migration_id, description)
+    VALUES (
+      'v004_downstream_outbox_events',
+      'Extends durable outbox stage, stem, and event-type constraints for post-Demucs Basic Pitch and ADTOF requests.'
+    )
+    ON CONFLICT (migration_id) DO NOTHING;
+
+    COMMIT;

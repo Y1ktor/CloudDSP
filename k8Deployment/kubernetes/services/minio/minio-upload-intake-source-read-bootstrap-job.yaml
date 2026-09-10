@@ -1,0 +1,357 @@
+# This one-shot Job creates/updates the future upload-intake S3 identity and
+# attaches its immutable read-only source-object policy. Its internal path is:
+#
+#   bootstrap Job Pod -> clouddsp-minio ClusterIP -> MinIO StatefulSet
+#
+# The Job is not the upload-intake consumer. It uses MinIO's root administrator
+# credential only for provisioning, then removes the temporary root alias. The
+# eventual Deployment receives only the narrower `clouddsp-upload-intake` key.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # A completed Job is not rerun by reapplying identical YAML. Delete this Job
+  # before an intentional key rotation or repair, then reapply it; its `mc`
+  # commands converge to the same reviewed policy and access-key identity.
+  name: minio-upload-intake-source-read-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: minio-upload-intake-source-read-bootstrap
+    app.kubernetes.io/component: object-storage-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: upload-intake-private-source-read-provisioning
+spec:
+  # Retain non-secret verification output briefly, then delete this temporary
+  # root-credential-bearing administration Pod automatically.
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 0
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: minio-upload-intake-source-read-bootstrap
+        app.kubernetes.io/component: object-storage-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # This administration client only calls MinIO over Service DNS. It has no
+      # Kubernetes API responsibility, so do not mount a ServiceAccount token.
+      automountServiceAccountToken: false
+      securityContext:
+        # The official static `mc` client can use this arbitrary non-root UID.
+        # Its configuration is written only to the bounded emptyDir below.
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      # The digest-pinned official `mc` image is shell-free. Ordered init
+      # containers make each privileged administration action observable and
+      # avoid installing a shell or custom credential-bearing helper image.
+      initContainers:
+        - name: configure-minio-root-alias
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+            # This is the only root-Secret read. Its values are substituted by
+            # Kubernetes at start time and never occur literally in this file.
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_PASSWORD
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          args:
+            - alias
+            - set
+            - minio-admin
+            - http://clouddsp-minio:9000
+            - $(MINIO_ROOT_USER)
+            - $(MINIO_ROOT_PASSWORD)
+
+        - name: wait-for-minio-service
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          args:
+            - ready
+            - minio-admin
+
+        - name: create-or-update-source-read-policy
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+            - name: source-read-policy
+              mountPath: /policy
+              readOnly: true
+          # `policy create` updates the named MinIO policy on a deliberate
+          # rerun, converging it to the versioned ConfigMap JSON.
+          args:
+            - admin
+            - policy
+            - create
+            - minio-admin
+            - clouddsp-upload-intake-source-read-v001
+            - /policy/upload-intake-source-read-policy.json
+
+        - name: create-or-rotate-upload-intake-user
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+            # This temporary data-namespace Secret must contain the same
+            # access/secret key pair as the ignored runtime Secret in
+            # clouddsp-app. Kubernetes does not permit mounting that runtime
+            # Secret across namespaces, hence the temporary duplicate.
+            - name: UPLOAD_INTAKE_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-upload-intake-minio-bootstrap-credentials
+                  key: UPLOAD_INTAKE_S3_ACCESS_KEY
+            - name: UPLOAD_INTAKE_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-upload-intake-minio-bootstrap-credentials
+                  key: UPLOAD_INTAKE_S3_SECRET_KEY
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          # Reusing an access key changes its secret value deliberately; this
+          # is the explicit local key-rotation path and never deletes objects.
+          args:
+            - admin
+            - user
+            - add
+            - minio-admin
+            - $(UPLOAD_INTAKE_S3_ACCESS_KEY)
+            - $(UPLOAD_INTAKE_S3_SECRET_KEY)
+
+        - name: attach-source-read-policy
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+            - name: UPLOAD_INTAKE_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-upload-intake-minio-bootstrap-credentials
+                  key: UPLOAD_INTAKE_S3_ACCESS_KEY
+          resources:
+            # The local ARM64 MinIO administrative IAM path previously needed
+            # a small amount of headroom. Init containers run serially, so this
+            # bounded 256 MiB limit is never charged alongside other steps.
+            requests:
+              cpu: 50m
+              memory: 128Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          args:
+            - admin
+            - policy
+            - attach
+            - minio-admin
+            - clouddsp-upload-intake-source-read-v001
+            - --user=$(UPLOAD_INTAKE_S3_ACCESS_KEY)
+
+        - name: verify-upload-intake-user-policy
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+            - name: UPLOAD_INTAKE_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-upload-intake-minio-bootstrap-credentials
+                  key: UPLOAD_INTAKE_S3_ACCESS_KEY
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          # This prints only the access-key/policy association, never the
+          # secret key. A later smoke Job proves allowed and denied S3 calls.
+          args:
+            - admin
+            - user
+            - info
+            - minio-admin
+            - $(UPLOAD_INTAKE_S3_ACCESS_KEY)
+
+        - name: remove-root-alias-from-temporary-config
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          # The alias file holds root credentials only temporarily. Delete it
+          # before the ordinary container starts; the emptyDir then disappears
+          # when Kubernetes cleans up the finished Pod after its TTL.
+          args:
+            - alias
+            - remove
+            - minio-admin
+      containers:
+        - name: completion-marker
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          # Init containers perform all configuration. A normal container is
+          # still required for the Job controller to record a Complete result.
+          args:
+            - --version
+      volumes:
+        - name: mc-config
+          emptyDir:
+            # An mc alias is only a few KiB. This is not persistent storage.
+            sizeLimit: 1Mi
+        - name: source-read-policy
+          configMap:
+            # The immutable ConfigMap prevents the Job from applying an
+            # unreviewed policy document supplied interactively at runtime.
+            name: clouddsp-upload-intake-source-read-policy-v001
+            defaultMode: 0444
+            items:
+              - key: upload-intake-source-read-policy.json
+                path: upload-intake-source-read-policy.json

@@ -162,10 +162,24 @@ optimistic-concurrency revision, private artifact metadata, safe error text,
 timestamps, and retention expiry. It deliberately omits source URLs and
 presigned URLs because their query strings expire and can be sensitive.
 
-Daily quotas, task leases, a transactional outbox, and normalized worker-stage
-records remain separate migrations. This keeps the first schema change small
-and ensures the first API route can create/retrieve a durable job before worker
-coordination is introduced.
+Daily quotas, task leases, and normalized worker-stage records remain separate
+migrations. This keeps the first schema change small and ensures the first API
+route can create/retrieve a durable job before worker coordination is
+introduced. The applied v002 migration is the deliberately narrow exception:
+it adds only the durable `outbox_events` table, its idempotency constraint, and
+dispatcher lease fields. The applied separate
+[`upload-intake outbox permission bootstrap Job`](../upload-intake/upload-intake-outbox-permissions-bootstrap-job.yaml)
+grants the intake role only the columns needed to insert its initial
+`pending` Demucs event. It still cannot publish RabbitMQ work, inspect or
+update outbox rows, or run a dispatcher; those remain separate small tasks.
+
+The prepared, unapplied
+[`v004 downstream-outbox migration`](job-api-schema-migration-v004-downstream-outbox-configmap.yaml)
+is the next additive schema evolution. It retains v002's same idempotency and
+publication-state fields while permitting only per-stem `basic-pitch.requested`
+and `adtof.requested` records after Demucs completes. Its companion Job must be
+explicitly applied before the matching Demucs role-permission extension and a
+future rebuilt worker image; neither action is implied by this document.
 
 ## PostgreSQL readiness boundary
 

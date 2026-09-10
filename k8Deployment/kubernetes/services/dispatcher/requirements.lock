@@ -1,0 +1,24 @@
+# This is the dispatcher service's hash-enforced Python dependency lock. It is
+# intentionally independent from upload-intake: each future image can be
+# rebuilt from its own reviewed source and cannot silently inherit a package
+# merely because another Kubernetes service happens to use it.
+#
+# The future Dockerfile must install this file with `pip --require-hashes`.
+# Pika is pure Python and its universal wheel supports both the current local
+# Linux/ARM64 k3d profile and a future Linux/AMD64 profile without a compiler.
+# PostgreSQL remains authoritative for the outbox lease. Psycopg's binary
+# package bundles libpq, so the future slim dispatcher image needs no compiler
+# or operating-system PostgreSQL client package. These reviewed hashes target
+# the current Python 3.12/Linux ARM64 k3d profile; a future Linux/AMD64 image
+# task must retain hash enforcement and add its separately reviewed wheel hash.
+pika==1.4.4 \
+    --hash=sha256:48de960c97a93b55db06b8be4c53eb977c9c8a2754c57cdae9097abcbd70ce04
+psycopg==3.2.13 \
+    --hash=sha256:a481374514f2da627157f767a9336705ebefe93ea7a0522a6cbacba165da179a
+psycopg-binary==3.2.13 \
+    --hash=sha256:082579f2ae41bdabe20c82810810f3e290ac2206cccf0cb41cf36b3218f53b3c
+# Psycopg imports this transitive universal wheel at runtime. Listing it
+# explicitly makes `pip --require-hashes` fail closed if a future dependency
+# graph changes instead of silently selecting an unreviewed package.
+typing-extensions==4.16.0 \
+    --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8

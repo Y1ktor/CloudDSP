@@ -1,0 +1,173 @@
+# This short-lived administrator Job adds only the post-Demucs outbox columns
+# required by the v004 completion statement. It is a separate versioned
+# bootstrap because the original Demucs database bootstrap may already be a
+# completed immutable Kubernetes Job in an existing local cluster.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: demucs-downstream-outbox-permissions-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: demucs-downstream-outbox-permissions-bootstrap
+    app.kubernetes.io/component: database-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: least-privilege-demucs-downstream-outbox-provisioning
+spec:
+  # Retain the safe privilege report long enough to inspect it, then remove
+  # the Pod that temporarily mounted PostgreSQL's administrator Secret.
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 0
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: demucs-downstream-outbox-permissions-bootstrap
+        app.kubernetes.io/component: database-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # This maintenance client has no reason to contact the Kubernetes API.
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgresql-bootstrap-client
+          # The pinned Docker Official Image supplies `psql`; it introduces no
+          # package download, shell tooling, or audio-processing dependency.
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PGHOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: PGPORT
+              value: "5432"
+            - name: PGDATABASE
+              value: clouddsp_job_api
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+            # Only this temporary bootstrap receives the database administrator
+            # credential. The runtime Demucs Deployment keeps its own restricted
+            # app-namespace login and never receives this Secret.
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -ec
+            - |
+              # Fail at the first structural or grant error. This keeps a
+              # partial role extension from looking successful in Job status.
+              printf 'Granting Demucs downstream outbox columns through Service %s:%s\n' "$PGHOST" "$PGPORT"
+
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 <<'SQL'
+              -- v004 must have installed this composite constraint before the
+              -- worker gains INSERT authority. The zero-row relation check and
+              -- constraint assertion disclose no payload/object/user data.
+              SELECT event_id, job_id, stage, stem_name, event_type, payload
+              FROM public.outbox_events
+              LIMIT 0;
+
+              DO $$
+              BEGIN
+                IF NOT EXISTS (
+                  SELECT 1
+                  FROM pg_constraint
+                  WHERE conrelid = 'public.outbox_events'::regclass
+                    AND conname = 'outbox_events_downstream_stage_stem_event_type_matches'
+                ) THEN
+                  RAISE EXCEPTION 'Required downstream outbox migration v004 is missing.';
+                END IF;
+                IF NOT EXISTS (
+                  SELECT 1 FROM pg_roles WHERE rolname = 'clouddsp-demucs'
+                ) THEN
+                  RAISE EXCEPTION 'Required restricted Demucs role is missing.';
+                END IF;
+              END;
+              $$;
+
+              -- The original worker bootstrap already grants SELECT on the
+              -- immutable event identity for input-message verification. Add
+              -- only the six values used in the fixed completion INSERT; all
+              -- publication/lease/error timestamps remain database defaults or
+              -- dispatcher-owned fields. No UPDATE, DELETE, DDL, payload read,
+              -- RabbitMQ, MinIO, or Kubernetes permission is granted here.
+              GRANT INSERT (
+                event_id,
+                job_id,
+                stage,
+                stem_name,
+                event_type,
+                payload
+              ) ON TABLE public.outbox_events TO "clouddsp-demucs";
+
+              -- Report capability facts only. `event_id` SELECT is retained
+              -- because the completion CTE's INSERT ... RETURNING count needs
+              -- PostgreSQL to expose its returned opaque identifier; it does
+              -- not let the role read payloads or dispatch state.
+              SELECT
+                has_column_privilege(
+                  'clouddsp-demucs',
+                  'public.outbox_events',
+                  'event_id',
+                  'INSERT'
+                ) AS can_insert_event_id,
+                has_column_privilege(
+                  'clouddsp-demucs',
+                  'public.outbox_events',
+                  'payload',
+                  'INSERT'
+                ) AS can_insert_payload,
+                has_column_privilege(
+                  'clouddsp-demucs',
+                  'public.outbox_events',
+                  'event_id',
+                  'SELECT'
+                ) AS can_read_returned_event_id,
+                has_column_privilege(
+                  'clouddsp-demucs',
+                  'public.outbox_events',
+                  'payload',
+                  'SELECT'
+                ) AS can_read_outbox_payload,
+                has_column_privilege(
+                  'clouddsp-demucs',
+                  'public.outbox_events',
+                  'publication_status',
+                  'UPDATE'
+                ) AS can_update_publication_state,
+                has_table_privilege(
+                  'clouddsp-demucs',
+                  'public.outbox_events',
+                  'DELETE'
+                ) AS can_delete_outbox_events;
+              SQL
+              printf 'Restricted Demucs downstream-outbox permission bootstrap passed\n'

@@ -1,0 +1,37 @@
+# This immutable ConfigMap holds the reviewed MinIO IAM policy for the future
+# upload-intake consumer. A policy is non-secret authorization configuration,
+# so version control can review its exact scope; the access and secret keys
+# that receive it belong in ignored local Secret files during a later task.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  # Version the resource name because Kubernetes forbids edits to an immutable
+  # ConfigMap. A future scope change must be an explicit new policy version,
+  # not an in-place broadening of a running consumer's authority.
+  name: clouddsp-upload-intake-source-read-policy-v001
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: upload-intake
+    app.kubernetes.io/component: object-storage-policy
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: upload-intake-private-source-verification
+immutable: true
+data:
+  # MinIO evaluates this AWS IAM-compatible policy when the future intake
+  # identity signs an S3 request. The lone GetObject action also authorizes an
+  # S3 HeadObject request, which is precisely how the consumer verifies the
+  # private object without downloading its audio bytes.
+  upload-intake-source-read-policy.json: |
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Sid": "HeadOrReadOnlyCloudDSPSourceUploads",
+          "Effect": "Allow",
+          "Action": "s3:GetObject",
+          "Resource": "arn:aws:s3:::clouddsp-uploads/uploads/*"
+        }
+      ]
+    }

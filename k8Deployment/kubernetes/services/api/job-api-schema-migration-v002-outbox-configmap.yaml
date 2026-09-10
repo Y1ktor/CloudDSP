@@ -1,0 +1,166 @@
+# This immutable ConfigMap carries one reviewed, non-secret SQL migration to a
+# short-lived PostgreSQL client Job. A schema migration is application source,
+# not a credential, so its SQL belongs in version control while the Job mounts
+# its database password separately from a same-namespace Kubernetes Secret.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  # Never edit an already-applied migration. The versioned name lets a new and
+  # an existing local cluster converge on the same ledger/history, while a
+  # later schema change must introduce its own v003 ConfigMap and Job.
+  name: job-api-schema-migration-v002-outbox
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: job-api-schema-migration-v002-outbox
+    app.kubernetes.io/component: database-migration
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: durable-processing-outbox-schema
+immutable: true
+data:
+  002_outbox_events.sql: |
+    -- CloudDSP Job API schema migration v002
+    --
+    -- This adds the durable transactional outbox that safely bridges a
+    -- PostgreSQL state change to a later RabbitMQ work-request publication.
+    -- It creates no queue, worker Pod, RabbitMQ connection, message, lease,
+    -- privilege grant, or application-side event by itself.
+
+    BEGIN;
+
+    -- Use the same transaction-scoped advisory lock as v001. If two migration
+    -- Jobs are started accidentally, one waits and the other leaves no partial
+    -- DDL behind because every statement shares this transaction.
+    SELECT pg_advisory_xact_lock(834929517101);
+
+    -- The v001 ledger must already exist. The foreign key below independently
+    -- makes a missing/renamed `jobs` relation fail the migration transaction.
+    -- This defensive CREATE retains compatibility with a brand-new database
+    -- only if v001 has already created the same canonical ledger structure.
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      migration_id TEXT PRIMARY KEY,
+      description TEXT NOT NULL,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- One row is the durable promise that a later dispatcher must publish one
+    -- processing request. It is stored in the *same PostgreSQL transaction* as
+    -- the matching job-state transition, preventing the classic crash window:
+    -- "job says source_uploaded, but no Demucs message was ever published".
+    CREATE TABLE IF NOT EXISTS outbox_events (
+      -- Application code will generate this UUID before insert. Requiring it
+      -- explicitly avoids adding an extension/default to the database solely
+      -- for identifiers and makes a future AMQP correlation ID deterministic.
+      event_id UUID PRIMARY KEY,
+
+      -- The jobs row remains authoritative. A terminal job deletion cascades
+      -- only its historical outbox rows; the later deletion workflow must
+      -- refuse jobs with pending/leased events before attempting deletion, so
+      -- it can never discard an unpublished processing request by accident.
+      job_id UUID NOT NULL REFERENCES public.jobs(job_id) ON DELETE CASCADE,
+
+      -- `stage` identifies the worker responsibility, while `stem_name`
+      -- participates in the required `(job_id, stage, stem_name)` idempotency
+      -- key. Demucs is job-wide in v002, so it uses the canonical empty string
+      -- rather than NULL (PostgreSQL UNIQUE treats separate NULLs as distinct).
+      stage TEXT NOT NULL CHECK (stage IN ('demucs')),
+      stem_name TEXT NOT NULL DEFAULT '' CHECK (stem_name = ''),
+      event_type TEXT NOT NULL CHECK (event_type = 'demucs.requested'),
+
+      -- The exact request payload is committed before any broker publication.
+      -- It may contain stable job/object identifiers needed by a worker, but
+      -- never a presigned URL, access key, password, bearer token, or source
+      -- URL. A later code task defines and validates its precise JSON shape.
+      payload JSONB NOT NULL CHECK (jsonb_typeof(payload) = 'object'),
+
+      -- The dispatcher will move pending events through a short lease before
+      -- marking them published. `available_at` enables bounded backoff without
+      -- busy-looping after a RabbitMQ outage; `delivery_attempts` supports a
+      -- later reviewed retry/DLQ policy.
+      publication_status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (publication_status IN ('pending', 'leased', 'published', 'dead_lettered')),
+      delivery_attempts INTEGER NOT NULL DEFAULT 0 CHECK (delivery_attempts >= 0),
+      available_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      lease_token UUID,
+      lease_expires_at TIMESTAMPTZ,
+      published_at TIMESTAMPTZ,
+      -- Store only an application-reviewed bounded category here, never a raw
+      -- AMQP/SDK exception string that might disclose endpoint or message data.
+      last_error_code TEXT CHECK (
+        last_error_code IS NULL OR (
+          length(last_error_code) > 0 AND length(last_error_code) <= 100
+        )
+      ),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+      -- One source-upload state transition may request Demucs only once. A
+      -- duplicate MinIO/RabbitMQ delivery can execute INSERT ... ON CONFLICT
+      -- safely rather than creating duplicated durable work requests.
+      CONSTRAINT outbox_events_job_stage_stem_idempotency
+        UNIQUE (job_id, stage, stem_name),
+
+      -- A lease is held only while a dispatcher owns an unconfirmed broker
+      -- publication. Once a lease expires, a later dispatcher can recover it.
+      CONSTRAINT outbox_events_lease_state_matches
+        CHECK (
+          (publication_status = 'leased' AND lease_token IS NOT NULL AND lease_expires_at IS NOT NULL)
+          OR
+          (publication_status <> 'leased' AND lease_token IS NULL AND lease_expires_at IS NULL)
+        ),
+
+      -- RabbitMQ publisher confirmation comes before the dispatcher changes a
+      -- row to published. A published row has that timestamp; all other states
+      -- retain NULL so an accidental reset cannot conceal a prior publication.
+      CONSTRAINT outbox_events_published_timestamp_matches
+        CHECK (
+          (publication_status = 'published' AND published_at IS NOT NULL)
+          OR
+          (publication_status <> 'published' AND published_at IS NULL)
+        )
+    );
+
+    -- The dispatcher will select pending rows that are due now, ordered by the
+    -- original commit time. This partial index stays small even after many
+    -- published history rows and avoids scanning the full outbox on each poll.
+    CREATE INDEX IF NOT EXISTS outbox_events_pending_available_idx
+      ON public.outbox_events (available_at, created_at)
+      WHERE publication_status = 'pending';
+
+    -- A crashed dispatcher may leave a lease behind. This index lets a later
+    -- recovery query find only expired leases instead of scanning all events.
+    CREATE INDEX IF NOT EXISTS outbox_events_leased_expiry_idx
+      ON public.outbox_events (lease_expires_at)
+      WHERE publication_status = 'leased';
+
+    -- Keep `updated_at` truthful for dispatcher lease/retry/publication state
+    -- changes. This is a separate trigger name so it cannot alter v001's jobs
+    -- trigger, revision semantics, or browser-visible job timestamps.
+    CREATE OR REPLACE FUNCTION set_outbox_events_updated_at()
+    RETURNS TRIGGER
+    LANGUAGE plpgsql
+    AS $$
+    BEGIN
+      NEW.updated_at = CURRENT_TIMESTAMP;
+      RETURN NEW;
+    END;
+    $$;
+
+    DROP TRIGGER IF EXISTS outbox_events_set_updated_at ON public.outbox_events;
+    CREATE TRIGGER outbox_events_set_updated_at
+      BEFORE UPDATE ON public.outbox_events
+      FOR EACH ROW
+      EXECUTE FUNCTION set_outbox_events_updated_at();
+
+    -- Add the ledger row only after all DDL and indexes/triggers succeed. The
+    -- migration itself is intentionally idempotent for a deliberate repair
+    -- rerun, but the immutable ConfigMap prevents its SQL from being edited.
+    INSERT INTO schema_migrations (migration_id, description)
+    VALUES (
+      'v002_outbox_events',
+      'Durable outbox events with per-stage idempotency, publication lease, retry scheduling, and timestamps.'
+    )
+    ON CONFLICT (migration_id) DO NOTHING;
+
+    COMMIT;

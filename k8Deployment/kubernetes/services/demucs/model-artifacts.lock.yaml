@@ -1,0 +1,67 @@
+# This is a source-controlled model-artifact lock, not a Kubernetes manifest.
+# Do not run `kubectl apply` on it. A future Demucs image build reads this file,
+# downloads the exact byte artifacts below into a temporary build directory,
+# verifies their complete SHA-256 values, and only then copies them into the
+# image's read-only `/opt/clouddsp/demucs-models` directory.
+#
+# The preserved cloud image calls `get_model("htdemucs")` and
+# `get_model("htdemucs_6s")`. Demucs v4.0.1 maps each name to exactly one
+# weight file, and its local repository loader also needs the matching short
+# YAML "bag" descriptor. Recording both kinds of artifacts ensures a future
+# offline Pod can still request the familiar model names with `--repo`.
+#
+# SHA-256 is the complete cryptographic fingerprint calculated from one direct
+# download of each official artifact. `demucsFilenameChecksumPrefix` repeats
+# Demucs's built-in eight-character filename convention; it is a useful second
+# consistency check but is not a replacement for the complete SHA-256 value.
+lockFormatVersion: 1
+demucsPackage:
+  name: demucs
+  version: "4.0.1"
+  sourceTag: "v4.0.1"
+  # The same pinned source revision defines how the names below map to files.
+  remoteFilesManifest: https://raw.githubusercontent.com/facebookresearch/demucs/v4.0.1/demucs/remote/files.txt
+  remoteFilesManifestSha256: 7258eee911e5963e6270983d7072832e90e1ed96b25bb26aadf12f9867109bf9
+
+models:
+  htdemucs:
+    # `htdemucs.yaml` is a one-model bag descriptor. It retains the public
+    # CloudDSP model name while directing local Demucs lookup to the immutable
+    # filename below; it is not user-provided audio or runtime configuration.
+    descriptor:
+      filename: htdemucs.yaml
+      sourceUrl: https://raw.githubusercontent.com/facebookresearch/demucs/v4.0.1/demucs/remote/htdemucs.yaml
+      sha256: 239c445d0b14454d541ad8bd9bb271c9e536d267e8a4625208744cbb2e7bb66c
+      sizeBytes: 21
+    weights:
+      # Demucs's one-model non-fine-tuned four-stem Hybrid Transformer.
+      signature: "955717e8"
+      filename: 955717e8-8726e21a.th
+      sourceUrl: https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/955717e8-8726e21a.th
+      sha256: 8726e21a993978c7ba086d3872e7608d7d5bfca646ca4aca459ffda844faa8b4
+      demucsFilenameChecksumPrefix: "8726e21a"
+      sizeBytes: 84141911
+
+  htdemucs_6s:
+    # The six-stem variant adds guitar and piano. Its descriptor/weight pair
+    # stays separate from `htdemucs` so a future Dockerfile can verify every
+    # expected file before declaring either local model name available.
+    descriptor:
+      filename: htdemucs_6s.yaml
+      sourceUrl: https://raw.githubusercontent.com/facebookresearch/demucs/v4.0.1/demucs/remote/htdemucs_6s.yaml
+      sha256: 207405151270af8fd81c2373c25d27950916682ac91dca7884a11ce13dad6f58
+      sizeBytes: 21
+    weights:
+      signature: "5c90dfd2"
+      filename: 5c90dfd2-34c22ccb.th
+      sourceUrl: https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/5c90dfd2-34c22ccb.th
+      sha256: 34c22ccb381c6f9fdbf324f04e1e2fe21aaaf293f5ded163a162697ff9a02ddd
+      demucsFilenameChecksumPrefix: "34c22ccb"
+      sizeBytes: 54996327
+
+# Both model weights total 139,138,238 bytes (about 132.7 MiB) and are
+# intentionally baked only after checksum verification.
+# They must never be fetched at Pod startup: local processing must work with no
+# public-internet egress, and the future Pod will use a read-only root file
+# system with a writable `emptyDir` reserved only for per-job audio scratch.
+resolvedAt: "2026-09-08"

@@ -1,0 +1,212 @@
+# This disposable Job proves the complete local dispatcher handoff rather than
+# injecting an artificial source/outbox/RabbitMQ message:
+#
+# temporary Keycloak user -> authenticated Job API -> presigned MinIO POST
+#   -> native MinIO notification -> upload-intake PostgreSQL transaction
+#   -> dispatcher publisher confirmation -> exact Demucs queue delivery
+#
+# Its single Python process first performs a passive empty-queue check, then
+# creates one tiny controlled WAV upload. It verifies only the resulting stable
+# IDs, acknowledges only the matching delivery, and removes its own object,
+# job/outbox row, Keycloak user, and Keycloak client. It never invokes the
+# Kubernetes API, creates a worker Job, or starts Demucs processing.
+#
+# Prerequisites (all are intentionally separate, explicit user actions):
+#   1. The dispatcher Deployment is healthy and the Demucs request queue is
+#      empty; this Job refuses to run otherwise.
+#   2. The app-namespace restricted RabbitMQ smoke identity already exists.
+#   3. An ignored data-namespace copy of that identity is applied from the
+#      adjacent credential template. Delete that copy after this Job finishes.
+#   4. Existing data-namespace Keycloak/PostgreSQL/MinIO administrator Secrets
+#      remain available solely for disposable setup, verification, and cleanup.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Kubernetes does not rerun a completed fixed-name Job on reapply. Delete
+  # this exact Job before a deliberate new smoke run; never delete all Jobs.
+  name: dispatcher-normal-path-smoke
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: dispatcher-normal-path-smoke
+    app.kubernetes.io/component: integration-test
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: normal-upload-to-demucs-dispatch-verification
+spec:
+  # Keep safe progress/failure logs briefly for `kubectl logs`; the completed
+  # credential-bearing Pod is then cleaned up automatically by Kubernetes.
+  ttlSecondsAfterFinished: 600
+  # A failure must be investigated as one concrete run. Retrying could create
+  # another temporary identity/object while hiding the original dependency fault.
+  backoffLimit: 0
+  # The client has bounded 60-second source/outbox/dispatch checks plus cleanup.
+  # Five minutes leaves normal local scheduling room without retaining elevated
+  # credentials indefinitely when a private dependency is unavailable.
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dispatcher-normal-path-smoke
+        app.kubernetes.io/component: integration-test
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # This client talks only to private ClusterIP Services. It has no reason
+      # to list Pods, create Jobs, or call any Kubernetes API endpoint.
+      automountServiceAccountToken: false
+      securityContext:
+        # The locked image creates UID/GID 10001. Restating that constraint at
+        # Pod level prevents a changed/root-capable image from silently running.
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: dispatcher-normal-path-client
+          # This immutable ARM64 reference is images.dispatcher-smoke-client
+          # from ../../images.lock.yaml. A digest, unlike the readable tag,
+          # guarantees the tested bytes that this Job executes.
+          image: clouddsp-registry.localhost:5001/dispatcher-smoke-client@sha256:da088f49a1e50f25b166f39c4bc5557259720e4ad8162595244fc8ab0cec8bfc
+          imagePullPolicy: IfNotPresent
+          env:
+            # These are private in-cluster Service routes. Browser-facing
+            # *.localhost origins never enter this Pod, except that the
+            # presigned form response is validated and routed to MinIO private
+            # DNS by the orchestrator without changing form fields or path.
+            - name: KEYCLOAK_INTERNAL_BASE_URL
+              value: http://clouddsp-keycloak:8080
+            - name: JOB_API_INTERNAL_BASE_URL
+              value: http://clouddsp-job-api.clouddsp-app.svc:80
+            - name: MINIO_INTERNAL_BASE_URL
+              value: http://clouddsp-minio:9000
+            - name: POSTGRESQL_HOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: POSTGRESQL_PORT
+              value: "5432"
+            - name: POSTGRESQL_JOB_DATABASE
+              value: clouddsp_job_api
+            - name: KEYCLOAK_ADMIN_REALM
+              value: master
+            - name: CLOUDDSP_REALM
+              value: clouddsp
+            - name: JOB_API_CLIENT_ID
+              value: clouddsp-job-api
+            - name: UPLOADS_BUCKET
+              value: clouddsp-uploads
+            # The app has one local broker replica. The reader identity's
+            # permissions still restrict it to this exact vhost/queue even if
+            # an environment value is accidentally broadened in the future.
+            - name: DISPATCHER_SMOKE_AMQP_HOST
+              value: clouddsp-rabbitmq.clouddsp-data.svc
+            - name: DISPATCHER_SMOKE_AMQP_PORT
+              value: "5672"
+            - name: DISPATCHER_SMOKE_AMQP_VHOST
+              value: /clouddsp
+            - name: DISPATCHER_SMOKE_AMQP_QUEUE
+              value: clouddsp.demucs.requests
+            # The runtime deliberately checks all three durable handoffs for
+            # no more than 60 seconds each; activeDeadlineSeconds remains the
+            # outer Kubernetes safety bound including cleanup.
+            - name: DISPATCHER_SMOKE_TIMEOUT_SECONDS
+              value: "60"
+            # Pod name makes every disposable Keycloak username/client ID
+            # independent across intentional reruns without logging the IDs.
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            # Keycloak administrator access creates/removes only the temporary
+            # smoke client and user. The browser/OIDC runtime never sees this
+            # credential and no Keycloak endpoint is exposed outside cluster DNS.
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keycloak-bootstrap-admin
+                  key: KC_BOOTSTRAP_ADMIN_USERNAME
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keycloak-bootstrap-admin
+                  key: KC_BOOTSTRAP_ADMIN_PASSWORD
+            # PostgreSQL administration is used only to look up the generated
+            # outbox event and delete the exact owner-bound temporary Job row.
+            # Database foreign keys then remove that Job's matching outbox row.
+            - name: POSTGRESQL_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_USER
+            - name: POSTGRESQL_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_PASSWORD
+            # The verifier has a separate settings object. Mounting the same
+            # existing PostgreSQL credential under its distinct variable names
+            # avoids a hidden reliance on one process-global database setting.
+            - name: DISPATCHER_SMOKE_DB_NAME
+              value: clouddsp_job_api
+            - name: DISPATCHER_SMOKE_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_USER
+            - name: DISPATCHER_SMOKE_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_PASSWORD
+            # Root MinIO credentials are mounted only so final cleanup can
+            # delete the generated object. The normal upload itself uses the
+            # Job API's browser-equivalent presigned POST, not root access.
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_PASSWORD
+            # This Secret is a temporary data-namespace copy of the preexisting
+            # least-privilege smoke identity. It has no publish/configure/admin
+            # rights and must be removed after this integration Job completes.
+            - name: RABBITMQ_DISPATCHER_SMOKE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-dispatcher-smoke-rabbitmq-data-credentials
+                  key: RABBITMQ_DISPATCHER_SMOKE_USERNAME
+            - name: RABBITMQ_DISPATCHER_SMOKE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-dispatcher-smoke-rabbitmq-data-credentials
+                  key: RABBITMQ_DISPATCHER_SMOKE_PASSWORD
+            # Botocore receives explicit MinIO credentials. Disable its cloud
+            # metadata fallback so this local client neither waits for nor tries
+            # to contact an AWS metadata endpoint.
+            - name: AWS_EC2_METADATA_DISABLED
+              value: "true"
+          resources:
+            # This is HTTP/AMQP/SQL control-plane work over a tiny WAV. It never
+            # decodes audio or runs ML, so small bounds protect stateful services
+            # and leave CPU/memory available for the local learning cluster.
+            requests:
+              cpu: 50m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+              ephemeral-storage: 96Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            # Tokens/passwords/form fields/IDs exist only in process memory.
+            # The client writes neither an artifact nor a cache to its root fs.
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL

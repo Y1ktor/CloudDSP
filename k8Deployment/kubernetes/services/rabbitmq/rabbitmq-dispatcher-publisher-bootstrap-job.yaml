@@ -1,0 +1,286 @@
+# This one-shot administrator Job creates or rotates the dispatcher's RabbitMQ
+# publisher login. Its private in-cluster path is:
+#
+#   bootstrap Job Pod -> RabbitMQ headless Service management port
+#                     -> clouddsp-rabbitmq-0 StatefulSet Pod
+#
+# The future dispatcher can publish only to the already-created processing
+# exchange. It cannot consume any queue, create/reconfigure broker resources,
+# administer RabbitMQ, or receive the RabbitMQ administrator credential.
+#
+# Prerequisites, created and applied separately:
+#   1. `clouddsp-rabbitmq-credentials` in clouddsp-data (existing broker admin
+#      Secret); and
+#   2. a temporary `clouddsp-dispatcher-rabbitmq-bootstrap-credentials` Secret
+#      in clouddsp-data with RABBITMQ_DISPATCHER_USERNAME and
+#      RABBITMQ_DISPATCHER_PASSWORD. Kubernetes Secrets cannot cross namespace
+#      boundaries, so it intentionally duplicates the future runtime identity
+#      only for this short administration Job.
+#
+# This Job does not create the processing exchange/queue topology, make an AMQP
+# connection as the application identity, create a dispatcher Deployment, or
+# publish a Demucs request. Delete a completed Job before an intentional
+# password rotation or permission repair, then apply it again.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rabbitmq-dispatcher-publisher-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: rabbitmq-dispatcher-publisher-bootstrap
+    app.kubernetes.io/component: message-identity-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: least-privilege-demucs-request-publication
+spec:
+  # Preserve its non-secret verification output long enough to inspect it, then
+  # remove the temporary administrator-credential-bearing Pod automatically.
+  ttlSecondsAfterFinished: 600
+  # A password/permission failure should be reviewed rather than automatically
+  # retried, which could obscure the first useful diagnosis.
+  backoffLimit: 0
+  # Bound local image pulls, management readiness, and administration calls.
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rabbitmq-dispatcher-publisher-bootstrap
+        app.kubernetes.io/component: message-identity-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # The Job calls only RabbitMQ's private management HTTP API. It never
+      # calls the Kubernetes API, so no default ServiceAccount token is needed.
+      automountServiceAccountToken: false
+      securityContext:
+        # The pinned RabbitMQ Docker Official Image includes the non-root
+        # rabbitmq account and rabbitmqadmin client at UID/GID 999.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: wait-for-rabbitmq-management-api
+          # The official image includes the management plugin's rabbitmqadmin
+          # v2 CLI. Its immutable digest is recorded in images.lock.yaml.
+          image: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+          imagePullPolicy: IfNotPresent
+          env:
+            # Ordinal DNS deliberately selects the single local broker's
+            # private management listener; the normal ClusterIP exposes AMQP
+            # only and is the endpoint the future application will use.
+            - name: RABBITMQADMIN_TARGET_HOST
+              value: clouddsp-rabbitmq-0.clouddsp-rabbitmq-headless.clouddsp-data.svc.cluster.local
+            - name: RABBITMQADMIN_TARGET_PORT
+              value: "15672"
+            - name: RABBITMQADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_USER
+            - name: RABBITMQADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_PASS
+            - name: RABBITMQADMIN_NON_INTERACTIVE_MODE
+              value: "true"
+            # The CLI can keep optional state here without requiring a writable
+            # image filesystem. The volume disappears with this one-shot Pod.
+            - name: HOME
+              value: /work
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: rabbitmqadmin-work
+              mountPath: /work
+          # An authenticated vhost listing confirms both management readiness
+          # and that the administrator Secret is accepted. It emits no secret.
+          command:
+            - sh
+            - -ec
+            - |
+              attempt=1
+              while [ "$attempt" -le 24 ]; do
+                if rabbitmqadmin --quiet vhosts list >/dev/null 2>&1; then
+                  exit 0
+                fi
+                sleep 5
+                attempt=$((attempt + 1))
+              done
+              echo "RabbitMQ management API did not become ready before bootstrap timeout." >&2
+              exit 1
+
+        - name: create-or-rotate-dispatcher-publisher
+          image: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: RABBITMQADMIN_TARGET_HOST
+              value: clouddsp-rabbitmq-0.clouddsp-rabbitmq-headless.clouddsp-data.svc.cluster.local
+            - name: RABBITMQADMIN_TARGET_PORT
+              value: "15672"
+            - name: RABBITMQADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_USER
+            - name: RABBITMQADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_PASS
+            - name: RABBITMQADMIN_NON_INTERACTIVE_MODE
+              value: "true"
+            - name: HOME
+              value: /work
+            # This temporary data-namespace Secret carries only the restricted
+            # application's username/password. Its values are used as CLI
+            # arguments but are never printed by this shell script or Job log.
+            - name: DISPATCHER_RABBITMQ_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-dispatcher-rabbitmq-bootstrap-credentials
+                  key: RABBITMQ_DISPATCHER_USERNAME
+            - name: DISPATCHER_RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-dispatcher-rabbitmq-bootstrap-credentials
+                  key: RABBITMQ_DISPATCHER_PASSWORD
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: rabbitmqadmin-work
+              mountPath: /work
+          command:
+            - sh
+            - -ec
+            - |
+              # `users declare` converges an existing username to the supplied
+              # password, making a deliberate Job rerun the controlled rotation
+              # path. A user without tags has no management/UI administrator
+              # role; vhost permissions below are the AMQP authorization gate.
+              rabbitmqadmin users declare \
+                --name "$DISPATCHER_RABBITMQ_USERNAME" \
+                --password "$DISPATCHER_RABBITMQ_PASSWORD"
+
+              # RabbitMQ evaluates these regular expressions against resource
+              # names in the `/clouddsp` vhost. The empty configure/read
+              # expressions deny topology changes and queue consumption. The
+              # one write expression permits publish only to the exact existing
+              # processing exchange used for `demucs.requested`.
+              rabbitmqadmin permissions declare \
+                --vhost /clouddsp \
+                --username "$DISPATCHER_RABBITMQ_USERNAME" \
+                --configure '^$' \
+                --write '^clouddsp\.processing-events$' \
+                --read '^$'
+
+        - name: verify-dispatcher-publisher-permission
+          image: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: RABBITMQADMIN_TARGET_HOST
+              value: clouddsp-rabbitmq-0.clouddsp-rabbitmq-headless.clouddsp-data.svc.cluster.local
+            - name: RABBITMQADMIN_TARGET_PORT
+              value: "15672"
+            - name: RABBITMQADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_USER
+            - name: RABBITMQADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_PASS
+            - name: RABBITMQADMIN_NON_INTERACTIVE_MODE
+              value: "true"
+            - name: HOME
+              value: /work
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: rabbitmqadmin-work
+              mountPath: /work
+          # This administrator read prints only non-secret usernames and vhost
+          # permission regexes. It makes the narrow broker boundary inspectable
+          # without exposing passwords, password hashes, or message bodies.
+          command:
+            - sh
+            - -ec
+            - |
+              echo "RabbitMQ dispatcher publisher bootstrap: verifying vhost permissions."
+              rabbitmqadmin --quiet permissions list --vhost /clouddsp
+      containers:
+        - name: completion-marker
+          image: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          # Init containers run in order; this ordinary container lets the Job
+          # controller record a successful completion after all steps pass.
+          command:
+            - rabbitmqadmin
+          args:
+            - --version
+      volumes:
+        - name: rabbitmqadmin-work
+          emptyDir:
+            # A tiny writable HOME for the CLI only. It is neither a broker
+            # queue nor persistent application data, and vanishes with the Pod.
+            sizeLimit: 1Mi

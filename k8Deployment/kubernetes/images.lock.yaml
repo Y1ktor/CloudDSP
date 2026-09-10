@@ -66,6 +66,140 @@ images:
     localDockerSize: "74.29 MiB"
     pushedAt: "2026-09-06"
 
+  upload-intake:
+    # This is the locally built, outbound-only direct-upload intake worker.
+    # Its readable tag records the reviewed atomic source-to-outbox milestone;
+    # any Deployment must use only the immutable registry digest below.
+    repository: clouddsp-registry.localhost:5001/upload-intake
+    sourceTag: "0.2.0-atomic-source-outbox"
+    digest: sha256:59f353d1d6cbea3f885769ff175dafba4765c8c0db14aa7e17c53260a5a88609
+    immutableReference: clouddsp-registry.localhost:5001/upload-intake@sha256:59f353d1d6cbea3f885769ff175dafba4765c8c0db14aa7e17c53260a5a88609
+    supportedPlatforms:
+      - linux/arm64/v8
+    builtFrom:
+      # The local Kubernetes worker source is intentionally independent of the
+      # preserved AWS Lambda handlers. Its immutable registry digest identifies
+      # the exact pushed bytes until this Kubernetes work is committed.
+      sourceRevision: local-kubernetes-working-tree
+      sourceDirectory: kubernetes/services/upload-intake/app
+      dockerfile: kubernetes/services/upload-intake/Dockerfile
+      requirementsLock: kubernetes/services/upload-intake/requirements.lock
+      parserTests: kubernetes/services/upload-intake/tests/test_minio_event.py
+      databaseTransitionTests: kubernetes/services/upload-intake/tests/test_database_transition.py
+      objectStorageTests: kubernetes/services/upload-intake/tests/test_object_storage.py
+      transactionAdapterTests: kubernetes/services/upload-intake/tests/test_postgresql.py
+      messageHandlerTests: kubernetes/services/upload-intake/tests/test_message_handler.py
+      amqpAdapterTests: kubernetes/services/upload-intake/tests/test_amqp_consumer.py
+      runtimeTests: kubernetes/services/upload-intake/tests/test_consumer_runtime.py
+      runtimeImageLock: images.api-python-runtime
+      sourceLock: buildSources.upload-intake
+    localDockerSizeBytes: 68268085
+    localDockerSize: "65.11 MiB"
+    pushedAt: "2026-09-07"
+
+  dispatcher:
+    # This local image contains both the established Demucs-only dispatcher
+    # runtime and the reviewed generic dispatcher runtime. Its Dockerfile keeps
+    # `app.dispatcher_runtime` (Demucs-only) as the default entrypoint, so an
+    # existing Pod cannot begin routing Basic Pitch/ADTOF work merely because
+    # this image was built. A separate generic Deployment must explicitly run
+    # `python -m app.dispatcher_generic_runtime` and copy this digest.
+    # The readable tag is build provenance only; workloads use this digest so
+    # a later tag change cannot alter a reviewed/running Pod.
+    repository: clouddsp-registry.localhost:5001/dispatcher
+    sourceTag: "0.2.0-generic-outbox-dispatcher"
+    digest: sha256:cc2d36bd78ceb7e8ff8cd58d0d39d312c3325dda5e3d540dfcfad94e0dfdb487
+    immutableReference: clouddsp-registry.localhost:5001/dispatcher@sha256:cc2d36bd78ceb7e8ff8cd58d0d39d312c3325dda5e3d540dfcfad94e0dfdb487
+    supportedPlatforms:
+      - linux/arm64/v8
+    builtFrom:
+      # Kubernetes-local source only: it does not reuse the preserved AWS
+      # Lambda/Batch worker handlers. This digest identifies exact pushed bytes
+      # while the local deployment work remains uncommitted.
+      sourceRevision: local-kubernetes-working-tree
+      sourceDirectory: kubernetes/services/dispatcher/app
+      dockerfile: kubernetes/services/dispatcher/Dockerfile
+      requirementsLock: kubernetes/services/dispatcher/requirements.lock
+      outboxLeaseTests: kubernetes/services/dispatcher/tests/test_outbox_lease.py
+      publisherTests: kubernetes/services/dispatcher/tests/test_amqp_publisher.py
+      transactionAdapterTests: kubernetes/services/dispatcher/tests/test_postgresql.py
+      dispatchCompositionTests: kubernetes/services/dispatcher/tests/test_dispatch_once.py
+      supervisorTests: kubernetes/services/dispatcher/tests/test_dispatcher_runtime.py
+      genericRouteSelectionTests: kubernetes/services/dispatcher/tests/test_dispatchable_outbox_request.py
+      genericDispatchCompositionTests: kubernetes/services/dispatcher/tests/test_dispatch_dispatchable_once.py
+      genericSupervisorTests: kubernetes/services/dispatcher/tests/test_dispatcher_generic_runtime.py
+      runtimeImageLock: images.api-python-runtime
+      sourceLock: buildSources.dispatcher
+    localDockerSizeBytes: 51042373
+    localDockerSize: "48.68 MiB"
+    pushedAt: "2026-09-09"
+
+  demucs:
+    # This first Demucs image is deliberately a local Linux/ARM64 CPU artifact.
+    # It validates worker dependencies and contains verified model weights, but
+    # it has no AMQP consumer entrypoint or Deployment yet. A future workload
+    # must copy this digest—not the readable provenance tag—into `image:`.
+    repository: clouddsp-registry.localhost:5001/demucs
+    sourceTag: "0.1.0-local-cpu"
+    digest: sha256:9ff16a5a62ff0dfe615956cf606ab04231be7292ed50691193c0fb676299d165
+    immutableReference: clouddsp-registry.localhost:5001/demucs@sha256:9ff16a5a62ff0dfe615956cf606ab04231be7292ed50691193c0fb676299d165
+    supportedPlatforms:
+      - linux/arm64/v8
+    builtFrom:
+      # The source was Kubernetes-local and uncommitted at build time. This
+      # digest identifies the prior 49-test image snapshot; it deliberately
+      # predates the later source-only Psycopg factory, first-claim composition,
+      # task-maintenance composition, delivery-claim bridge, manual-ack adapter,
+      # acknowledged-lease preflight handoff, leased-to-running SQL guard and
+      # transaction composition, Demucs command/process/artifact-inventory/hash/
+      # output-object/upload/full-stem-set/task-completion boundaries, AMQP
+      # connection factory, AMQP channel helper, and the transactional
+      # post-Demucs Basic Pitch/ADTOF outbox boundary. Rebuild before any
+      # Deployment can use that new code rather than treating this tag/digest
+      # as a live view of the mutable working tree.
+      sourceRevision: local-kubernetes-working-tree
+      sourceDirectory: kubernetes/services/demucs/app
+      dockerfile: kubernetes/services/demucs/Dockerfile
+      requirementsLock: kubernetes/services/demucs/requirements.lock
+      modelArtifactsLock: kubernetes/services/demucs/model-artifacts.lock.yaml
+      unitTestDirectory: kubernetes/services/demucs/tests
+      runtimeImageLock: images.api-python-runtime
+      sourceLock: buildSources.demucs
+      verifiedModelArtifactCount: 4
+    # Docker reports uncompressed layer bytes. The larger size compared with
+    # other workers is expected: it includes CPU Torch, FFmpeg, and 132.7 MiB
+    # of separately checksum-verified Demucs descriptors/weight files.
+    localDockerSizeBytes: 502790832
+    localDockerSize: "479.50 MiB"
+    pushedAt: "2026-09-09"
+
+  dispatcher-smoke-client:
+    # This disposable image creates exactly one normal authenticated upload,
+    # then verifies the durable dispatcher handoff. It is a finite Job client,
+    # not an application Deployment or processing worker. Its readable tag is
+    # build provenance only; a future Job must use the immutable digest below.
+    repository: clouddsp-registry.localhost:5001/dispatcher-smoke-client
+    sourceTag: "0.1.0-normal-path-orchestrator"
+    digest: sha256:da088f49a1e50f25b166f39c4bc5557259720e4ad8162595244fc8ab0cec8bfc
+    immutableReference: clouddsp-registry.localhost:5001/dispatcher-smoke-client@sha256:da088f49a1e50f25b166f39c4bc5557259720e4ad8162595244fc8ab0cec8bfc
+    supportedPlatforms:
+      - linux/arm64/v8
+    builtFrom:
+      # The digest identifies the exact registry bytes while this Kubernetes
+      # teaching work is still uncommitted. The image is independent of the
+      # preserved AWS application and contains no runtime Secret values.
+      sourceRevision: local-kubernetes-working-tree
+      sourceDirectory: kubernetes/tests/dispatcher-smoke/client
+      dockerfile: kubernetes/tests/dispatcher-smoke/client/Dockerfile
+      requirementsLock: kubernetes/tests/dispatcher-smoke/client/requirements.lock
+      verifierTests: kubernetes/tests/dispatcher-smoke/client/test_dispatcher_smoke_client.py
+      orchestratorTests: kubernetes/tests/dispatcher-smoke/client/test_dispatcher_smoke_orchestrator.py
+      runtimeImageLock: images.api-python-runtime
+      sourceLock: buildSources.dispatcher-smoke-client
+    localDockerSizeBytes: 68217817
+    localDockerSize: "65.06 MiB"
+    pushedAt: "2026-09-08"
+
   frontend:
     # This browser image embeds the reviewed public Job API and private-MinIO
     # browser origins alongside local OIDC configuration. The readable tag
@@ -346,6 +480,27 @@ images:
       dockerfile: kubernetes/services/rabbitmq/amqp-smoke-client/Dockerfile
     pushedAt: "2026-09-02"
 
+  minio-source-intake-smoke-client:
+    # This locally built image is used only by the native MinIO-to-RabbitMQ
+    # transport smoke Job. It preflights the real source-intake queue, then
+    # validates and acknowledges one controlled MinIO event; it is not the
+    # future long-running upload-intake consumer.
+    #
+    # The readable tag is build provenance only. A Kubernetes Job must use the
+    # immutable registry digest below so a later tag replacement cannot change
+    # what the test executes.
+    repository: clouddsp-registry.localhost:5001/minio-source-intake-smoke-client
+    sourceTag: "1.0.0-pika-1.4.4"
+    digest: sha256:f1f6e7a2ad012aaa9c4f77cd6cae941919e9a1033b260ae588bf53f5a6838c97
+    immutableReference: clouddsp-registry.localhost:5001/minio-source-intake-smoke-client@sha256:f1f6e7a2ad012aaa9c4f77cd6cae941919e9a1033b260ae588bf53f5a6838c97
+    supportedPlatforms:
+      - linux/arm64/v8
+    builtFrom:
+      sourceLock: buildSources.minio-source-intake-smoke-client
+      baseImageLock: images.rabbitmq-amqp-client-python
+      dockerfile: kubernetes/services/rabbitmq/minio-source-intake-smoke-client/Dockerfile
+    pushedAt: "2026-09-07"
+
   rabbitmq:
     # RabbitMQ's Docker Official Image provides the AMQP broker used for
     # durable, at-least-once worker handoff.  The `management` variant also
@@ -423,6 +578,146 @@ buildSources:
         upstream: https://pypi.org/project/boto3/1.43.89/
     resolvedAt: "2026-09-06"
 
+  upload-intake:
+    # This source lock produced `images.upload-intake`. It intentionally uses
+    # the same pinned Python base as the Job API but contains no HTTP server,
+    # cloud Lambda handler, test files, runtime Secret, or Kubernetes client.
+    # Rebuild/push and record a new output digest whenever its source or lock
+    # changes; never deploy its descriptive tag by itself.
+    baseImageLock: images.api-python-runtime
+    sourceDirectory: kubernetes/services/upload-intake/app
+    dockerfile: kubernetes/services/upload-intake/Dockerfile
+    requirementsLock: kubernetes/services/upload-intake/requirements.lock
+    intendedRepository: clouddsp-registry.localhost:5001/upload-intake
+    publishedImageLock: images.upload-intake
+    targetPlatform: linux/arm64
+    directPythonPackages:
+      - name: boto3
+        version: "1.43.89"
+        # The worker uses Boto3 only for private MinIO HeadObject verification;
+        # it does not issue browser presigned URLs or download audio bytes.
+        upstream: https://pypi.org/project/boto3/1.43.89/
+      - name: psycopg
+        version: "3.2.13"
+        installationExtra: binary
+        binaryPackage: psycopg-binary
+        # The reviewed ARM64 wheel includes libpq, avoiding a compiler/system
+        # package in the slim runtime image.
+        upstream: https://www.psycopg.org/psycopg3/docs/basic/install.html
+      - name: pika
+        version: "1.4.4"
+        # Pika is a pure-Python AMQP 0-9-1 client used for manual acknowledgements.
+        upstream: https://pypi.org/project/pika/1.4.4/
+    resolvedAt: "2026-09-07"
+
+  dispatcher:
+    # The internal dispatcher has no HTTP listener, cloud Lambda handler,
+    # MinIO permission, GPU runtime, Kubernetes client, or browser credential.
+    # It uses the same pinned Python base to lease PostgreSQL outbox rows and
+    # publisher-confirm their restricted processing messages to RabbitMQ. The
+    # image deliberately defaults to the established Demucs-only entrypoint;
+    # a future generic Deployment chooses the generic entrypoint explicitly.
+    baseImageLock: images.api-python-runtime
+    sourceDirectory: kubernetes/services/dispatcher/app
+    dockerfile: kubernetes/services/dispatcher/Dockerfile
+    requirementsLock: kubernetes/services/dispatcher/requirements.lock
+    intendedRepository: clouddsp-registry.localhost:5001/dispatcher
+    publishedImageLock: images.dispatcher
+    targetPlatform: linux/arm64
+    directPythonPackages:
+      - name: psycopg
+        version: "3.2.13"
+        installationExtra: binary
+        binaryPackage: psycopg-binary
+        # The reviewed ARM64 binary wheel supplies libpq; the slim runtime does
+        # not need a compiler or system PostgreSQL development package.
+        upstream: https://www.psycopg.org/psycopg3/docs/basic/install.html
+      - name: pika
+        version: "1.4.4"
+        # Pika is a pure-Python AMQP 0-9-1 publisher client. It cannot declare
+        # topology because the runtime RabbitMQ identity lacks configure rights.
+        upstream: https://pypi.org/project/pika/1.4.4/
+    resolvedAt: "2026-09-09"
+
+  demucs:
+    # This source lock defines the first local CPU image only. It has no CUDA,
+    # Apple-MPS assumption, Kubernetes client, browser listener, or runtime
+    # secrets baked in. The later consumer will receive its three restricted
+    # service credentials solely from Kubernetes Secrets at Pod start.
+    baseImageLock: images.api-python-runtime
+    sourceDirectory: kubernetes/services/demucs/app
+    dockerfile: kubernetes/services/demucs/Dockerfile
+    requirementsLock: kubernetes/services/demucs/requirements.lock
+    modelArtifactsLock: kubernetes/services/demucs/model-artifacts.lock.yaml
+    intendedRepository: clouddsp-registry.localhost:5001/demucs
+    publishedImageLock: images.demucs
+    targetPlatform: linux/arm64
+    devicePolicy: cpu
+    directPythonPackages:
+      - name: demucs
+        version: "4.0.1"
+        # This is the four-stem v4 model package; `htdemucs_ft` and a later
+        # CUDA artifact are deliberately separate performance decisions.
+        upstream: https://pypi.org/project/demucs/4.0.1/
+      - name: torch
+        version: "2.4.0"
+        # ARM64 CPU wheel: no CUDA runtime is present in this local image.
+        upstream: https://download.pytorch.org/whl/cpu/
+      - name: torchaudio
+        version: "2.4.0"
+        upstream: https://download.pytorch.org/whl/cpu/
+      - name: boto3
+        version: "1.43.89"
+        # Used only for restricted private MinIO reads/writes in the later
+        # worker; it is configured explicitly, never through ambient AWS SDK
+        # credentials.
+        upstream: https://pypi.org/project/boto3/1.43.89/
+      - name: psycopg
+        version: "3.2.13"
+        installationExtra: binary
+        binaryPackage: psycopg-binary
+        upstream: https://www.psycopg.org/psycopg3/docs/basic/install.html
+      - name: pika
+        version: "1.4.4"
+        # The future manual-ack consumer can only consume its fixed Demucs
+        # request queue; topology configuration remains a bootstrap concern.
+        upstream: https://pypi.org/project/pika/1.4.4/
+    unitTestDirectory: kubernetes/services/demucs/tests
+    resolvedAt: "2026-09-09"
+
+  dispatcher-smoke-client:
+    # This source lock describes one disposable integration-test image. It
+    # creates its test event through Keycloak, Job API, MinIO, and upload-intake
+    # before its restricted verifier reads one Demucs request. It is not a
+    # worker and has no Kubernetes client, GPU dependency, or HTTP listener.
+    # Build/push it and add an immutable `images.dispatcher-smoke-client` entry
+    # before any future Job may execute this source.
+    baseImageLock: images.api-python-runtime
+    sourceDirectory: kubernetes/tests/dispatcher-smoke/client
+    dockerfile: kubernetes/tests/dispatcher-smoke/client/Dockerfile
+    requirementsLock: kubernetes/tests/dispatcher-smoke/client/requirements.lock
+    intendedRepository: clouddsp-registry.localhost:5001/dispatcher-smoke-client
+    publishedImageLock: images.dispatcher-smoke-client
+    targetPlatform: linux/arm64
+    directPythonPackages:
+      - name: boto3
+        version: "1.43.89"
+        # Used only to remove the exact test object through private MinIO.
+        upstream: https://pypi.org/project/boto3/1.43.89/
+      - name: psycopg
+        version: "3.2.13"
+        installationExtra: binary
+        binaryPackage: psycopg-binary
+        # Reads the test outbox event and deletes only its owned job row.
+        upstream: https://www.psycopg.org/psycopg3/docs/basic/install.html
+      - name: pika
+        version: "1.4.4"
+        # Reads and acknowledges only the controlled Demucs delivery.
+        upstream: https://pypi.org/project/pika/1.4.4/
+    verifierTests: kubernetes/tests/dispatcher-smoke/client/test_dispatcher_smoke_client.py
+    orchestratorTests: kubernetes/tests/dispatcher-smoke/client/test_dispatcher_smoke_orchestrator.py
+    resolvedAt: "2026-09-08"
+
   rabbitmq-amqp-smoke-client:
     # This source lock makes the test image reproducible without installing
     # packages from PyPI when the Kubernetes Job starts.  Pika is a pure-Python
@@ -439,6 +734,22 @@ buildSources:
     intendedRepository: clouddsp-registry.localhost:5001/rabbitmq-amqp-smoke-client
     targetPlatform: linux/arm64
     resolvedAt: "2026-09-02"
+
+  minio-source-intake-smoke-client:
+    # This source lock makes the native-notification smoke image repeatable.
+    # Pika is the only runtime dependency; it speaks AMQP 0-9-1 directly and
+    # is installed at image build time from its reviewed universal wheel.
+    baseImageLock: images.rabbitmq-amqp-client-python
+    pythonPackage:
+      name: pika
+      version: "1.4.4"
+      wheelSha256: 48de960c97a93b55db06b8be4c53eb977c9c8a2754c57cdae9097abcbd70ce04
+      upstream: https://pypi.org/project/pika/1.4.4/
+    sourceDirectory: kubernetes/services/rabbitmq/minio-source-intake-smoke-client
+    dockerfile: kubernetes/services/rabbitmq/minio-source-intake-smoke-client/Dockerfile
+    intendedRepository: clouddsp-registry.localhost:5001/minio-source-intake-smoke-client
+    targetPlatform: linux/arm64
+    resolvedAt: "2026-09-07"
 
   minio:
     # The MinIO community edition is source-distributed.  This is the final

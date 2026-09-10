@@ -1,0 +1,167 @@
+# This immutable ConfigMap is an additive RabbitMQ definition for the
+# post-Demucs stages. Applying it stores reviewed JSON in Kubernetes only; it
+# does not contact RabbitMQ, create a queue/binding, publish a message, or
+# alter the existing dispatcher Deployment.
+#
+# Prerequisite: the imported v001 processing topology already owns the
+# `/clouddsp` vhost and its three durable exchanges. This v002 definition adds
+# queues/bindings only and deliberately does not repeat or mutate v001's
+# Demucs queues. Importing it is a separate administrator-only task because
+# broker queue arguments must never be changed casually in a running cluster.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  # The versioned name means the original v001 definition remains historic,
+  # inspectable source. Kubernetes prevents in-place edits after creation, so
+  # a future queue policy change must use v003 rather than silent replacement.
+  name: rabbitmq-processing-topology-v002-downstream
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: rabbitmq
+    app.kubernetes.io/component: message-topology
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: durable-basic-pitch-adtof-request-topology
+immutable: true
+data:
+  # RabbitMQ definitions JSON contains broker topology only. Users,
+  # permissions, password hashes, policies, and live messages stay outside
+  # this ConfigMap in separate least-privilege bootstrap tasks.
+  rabbitmq-processing-topology-v002-downstream.json: |
+    {
+      "queues": [
+        {
+          "name": "clouddsp.basic-pitch.requests",
+          "vhost": "/clouddsp",
+          "durable": true,
+          "auto_delete": false,
+          "arguments": {
+            "x-queue-type": "quorum",
+            "x-delivery-limit": 5,
+            "x-max-length": 1000,
+            "x-overflow": "reject-publish",
+            "x-dead-letter-exchange": "clouddsp.processing-dead-letter",
+            "x-dead-letter-routing-key": "basic-pitch.dead-letter",
+            "x-dead-letter-strategy": "at-least-once"
+          }
+        },
+        {
+          "name": "clouddsp.basic-pitch.requests.retry.30s",
+          "vhost": "/clouddsp",
+          "durable": true,
+          "auto_delete": false,
+          "arguments": {
+            "x-queue-type": "quorum",
+            "x-message-ttl": 30000,
+            "x-max-length": 1000,
+            "x-overflow": "reject-publish",
+            "x-dead-letter-exchange": "clouddsp.processing-events",
+            "x-dead-letter-routing-key": "basic-pitch.requested",
+            "x-dead-letter-strategy": "at-least-once"
+          }
+        },
+        {
+          "name": "clouddsp.basic-pitch.requests.dlq",
+          "vhost": "/clouddsp",
+          "durable": true,
+          "auto_delete": false,
+          "arguments": {
+            "x-queue-type": "quorum",
+            "x-max-length": 1000,
+            "x-overflow": "reject-publish"
+          }
+        },
+        {
+          "name": "clouddsp.adtof.requests",
+          "vhost": "/clouddsp",
+          "durable": true,
+          "auto_delete": false,
+          "arguments": {
+            "x-queue-type": "quorum",
+            "x-delivery-limit": 5,
+            "x-max-length": 1000,
+            "x-overflow": "reject-publish",
+            "x-dead-letter-exchange": "clouddsp.processing-dead-letter",
+            "x-dead-letter-routing-key": "adtof.dead-letter",
+            "x-dead-letter-strategy": "at-least-once"
+          }
+        },
+        {
+          "name": "clouddsp.adtof.requests.retry.30s",
+          "vhost": "/clouddsp",
+          "durable": true,
+          "auto_delete": false,
+          "arguments": {
+            "x-queue-type": "quorum",
+            "x-message-ttl": 30000,
+            "x-max-length": 1000,
+            "x-overflow": "reject-publish",
+            "x-dead-letter-exchange": "clouddsp.processing-events",
+            "x-dead-letter-routing-key": "adtof.requested",
+            "x-dead-letter-strategy": "at-least-once"
+          }
+        },
+        {
+          "name": "clouddsp.adtof.requests.dlq",
+          "vhost": "/clouddsp",
+          "durable": true,
+          "auto_delete": false,
+          "arguments": {
+            "x-queue-type": "quorum",
+            "x-max-length": 1000,
+            "x-overflow": "reject-publish"
+          }
+        }
+      ],
+      "bindings": [
+        {
+          "source": "clouddsp.processing-events",
+          "vhost": "/clouddsp",
+          "destination": "clouddsp.basic-pitch.requests",
+          "destination_type": "queue",
+          "routing_key": "basic-pitch.requested",
+          "arguments": {}
+        },
+        {
+          "source": "clouddsp.processing-retry",
+          "vhost": "/clouddsp",
+          "destination": "clouddsp.basic-pitch.requests.retry.30s",
+          "destination_type": "queue",
+          "routing_key": "basic-pitch.retry",
+          "arguments": {}
+        },
+        {
+          "source": "clouddsp.processing-dead-letter",
+          "vhost": "/clouddsp",
+          "destination": "clouddsp.basic-pitch.requests.dlq",
+          "destination_type": "queue",
+          "routing_key": "basic-pitch.dead-letter",
+          "arguments": {}
+        },
+        {
+          "source": "clouddsp.processing-events",
+          "vhost": "/clouddsp",
+          "destination": "clouddsp.adtof.requests",
+          "destination_type": "queue",
+          "routing_key": "adtof.requested",
+          "arguments": {}
+        },
+        {
+          "source": "clouddsp.processing-retry",
+          "vhost": "/clouddsp",
+          "destination": "clouddsp.adtof.requests.retry.30s",
+          "destination_type": "queue",
+          "routing_key": "adtof.retry",
+          "arguments": {}
+        },
+        {
+          "source": "clouddsp.processing-dead-letter",
+          "vhost": "/clouddsp",
+          "destination": "clouddsp.adtof.requests.dlq",
+          "destination_type": "queue",
+          "routing_key": "adtof.dead-letter",
+          "arguments": {}
+        }
+      ]
+    }

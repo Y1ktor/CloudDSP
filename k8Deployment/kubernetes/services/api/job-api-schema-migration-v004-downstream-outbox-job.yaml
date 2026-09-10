@@ -1,0 +1,122 @@
+# This one-shot Job applies the immutable v004 downstream-outbox SQL using the
+# existing Job API schema-owner credential through private PostgreSQL DNS. It
+# is deliberately not a Demucs runtime workload and does not run on apply of
+# the ConfigMap alone.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # A versioned completed Job is immutable operational evidence. Reapplying
+  # this manifest does not rerun it; delete this exact Job only to deliberately
+  # re-verify the already immutable SQL after understanding why it is needed.
+  name: job-api-schema-migration-v004-downstream-outbox
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: job-api-schema-migration-v004-downstream-outbox
+    app.kubernetes.io/component: database-migration
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: downstream-stem-outbox-schema
+spec:
+  # Retain non-sensitive structure/ledger logs briefly, then remove the Pod
+  # that mounted the schema-owner credential. PostgreSQL retains the schema.
+  ttlSecondsAfterFinished: 300
+  # SQL/compatibility failures require inspection; retrying DDL automatically
+  # could obscure the exact immutable migration precondition that failed.
+  backoffLimit: 0
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: job-api-schema-migration-v004-downstream-outbox
+        app.kubernetes.io/component: database-migration
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # The client needs only one PostgreSQL connection; it never calls the
+      # Kubernetes API, creates a Pod, or contacts MinIO/RabbitMQ.
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgresql-migration-client
+          # The pinned Docker Official Image provides `psql` without a runtime
+          # package download. Its digest is reviewed under images.postgresql.
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PGHOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: PGPORT
+              value: "5432"
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+            # This app-namespace schema-owner Secret is separate from both the
+            # PostgreSQL administrator and the restricted Demucs runtime login.
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-database-credentials
+                  key: JOB_API_DB_NAME
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-database-credentials
+                  key: JOB_API_DB_USERNAME
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-database-credentials
+                  key: JOB_API_DB_PASSWORD
+          resources:
+            # This is bounded metadata/DDL work, never audio processing.
+            requests:
+              cpu: 10m
+              memory: 32Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            # Kubernetes projects this immutable ConfigMap as a read-only
+            # source file. The client image never embeds mutable DDL text.
+            - name: migration
+              mountPath: /migrations
+              readOnly: true
+          command:
+            - sh
+            - -ec
+            - |
+              # Stop at the first SQL error so Kubernetes marks the migration
+              # Failed instead of recording a misleading successful shell exit.
+              printf 'Applying CloudDSP downstream-outbox schema migration v004 through Service %s:%s\n' "$PGHOST" "$PGPORT"
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                --file /migrations/004_downstream_outbox_events.sql
+
+              # Logs contain only migration/constraint facts—not job IDs,
+              # object keys, payloads, identities, or credentials.
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                --command "SELECT migration_id, applied_at FROM schema_migrations WHERE migration_id = 'v004_downstream_outbox_events';"
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                --command "SELECT conname FROM pg_constraint WHERE conrelid = 'public.outbox_events'::regclass ORDER BY conname;"
+              printf 'CloudDSP downstream-outbox schema migration v004 passed\n'
+      volumes:
+        - name: migration
+          configMap:
+            name: job-api-schema-migration-v004-downstream-outbox
+            defaultMode: 0444
+            items:
+              - key: 004_downstream_outbox_events.sql
+                path: 004_downstream_outbox_events.sql

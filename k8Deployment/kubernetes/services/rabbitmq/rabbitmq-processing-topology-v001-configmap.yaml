@@ -1,0 +1,136 @@
+# This ConfigMap stores the first reviewed RabbitMQ definition for durable
+# processing requests. Applying this Kubernetes object stores immutable text in
+# the API server only: it does not create an exchange, queue, binding, message,
+# RabbitMQ user, or permission. A later administrator-only bootstrap Job will
+# import this exact JSON after dispatcher and worker credentials are designed.
+#
+# Keeping broker topology in versioned ConfigMaps makes exchange/queue changes
+# auditable and avoids changing a live quorum queue's arguments by accident.
+# Never edit this v001 ConfigMap after it is applied. A compatible topology
+# change must use a new v002 ConfigMap and a deliberate broker migration task.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rabbitmq-processing-topology-v001
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: rabbitmq
+    app.kubernetes.io/component: message-topology
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: durable-demucs-request-topology
+# Kubernetes rejects in-place edits after creation. RabbitMQ itself requires
+# queue arguments to remain equivalent, so immutable source text makes a
+# mismatch visible during review instead of surfacing later in a worker Pod.
+immutable: true
+data:
+  # RabbitMQ definitions JSON is the portable format for broker topology. It
+  # deliberately excludes users, permissions, credentials, policies, and live
+  # messages. Those remain separate least-privilege Secrets and bootstrap work.
+  rabbitmq-processing-topology-v001.json: |
+    {
+      "vhosts": [
+        {
+          "name": "/clouddsp"
+        }
+      ],
+      "exchanges": [
+        {
+          "name": "clouddsp.processing-events",
+          "vhost": "/clouddsp",
+          "type": "direct",
+          "durable": true,
+          "auto_delete": false,
+          "internal": false,
+          "arguments": {}
+        },
+        {
+          "name": "clouddsp.processing-retry",
+          "vhost": "/clouddsp",
+          "type": "direct",
+          "durable": true,
+          "auto_delete": false,
+          "internal": false,
+          "arguments": {}
+        },
+        {
+          "name": "clouddsp.processing-dead-letter",
+          "vhost": "/clouddsp",
+          "type": "direct",
+          "durable": true,
+          "auto_delete": false,
+          "internal": false,
+          "arguments": {}
+        }
+      ],
+      "queues": [
+        {
+          "name": "clouddsp.demucs.requests",
+          "vhost": "/clouddsp",
+          "durable": true,
+          "auto_delete": false,
+          "arguments": {
+            "x-queue-type": "quorum",
+            "x-delivery-limit": 5,
+            "x-max-length": 1000,
+            "x-overflow": "reject-publish",
+            "x-dead-letter-exchange": "clouddsp.processing-dead-letter",
+            "x-dead-letter-routing-key": "demucs.dead-letter",
+            "x-dead-letter-strategy": "at-least-once"
+          }
+        },
+        {
+          "name": "clouddsp.demucs.requests.retry.30s",
+          "vhost": "/clouddsp",
+          "durable": true,
+          "auto_delete": false,
+          "arguments": {
+            "x-queue-type": "quorum",
+            "x-message-ttl": 30000,
+            "x-max-length": 1000,
+            "x-overflow": "reject-publish",
+            "x-dead-letter-exchange": "clouddsp.processing-events",
+            "x-dead-letter-routing-key": "demucs.requested",
+            "x-dead-letter-strategy": "at-least-once"
+          }
+        },
+        {
+          "name": "clouddsp.demucs.requests.dlq",
+          "vhost": "/clouddsp",
+          "durable": true,
+          "auto_delete": false,
+          "arguments": {
+            "x-queue-type": "quorum",
+            "x-max-length": 1000,
+            "x-overflow": "reject-publish"
+          }
+        }
+      ],
+      "bindings": [
+        {
+          "source": "clouddsp.processing-events",
+          "vhost": "/clouddsp",
+          "destination": "clouddsp.demucs.requests",
+          "destination_type": "queue",
+          "routing_key": "demucs.requested",
+          "arguments": {}
+        },
+        {
+          "source": "clouddsp.processing-retry",
+          "vhost": "/clouddsp",
+          "destination": "clouddsp.demucs.requests.retry.30s",
+          "destination_type": "queue",
+          "routing_key": "demucs.retry",
+          "arguments": {}
+        },
+        {
+          "source": "clouddsp.processing-dead-letter",
+          "vhost": "/clouddsp",
+          "destination": "clouddsp.demucs.requests.dlq",
+          "destination_type": "queue",
+          "routing_key": "demucs.dead-letter",
+          "arguments": {}
+        }
+      ]
+    }

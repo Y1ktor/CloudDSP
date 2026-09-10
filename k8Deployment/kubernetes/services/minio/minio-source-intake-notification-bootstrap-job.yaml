@@ -1,0 +1,266 @@
+# This one-shot Job attaches MinIO's prefix-limited bucket-notification rule
+# to the AMQP target already enabled on the MinIO StatefulSet. The private
+# administration path is:
+#
+#   bootstrap Job Pod -> clouddsp-minio ClusterIP -> MinIO StatefulSet
+#                                                  -> RabbitMQ (on an event)
+#
+# It never accepts uploads, consumes RabbitMQ, or runs media processing. The
+# MinIO root identity exists only inside this short-lived administration Pod.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Kubernetes will not rerun a completed Job just because this manifest is
+  # re-applied. Delete this Job before an intentional repair, then reapply it.
+  # The `--ignore-existing` command below makes that deliberate rerun safe for
+  # the one exact target/event/prefix rule this Job owns.
+  name: minio-source-intake-notification-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: minio-source-intake-notification-bootstrap
+    app.kubernetes.io/component: object-storage-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: minio-source-upload-amqp-notification
+spec:
+  # Keep the non-secret verification log available for learning/inspection,
+  # then delete the short-lived Pod and its root-credential configuration.
+  ttlSecondsAfterFinished: 600
+  # A MinIO configuration or authorization failure needs explicit review.
+  backoffLimit: 0
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: minio-source-intake-notification-bootstrap
+        app.kubernetes.io/component: object-storage-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # This client does not call the Kubernetes API, so no default token is
+      # mounted into the Pod.
+      automountServiceAccountToken: false
+      securityContext:
+        # The official `mc` image is a static binary. An arbitrary non-root
+        # numeric identity can run it and write only to the emptyDir below.
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      # The pinned official `mc` image is shell-free. Ordered init containers
+      # make each administration action visible and independently diagnosable
+      # instead of hiding a sequence inside an unpinned shell script.
+      initContainers:
+        - name: configure-minio-root-alias
+          # Pinned in `kubernetes/images.lock.yaml` as `minio-mc`; this is the
+          # same reviewed official client used by the prior MinIO bootstrap.
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+            # Only this init container reads the root Secret. Kubernetes
+            # substitutes these values at runtime; they are never committed.
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_PASSWORD
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          # The image entrypoint already is `mc`; these args create an alias
+          # for the internal ClusterIP, never the browser-facing MinIO ingress.
+          args:
+            - alias
+            - set
+            - minio-admin
+            - http://clouddsp-minio:9000
+            - $(MINIO_ROOT_USER)
+            - $(MINIO_ROOT_PASSWORD)
+
+        - name: wait-for-minio-service
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          # Wait at the Service boundary instead of racing the MinIO Pod.
+          args:
+            - ready
+            - minio-admin
+
+        - name: add-source-upload-notification
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          # `put` covers browser ObjectCreated:Post, later yt-dlp
+          # ObjectCreated:Put, and multipart completion. The `uploads/` prefix
+          # excludes all future artifact/output keys. `--ignore-existing`
+          # avoids duplicating this exact rule during an intentional rerun; it
+          # does not remove unrelated rules an operator may have configured.
+          args:
+            - event
+            - add
+            - --event
+            - put
+            - --prefix
+            - uploads/
+            - --ignore-existing
+            - minio-admin/clouddsp-uploads
+            # This canonical ARN is shown by MinIO startup logs. Its uppercase
+            # ID comes from `MINIO_NOTIFY_AMQP_*_INTAKE`.
+            - "arn:minio:sqs::INTAKE:amqp"
+
+        - name: verify-source-upload-notification
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          # Print only non-secret rules for this target. The output should show
+          # the `uploads/` prefix and the ObjectCreated event family.
+          args:
+            - event
+            - list
+            - minio-admin/clouddsp-uploads
+            - "arn:minio:sqs::INTAKE:amqp"
+
+        - name: remove-root-alias-from-temporary-config
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          # Remove root credentials from the shared config before the ordinary
+          # container starts. The emptyDir is then removed with the Job Pod.
+          args:
+            - alias
+            - remove
+            - minio-admin
+      containers:
+        - name: completion-marker
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          # Init containers performed the work. A normal container lets the
+          # Job controller record Complete and emits only the client version.
+          args:
+            - --version
+      volumes:
+        - name: mc-config
+          emptyDir:
+            # The alias is only a few KiB; it must not become general storage.
+            sizeLimit: 1Mi

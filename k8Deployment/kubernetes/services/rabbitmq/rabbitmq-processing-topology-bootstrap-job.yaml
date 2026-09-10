@@ -1,0 +1,273 @@
+# This one-shot administrator Job imports the reviewed Demucs processing
+# topology into RabbitMQ. Its private in-cluster path is:
+#
+#   bootstrap Job Pod -> RabbitMQ headless Service management port
+#                     -> clouddsp-rabbitmq-0 StatefulSet Pod
+#
+# It is not an application workload. Only this short-lived Pod receives the
+# RabbitMQ administrator Secret; it creates no dispatcher login, worker login,
+# browser route, Kubernetes API permission, or processing message. Those
+# identities and workloads are separate least-privilege tasks.
+#
+# Prerequisites, applied separately:
+#   1. `clouddsp-rabbitmq-credentials` in clouddsp-data; and
+#   2. `rabbitmq-processing-topology-v001` ConfigMap in clouddsp-data.
+#
+# Delete a completed Job before a deliberate re-import. Applying an unchanged
+# completed Job does not execute it again, and a future topology change must
+# use a new immutable ConfigMap rather than editing v001.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rabbitmq-processing-topology-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: rabbitmq-processing-topology-bootstrap
+    app.kubernetes.io/component: message-topology-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: provision-demucs-processing-topology
+spec:
+  # Keep its non-secret verification log briefly for learning/diagnosis, then
+  # remove the administrator-credential-bearing Pod automatically.
+  ttlSecondsAfterFinished: 600
+  # A broker import error must remain visible. Automatic retries can conceal a
+  # partial administration action and make the repair path hard to understand.
+  backoffLimit: 0
+  # The ordinary path takes seconds; this upper bound contains a stuck
+  # management listener or image pull on a local developer machine.
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rabbitmq-processing-topology-bootstrap
+        app.kubernetes.io/component: message-topology-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      # A Job owns Pod completion/retry policy. Containers never restart in
+      # place after a bootstrap failure, leaving one clear failed Pod to inspect.
+      restartPolicy: Never
+      # The Pod talks only to RabbitMQ's private management API and must not
+      # receive Kubernetes API credentials it cannot use.
+      automountServiceAccountToken: false
+      securityContext:
+        # The official RabbitMQ image includes the non-root rabbitmq account
+        # with UID/GID 999. Reusing it allows its bundled rabbitmqadmin CLI to
+        # run without granting root to this administrator client.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: wait-for-rabbitmq-management-api
+          # The immutable Docker Official Image includes the management plugin
+          # client. Its reviewed digest is recorded in ../../images.lock.yaml.
+          image: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+          imagePullPolicy: IfNotPresent
+          env:
+            # StatefulSet ordinal DNS selects the one broker in the local
+            # profile without exposing the management API through the normal
+            # application-facing AMQP-only ClusterIP Service.
+            - name: RABBITMQADMIN_TARGET_HOST
+              value: clouddsp-rabbitmq-0.clouddsp-rabbitmq-headless.clouddsp-data.svc.cluster.local
+            - name: RABBITMQADMIN_TARGET_PORT
+              value: "15672"
+            - name: RABBITMQADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_USER
+            - name: RABBITMQADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_PASS
+            # Prevent prompts, and direct transient CLI state into a tiny
+            # writable volume rather than the read-only container filesystem.
+            - name: RABBITMQADMIN_NON_INTERACTIVE_MODE
+              value: "true"
+            - name: HOME
+              value: /work
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: rabbitmqadmin-work
+              mountPath: /work
+          # An authenticated vhost listing proves management readiness and
+          # administrator Secret validity without echoing credential values.
+          command:
+            - sh
+            - -ec
+            - |
+              attempt=1
+              while [ "$attempt" -le 24 ]; do
+                if rabbitmqadmin --quiet vhosts list >/dev/null 2>&1; then
+                  exit 0
+                fi
+                sleep 5
+                attempt=$((attempt + 1))
+              done
+              echo "RabbitMQ management API did not become ready before bootstrap timeout." >&2
+              exit 1
+
+        - name: import-processing-topology
+          image: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: RABBITMQADMIN_TARGET_HOST
+              value: clouddsp-rabbitmq-0.clouddsp-rabbitmq-headless.clouddsp-data.svc.cluster.local
+            - name: RABBITMQADMIN_TARGET_PORT
+              value: "15672"
+            - name: RABBITMQADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_USER
+            - name: RABBITMQADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_PASS
+            - name: RABBITMQADMIN_NON_INTERACTIVE_MODE
+              value: "true"
+            - name: HOME
+              value: /work
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: rabbitmqadmin-work
+              mountPath: /work
+            - name: processing-topology
+              mountPath: /definitions
+              readOnly: true
+          # RabbitMQ merges the definition set. It never silently changes a
+          # pre-existing queue's immutable arguments; an incompatibility fails
+          # this Job and requires a deliberate migration instead.
+          command:
+            - rabbitmqadmin
+          args:
+            - definitions
+            - import
+            - --file
+            - /definitions/rabbitmq-processing-topology-v001.json
+
+        - name: verify-processing-topology
+          image: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: RABBITMQADMIN_TARGET_HOST
+              value: clouddsp-rabbitmq-0.clouddsp-rabbitmq-headless.clouddsp-data.svc.cluster.local
+            - name: RABBITMQADMIN_TARGET_PORT
+              value: "15672"
+            - name: RABBITMQADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_USER
+            - name: RABBITMQADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_PASS
+            - name: RABBITMQADMIN_NON_INTERACTIVE_MODE
+              value: "true"
+            - name: HOME
+              value: /work
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: rabbitmqadmin-work
+              mountPath: /work
+          # These reads emit only non-secret broker names and routing details.
+          # They make imported resources inspectable without revealing a
+          # password, password hash, message body, or application identity.
+          command:
+            - sh
+            - -ec
+            - |
+              echo "RabbitMQ processing topology bootstrap: verifying exchanges, queues, and bindings."
+              rabbitmqadmin --quiet exchanges list --vhost /clouddsp
+              rabbitmqadmin --quiet queues list --vhost /clouddsp
+              rabbitmqadmin --quiet bindings list --vhost /clouddsp
+      containers:
+        - name: completion-marker
+          image: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          # Init containers perform all administration in order. Kubernetes
+          # needs one ordinary container to mark the Job complete afterward.
+          command:
+            - rabbitmqadmin
+          args:
+            - --version
+      volumes:
+        - name: rabbitmqadmin-work
+          emptyDir:
+            # The CLI needs a small writable HOME for optional state only. It
+            # contains no broker data and vanishes with this disposable Pod.
+            sizeLimit: 1Mi
+        - name: processing-topology
+          configMap:
+            # This exact immutable ConfigMap prevents a Job rerun from loading
+            # an unreviewed queue definition. Future changes use a new version.
+            name: rabbitmq-processing-topology-v001
+            defaultMode: 0444
+            items:
+              - key: rabbitmq-processing-topology-v001.json
+                path: rabbitmq-processing-topology-v001.json

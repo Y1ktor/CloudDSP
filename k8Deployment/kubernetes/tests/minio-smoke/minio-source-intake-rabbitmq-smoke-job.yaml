@@ -1,0 +1,236 @@
+# This disposable integration Job proves the full native notification path:
+#
+#   restricted S3 client -> MinIO private ClusterIP -> native AMQP target
+#       -> RabbitMQ source-intake queue -> restricted AMQP smoke client
+#
+# It does not create a PostgreSQL job or run the future upload-intake service.
+# This keeps a transport failure distinct from application validation/state
+# logic. The test must run while no normal browser or linked-media uploads are
+# active because its first phase intentionally requires an empty intake queue.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # A fixed name makes the result easy to find. Kubernetes will not rerun a
+  # completed Job when this YAML is reapplied; delete it before a deliberate
+  # repeat after first confirming the source-intake queue is empty.
+  name: minio-source-intake-rabbitmq-smoke
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: minio-source-intake-rabbitmq-smoke
+    app.kubernetes.io/component: integration-test
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: minio-native-amqp-source-intake-verification
+spec:
+  # Retain normal and failed logs long enough to inspect the four ordered
+  # phases. The TTL controller later removes this disposable client Pod.
+  ttlSecondsAfterFinished: 600
+  # A test failure is evidence to investigate. Retrying can hide a bad event
+  # rule, broker permission, or queue state behind a later success.
+  backoffLimit: 0
+  # Bound preflight, one S3 PUT, MinIO delivery, and image pull time.
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: minio-source-intake-rabbitmq-smoke
+        app.kubernetes.io/component: integration-test
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # The test uses only MinIO and RabbitMQ Service DNS; it never calls the
+      # Kubernetes API, so remove the otherwise automatic Pod token mount.
+      automountServiceAccountToken: false
+      securityContext:
+        # The AWS CLI init container needs a writable HOME on the `work`
+        # emptyDir. The AMQP client overrides this with its own image user.
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      # Init containers run strictly in this order. That makes the queue
+      # baseline test complete before this Job creates the one expected event.
+      initContainers:
+        - name: preflight-source-intake-queue
+          # Pinned in images.lock.yaml. This is the purpose-built AMQP client,
+          # not the future upload-intake Deployment image.
+          image: clouddsp-registry.localhost:5001/minio-source-intake-smoke-client@sha256:f1f6e7a2ad012aaa9c4f77cd6cae941919e9a1033b260ae588bf53f5a6838c97
+          imagePullPolicy: IfNotPresent
+          env:
+            # Use the RabbitMQ ClusterIP across namespace boundaries. The
+            # browser-facing hosts and RabbitMQ management UI are not involved.
+            - name: AMQP_HOST
+              value: clouddsp-rabbitmq.clouddsp-data.svc
+            - name: AMQP_PORT
+              value: "5672"
+            - name: AMQP_VHOST
+              value: /clouddsp
+            - name: AMQP_SOURCE_INTAKE_QUEUE
+              value: clouddsp.source-intake
+            - name: MINIO_SOURCE_INTAKE_SMOKE_MODE
+              value: preflight
+            # This is the restricted runtime consumer identity. The Job does
+            # not receive a RabbitMQ administrator password or MinIO AMQP
+            # publisher credentials.
+            - name: AMQP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-upload-intake-rabbitmq-credentials
+                  key: RABBITMQ_UPLOAD_INTAKE_USERNAME
+            - name: AMQP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-upload-intake-rabbitmq-credentials
+                  key: RABBITMQ_UPLOAD_INTAKE_PASSWORD
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            # Match the dedicated non-root image user. This client writes no
+            # files and has no Linux privilege/capability requirement.
+            runAsUser: 10001
+            runAsGroup: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+
+        - name: upload-one-expected-source-object
+          # This official AWS CLI image is already pinned in images.lock.yaml.
+          # It is only an S3 protocol client: the explicit endpoint below is
+          # MinIO's internal Service and this command contacts no AWS service.
+          image: public.ecr.aws/aws-cli/aws-cli@sha256:f0dcd994da5c36ab09becf4259bba4c45ed4ecfd03d51c701912f4d8425b2d49
+          imagePullPolicy: IfNotPresent
+          env:
+            # Reuse only the prefix-limited Job API MinIO identity. Its policy
+            # permits PUT under uploads/* but intentionally denies deletion,
+            # so this test never widens a production-like policy for cleanup.
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-minio-credentials
+                  key: JOB_API_S3_ACCESS_KEY
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-minio-credentials
+                  key: JOB_API_S3_SECRET_KEY
+            - name: AWS_DEFAULT_REGION
+              value: us-east-1
+            - name: AWS_EC2_METADATA_DISABLED
+              value: "true"
+            - name: AWS_PAGER
+              value: ""
+            # The CLI cannot write its configuration to a read-only image.
+            - name: HOME
+              value: /work
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+              ephemeral-storage: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: work
+              mountPath: /work
+          # The official image normally starts `aws`; use its included shell
+          # only to make one temporary file and run the ordered S3 command.
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              endpoint_url=http://clouddsp-minio.clouddsp-data.svc:9000
+              bucket=clouddsp-uploads
+              object_key=uploads/_verification/minio-source-intake-transport-smoke.txt
+              marker_file=/work/minio-source-intake-transport-smoke.txt
+
+              # Keep one stable harmless marker rather than granting this
+              # restricted application identity DeleteObject just to clean a
+              # test. Each intentional smoke run overwrites the same bytes and
+              # produces one new ObjectCreated:Put notification.
+              printf 'CloudDSP MinIO source-intake transport marker v1\n' > "${marker_file}"
+              aws --no-cli-pager --endpoint-url "${endpoint_url}" s3api put-object \
+                --bucket "${bucket}" \
+                --key "${object_key}" \
+                --body "${marker_file}" >/dev/null
+              printf 'MinIO source-intake smoke object uploaded\n'
+
+      containers:
+        - name: verify-and-acknowledge-source-event
+          # This uses the same digest-pinned client as the preflight phase.
+          # Only the mode changes: it now waits for and acknowledges precisely
+          # the event generated by the prior restricted S3 PUT.
+          image: clouddsp-registry.localhost:5001/minio-source-intake-smoke-client@sha256:f1f6e7a2ad012aaa9c4f77cd6cae941919e9a1033b260ae588bf53f5a6838c97
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: AMQP_HOST
+              value: clouddsp-rabbitmq.clouddsp-data.svc
+            - name: AMQP_PORT
+              value: "5672"
+            - name: AMQP_VHOST
+              value: /clouddsp
+            - name: AMQP_SOURCE_INTAKE_QUEUE
+              value: clouddsp.source-intake
+            - name: MINIO_SOURCE_INTAKE_SMOKE_MODE
+              value: consume
+            # The fixed retained marker makes the expected event deterministic.
+            # It is not a user audio object and does not correspond to a job.
+            - name: MINIO_SMOKE_BUCKET
+              value: clouddsp-uploads
+            - name: MINIO_SMOKE_OBJECT_KEY
+              value: uploads/_verification/minio-source-intake-transport-smoke.txt
+            - name: AMQP_SMOKE_TIMEOUT_SECONDS
+              value: "45"
+            - name: AMQP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-upload-intake-rabbitmq-credentials
+                  key: RABBITMQ_UPLOAD_INTAKE_USERNAME
+            - name: AMQP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-upload-intake-rabbitmq-credentials
+                  key: RABBITMQ_UPLOAD_INTAKE_PASSWORD
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            runAsUser: 10001
+            runAsGroup: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: work
+          emptyDir:
+            # This holds only AWS CLI scratch data plus a one-line marker file.
+            # It disappears with the Job Pod and cannot become object storage.
+            sizeLimit: 16Mi

@@ -1,0 +1,366 @@
+# This one-shot administrator Job creates/rotates the future Demucs worker's
+# MinIO S3 key pair and attaches its immutable source-read/stem-write policy:
+#
+#   bootstrap Job Pod -> MinIO ClusterIP Service -> MinIO StatefulSet
+#   future Demucs Pod -> MinIO ClusterIP Service -> private objects only
+#
+# It never runs Demucs, receives a RabbitMQ message, creates an upload bucket,
+# creates PostgreSQL state, exposes a presigned URL, or calls Kubernetes APIs.
+# Only this short-lived administration Pod mounts MinIO root credentials; the
+# later worker receives its distinct restricted S3 access/secret key pair.
+#
+# Prerequisites, applied separately:
+#   1. `clouddsp-minio-root-credentials` in `clouddsp-data`;
+#   2. the existing private `clouddsp-uploads` bucket; and
+#   3. this policy ConfigMap plus a temporary
+#      `clouddsp-demucs-minio-bootstrap-credentials` Secret in `clouddsp-data`.
+#      The latter must match the future `clouddsp-app` runtime Secret exactly.
+#
+# Delete a completed Job before deliberate key rotation or policy repair; an
+# unchanged completed Job does not rerun merely because it is reapplied.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-demucs-artifacts-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: minio-demucs-artifacts-bootstrap
+    app.kubernetes.io/component: object-storage-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: least-privilege-demucs-source-read-and-stem-write
+spec:
+  # Keep non-secret policy association output for inspection, then let the TTL
+  # controller remove the root-credential-bearing administration Pod.
+  ttlSecondsAfterFinished: 600
+  # Do not automatically retry an administrator operation: a policy/key fault
+  # should preserve its first useful failure for deliberate diagnosis.
+  backoffLimit: 0
+  # Bound local image pulls, MinIO readiness, and the small IAM operations.
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: minio-demucs-artifacts-bootstrap
+        app.kubernetes.io/component: object-storage-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # This Job calls MinIO via internal Service DNS only. It has no reason to
+      # receive a Kubernetes API token or an application ServiceAccount.
+      automountServiceAccountToken: false
+      securityContext:
+        # The official static mc client accepts this arbitrary non-root UID.
+        # Its only writable configuration directory is the emptyDir below.
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      # The pinned official mc image contains no shell. Ordered init containers
+      # keep every privileged action explicit, observable, and package-free.
+      initContainers:
+        - name: configure-minio-root-alias
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+            # This is the Job's only root-credential read. Kubernetes resolves
+            # the values at runtime; no root value is present in this YAML.
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_PASSWORD
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          args:
+            - alias
+            - set
+            - minio-admin
+            - http://clouddsp-minio:9000
+            - $(MINIO_ROOT_USER)
+            - $(MINIO_ROOT_PASSWORD)
+
+        - name: wait-for-minio-service
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          args:
+            - ready
+            - minio-admin
+
+        - name: create-or-update-demucs-artifacts-policy
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+            - name: demucs-artifacts-policy
+              mountPath: /policy
+              readOnly: true
+          # `policy create` creates or deliberately updates only this named
+          # policy from the immutable, reviewed ConfigMap JSON.
+          args:
+            - admin
+            - policy
+            - create
+            - minio-admin
+            - clouddsp-demucs-artifacts-v001
+            - /policy/demucs-artifacts-policy.json
+
+        - name: create-or-rotate-demucs-user
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+            # The temporary data-namespace Secret must equal the future
+            # app-namespace runtime pair. It is never printed by this Job.
+            - name: DEMUCS_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-demucs-minio-bootstrap-credentials
+                  key: DEMUCS_S3_ACCESS_KEY
+            - name: DEMUCS_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-demucs-minio-bootstrap-credentials
+                  key: DEMUCS_S3_SECRET_KEY
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          # Reusing an access key changes its secret key deliberately. This is
+          # the explicit rotation path; it never deletes source or stem data.
+          args:
+            - admin
+            - user
+            - add
+            - minio-admin
+            - $(DEMUCS_S3_ACCESS_KEY)
+            - $(DEMUCS_S3_SECRET_KEY)
+
+        - name: attach-demucs-artifacts-policy
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+            - name: DEMUCS_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-demucs-minio-bootstrap-credentials
+                  key: DEMUCS_S3_ACCESS_KEY
+          resources:
+            # Init containers run sequentially, so this small administrative
+            # headroom never overlaps with the other policy/user steps.
+            requests:
+              cpu: 50m
+              memory: 128Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          args:
+            - admin
+            - policy
+            - attach
+            - minio-admin
+            - clouddsp-demucs-artifacts-v001
+            - --user=$(DEMUCS_S3_ACCESS_KEY)
+
+        - name: verify-demucs-user-policy
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+            - name: DEMUCS_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-demucs-minio-bootstrap-credentials
+                  key: DEMUCS_S3_ACCESS_KEY
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          # This prints only access-key/policy association, never the secret
+          # key. A later worker smoke test will exercise allowed/denied calls.
+          args:
+            - admin
+            - user
+            - info
+            - minio-admin
+            - $(DEMUCS_S3_ACCESS_KEY)
+
+        - name: remove-root-alias-from-temporary-config
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          # The alias file holds root credentials only in this bounded
+          # emptyDir. Remove it before the normal container runs; the volume
+          # itself vanishes once Kubernetes cleans up the completed Pod.
+          args:
+            - alias
+            - remove
+            - minio-admin
+      containers:
+        - name: completion-marker
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          # The ordered init containers perform all administrative work. This
+          # ordinary container allows the Job controller to record completion.
+          args:
+            - --version
+      volumes:
+        - name: mc-config
+          emptyDir:
+            # mc aliases need only a few KiB. This is temporary client state,
+            # not a MinIO bucket/object/PVC, and vanishes with the Pod.
+            sizeLimit: 1Mi
+        - name: demucs-artifacts-policy
+          configMap:
+            # The bootstrap mounts only this immutable reviewed policy source;
+            # it cannot be replaced with an uncommitted interactive document.
+            name: clouddsp-demucs-artifacts-policy-v001
+            defaultMode: 0444
+            items:
+              - key: demucs-artifacts-policy.json
+                path: demucs-artifacts-policy.json

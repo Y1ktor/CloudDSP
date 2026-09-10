@@ -1,0 +1,244 @@
+# This one-shot Job provisions the dispatcher's *separate* PostgreSQL login
+# and gives it only the outbox operations implemented by `app/outbox_lease.py`:
+#
+#   bootstrap Job Pod -> PostgreSQL ClusterIP Service -> PostgreSQL StatefulSet
+#
+# It does not create a dispatcher Deployment, a RabbitMQ connection, an AMQP
+# message, a Kubernetes ServiceAccount, a queue, or a Demucs worker. The Job
+# receives PostgreSQL administrator credentials only because creating a role
+# and granting permissions is an administrator operation; the future
+# long-running dispatcher will mount only its own restricted credentials.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # A completed fixed-name Job remains inspectable and is not automatically
+  # rerun by `kubectl apply`. Delete it before an intentional password rotation
+  # or permission repair, then reapply this exact reviewed manifest.
+  name: dispatcher-database-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: dispatcher-database-bootstrap
+    app.kubernetes.io/component: database-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: least-privilege-outbox-publication-provisioning
+spec:
+  # Preserve the non-sensitive privilege-verification output for ten minutes,
+  # then let the TTL controller remove this temporary administrator Pod.
+  ttlSecondsAfterFinished: 600
+  # A failed DDL or credential change needs deliberate review. Retrying with
+  # administrator access could conceal the useful original failure signal.
+  backoffLimit: 0
+  # The Job performs a few local DDL statements only; bound DNS, image pull,
+  # and connection failures so it cannot stay active indefinitely.
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dispatcher-database-bootstrap
+        app.kubernetes.io/component: database-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # This Pod opens one PostgreSQL connection and never calls the Kubernetes
+      # API, so it has no need for a projected ServiceAccount token.
+      automountServiceAccountToken: false
+      securityContext:
+        # The pinned official PostgreSQL image provides this non-root account,
+        # which is sufficient for the psql command-line client.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgresql-bootstrap-client
+          # Reuse the reviewed PostgreSQL official image already pinned for
+          # schema/permission bootstraps. It includes psql, avoiding a new
+          # helper image or a runtime package installation.
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          env:
+            # Fully qualified Service DNS targets the stable PostgreSQL
+            # ClusterIP, never a mutable StatefulSet Pod IP or host port.
+            - name: PGHOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: PGPORT
+              value: "5432"
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+            # PostgreSQL's administrator identity belongs only in this short
+            # Job. A future dispatcher runtime Secret must never include it.
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_PASSWORD
+            # Prerequisite: create an ignored, temporary Secret named
+            # `clouddsp-dispatcher-database-bootstrap-credentials` in this
+            # namespace with these three keys. Its values must match the
+            # future app-namespace dispatcher runtime Secret, but this manifest
+            # deliberately contains no password or usable Secret template.
+            - name: DISPATCHER_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-dispatcher-database-bootstrap-credentials
+                  key: DISPATCHER_DB_NAME
+            - name: DISPATCHER_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-dispatcher-database-bootstrap-credentials
+                  key: DISPATCHER_DB_USERNAME
+            - name: DISPATCHER_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-dispatcher-database-bootstrap-credentials
+                  key: DISPATCHER_DB_PASSWORD
+          resources:
+            # Role/privilege DDL needs negligible capacity. Explicit resource
+            # limits keep it from competing with database or audio workloads.
+            requests:
+              cpu: 10m
+              memory: 32Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -ec
+            - |
+              # `ON_ERROR_STOP` makes the first SQL failure a non-zero process
+              # exit. Kubernetes therefore records partial provisioning as a
+              # failed Job rather than a misleading successful completion.
+              printf 'Provisioning restricted dispatcher access through Service %s:%s\n' "$PGHOST" "$PGPORT"
+
+              # `:\"variable\"` emits a safely quoted SQL identifier and
+              # `:'variable'` emits a safely quoted SQL literal. This permits
+              # a hyphenated role name and punctuation in a password without
+              # allowing a Secret value to alter the SQL structure.
+              PGDATABASE="$DISPATCHER_DB_NAME" \
+                psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                  --set=dispatcher_db_name="$DISPATCHER_DB_NAME" \
+                  --set=dispatcher_db_username="$DISPATCHER_DB_USERNAME" \
+                  --set=dispatcher_db_password="$DISPATCHER_DB_PASSWORD" <<'SQL'
+              -- Fail before role creation if the v002 durable outbox schema is
+              -- absent or incompatible. LIMIT 0 reads no durable event data.
+              SELECT
+                event_id,
+                job_id,
+                stage,
+                stem_name,
+                event_type,
+                payload,
+                publication_status,
+                delivery_attempts,
+                available_at,
+                lease_token,
+                lease_expires_at,
+                published_at,
+                last_error_code,
+                created_at
+              FROM public.outbox_events
+              LIMIT 0;
+
+              -- Create the login only once, then reassert its restrictive
+              -- attributes and rotate its password on a deliberate rerun.
+              SELECT format(
+                'CREATE ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT PASSWORD %L',
+                :'dispatcher_db_username',
+                :'dispatcher_db_password'
+              )
+              WHERE NOT EXISTS (
+                SELECT 1 FROM pg_roles WHERE rolname = :'dispatcher_db_username'
+              )
+              \gexec
+
+              ALTER ROLE :"dispatcher_db_username"
+                LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT
+                PASSWORD :'dispatcher_db_password';
+
+              -- Clear accidental broad grants, then add the exact database,
+              -- schema, and table-column privileges the SQL adapter uses. The
+              -- dispatcher cannot create/insert/delete events, alter schema,
+              -- access `jobs`, or administer PostgreSQL.
+              REVOKE ALL PRIVILEGES ON DATABASE :"dispatcher_db_name"
+                FROM :"dispatcher_db_username";
+              GRANT CONNECT ON DATABASE :"dispatcher_db_name"
+                TO :"dispatcher_db_username";
+
+              REVOKE ALL PRIVILEGES ON SCHEMA public
+                FROM :"dispatcher_db_username";
+              GRANT USAGE ON SCHEMA public
+                TO :"dispatcher_db_username";
+
+              REVOKE ALL PRIVILEGES ON TABLE public.outbox_events
+                FROM :"dispatcher_db_username";
+
+              -- SELECT covers the claim filters/order and the `RETURNING`
+              -- values. `payload` is necessary to publish the already-durable
+              -- event body, but no `jobs` columns are ever readable.
+              GRANT SELECT (
+                event_id,
+                job_id,
+                stage,
+                stem_name,
+                event_type,
+                payload,
+                publication_status,
+                delivery_attempts,
+                available_at,
+                lease_token,
+                lease_expires_at,
+                published_at,
+                last_error_code,
+                created_at
+              ) ON TABLE public.outbox_events TO :"dispatcher_db_username";
+
+              -- UPDATE covers only lease acquisition, bounded retry scheduling,
+              -- terminal invalid-event retention, and confirmed-publication
+              -- bookkeeping. Trigger-maintained `updated_at` requires no
+              -- application grant, and the role may never modify immutable
+              -- event identity or payload.
+              GRANT UPDATE (
+                publication_status,
+                delivery_attempts,
+                available_at,
+                lease_token,
+                lease_expires_at,
+                published_at,
+                last_error_code
+              ) ON TABLE public.outbox_events TO :"dispatcher_db_username";
+              SQL
+
+              # Reconnect as the restricted identity. These booleans verify
+              # capabilities rather than returning any event payload or job
+              # row, and therefore keep the Job logs non-sensitive.
+              PGDATABASE="$DISPATCHER_DB_NAME" \
+              PGUSER="$DISPATCHER_DB_USERNAME" \
+              PGPASSWORD="$DISPATCHER_DB_PASSWORD" \
+                psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 <<'SQL'
+              SELECT
+                current_database() AS database,
+                current_user AS role,
+                has_column_privilege(current_user, 'public.outbox_events', 'payload', 'SELECT') AS can_read_outbox_payload,
+                has_column_privilege(current_user, 'public.outbox_events', 'publication_status', 'UPDATE') AS can_update_publication_state,
+                has_table_privilege(current_user, 'public.outbox_events', 'INSERT') AS can_insert_outbox_events,
+                has_table_privilege(current_user, 'public.outbox_events', 'DELETE') AS can_delete_outbox_events,
+                has_table_privilege(current_user, 'public.jobs', 'SELECT') AS can_read_jobs;
+              SQL
+              printf 'Restricted dispatcher PostgreSQL role bootstrap passed\n'

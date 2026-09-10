@@ -114,17 +114,20 @@ spec:
             # continues to deny anonymous reads/writes and unauthorized paths.
             - name: MINIO_API_CORS_ALLOW_ORIGIN
               value: http://clouddsp.localhost:8080
-            # This block stages MinIO's native AMQP target with the stable
-            # identifier intake. That identifier becomes part of MinIO's target
-            # ARN when a later root-only bootstrap Job attaches a bucket event
-            # rule.
+            # This block enables MinIO's native AMQP target with the stable
+            # identifier INTAKE. MinIO derives that identifier from this
+            # uppercase environment-variable suffix and advertises the target
+            # as `arn:minio:sqs::INTAKE:amqp`. That exact ARN will be used by a
+            # later root-only bootstrap Job to attach a bucket event rule.
             #
-            # Keep the target disabled in this task. With off, MinIO does not
-            # open an AMQP connection, declare an exchange, or publish an
-            # object event. That lets us roll out and inspect configuration
-            # separately from later, observable event-rule activation.
+            # Enabling the target registers its AMQP configuration when this
+            # Pod starts. MinIO opens the AMQP connection and idempotently
+            # declares its one permitted exchange only when it has an event to
+            # deliver. It does *not* make every object produce an event: the
+            # separate bucket-notification rule is still required and is the
+            # next deliberately isolated task.
             - name: MINIO_NOTIFY_AMQP_ENABLE_INTAKE
-              value: "off"
+              value: "on"
             # The AMQP URI is the only target value that contains a password.
             # It comes from the ignored local Secret rather than this versioned
             # StatefulSet. The URI names the internal RabbitMQ ClusterIP and

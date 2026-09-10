@@ -1,0 +1,234 @@
+# This one-shot Job provisions the upload-intake PostgreSQL login and grants
+# it only the narrow `jobs`-table operations used by the first consumer:
+#
+#   bootstrap Job Pod -> PostgreSQL ClusterIP Service -> PostgreSQL StatefulSet
+#
+# It does not create a database, schema, table, application Pod, queue
+# consumer, or Kubernetes API permission. PostgreSQL's existing Job API
+# database remains the authoritative source of all durable job state.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # A completed fixed-name Job is inspectable and will not be rerun merely by
+  # reapplying this YAML. Delete it before a deliberate password rotation or
+  # permission repair, then apply it again.
+  name: upload-intake-database-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: upload-intake-database-bootstrap
+    app.kubernetes.io/component: database-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: least-privilege-upload-state-transition-provisioning
+spec:
+  # Preserve non-sensitive verification output briefly for `kubectl logs`,
+  # then remove the disposable administrator-credential-bearing Pod.
+  ttlSecondsAfterFinished: 600
+  # A SQL/credential failure needs review. Retrying automatically could hide
+  # the original, useful failure and repeatedly use admin credentials.
+  backoffLimit: 0
+  # Bound image pulls, DNS, and the short local DDL operation.
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: upload-intake-database-bootstrap
+        app.kubernetes.io/component: database-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # The client makes one outbound PostgreSQL connection. It never calls
+      # the Kubernetes API, so omit a default ServiceAccount token volume.
+      automountServiceAccountToken: false
+      securityContext:
+        # The locked official PostgreSQL image supplies this non-root account
+        # for the psql client; no root Linux privileges are necessary.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgresql-bootstrap-client
+          # `psql` is already present in the pinned official PostgreSQL image.
+          # Reusing the lock avoids an unreviewed helper image or installing
+          # packages in a privileged administration Pod at runtime.
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          env:
+            # Use fully qualified in-cluster Service DNS. This is a stable
+            # endpoint—not the mutable StatefulSet Pod DNS or its host port.
+            - name: PGHOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: PGPORT
+              value: "5432"
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+            # PostgreSQL administrator credentials remain confined to this
+            # temporary Job. The future consumer never mounts this Secret.
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_PASSWORD
+            # This temporary data-namespace Secret carries the desired
+            # restricted application identity. Its values are safely quoted
+            # by psql variables and are never printed by this manifest.
+            - name: UPLOAD_INTAKE_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-upload-intake-database-bootstrap-credentials
+                  key: UPLOAD_INTAKE_DB_NAME
+            - name: UPLOAD_INTAKE_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-upload-intake-database-bootstrap-credentials
+                  key: UPLOAD_INTAKE_DB_USERNAME
+            - name: UPLOAD_INTAKE_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-upload-intake-database-bootstrap-credentials
+                  key: UPLOAD_INTAKE_DB_PASSWORD
+          resources:
+            # A few role/privilege DDL statements need negligible resources;
+            # explicit bounds prevent them from competing with data services.
+            requests:
+              cpu: 10m
+              memory: 32Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -ec
+            - |
+              # `ON_ERROR_STOP` maps the first PostgreSQL error to a non-zero
+              # process exit. Kubernetes therefore marks partial provisioning
+              # as Failed rather than reporting a misleading success.
+              printf 'Provisioning restricted upload-intake access through Service %s:%s\n' "$PGHOST" "$PGPORT"
+
+              # `:"variable"` emits a safely quoted PostgreSQL identifier;
+              # `:'variable'` emits a safely quoted SQL literal. This permits
+              # the intentionally hyphenated role name and punctuation in the
+              # password without allowing either to alter SQL structure.
+              PGDATABASE="$UPLOAD_INTAKE_DB_NAME" \
+                psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                  --set=upload_intake_db_name="$UPLOAD_INTAKE_DB_NAME" \
+                  --set=upload_intake_db_username="$UPLOAD_INTAKE_DB_USERNAME" \
+                  --set=upload_intake_db_password="$UPLOAD_INTAKE_DB_PASSWORD" <<'SQL'
+              -- This zero-row SELECT preflights the Job API's v001 table and
+              -- every column this bootstrap will grant. PostgreSQL fails with
+              -- its precise relation/column error before creating a role if
+              -- the schema is absent or incompatible. It reads no job data,
+              -- changes no schema, and avoids a procedural dollar-quoted SQL
+              -- block inside this shell heredoc.
+              SELECT
+                job_id,
+                source_type,
+                input_bucket,
+                input_object_key,
+                source_content_type,
+                source_size_bytes,
+                source_uploaded,
+                stem_mode,
+                status,
+                revision,
+                error_message,
+                expires_at
+              FROM public.jobs
+              LIMIT 0;
+
+              -- Create the login only once, then always reassert restrictive
+              -- attributes and rotate its password on a deliberate rerun.
+              SELECT format(
+                'CREATE ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT PASSWORD %L',
+                :'upload_intake_db_username',
+                :'upload_intake_db_password'
+              )
+              WHERE NOT EXISTS (
+                SELECT 1 FROM pg_roles WHERE rolname = :'upload_intake_db_username'
+              )
+              \gexec
+
+              ALTER ROLE :"upload_intake_db_username"
+                LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT
+                PASSWORD :'upload_intake_db_password';
+
+              -- Clear any accidental old broad grants before applying this
+              -- explicit set. The role cannot create schemas/tables, delete
+              -- rows, insert synthetic jobs, or read other application tables.
+              REVOKE ALL PRIVILEGES ON DATABASE :"upload_intake_db_name"
+                FROM :"upload_intake_db_username";
+              GRANT CONNECT ON DATABASE :"upload_intake_db_name"
+                TO :"upload_intake_db_username";
+
+              REVOKE ALL PRIVILEGES ON SCHEMA public
+                FROM :"upload_intake_db_username";
+              GRANT USAGE ON SCHEMA public
+                TO :"upload_intake_db_username";
+
+              REVOKE ALL PRIVILEGES ON TABLE public.jobs
+                FROM :"upload_intake_db_username";
+
+              -- Read only the durable fields needed to correlate one MinIO
+              -- event, HeadObject result, and retained direct-upload row. In
+              -- particular, owner_sub, filenames, artifact maps, and full
+              -- error text remain unavailable to this background consumer.
+              GRANT SELECT (
+                job_id,
+                source_type,
+                input_bucket,
+                input_object_key,
+                source_content_type,
+                source_size_bytes,
+                source_uploaded,
+                stem_mode,
+                status,
+                revision,
+                expires_at
+              ) ON TABLE public.jobs TO :"upload_intake_db_username";
+
+              -- The first intake implementation can make only its idempotent
+              -- source-state transition (or store a bounded safe category for
+              -- a verified permanent failure). It cannot alter ownership,
+              -- bucket/key, retention, artifacts, source metadata, or quota.
+              GRANT UPDATE (
+                source_uploaded,
+                status,
+                revision,
+                error_message
+              ) ON TABLE public.jobs TO :"upload_intake_db_username";
+              SQL
+
+              # Authenticate using the newly restricted login. `has_*_privilege`
+              # returns only boolean privilege metadata; it never selects a job
+              # row, source key, user identity, or password into the log.
+              PGDATABASE="$UPLOAD_INTAKE_DB_NAME" \
+              PGUSER="$UPLOAD_INTAKE_DB_USERNAME" \
+              PGPASSWORD="$UPLOAD_INTAKE_DB_PASSWORD" \
+                psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 <<'SQL'
+              SELECT
+                current_database() AS database,
+                current_user AS role,
+                has_table_privilege(current_user, 'public.jobs', 'DELETE') AS can_delete_jobs,
+                has_column_privilege(current_user, 'public.jobs', 'input_object_key', 'SELECT') AS can_read_input_key,
+                has_column_privilege(current_user, 'public.jobs', 'owner_sub', 'SELECT') AS can_read_owner_sub,
+                has_column_privilege(current_user, 'public.jobs', 'status', 'UPDATE') AS can_update_status,
+                has_column_privilege(current_user, 'public.jobs', 'stems', 'UPDATE') AS can_update_stems;
+              SQL
+              printf 'Restricted upload-intake PostgreSQL role bootstrap passed\n'
