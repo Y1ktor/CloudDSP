@@ -1,0 +1,49 @@
+# This immutable ConfigMap contains the reviewed MinIO IAM policy for the
+# future Basic Pitch worker. A policy defines authorization, not credentials,
+# so it is safe and useful to review in Git. The access/secret key pair that
+# receives it will live only in ignored local Kubernetes Secret files.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  # The policy version is in the name because immutable ConfigMaps cannot be
+  # edited after they are applied. Any broader/narrower scope needs a distinct
+  # reviewed v002 policy and a deliberate bootstrap rotation.
+  name: clouddsp-basic-pitch-artifacts-policy-v001
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: basic-pitch
+    app.kubernetes.io/component: object-storage-policy
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: private-basic-pitch-stem-read-and-midi-write
+immutable: true
+data:
+  # MinIO evaluates this AWS IAM-compatible JSON on every signed S3 request.
+  # There is deliberately no ListBucket, DeleteObject, bucket administration,
+  # upload-prefix access, anonymous access, or browser-presigning statement.
+  # The worker must receive one known durable input key from PostgreSQL/RabbitMQ
+  # and construct one deterministic MIDI output key in its application layer.
+  basic-pitch-artifacts-policy.json: |
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Sid": "ReadOnlyPrivateDemucsStems",
+          "Effect": "Allow",
+          "Action": "s3:GetObject",
+          "Resource": "arn:aws:s3:::clouddsp-uploads/stems/*"
+        },
+        {
+          "Sid": "WriteAndVerifyPrivateBasicPitchMidi",
+          "Effect": "Allow",
+          "Action": [
+            "s3:GetObject",
+            "s3:PutObject",
+            "s3:AbortMultipartUpload",
+            "s3:ListMultipartUploadParts"
+          ],
+          "Resource": "arn:aws:s3:::clouddsp-uploads/midi/*"
+        }
+      ]
+    }

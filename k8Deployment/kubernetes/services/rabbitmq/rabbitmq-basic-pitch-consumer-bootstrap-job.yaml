@@ -1,0 +1,287 @@
+# This one-shot administrator Job creates or rotates the future Basic Pitch
+# worker's restricted RabbitMQ consumer login. Its management and runtime paths
+# are intentionally different:
+#
+#   bootstrap Job -> RabbitMQ headless Service management port -> broker Pod
+#   future Basic Pitch worker -> RabbitMQ ClusterIP AMQP port -> one queue only
+#
+# The resulting user can consume and acknowledge only
+# `clouddsp.basic-pitch.requests` in vhost `/clouddsp`. It cannot configure
+# topology, publish, access retry/DLQ queues, use the management UI, mount the
+# RabbitMQ administrator Secret, or call Kubernetes APIs. PostgreSQL owns task
+# retry timing, so this initial consumer needs no AMQP write permission.
+#
+# Prerequisites applied separately: the RabbitMQ administrator Secret, the
+# v002 downstream topology (including the exact Basic Pitch queue), and the
+# temporary data-namespace bootstrap Secret that duplicates the future
+# app-namespace restricted credentials. This Job creates no worker Deployment,
+# AMQP message, PostgreSQL task, MinIO object, or ServiceAccount.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # A completed fixed-name Job is inspectable evidence. Delete this exact Job
+  # before an intentional password rotation or permission repair; reapplying a
+  # completed Job manifest alone does not execute it again.
+  name: rabbitmq-basic-pitch-consumer-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: rabbitmq-basic-pitch-consumer-bootstrap
+    app.kubernetes.io/component: message-identity-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: least-privilege-basic-pitch-request-consumption
+spec:
+  # Retain safe username/vhost/regex verification logs briefly, then remove the
+  # short-lived Pod that had access to RabbitMQ's administrator Secret.
+  ttlSecondsAfterFinished: 600
+  # One failure is more useful than an automatic administrator-operation retry
+  # that could obscure the first management, topology, or password problem.
+  backoffLimit: 0
+  # Bound image pulls, 24 five-second management checks, and broker changes.
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rabbitmq-basic-pitch-consumer-bootstrap
+        app.kubernetes.io/component: message-identity-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # This Pod needs the private RabbitMQ management API only. It never calls
+      # the Kubernetes API, so do not mount the default ServiceAccount token.
+      automountServiceAccountToken: false
+      securityContext:
+        # The digest-pinned Docker Official RabbitMQ image provides
+        # rabbitmqadmin and its `rabbitmq` user at UID/GID 999.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      # Init containers run in order, turning user provisioning into a visible
+      # prerequisite chain instead of a privileged long-running worker action.
+      initContainers:
+        - name: wait-for-rabbitmq-management-api-and-basic-pitch-queue
+          # `images.rabbitmq` in images.lock.yaml pins this Docker Official
+          # Image. Its management plugin provides rabbitmqadmin v2 without a
+          # runtime package install or a custom privileged utility image.
+          image: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+          imagePullPolicy: IfNotPresent
+          env:
+            # The single local broker ordinal exposes its management listener
+            # through headless-Service DNS. Runtime consumers use the normal
+            # load-balanced AMQP ClusterIP Service on port 5672 instead.
+            - name: RABBITMQADMIN_TARGET_HOST
+              value: clouddsp-rabbitmq-0.clouddsp-rabbitmq-headless.clouddsp-data.svc.cluster.local
+            - name: RABBITMQADMIN_TARGET_PORT
+              value: "15672"
+            - name: RABBITMQADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_USER
+            - name: RABBITMQADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_PASS
+            - name: RABBITMQADMIN_NON_INTERACTIVE_MODE
+              value: "true"
+            # rabbitmqadmin may place optional CLI state under HOME. This is a
+            # bounded scratch directory, not durable queue/broker storage.
+            - name: HOME
+              value: /work
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: rabbitmqadmin-work
+              mountPath: /work
+          command:
+            - sh
+            - -ec
+            - |
+              # A successful authenticated queue list proves the management
+              # endpoint/admin Secret work and makes a missing v002 topology
+              # fail before any user gets a permission expression for it.
+              attempt=1
+              while [ "$attempt" -le 24 ]; do
+                if rabbitmqadmin --quiet queues list --vhost /clouddsp 2>/dev/null \
+                  | grep -Eq '^clouddsp\.basic-pitch\.requests[[:space:]]'; then
+                  exit 0
+                fi
+                sleep 5
+                attempt=$((attempt + 1))
+              done
+              echo "RabbitMQ management API or Basic Pitch request queue was not ready before bootstrap timeout." >&2
+              exit 1
+
+        - name: create-or-rotate-basic-pitch-consumer
+          image: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: RABBITMQADMIN_TARGET_HOST
+              value: clouddsp-rabbitmq-0.clouddsp-rabbitmq-headless.clouddsp-data.svc.cluster.local
+            - name: RABBITMQADMIN_TARGET_PORT
+              value: "15672"
+            - name: RABBITMQADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_USER
+            - name: RABBITMQADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_PASS
+            - name: RABBITMQADMIN_NON_INTERACTIVE_MODE
+              value: "true"
+            - name: HOME
+              value: /work
+            # The bootstrap receives the restricted pair only from its
+            # temporary data Secret. The worker will receive the matching
+            # app-namespace pair but never the administrator Secret above.
+            - name: BASIC_PITCH_RABBITMQ_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-rabbitmq-bootstrap-credentials
+                  key: RABBITMQ_BASIC_PITCH_USERNAME
+            - name: BASIC_PITCH_RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-rabbitmq-bootstrap-credentials
+                  key: RABBITMQ_BASIC_PITCH_PASSWORD
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: rabbitmqadmin-work
+              mountPath: /work
+          command:
+            - sh
+            - -ec
+            - |
+              # A repeated declaration intentionally converges the reviewed
+              # password. No tags are assigned, so this account cannot access
+              # the management UI; its vhost regexes are its whole authority.
+              rabbitmqadmin users declare \
+                --name "$BASIC_PITCH_RABBITMQ_USERNAME" \
+                --password "$BASIC_PITCH_RABBITMQ_PASSWORD"
+
+              # RabbitMQ applies these three regexes only inside /clouddsp.
+              # Empty configure/write rules deny topology changes and every
+              # publish action. The exact read rule permits basic.get/consume/
+              # ack on the main request queue, not retry, DLQ, Demucs, or ADTOF.
+              rabbitmqadmin permissions declare \
+                --vhost /clouddsp \
+                --username "$BASIC_PITCH_RABBITMQ_USERNAME" \
+                --configure '^$' \
+                --write '^$' \
+                --read '^clouddsp\.basic-pitch\.requests$'
+
+        - name: verify-basic-pitch-consumer-permission
+          image: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: RABBITMQADMIN_TARGET_HOST
+              value: clouddsp-rabbitmq-0.clouddsp-rabbitmq-headless.clouddsp-data.svc.cluster.local
+            - name: RABBITMQADMIN_TARGET_PORT
+              value: "15672"
+            - name: RABBITMQADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_USER
+            - name: RABBITMQADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_PASS
+            - name: RABBITMQADMIN_NON_INTERACTIVE_MODE
+              value: "true"
+            - name: HOME
+              value: /work
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: rabbitmqadmin-work
+              mountPath: /work
+          command:
+            - sh
+            - -ec
+            - |
+              # Output contains queue/vhost/user names and permission regexes
+              # only—not passwords, password hashes, or AMQP message contents.
+              echo "RabbitMQ Basic Pitch consumer bootstrap: verifying required queue and vhost permissions."
+              rabbitmqadmin --quiet queues list --vhost /clouddsp
+              rabbitmqadmin --quiet permissions list --vhost /clouddsp
+      containers:
+        - name: completion-marker
+          image: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          # Init containers did all privileged work. This ordinary container
+          # lets the Job controller record success only after they all pass.
+          command:
+            - rabbitmqadmin
+          args:
+            - --version
+      volumes:
+        - name: rabbitmqadmin-work
+          emptyDir:
+            # Durable RabbitMQ data stays on its StatefulSet PVC. This one-MiB
+            # CLI HOME is temporary scratch and vanishes with this Pod.
+            sizeLimit: 1Mi

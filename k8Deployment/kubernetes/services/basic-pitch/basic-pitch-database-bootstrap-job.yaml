@@ -1,0 +1,261 @@
+# This administrator-only Job creates or repairs the separate PostgreSQL login
+# for a future Basic Pitch worker. It creates no worker Deployment, queue,
+# RabbitMQ connection, MinIO connection, MIDI file, task row, or Kubernetes
+# ServiceAccount. The runtime worker will receive only its restricted Secret.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Kubernetes preserves a completed fixed-name Job as inspectable evidence.
+  # Delete this exact Job only to deliberately rotate the role password or
+  # repair its reviewed grants, then reapply the unchanged manifest.
+  name: basic-pitch-database-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: basic-pitch-database-bootstrap
+    app.kubernetes.io/component: database-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: least-privilege-basic-pitch-task-provisioning
+spec:
+  # The logs contain permission facts only and remain available briefly. The
+  # TTL controller then removes the Pod that had the administrator credential.
+  ttlSecondsAfterFinished: 600
+  # Do not repeatedly run administrator DDL after a failure; one visible result
+  # makes the missing migration, Secret, or privilege problem diagnosable.
+  backoffLimit: 0
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: basic-pitch-database-bootstrap
+        app.kubernetes.io/component: database-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # This Pod opens one private PostgreSQL connection; it has no reason to
+      # call the Kubernetes API, so omit the ambient ServiceAccount token.
+      automountServiceAccountToken: false
+      securityContext:
+        # The digest-pinned Docker Official PostgreSQL image provides this
+        # unprivileged account, which is sufficient for the `psql` client.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgresql-bootstrap-client
+          # `images.postgresql` in images.lock.yaml locks this image. It brings
+          # `psql` without adding a helper image or downloading packages at run
+          # time inside a Pod with database-administrator credentials.
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          env:
+            # Private Service DNS continues working if the PostgreSQL StatefulSet
+            # Pod is recreated; this Job never uses a host-forwarded port.
+            - name: PGHOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: PGPORT
+              value: "5432"
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+            # Only this short-lived bootstrap mounts the PostgreSQL administrator
+            # login. The eventual Basic Pitch runtime manifest must not mount it.
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_PASSWORD
+            # The data-namespace temporary Secret carries the new worker login.
+            # It must exactly match the app-namespace runtime Secret but no
+            # manifest, command, or log prints the actual password.
+            - name: BASIC_PITCH_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-database-bootstrap-credentials
+                  key: BASIC_PITCH_DB_NAME
+            - name: BASIC_PITCH_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-database-bootstrap-credentials
+                  key: BASIC_PITCH_DB_USERNAME
+            - name: BASIC_PITCH_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-database-bootstrap-credentials
+                  key: BASIC_PITCH_DB_PASSWORD
+          resources:
+            # Role/grant DDL is tiny. These limits protect local capacity for
+            # PostgreSQL and later ML workloads without starving this client.
+            requests:
+              cpu: 10m
+              memory: 32Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -ec
+            - |
+              # `ON_ERROR_STOP` turns a PostgreSQL error into a nonzero Job
+              # result. The quoted heredoc prevents the shell from expanding
+              # SQL or psql variables; psql handles only its explicit bindings.
+              printf 'Provisioning restricted Basic Pitch access through Service %s:%s\n' "$PGHOST" "$PGPORT"
+
+              PGDATABASE="$BASIC_PITCH_DB_NAME" \
+                psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                  --set=basic_pitch_db_name="$BASIC_PITCH_DB_NAME" \
+                  --set=basic_pitch_db_username="$BASIC_PITCH_DB_USERNAME" \
+                  --set=basic_pitch_db_password="$BASIC_PITCH_DB_PASSWORD" <<'SQL'
+              -- Limit-zero checks disclose schema shape only, never a Job,
+              -- stem key, event payload, owner subject, or credential. v005's
+              -- composite check must exist before this role can claim a task.
+              SELECT task_id, job_id, stage, stem_name, request_event_id,
+                     input_bucket, input_object_key, stem_mode, status,
+                     attempt_count, available_at, lease_token, lease_expires_at,
+                     started_at, completed_at, last_error_code, created_at, updated_at
+              FROM public.processing_tasks
+              LIMIT 0;
+
+              SELECT job_id, status, revision, expires_at, stem_mode
+              FROM public.jobs
+              LIMIT 0;
+
+              SELECT event_id, job_id, stage, stem_name, event_type, payload,
+                     publication_status
+              FROM public.outbox_events
+              LIMIT 0;
+
+              DO $bootstrap$
+              BEGIN
+                IF NOT EXISTS (
+                  SELECT 1 FROM public.schema_migrations
+                  WHERE migration_id = 'v005_basic_pitch_processing_tasks'
+                ) THEN
+                  RAISE EXCEPTION 'Required v005 Basic Pitch task migration is missing.';
+                END IF;
+
+                IF NOT EXISTS (
+                  SELECT 1 FROM pg_constraint
+                  WHERE conrelid = 'public.processing_tasks'::regclass
+                    AND conname = 'processing_tasks_stage_stem_input_key_matches'
+                ) THEN
+                  RAISE EXCEPTION 'Required Basic Pitch task-coordinate constraint is missing.';
+                END IF;
+              END;
+              $bootstrap$;
+
+              -- Create the role once, then always reassert restrictive role
+              -- attributes and rotate its password during an intentional rerun.
+              -- `:"name"` and `:'value'` below are psql's identifier/literal-
+              -- safe bindings: a hyphenated role name or password punctuation
+              -- cannot alter SQL structure.
+              SELECT format(
+                'CREATE ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT PASSWORD %L',
+                :'basic_pitch_db_username',
+                :'basic_pitch_db_password'
+              )
+              WHERE NOT EXISTS (
+                SELECT 1 FROM pg_roles WHERE rolname = :'basic_pitch_db_username'
+              )
+              \gexec
+
+              ALTER ROLE :"basic_pitch_db_username"
+                LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT
+                PASSWORD :'basic_pitch_db_password';
+
+              -- Start from zero direct privileges. This role cannot administer
+              -- PostgreSQL, run DDL, create/delete Jobs, read owners, alter
+              -- sources, read MinIO/RabbitMQ credentials, or create outbox rows.
+              REVOKE ALL PRIVILEGES ON DATABASE :"basic_pitch_db_name"
+                FROM :"basic_pitch_db_username";
+              GRANT CONNECT ON DATABASE :"basic_pitch_db_name"
+                TO :"basic_pitch_db_username";
+
+              REVOKE ALL PRIVILEGES ON SCHEMA public
+                FROM :"basic_pitch_db_username";
+              GRANT USAGE ON SCHEMA public
+                TO :"basic_pitch_db_username";
+
+              REVOKE ALL PRIVILEGES ON TABLE public.processing_tasks
+                FROM :"basic_pitch_db_username";
+              REVOKE ALL PRIVILEGES ON TABLE public.jobs
+                FROM :"basic_pitch_db_username";
+              REVOKE ALL PRIVILEGES ON TABLE public.outbox_events
+                FROM :"basic_pitch_db_username";
+
+              -- The future lease adapter can create/read/recover its durable
+              -- task and change only lifecycle fields. It cannot rewrite the
+              -- task's Job/stage/stem/event/input identity after insertion.
+              GRANT SELECT (
+                task_id, job_id, stage, stem_name, request_event_id,
+                input_bucket, input_object_key, stem_mode, status,
+                attempt_count, available_at, lease_token, lease_expires_at,
+                started_at, completed_at, last_error_code, created_at, updated_at
+              ) ON TABLE public.processing_tasks TO :"basic_pitch_db_username";
+              GRANT INSERT (
+                task_id, job_id, stage, stem_name, request_event_id,
+                input_bucket, input_object_key, stem_mode, status,
+                attempt_count, available_at, lease_token, lease_expires_at,
+                started_at, completed_at, last_error_code
+              ) ON TABLE public.processing_tasks TO :"basic_pitch_db_username";
+              GRANT UPDATE (
+                status, attempt_count, available_at, lease_token, lease_expires_at,
+                started_at, completed_at, last_error_code
+              ) ON TABLE public.processing_tasks TO :"basic_pitch_db_username";
+
+              -- A claim rereads only the Job state/revision/retention and the
+              -- stem mode required for guarded validity checks. It cannot read
+              -- the browser owner, source filename, source object metadata,
+              -- artifact maps, quota fields, or error message, and it receives
+              -- no Job UPDATE grant in this task.
+              GRANT SELECT (job_id, status, revision, expires_at, stem_mode)
+                ON TABLE public.jobs TO :"basic_pitch_db_username";
+
+              -- The AMQP request is compared against its durable event before
+              -- a task is claimed. The role can read only the identity, route,
+              -- payload, and publication status necessary for that comparison;
+              -- it cannot publish/retry/lease/update/delete or insert events.
+              GRANT SELECT (
+                event_id, job_id, stage, stem_name, event_type, payload,
+                publication_status
+              ) ON TABLE public.outbox_events TO :"basic_pitch_db_username";
+              SQL
+
+              # Reconnect as the new role. These booleans are safe structural
+              # evidence: they reveal no durable Job/event/object/user content
+              # and confirm both intended capabilities and key denials.
+              PGDATABASE="$BASIC_PITCH_DB_NAME" \
+              PGUSER="$BASIC_PITCH_DB_USERNAME" \
+              PGPASSWORD="$BASIC_PITCH_DB_PASSWORD" \
+                psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 <<'SQL'
+              SELECT
+                current_database() AS database,
+                current_user AS role,
+                has_column_privilege(current_user, 'public.processing_tasks', 'task_id', 'INSERT') AS can_create_task,
+                has_column_privilege(current_user, 'public.processing_tasks', 'lease_token', 'UPDATE') AS can_change_task_lease,
+                has_column_privilege(current_user, 'public.processing_tasks', 'input_object_key', 'UPDATE') AS can_replace_task_input,
+                has_column_privilege(current_user, 'public.jobs', 'status', 'SELECT') AS can_read_job_state,
+                has_column_privilege(current_user, 'public.jobs', 'owner_sub', 'SELECT') AS can_read_job_owner,
+                has_column_privilege(current_user, 'public.jobs', 'status', 'UPDATE') AS can_update_job_state,
+                has_column_privilege(current_user, 'public.outbox_events', 'payload', 'SELECT') AS can_read_request_payload,
+                has_column_privilege(current_user, 'public.outbox_events', 'publication_status', 'UPDATE') AS can_update_publication_state,
+                has_table_privilege(current_user, 'public.outbox_events', 'INSERT') AS can_insert_outbox_events,
+                has_table_privilege(current_user, 'public.jobs', 'DELETE') AS can_delete_jobs;
+              SQL
+              printf 'Restricted Basic Pitch PostgreSQL role bootstrap passed\n'

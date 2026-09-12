@@ -1,0 +1,105 @@
+# This immutable ConfigMap holds the reviewed v005 SQL source. Applying this
+# object stores the non-secret migration text only; the separately versioned
+# Job is the explicit operation that opens a PostgreSQL connection and runs it.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  # Historic migrations are never edited in place. v005 evolves v003's
+  # processing-task vocabulary without changing any of the applied SQL files.
+  name: job-api-schema-migration-v005-basic-pitch-processing-tasks
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: job-api-schema-migration-v005-basic-pitch-processing-tasks
+    app.kubernetes.io/component: database-migration
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: basic-pitch-processing-task-schema
+immutable: true
+data:
+  005_basic_pitch_processing_tasks.sql: |
+    -- CloudDSP Job API schema migration v005
+    --
+    -- v003 intentionally permitted only one job-wide Demucs processing task.
+    -- v004 subsequently made durable per-stem Basic Pitch outbox events legal.
+    -- This migration makes the *task* table able to represent the matching
+    -- non-drum Basic Pitch work. It creates no task row, worker identity,
+    -- RabbitMQ message, MinIO request, model process, or Kubernetes workload.
+
+    BEGIN;
+
+    -- Serialize every historic Job API schema migration. The transaction keeps
+    -- the short interval in which old checks are removed invisible to readers.
+    SELECT pg_advisory_xact_lock(834929517101);
+
+    -- Fail before DDL when the exact preceding schema sequence is absent. v004
+    -- is required because a Basic Pitch task must reference a legal v004
+    -- `basic-pitch.requested` outbox event, rather than inventing a new route.
+    DO $migration$
+    BEGIN
+      IF to_regclass('public.processing_tasks') IS NULL THEN
+        RAISE EXCEPTION
+          'v005 requires public.processing_tasks from v003 before it can run';
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1
+        FROM public.schema_migrations
+        WHERE migration_id = 'v003_processing_tasks'
+      ) THEN
+        RAISE EXCEPTION 'v005 requires applied migration v003_processing_tasks';
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1
+        FROM public.schema_migrations
+        WHERE migration_id = 'v004_downstream_outbox_events'
+      ) THEN
+        RAISE EXCEPTION
+          'v005 requires applied migration v004_downstream_outbox_events';
+      END IF;
+    END;
+    $migration$;
+
+    -- v003 created three independent checks. Replace only those checks with
+    -- one compound invariant, so a stage, its canonical stem name, and its
+    -- private input-key shape cannot be mixed accidentally. `IF EXISTS` and
+    -- replacing the final constraint make an intentional rerun of this exact,
+    -- immutable SQL repair-safe after a completed Job has been deleted.
+    ALTER TABLE public.processing_tasks
+      DROP CONSTRAINT IF EXISTS processing_tasks_stage_check,
+      DROP CONSTRAINT IF EXISTS processing_tasks_stem_name_check,
+      DROP CONSTRAINT IF EXISTS processing_tasks_check,
+      DROP CONSTRAINT IF EXISTS processing_tasks_stage_stem_input_key_matches;
+
+    ALTER TABLE public.processing_tasks
+      ADD CONSTRAINT processing_tasks_stage_stem_input_key_matches
+      CHECK (
+        -- Demucs remains the one job-wide source-audio stage from v003.
+        (stage = 'demucs'
+          AND stem_name = ''
+          AND input_object_key LIKE ('uploads/' || job_id::text || '/%'))
+        OR
+        -- Basic Pitch is one non-drum MIDI task per private Demucs WAV stem.
+        -- The matching v004 outbox event and future worker lease adapter make
+        -- this coordinate authoritative before an ML container can process it.
+        (stage = 'basic-pitch'
+          AND stem_name IN ('vocals', 'no_vocals', 'bass', 'other', 'guitar', 'piano')
+          AND input_object_key = (
+            'stems/' || job_id::text || '/' || stem_name || '.wav'
+          ))
+      );
+
+    -- Keep the original task primary key, request-event uniqueness,
+    -- `(job_id, stage, stem_name)` idempotency key, retry index, expired-lease
+    -- index, status checks, lease checks, timestamps, and trigger unchanged.
+    -- Consequently a Basic Pitch retry/recovery has the exact same durable
+    -- ownership model as Demucs without changing historical Demucs records.
+    INSERT INTO public.schema_migrations (migration_id, description)
+    VALUES (
+      'v005_basic_pitch_processing_tasks',
+      'Extends processing task stage, stem, and private input-key constraints for per-stem Basic Pitch work while retaining Demucs idempotency and leases.'
+    )
+    ON CONFLICT (migration_id) DO NOTHING;
+
+    COMMIT;

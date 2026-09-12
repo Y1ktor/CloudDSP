@@ -1,0 +1,123 @@
+# This one-shot Job applies the immutable v005 task-schema evolution through
+# private PostgreSQL DNS. It uses the existing Job API schema-owner credential,
+# not PostgreSQL administration and not a future Basic Pitch runtime identity.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # A fixed completed Job is audit evidence. Reapplying this YAML never reruns
+  # it; delete this exact Job only to deliberately re-verify the same immutable
+  # migration after first understanding the reason for the rerun.
+  name: job-api-schema-migration-v005-basic-pitch-processing-tasks
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: job-api-schema-migration-v005-basic-pitch-processing-tasks
+    app.kubernetes.io/component: database-migration
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: basic-pitch-processing-task-schema
+spec:
+  # Retain only non-sensitive migration/constraint logs briefly. PostgreSQL
+  # keeps the schema after Kubernetes removes the password-consuming Pod.
+  ttlSecondsAfterFinished: 300
+  # An immutable DDL precondition failure needs one inspectable result; retrying
+  # automatically could conceal which prior migration must be repaired first.
+  backoffLimit: 0
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: job-api-schema-migration-v005-basic-pitch-processing-tasks
+        app.kubernetes.io/component: database-migration
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # This Pod needs exactly one PostgreSQL connection. It has no Kubernetes
+      # API token and no network identity for RabbitMQ, MinIO, or Keycloak.
+      automountServiceAccountToken: false
+      securityContext:
+        # Docker Official postgres provides this non-root runtime account.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgresql-migration-client
+          # `images.postgresql` in images.lock.yaml pins this Docker Official
+          # Image, which supplies psql without a runtime package download.
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PGHOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: PGPORT
+              value: "5432"
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+            # Only the schema-owner Secret is mounted. Its values stay out of
+            # the manifest and command output, and no data-namespace root
+            # Secret is copied into this Pod.
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-database-credentials
+                  key: JOB_API_DB_NAME
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-database-credentials
+                  key: JOB_API_DB_USERNAME
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-database-credentials
+                  key: JOB_API_DB_PASSWORD
+          resources:
+            # Bounded DDL/metadata work, never audio/MIDI processing.
+            requests:
+              cpu: 10m
+              memory: 32Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            # The SQL is projected from an immutable ConfigMap as a read-only
+            # file; a client image must never embed mutable migration source.
+            - name: migration
+              mountPath: /migrations
+              readOnly: true
+          command:
+            - sh
+            - -ec
+            - |
+              # Stop at the first SQL error so Job status faithfully reports a
+              # failed migration instead of a misleading successful shell exit.
+              printf 'Applying CloudDSP Basic Pitch processing-task schema migration v005 through Service %s:%s\n' "$PGHOST" "$PGPORT"
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                --file /migrations/005_basic_pitch_processing_tasks.sql
+
+              # Print structural evidence only: no jobs, stems, object keys,
+              # owner subjects, error text, tokens, or Secret values.
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                --command "SELECT migration_id, applied_at FROM schema_migrations WHERE migration_id = 'v005_basic_pitch_processing_tasks';"
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                --command "SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'public.processing_tasks'::regclass AND conname = 'processing_tasks_stage_stem_input_key_matches';"
+              printf 'CloudDSP Basic Pitch processing-task schema migration v005 passed\n'
+      volumes:
+        - name: migration
+          configMap:
+            name: job-api-schema-migration-v005-basic-pitch-processing-tasks
+            defaultMode: 0444
+            items:
+              - key: 005_basic_pitch_processing_tasks.sql
+                path: 005_basic_pitch_processing_tasks.sql

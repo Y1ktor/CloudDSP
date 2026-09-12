@@ -1,0 +1,405 @@
+# This one-shot administrator Job provisions the PostgreSQL identity used by a
+# later generic-dispatcher Basic Pitch routing smoke Job:
+#
+#   bootstrap Job -> PostgreSQL ClusterIP -> restricted SQL functions
+#   future smoke Job -> same ClusterIP -> functions only (no direct tables)
+#
+# The future smoke client cannot SELECT, INSERT, UPDATE, or DELETE `jobs` or
+# `outbox_events`. Instead, this Job creates three SECURITY DEFINER functions:
+# create exactly one synthetic Basic Pitch event, read only that event's safe
+# publication status, and remove its synthetic Job only after publication. This
+# is intentionally narrower than granting raw table writes to a test Pod.
+#
+# Prerequisites, created and applied separately:
+#   1. existing clouddsp-postgresql-credentials in clouddsp-data; and
+#   2. the ignored temporary bootstrap Secret documented beside this Job.
+#
+# A completed fixed-name Job is not rerun by `kubectl apply`. Delete it before
+# an intentional password rotation or permission repair, then apply it again.
+# It does not create a RabbitMQ user, publish/consume a message, create a
+# dispatcher/worker Deployment, or insert a smoke event by itself.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: generic-dispatcher-smoke-database-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: generic-dispatcher-smoke-database-bootstrap
+    app.kubernetes.io/component: database-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: least-privilege-basic-pitch-outbox-smoke-provisioning
+spec:
+  # Retain non-sensitive privilege-verification output briefly, then remove
+  # the administrator-credential-bearing Pod automatically.
+  ttlSecondsAfterFinished: 600
+  # An administrator DDL failure should remain visible rather than be hidden
+  # by automatic retries that could repeat a partial diagnosis.
+  backoffLimit: 0
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: generic-dispatcher-smoke-database-bootstrap
+        app.kubernetes.io/component: database-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # The Pod opens one PostgreSQL connection only; it never calls the
+      # Kubernetes API and has no need for a ServiceAccount token.
+      automountServiceAccountToken: false
+      securityContext:
+        # The pinned official PostgreSQL image provides the psql client and
+        # this non-root account used by the existing bootstrap convention.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgresql-bootstrap-client
+          # Reuse the reviewed PostgreSQL Docker Official Image, which already
+          # contains psql. The digest prevents a mutable image tag from changing
+          # this privileged one-shot administration Pod.
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          env:
+            # This is private Service DNS, not a node address or Mac host port.
+            - name: PGHOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: PGPORT
+              value: "5432"
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+            # PostgreSQL administrator credentials are mounted only here. The
+            # future smoke Job receives neither these values nor table grants.
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_PASSWORD
+            # This temporary Secret duplicates the eventual restricted runtime
+            # identity because Kubernetes Secrets cannot cross namespaces.
+            - name: GENERIC_DISPATCHER_SMOKE_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-generic-dispatcher-smoke-database-bootstrap-credentials
+                  key: GENERIC_DISPATCHER_SMOKE_DB_NAME
+            - name: GENERIC_DISPATCHER_SMOKE_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-generic-dispatcher-smoke-database-bootstrap-credentials
+                  key: GENERIC_DISPATCHER_SMOKE_DB_USERNAME
+            - name: GENERIC_DISPATCHER_SMOKE_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-generic-dispatcher-smoke-database-bootstrap-credentials
+                  key: GENERIC_DISPATCHER_SMOKE_DB_PASSWORD
+          resources:
+            # The Job performs short DDL and privilege checks only; it neither
+            # processes media nor competes materially with stateful services.
+            requests:
+              cpu: 10m
+              memory: 32Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -ec
+            - |
+              # Stop at the first SQL failure so Kubernetes records a failed
+              # Job instead of reporting an incomplete identity as successful.
+              printf 'Provisioning restricted generic-dispatcher smoke access through Service %s:%s\n' "$PGHOST" "$PGPORT"
+
+              # psql's identifier/literal forms safely quote a hyphenated role
+              # name and a local password without allowing Secret values to
+              # change SQL structure. The schema check fails early unless the
+              # downstream v004 vocabulary already exists.
+              PGDATABASE="$GENERIC_DISPATCHER_SMOKE_DB_NAME" \
+                psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                  --set=smoke_db_name="$GENERIC_DISPATCHER_SMOKE_DB_NAME" \
+                  --set=smoke_db_username="$GENERIC_DISPATCHER_SMOKE_DB_USERNAME" \
+                  --set=smoke_db_password="$GENERIC_DISPATCHER_SMOKE_DB_PASSWORD" <<'SQL'
+              SELECT job_id, owner_sub, input_bucket, input_object_key, stem_mode,
+                     status, source_uploaded, stems, expires_at
+              FROM public.jobs
+              LIMIT 0;
+              SELECT event_id, job_id, stage, stem_name, event_type, payload,
+                     publication_status, available_at
+              FROM public.outbox_events
+              LIMIT 0;
+
+              -- Kubernetes expands a literal `$$` in a container command to a
+              -- single `$` before this shell receives it. PostgreSQL's anonymous
+              -- `$$` dollar quote would therefore become invalid `DO $`. Named
+              -- dollar tags contain no adjacent dollar signs and arrive intact.
+              DO $bootstrap$
+              BEGIN
+                IF NOT EXISTS (
+                  SELECT 1
+                  FROM public.schema_migrations
+                  WHERE migration_id = 'v004_downstream_outbox_events'
+                ) THEN
+                  RAISE EXCEPTION 'The v004 downstream outbox schema is required before smoke access is provisioned.';
+                END IF;
+              END;
+              $bootstrap$;
+
+              -- Create the login once, then converge its safe attributes and
+              -- password on an intentional rerun of this bootstrap Job.
+              SELECT format(
+                'CREATE ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT PASSWORD %L',
+                :'smoke_db_username',
+                :'smoke_db_password'
+              )
+              WHERE NOT EXISTS (
+                SELECT 1 FROM pg_roles WHERE rolname = :'smoke_db_username'
+              )
+              \gexec
+
+              ALTER ROLE :"smoke_db_username"
+                LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT
+                PASSWORD :'smoke_db_password';
+
+              -- Reset broad access before granting the minimum needed to find
+              -- and execute the three functions below. This role gets no raw
+              -- table, sequence, schema-create, or role-administration access.
+              REVOKE ALL PRIVILEGES ON DATABASE :"smoke_db_name"
+                FROM :"smoke_db_username";
+              GRANT CONNECT ON DATABASE :"smoke_db_name"
+                TO :"smoke_db_username";
+
+              REVOKE ALL PRIVILEGES ON SCHEMA public
+                FROM :"smoke_db_username";
+              GRANT USAGE ON SCHEMA public
+                TO :"smoke_db_username";
+              REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public
+                FROM :"smoke_db_username";
+              REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public
+                FROM :"smoke_db_username";
+              REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public
+                FROM :"smoke_db_username";
+
+              -- The caller supplies opaque UUIDs so it can correlate its one
+              -- test event. The function itself fixes every other value: one
+              -- short-lived synthetic Job, `vocals` only, and a valid v004
+              -- Basic Pitch payload. It does not require an actual MinIO stem:
+              -- this test verifies dispatcher routing only, not a worker read.
+              CREATE OR REPLACE FUNCTION public.clouddsp_generic_dispatcher_smoke_create(
+                p_job_id UUID,
+                p_event_id UUID
+              )
+              RETURNS TABLE (smoke_job_id UUID, smoke_event_id UUID)
+              LANGUAGE plpgsql
+              SECURITY DEFINER
+              SET search_path = pg_catalog, public
+              AS $smoke_create$
+              BEGIN
+                IF p_job_id = p_event_id THEN
+                  RAISE EXCEPTION 'Smoke Job and event identifiers must differ.';
+                END IF;
+
+                -- One advisory lock plus the active-row check limits this test
+                -- identity to one disposable event at a time across retries.
+                PERFORM pg_advisory_xact_lock(842930517);
+                IF EXISTS (
+                  SELECT 1
+                  FROM public.jobs
+                  WHERE owner_sub = 'clouddsp-generic-dispatcher-smoke'
+                    AND expires_at > CURRENT_TIMESTAMP
+                ) THEN
+                  RAISE EXCEPTION 'A generic dispatcher smoke event is already active.';
+                END IF;
+
+                INSERT INTO public.jobs (
+                  job_id,
+                  owner_sub,
+                  source_type,
+                  input_bucket,
+                  input_object_key,
+                  source_filename,
+                  source_content_type,
+                  source_size_bytes,
+                  source_uploaded,
+                  stem_mode,
+                  status,
+                  stems,
+                  expires_at
+                )
+                VALUES (
+                  p_job_id,
+                  'clouddsp-generic-dispatcher-smoke',
+                  'direct_upload',
+                  'clouddsp-uploads',
+                  'uploads/' || p_job_id::text || '/generic-dispatcher-smoke.wav',
+                  'generic-dispatcher-smoke.wav',
+                  'audio/wav',
+                  1,
+                  TRUE,
+                  '2-stems',
+                  'midi_processing',
+                  jsonb_build_object(
+                    'vocals',
+                    jsonb_build_object(
+                      'status', 'ready',
+                      's3_key', 'stems/' || p_job_id::text || '/vocals.wav',
+                      'bucket', 'clouddsp-uploads',
+                      'content_type', 'audio/wav',
+                      'size_bytes', 1,
+                      'sha256', repeat('0', 64)
+                    )
+                  ),
+                  CURRENT_TIMESTAMP + INTERVAL '10 minutes'
+                );
+
+                INSERT INTO public.outbox_events (
+                  event_id,
+                  job_id,
+                  stage,
+                  stem_name,
+                  event_type,
+                  payload
+                )
+                VALUES (
+                  p_event_id,
+                  p_job_id,
+                  'basic-pitch',
+                  'vocals',
+                  'basic-pitch.requested',
+                  jsonb_build_object(
+                    'schema_version', 1,
+                    'job_id', p_job_id::text,
+                    'stem_name', 'vocals',
+                    'stem', jsonb_build_object(
+                      'bucket', 'clouddsp-uploads',
+                      'object_key', 'stems/' || p_job_id::text || '/vocals.wav',
+                      'content_type', 'audio/wav',
+                      'size_bytes', 1,
+                      'sha256', repeat('0', 64)
+                    )
+                  )
+                );
+
+                RETURN QUERY SELECT p_job_id, p_event_id;
+              END;
+              $smoke_create$;
+
+              -- The smoke Job may poll only its own synthetic event's safe
+              -- publication state. A different Job UUID returns no row; no
+              -- payload, object key, user data, or broad outbox listing leaks.
+              CREATE OR REPLACE FUNCTION public.clouddsp_generic_dispatcher_smoke_status(
+                p_job_id UUID
+              )
+              RETURNS TABLE (smoke_event_id UUID, publication_status TEXT)
+              LANGUAGE sql
+              SECURITY DEFINER
+              SET search_path = pg_catalog, public
+              AS $smoke_status$
+                SELECT event.event_id, event.publication_status
+                FROM public.outbox_events AS event
+                JOIN public.jobs AS job ON job.job_id = event.job_id
+                WHERE job.job_id = p_job_id
+                  AND job.owner_sub = 'clouddsp-generic-dispatcher-smoke'
+                  AND job.input_object_key =
+                    'uploads/' || p_job_id::text || '/generic-dispatcher-smoke.wav'
+                  AND event.stage = 'basic-pitch'
+                  AND event.stem_name = 'vocals'
+                  AND event.event_type = 'basic-pitch.requested';
+              $smoke_status$;
+
+              -- Cleanup is intentionally allowed only after dispatcher
+              -- publication. The future smoke Job must first consume/ack the
+              -- controlled RabbitMQ delivery, then call this function. Deleting
+              -- the synthetic Job cascades only its matching outbox row.
+              CREATE OR REPLACE FUNCTION public.clouddsp_generic_dispatcher_smoke_cleanup(
+                p_job_id UUID
+              )
+              RETURNS BOOLEAN
+              LANGUAGE plpgsql
+              SECURITY DEFINER
+              SET search_path = pg_catalog, public
+              AS $smoke_cleanup$
+              DECLARE
+                did_delete BOOLEAN;
+              BEGIN
+                DELETE FROM public.jobs AS job
+                WHERE job.job_id = p_job_id
+                  AND job.owner_sub = 'clouddsp-generic-dispatcher-smoke'
+                  AND job.input_object_key =
+                    'uploads/' || p_job_id::text || '/generic-dispatcher-smoke.wav'
+                  AND EXISTS (
+                    SELECT 1
+                    FROM public.outbox_events AS event
+                    WHERE event.job_id = job.job_id
+                      AND event.stage = 'basic-pitch'
+                      AND event.stem_name = 'vocals'
+                      AND event.event_type = 'basic-pitch.requested'
+                      AND event.publication_status = 'published'
+                  )
+                RETURNING TRUE INTO did_delete;
+                RETURN COALESCE(did_delete, FALSE);
+              END;
+              $smoke_cleanup$;
+
+              -- New functions normally grant EXECUTE to PUBLIC. Remove that
+              -- default every time, then grant only this dedicated smoke role.
+              REVOKE ALL ON FUNCTION public.clouddsp_generic_dispatcher_smoke_create(UUID, UUID) FROM PUBLIC;
+              REVOKE ALL ON FUNCTION public.clouddsp_generic_dispatcher_smoke_status(UUID) FROM PUBLIC;
+              REVOKE ALL ON FUNCTION public.clouddsp_generic_dispatcher_smoke_cleanup(UUID) FROM PUBLIC;
+              GRANT EXECUTE ON FUNCTION public.clouddsp_generic_dispatcher_smoke_create(UUID, UUID)
+                TO :"smoke_db_username";
+              GRANT EXECUTE ON FUNCTION public.clouddsp_generic_dispatcher_smoke_status(UUID)
+                TO :"smoke_db_username";
+              GRANT EXECUTE ON FUNCTION public.clouddsp_generic_dispatcher_smoke_cleanup(UUID)
+                TO :"smoke_db_username";
+              SQL
+
+              # Reconnect as the restricted identity. These checks return only
+              # booleans and prove that the test client has function execution
+              # but no direct Jobs/Outbox SELECT, INSERT, UPDATE, or DELETE.
+              PGDATABASE="$GENERIC_DISPATCHER_SMOKE_DB_NAME" \
+              PGUSER="$GENERIC_DISPATCHER_SMOKE_DB_USERNAME" \
+              PGPASSWORD="$GENERIC_DISPATCHER_SMOKE_DB_PASSWORD" \
+                psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 <<'SQL'
+              SELECT
+                current_database() AS database,
+                current_user AS role,
+                has_table_privilege(current_user, 'public.jobs', 'SELECT') AS can_select_jobs,
+                has_table_privilege(current_user, 'public.jobs', 'INSERT') AS can_insert_jobs,
+                has_table_privilege(current_user, 'public.outbox_events', 'SELECT') AS can_select_outbox,
+                has_table_privilege(current_user, 'public.outbox_events', 'INSERT') AS can_insert_outbox,
+                has_table_privilege(current_user, 'public.outbox_events', 'UPDATE') AS can_update_outbox,
+                has_table_privilege(current_user, 'public.outbox_events', 'DELETE') AS can_delete_outbox,
+                has_function_privilege(
+                  current_user,
+                  'public.clouddsp_generic_dispatcher_smoke_create(uuid,uuid)',
+                  'EXECUTE'
+                ) AS can_create_smoke_event,
+                has_function_privilege(
+                  current_user,
+                  'public.clouddsp_generic_dispatcher_smoke_status(uuid)',
+                  'EXECUTE'
+                ) AS can_read_smoke_status,
+                has_function_privilege(
+                  current_user,
+                  'public.clouddsp_generic_dispatcher_smoke_cleanup(uuid)',
+                  'EXECUTE'
+                ) AS can_cleanup_smoke_event;
+              SQL
+              printf 'Restricted generic-dispatcher smoke PostgreSQL role bootstrap passed\n'

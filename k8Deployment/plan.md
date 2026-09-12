@@ -326,14 +326,370 @@ now pins the new image and makes that command explicit. It uses unique
 controller labels, the existing restricted database/RabbitMQ Secrets, private
 Service DNS, one small replica, and the same non-root/read-only hardening as
 the Demucs-only controller. It does not alter the legacy Deployment and has
-not been applied. During a future short migration overlap, PostgreSQL's current
-lease token remains the authority that prevents two controllers from recording
-the same outbox-event result; a later smoke/rollout task will decide when to
-scale the legacy controller to zero.
+now been applied and verified as one Running zero-restart Pod with the pinned
+digest and explicit generic command. During a future short migration overlap,
+PostgreSQL's current lease token remains the authority that prevents two
+controllers from recording the same outbox-event result; a later smoke/rollout
+task will decide when to scale the legacy controller to zero.
+The next prepared smoke-test boundary is a distinct no-tag RabbitMQ identity,
+`clouddsp-basic-pitch-smoke`, created only by the administrator-only
+[`Basic Pitch smoke-reader bootstrap Job`](kubernetes/services/rabbitmq/rabbitmq-basic-pitch-smoke-consumer-bootstrap-job.yaml).
+Its exact `/clouddsp` vhost permissions deny all configure/write operations and
+allow reads only from `clouddsp.basic-pitch.requests`. The matching permanent
+app-namespace runtime Secret and temporary data-namespace bootstrap Secret are
+documented as ignored templates. This lets a later controlled routing test
+observe one queue delivery without granting the real dispatcher consumption
+rights or giving the test any publication/topology authority. Local copies of
+both Secrets were applied and the bootstrap Job completed successfully: its
+permission output confirms empty configure/write expressions and read access
+only to `clouddsp.basic-pitch.requests`. The permanent app Secret remains for
+the later smoke Job; the temporary data Secret awaits explicit cleanup.
+The matching PostgreSQL smoke identity takes the same least-privilege
+approach: [`generic-dispatcher-smoke-database-bootstrap-job.yaml`](kubernetes/tests/generic-dispatcher-smoke/generic-dispatcher-smoke-database-bootstrap-job.yaml)
+created `clouddsp-generic-dispatcher-smoke` with no table, sequence, or
+schema-create access. Instead, it grants only three security-definer functions
+to create one short-lived synthetic Basic Pitch outbox event, observe only its
+publication state, and delete it only after publication. This allows an end-to-
+end dispatcher routing test without granting a Pod arbitrary durable-work
+insertion or database browsing. Its ignored local app/data Secret copies were
+applied, and the bootstrap Job completed successfully. Its final privilege
+check confirmed no direct `jobs`/`outbox_events` access and execute permission
+only on those three functions. This required the now-applied v004 downstream
+outbox migration; it is recorded in the authoritative migration ledger.
+The new, unit-tested
+[`generic Basic Pitch smoke client`](kubernetes/tests/generic-dispatcher-smoke/client/generic_dispatcher_basic_pitch_smoke.py)
+uses precisely those functions plus the already-restricted Basic Pitch AMQP
+reader identity. It creates one opaque synthetic event, waits for the generic
+dispatcher to record `published`, validates and acknowledges its one exact
+`basic-pitch.requested` delivery, then asks the restricted cleanup function to
+remove the synthetic Job. On a failed delivery it deliberately leaves the
+short-lived event intact for diagnosis instead of deleting unverified work.
+Its adjacent [`requirements.lock`](kubernetes/tests/generic-dispatcher-smoke/client/requirements.lock)
+contains only hash-pinned Pika, Psycopg, Psycopg's binary wheel, and its
+typing helper. The lock was resolved successfully for the planned
+Linux/ARM64 CPython 3.12 image profile. Its
+[`two-stage Dockerfile`](kubernetes/tests/generic-dispatcher-smoke/client/Dockerfile)
+uses the immutable Python 3.12 base, installs that lock and runs the isolated
+tests in a temporary validation stage, then copies only verified packages and
+the one client module into a non-root runtime stage. The built image passed all
+16 tests, was pushed to the local registry, and is locked at
+`clouddsp-registry.localhost:5001/generic-dispatcher-basic-pitch-smoke-client@sha256:886bdb2d29b29a6aa6eee674283c769524e0e51f86b6e310e03e437f25af9eb3`.
+The prepared, unapplied
+[`routing-smoke Job`](kubernetes/tests/generic-dispatcher-smoke/generic-dispatcher-basic-pitch-routing-smoke-job.yaml)
+runs it in `clouddsp-app` with only the already-applied restricted database and
+Basic Pitch reader Secrets. It has no administrator credentials, Kubernetes API
+token, data volume, public route, service, or ingress. Its 60-second client
+wait is bounded by a 180-second Job deadline; a failed synthetic event remains
+for diagnosis rather than being retried automatically.
 The prepared separate RabbitMQ smoke-reader identity has no configure/write
 rights and read access only to `clouddsp.demucs.requests`; it keeps a future
 controlled integration smoke Job from widening the real dispatcher publisher's
 least-privilege boundary. Its templates/bootstrap Job remain unapplied.
+
+### Basic Pitch worker foundation
+
+The first Basic Pitch boundary is the pure, unit-tested
+[`request/output contract`](kubernetes/services/basic-pitch/app/basic_pitch_requested_message.py).
+It accepts only the version-1 persistent `basic-pitch.requested` delivery from
+the processing exchange, for the finite non-drum stem vocabulary `vocals`,
+`no_vocals`, `bass`, `other`, `guitar`, and `piano`. It rejects the ADTOF-only
+`drums` route, foreign broker metadata, duplicate/oversized JSON, an arbitrary
+object key/bucket, invalid byte/checksum evidence, and any unexpected field.
+Each accepted input maps only to the cloud-compatible private coordinate
+`midi/{job_id}/{stem_name}.mid`; it does not access MinIO, run ML, create an
+image, claim/complete a PostgreSQL task, or acknowledge RabbitMQ. Those
+responsibilities remain separate focused tasks so at-least-once delivery cannot
+be mistaken for authority to process arbitrary private audio.
+The immutable, now-applied
+[`v005 Basic Pitch processing-task migration`](kubernetes/services/api/job-api-schema-migration-v005-basic-pitch-processing-tasks-configmap.yaml)
+was the database-only prerequisite. It required the applied v003 task and v004
+downstream-outbox migrations, then replaced only v003's three Demucs-only
+checks with one atomic stage/stem/private-input-key constraint. Demucs retains
+its canonical job-wide `uploads/{job-id}/...` source coordinate; Basic Pitch
+can use only a finite non-drum stem name and
+`stems/{job-id}/{stem}.wav`. The existing primary/request-event uniqueness,
+`(job_id, stage, stem_name)` idempotency, retry/lease indexes, status/lease
+checks, timestamp trigger, and historical rows remain unchanged. Its separate
+one-shot Job used only the existing app-namespace Job API schema-owner Secret
+and had no Kubernetes token or RabbitMQ/MinIO/Keycloak credentials. It
+completed successfully and recorded `v005_basic_pitch_processing_tasks` in the
+authoritative ledger.
+
+The completed
+[`Basic Pitch PostgreSQL bootstrap Job`](kubernetes/services/basic-pitch/basic-pitch-database-bootstrap-job.yaml)
+created the distinct `clouddsp-basic-pitch` login using a short-lived
+`clouddsp-data` administrator Secret. Its permanent `clouddsp-app` credential
+can create and lifecycle-manage a processing task and read the limited Job and
+outbox fields needed to compare a durable request. It cannot read owners or
+source coordinates, update Jobs, write/lease/publish outbox events, delete
+records, or run DDL. The completed grant report confirmed both the intended
+access and those denials; its temporary data-namespace Secret was then deleted.
+
+The applied immutable
+[`Basic Pitch MinIO policy`](kubernetes/services/minio/minio-basic-pitch-artifacts-policy-v001-configmap.yaml)
+and completed
+[`MinIO artifacts bootstrap Job`](kubernetes/services/minio/minio-basic-pitch-artifacts-bootstrap-job.yaml)
+created and restricted a separate `clouddsp-basic-pitch` identity. It can read
+only `stems/*` and can upload/verify multipart-safe `midi/*` objects; it cannot
+list or delete objects, access `uploads/*`, administer MinIO, or issue browser
+presigned URLs. The bootstrap's temporary root credential Secret was deleted;
+only the permanent app-namespace runtime Secret remains.
+
+The completed
+[`RabbitMQ consumer bootstrap Job`](kubernetes/services/rabbitmq/rabbitmq-basic-pitch-consumer-bootstrap-job.yaml)
+created an independent untagged `clouddsp-basic-pitch` broker user. In the
+`/clouddsp` vhost it has empty configure/write permissions and read access only
+to `clouddsp.basic-pitch.requests`; it cannot alter topology, publish, read a
+retry/DLQ queue, or use the management API. Its temporary data-namespace
+bootstrap Secret was deleted, while the permanent app-namespace runtime Secret
+remains.
+
+The completed
+[`Basic Pitch AMQP connection boundary`](kubernetes/services/basic-pitch/app/amqp_connection.py)
+now accepts only that restricted runtime identity and the private RabbitMQ
+ClusterIP AMQP listener at
+`clouddsp-rabbitmq.clouddsp-data.svc:5672`, vhost `/clouddsp`, and the fixed
+`clouddsp.basic-pitch.requests` queue. It rejects endpoint/management-port/
+vhost/queue/identity widening from the environment and direct dataclass use,
+hides the password, bounds connection attempts/timeouts/heartbeats, and lazily
+imports Pika. The local profile has a plain private AMQP listener rather than
+an AMQPS listener, so the reviewed configuration deliberately passes no TLS
+option. Opening the connection creates no channel, queue action, delivery,
+acknowledgement, MinIO call, model process, or Kubernetes change.
+
+The completed
+[`Basic Pitch AMQP passive-channel boundary`](kubernetes/services/basic-pitch/app/amqp_channel.py)
+now sets `prefetch_count=1` and uses only a passive declaration for
+`clouddsp.basic-pitch.requests`. This bounds one CPU worker to one
+unacknowledged candidate at a time and verifies the topology bootstrap's queue
+without letting the restricted identity create, bind, delete, or alter it. A
+Pika channel/topology failure becomes one safe retryable category; the boundary
+still receives no delivery, acknowledges/retries nothing, and calls no
+PostgreSQL, MinIO, model, or Kubernetes API.
+
+The new pure
+[`Basic Pitch MinIO client boundary`](kubernetes/services/basic-pitch/app/minio_client.py)
+reads only the permanent restricted S3 Secret and fixed future-Pod values for
+the private MinIO ClusterIP Service, `clouddsp-uploads`, `us-east-1`, and
+path-style addressing. Its lazy Boto3 factory supplies those credentials
+directly with bounded timeouts/retries, so it does not use ambient AWS
+providers, host profiles, an Ingress route, or any network call during
+configuration. It deliberately does not read an object; the next isolated
+task is a claim-bound `HeadObject` verifier that compares the exact stem's
+MinIO metadata with the already-validated request and durable lease.
+
+The completed pure
+[`Basic Pitch stem HeadObject verifier`](kubernetes/services/basic-pitch/app/stem_object.py)
+now makes exactly that one metadata-only MinIO request after revalidating both
+the task lease and the persistent delivery identity. It accepts only the
+claimed `stems/{job_id}/{stem_name}.wav` key and compares its current WAV
+content type, byte length, and complete versioned Demucs metadata—job, stem,
+mode, size, and SHA-256—with the durable evidence. Missing input is bounded
+permanent history; MinIO/client outages remain retryable; malformed metadata
+is a safe protocol failure. It does not download bytes, alter task state,
+acknowledge RabbitMQ, invoke the model, or persist MIDI. A later isolated
+streaming-download adapter must compare the actual bytes with this evidence.
+
+The completed pure
+[`Basic Pitch stem download adapter`](kubernetes/services/basic-pitch/app/stem_download.py)
+now makes one matching `GetObject` request only after revalidating the
+HeadObject evidence. It bounds a single stem to 256 MiB, compares GetObject's
+current type/length headers, hashes the streaming bytes in 64 KiB chunks, and
+yields a generic `stem.wav` only while its private random scratch child exists.
+Every success/failure/exception path removes that child. The next separate
+task is a PostgreSQL lease-token-guarded `leased → running` transition; model
+execution must not begin on an expired or superseded task lease.
+
+The completed pure
+[`Basic Pitch task-start adapter`](kubernetes/services/basic-pitch/app/task_lease.py)
+now makes that one parameterized `leased → running` statement. It binds the
+task/Job/stage/stem/token identity and requires `lease_expires_at` to be later
+than PostgreSQL's current time; zero returned rows are a normal stale-owner
+stop signal. It preserves the first start timestamp across recovery attempts,
+and has no database connection, transaction, MinIO, model, RabbitMQ, or
+Kubernetes responsibility. A later isolated PostgreSQL composition task must
+commit this decision before a Basic Pitch process may begin.
+
+The completed restricted
+[`Basic Pitch PostgreSQL client`](kubernetes/services/basic-pitch/app/postgresql.py)
+now provides that short dictionary-row transaction scope. It accepts only the
+private PostgreSQL Service/port, the authoritative job database, and the
+existing least-privilege Basic Pitch login, while hiding the mounted password
+from normal representations. The lazy Psycopg import, three-second connect
+timeout, and five-second server-side statement timeout bound the dependency;
+normal context exit commits and exceptions roll back. It does not claim/start a
+task, contact MinIO/RabbitMQ, run Basic Pitch, or create a Kubernetes resource.
+The next isolated composition task will commit the guarded start decision
+before exposing downloaded-stem evidence to a future model runner.
+
+The completed
+[`Basic Pitch verified-stem task-start composition`](kubernetes/services/basic-pitch/app/stem_task_start.py)
+now preserves that boundary in one context manager. It downloads/hashes the
+exact claimed stem while the task is `leased`, commits the same-token guarded
+start statement in the restricted short PostgreSQL transaction, and yields the
+generic temporary WAV only after the commit. Ownership loss removes the local
+stem before yielding `None`; database/protocol exceptions propagate only after
+the download scope cleans up. It does not invoke Basic Pitch, upload MIDI,
+acknowledge RabbitMQ, renew a lease, or mutate a result.
+
+The completed
+[`Basic Pitch process adapter`](kubernetes/services/basic-pitch/app/basic_pitch_process.py)
+now creates one fresh mode-0700 local output directory beside the verified
+temporary stem and runs only the fixed shell-free Basic Pitch CLI. It supplies
+no stdin, retains no child output, starts a private process group, and bounds
+the CPU execution to five minutes by default (ten minutes maximum). A zero exit
+returns only the deterministic local `stem_basic_pitch.mid` plan. It does not
+call MinIO/PostgreSQL/RabbitMQ or update Kubernetes state.
+
+The completed
+[`Basic Pitch MIDI artifact verifier`](kubernetes/services/basic-pitch/app/midi_artifact.py)
+now revalidates that exact fixed command/output coordinate, opens only a
+non-symlink regular local MIDI file, limits it to 16 MiB, and verifies its
+Standard MIDI File header plus exact declared track-chunk layout while streaming
+a SHA-256 digest in 64 KiB pieces. Its MIME type, byte count, and checksum are
+only temporary local evidence; it does not upload an object, update PostgreSQL,
+acknowledge RabbitMQ, or create/update Kubernetes state.
+
+The completed
+[`Basic Pitch MIDI output-object contract`](kubernetes/services/basic-pitch/app/midi_output_object.py)
+now joins the revalidated local MIDI evidence with the matching durable request
+and task-lease identity. It maps the result only to the stable private
+`midi/{job_id}/{stem_name}.mid` coordinate and attaches immutable provenance:
+schema/producer, Job/task/request IDs, stem/mode, MIDI size/SHA-256, and input
+stem SHA-256. It repeats the local MIDI verification to reject an old proof of
+a same-size byte replacement. It does not call MinIO, mutate PostgreSQL,
+acknowledge RabbitMQ, or create/update Kubernetes state.
+
+The completed
+[`Basic Pitch MIDI MinIO uploader`](kubernetes/services/basic-pitch/app/midi_artifact_upload.py)
+now revalidates the fixed private object plan and all provenance metadata,
+repeats local MIDI framing/hash proof, hashes the current file before upload,
+and streams it through exactly one private `PutObject` request while calculating
+a second digest. It returns a receipt only if the S3-compatible client consumed
+the planned byte count and SHA-256, never trusting a raw ETag. It does not
+mutate PostgreSQL, acknowledge RabbitMQ, or create/update Kubernetes state.
+
+The completed
+[`Basic Pitch stored-MIDI verifier`](kubernetes/services/basic-pitch/app/midi_artifact_head_object.py)
+now makes one private `HeadObject` request for the fixed upload receipt key and
+requires MinIO's current byte count, `audio/midi` type, and complete normalized
+provenance metadata to agree with the immutable output plan. Definite absence,
+size/type/metadata mismatch use bounded result codes; an unavailable MinIO
+dependency remains retryable. It returns only bucket/key/size/SHA-256 evidence
+and does not read MIDI bytes, mutate PostgreSQL, acknowledge RabbitMQ, or
+create/update Kubernetes state.
+
+The completed
+[`Basic Pitch task-completion SQL adapter`](kubernetes/services/basic-pitch/app/midi_task_completion.py)
+now validates that stored MIDI proof against the exact leased Job/stem output
+coordinate and issues one parameterized `running → succeeded` statement. The
+predicate binds task/Job/stem/input/mode/lease token and PostgreSQL's current
+time, so expiry, recovery, deletion, another terminal transition, or a changed
+coordinate produce a normal no-row ownership-loss result. Success clears active
+lease fields and records PostgreSQL's completion time for only that per-stem
+task; it intentionally does not alter the overall `midi_processing` Job.
+It opens no transaction/connection and does not acknowledge RabbitMQ, touch
+MinIO, invoke Basic Pitch, or create/update Kubernetes state.
+
+The completed
+[`Basic Pitch completion transaction composition`](kubernetes/services/basic-pitch/app/midi_task_completion_commit.py)
+now supplies that restricted short PostgreSQL scope. It calls the pure
+lease-token-guarded completion statement only after all CPU and MinIO work has
+finished, and exposes a non-`None` completion only after normal context exit
+commits. A no-row stale-owner result commits no mutation; any database or
+evidence exception rolls back. It does not call MinIO/RabbitMQ/Basic Pitch,
+update the overall Job, or create/update Kubernetes state. The next isolated
+task was the post-claim execution coordinator.
+
+The completed
+[`Basic Pitch post-claim execution coordinator`](kubernetes/services/basic-pitch/app/basic_pitch_task_execution.py)
+now joins the already-reviewed runtime boundaries in their only permitted
+order, but receives no AMQP frame and owns no RabbitMQ acknowledgement. After
+a future parser/first-claim layer has committed and acknowledged a `claimed`
+lease, it verifies the exact private stem, uses the temporary stem scope to
+commit `leased → running`, runs and validates the fixed Basic Pitch command,
+plans/uploads/HeadObject-verifies MIDI, and commits the per-task completion.
+The short PostgreSQL transactions remain outside MinIO and CPU work; a normal
+lease loss stops the sequence, while dependency/process errors propagate for a
+future retry/recovery supervisor.
+
+The first pure
+[`Basic Pitch task-claim adapter`](kubernetes/services/basic-pitch/app/task_lease.py)
+now defines the narrow transaction that converts one already-parsed delivery
+into a durable per-stem lease. It locks the exact task, locks the Job, repeats
+the task lookup to close a concurrent first-claim race, then checks the
+retained `midi_processing` Job/stem-mode coordinate and all durable outbox
+payload evidence before inserting a PostgreSQL-clocked `leased` row. A matching
+existing task is a read-only duplicate; missing, expired, or terminal Jobs are
+safe stale history; a disagreement raises rather than being acknowledged. It
+makes no PostgreSQL connection, RabbitMQ acknowledgement, MinIO call, model
+invocation, image, or Kubernetes action. Start/renew/recovery, object
+verification, model execution, output evidence, and completion remain separate
+follow-up tasks.
+
+The completed
+[`Basic Pitch first-claim transaction composition`](kubernetes/services/basic-pitch/app/first_claim.py)
+now supplies the adapter's one restricted, short PostgreSQL `write_cursor()`
+scope. It exposes the pure `claimed`, duplicate, or stale result only after a
+normal transaction commit, so a future broker layer can make its manual
+acknowledgement decision afterwards. Durable inconsistency, malformed evidence,
+or a database outage instead leaves the context exceptionally and rolls back;
+the delivery is not accidentally made safe. The composition has no AMQP frame,
+delivery tag, MinIO/model call, retry loop, or Kubernetes behavior. The next
+isolated task is the parser-plus-first-claim bridge described below, before an
+acknowledgement adapter or consumer loop is introduced.
+
+The completed
+[`Basic Pitch delivery-claim bridge`](kubernetes/services/basic-pitch/app/delivery_claim.py)
+now parses exactly one raw `basic-pitch.requested` envelope/properties/body
+contract before it calls the committed first-claim composition. It returns only
+the parsed request identifiers and PostgreSQL's `claimed`, duplicate, or stale
+result—no raw body, AMQP properties, delivery tag, broker client, cursor, or
+credentials. A malformed request cannot touch PostgreSQL, while a database
+outage propagates without any transport action. This boundary imports no Pika,
+acknowledges/retries nothing, and calls no MinIO/model/Kubernetes component.
+
+The completed
+[`Basic Pitch manual-ack AMQP adapter`](kubernetes/services/basic-pitch/app/amqp_manual_ack.py)
+now reads at most one `basic_get(..., auto_ack=False)` delivery from the fixed
+private queue. It calls the bridge, then acknowledges only a committed new
+lease, duplicate, or stale result; an `ACKNOWLEDGED_LEASE` result is the sole
+normal result that carries execution authority and its same parser-validated
+message. A permanent malformed contract is nacked without requeue to the
+topology-configured DLQ. Database/durable-identity/claim-shape errors and
+failed receive/ack/nack actions do not become a successful broker decision,
+preserving at-least-once redelivery. This Pika-shaped adapter starts no loop
+and calls no MinIO/model/Kubernetes component.
+
+The completed
+[`Basic Pitch acknowledged-lease execution gate`](kubernetes/services/basic-pitch/app/acknowledged_lease_execution.py)
+now invokes the existing post-claim coordinator only when the manual-ack
+adapter produced `ACKNOWLEDGED_LEASE` with both the committed lease and strict
+request message. All idle/no-work/DLQ outcomes stop before MinIO or CPU work;
+coordinator exceptions propagate without any second acknowledgement decision.
+The gate accepts no channel/delivery tag, opens no transaction itself, and
+creates no Kubernetes state.
+
+The completed
+[`Basic Pitch single worker iteration`](kubernetes/services/basic-pitch/app/receive_execute_once.py)
+now joins exactly one manual-ack receive decision with the post-ack execution
+gate. It returns only `idle`, acknowledged-no-work, malformed-rejected, or an
+executed coordinator result; only the acknowledged lease path reaches MinIO/
+CPU work. Receive/acknowledgement/database/storage/model errors remain
+exceptions, preserving a future supervisor's ability to reconnect and retry
+without inventing a successful result. It deliberately has no loop, sleep,
+connection lifecycle, recovery scan, image entrypoint, or Kubernetes behavior.
+The completed pure
+[`Basic Pitch supervisor backoff policy`](kubernetes/services/basic-pitch/app/supervisor_backoff.py)
+now maps only explicit runtime events to a next action: ordinary progress
+continues immediately, an empty broker poll waits one second, a retryable
+failure follows a bounded `1, 2, 4, 8, 16, 30`-second exponential sequence
+with up to 25% supplied jitter, and fatal configuration exits. It retains only
+a capped local retry-failure count and resets it on any normal iteration. It
+contains no sleep, random-number source, error classification, connection,
+worker loop, image, Deployment, or cluster behavior. The next isolated task is
+to classify real Basic Pitch worker failures and connect this policy to an
+interruptible long-running runtime.
 The prepared dispatcher-smoke client source now separately verifies only a
 controlled durable `published` event and its exact persistent AMQP delivery.
 Its adjacent unit-tested normal-path orchestrator obtains the event through a

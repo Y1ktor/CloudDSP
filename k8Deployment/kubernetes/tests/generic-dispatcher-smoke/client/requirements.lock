@@ -1,0 +1,21 @@
+# Hash-enforced runtime dependencies for the restricted generic-dispatcher
+# Basic Pitch routing smoke client. It needs only PostgreSQL function calls and
+# one read/ack RabbitMQ connection. It deliberately excludes Boto3, a MinIO
+# client, a Keycloak client, web frameworks, audio/ML packages, GPU libraries,
+# and the Kubernetes client because this test must not perform those roles.
+#
+# The binary Psycopg wheel hash is reviewed for the later CPython 3.12
+# Linux/ARM64 k3d image. A native Linux/amd64 image would need its own reviewed
+# wheel hash; do not remove `--require-hashes` to make another platform work.
+pika==1.4.4 \
+    --hash=sha256:48de960c97a93b55db06b8be4c53eb977c9c8a2754c57cdae9097abcbd70ce04
+psycopg==3.2.13 \
+    --hash=sha256:a481374514f2da627157f767a9336705ebefe93ea7a0522a6cbacba165da179a
+# `psycopg-binary` supplies the matching prebuilt libpq layer, so the later
+# non-root slim image needs neither a compiler nor PostgreSQL system headers.
+psycopg-binary==3.2.13 \
+    --hash=sha256:082579f2ae41bdabe20c82810810f3e290ac2206cccf0cb41cf36b3218f53b3c
+# Psycopg's required typing helper is pinned independently so pip validates its
+# contents too instead of resolving a mutable transitive version at image build.
+typing-extensions==4.16.0 \
+    --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8

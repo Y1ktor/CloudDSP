@@ -200,6 +200,35 @@ images:
     localDockerSize: "65.06 MiB"
     pushedAt: "2026-09-08"
 
+  generic-dispatcher-basic-pitch-smoke-client:
+    # This disposable Job image proves the post-Demucs Basic Pitch route only:
+    # one restricted PostgreSQL function-created event -> generic dispatcher ->
+    # one exact persistent AMQP delivery. It is not the normal-upload/Demucs
+    # smoke image, a Basic Pitch worker, or a long-running Deployment. The
+    # readable tag is provenance only; a future Job must use this digest.
+    repository: clouddsp-registry.localhost:5001/generic-dispatcher-basic-pitch-smoke-client
+    sourceTag: "0.1.0-restricted-routing"
+    digest: sha256:886bdb2d29b29a6aa6eee674283c769524e0e51f86b6e310e03e437f25af9eb3
+    immutableReference: clouddsp-registry.localhost:5001/generic-dispatcher-basic-pitch-smoke-client@sha256:886bdb2d29b29a6aa6eee674283c769524e0e51f86b6e310e03e437f25af9eb3
+    supportedPlatforms:
+      - linux/arm64/v8
+    builtFrom:
+      # This digest identifies local-registry image bytes while the teaching
+      # work remains uncommitted. Runtime Secrets and synthetic event IDs are
+      # neither Docker build inputs nor layers in this image.
+      sourceRevision: local-kubernetes-working-tree
+      sourceDirectory: kubernetes/tests/generic-dispatcher-smoke/client
+      dockerfile: kubernetes/tests/generic-dispatcher-smoke/client/Dockerfile
+      requirementsLock: kubernetes/tests/generic-dispatcher-smoke/client/requirements.lock
+      clientTests: kubernetes/tests/generic-dispatcher-smoke/client/test_generic_dispatcher_basic_pitch_smoke.py
+      runtimeImageLock: images.api-python-runtime
+      sourceLock: buildSources.generic-dispatcher-basic-pitch-smoke-client
+    # Docker reports the uncompressed local layer size, not the registry
+    # manifest size printed by `docker push`.
+    localDockerSizeBytes: 50978732
+    localDockerSize: "48.62 MiB"
+    pushedAt: "2026-09-11"
+
   frontend:
     # This browser image embeds the reviewed public Job API and private-MinIO
     # browser origins alongside local OIDC configuration. The readable tag
@@ -717,6 +746,34 @@ buildSources:
     verifierTests: kubernetes/tests/dispatcher-smoke/client/test_dispatcher_smoke_client.py
     orchestratorTests: kubernetes/tests/dispatcher-smoke/client/test_dispatcher_smoke_orchestrator.py
     resolvedAt: "2026-09-08"
+
+  generic-dispatcher-basic-pitch-smoke-client:
+    # This separate source lock describes the narrow v004 routing verifier. It
+    # can create/observe/cleanup only its synthetic event through three
+    # PostgreSQL functions and read/ack only the Basic Pitch request queue.
+    # It is not the older normal-upload/Demucs smoke client, a worker, or an
+    # application Deployment. The matching image entry below `images` records
+    # the explicit local build/push digest; no Kubernetes Job may use its tag.
+    baseImageLock: images.api-python-runtime
+    sourceDirectory: kubernetes/tests/generic-dispatcher-smoke/client
+    dockerfile: kubernetes/tests/generic-dispatcher-smoke/client/Dockerfile
+    requirementsLock: kubernetes/tests/generic-dispatcher-smoke/client/requirements.lock
+    intendedRepository: clouddsp-registry.localhost:5001/generic-dispatcher-basic-pitch-smoke-client
+    publishedImageLock: images.generic-dispatcher-basic-pitch-smoke-client
+    targetPlatform: linux/arm64
+    directPythonPackages:
+      - name: psycopg
+        version: "3.2.13"
+        installationExtra: binary
+        binaryPackage: psycopg-binary
+        # Executes only the three reviewed restricted smoke functions.
+        upstream: https://www.psycopg.org/psycopg3/docs/basic/install.html
+      - name: pika
+        version: "1.4.4"
+        # Reads and acknowledges only the fixed Basic Pitch request queue.
+        upstream: https://pypi.org/project/pika/1.4.4/
+    clientTests: kubernetes/tests/generic-dispatcher-smoke/client/test_generic_dispatcher_basic_pitch_smoke.py
+    resolvedAt: "2026-09-11"
 
   rabbitmq-amqp-smoke-client:
     # This source lock makes the test image reproducible without installing

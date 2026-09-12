@@ -441,7 +441,90 @@ overlap is safe because both controllers use the same PostgreSQL lease and
 lease-token-guarded completion protocol; they may race to *claim* a Demucs row
 but only one current lease holder can record its result. After a smoke test, a
 separate rollout task can scale the legacy controller to zero. This new
-manifest has been prepared only and has not been applied.
+manifest is now applied: its one replica was verified Running with zero
+restarts, the pinned image digest, and the explicit generic runtime command.
+
+## Prepared Basic Pitch routing-smoke identity
+
+A future generic-dispatcher smoke Job must observe one controlled
+`basic-pitch.requested` delivery without giving either the real dispatcher or
+the test Job broad RabbitMQ access. The prepared
+[`Basic Pitch smoke-reader bootstrap Job`](../rabbitmq/rabbitmq-basic-pitch-smoke-consumer-bootstrap-job.yaml)
+therefore creates the no-tag `clouddsp-basic-pitch-smoke` user with exactly:
+
+| Permission | Regular expression | Effect |
+| --- | --- | --- |
+| Configure | `^$` | Cannot create, bind, delete, or alter RabbitMQ resources. |
+| Write | `^$` | Cannot publish an event, retry, or dead-letter message. |
+| Read | `^clouddsp\.basic-pitch\.requests$` | Can consume and acknowledge only the Basic Pitch request queue. |
+
+The later app-namespace smoke Job uses the
+[`runtime Secret template`](../../tests/generic-dispatcher-smoke/basic-pitch-smoke-rabbitmq-credentials.secret.example.yaml).
+The bootstrap Job temporarily needs the matching ignored
+[`data-namespace Secret template`](../rabbitmq/rabbitmq-basic-pitch-smoke-bootstrap-credentials.secret.example.yaml),
+because Secrets cannot cross namespaces. The templates contain no real
+password; local copies were applied, and the bootstrap Job completed with the
+expected `^$` configure, exact Basic Pitch read, and `^$` write permissions.
+The permanent app-namespace test Secret remains for the later smoke Job. The
+temporary data-namespace bootstrap Secret remains only until its cleanup is
+explicitly approved.
+
+## Prepared restricted PostgreSQL routing-smoke identity
+
+The RabbitMQ reader proves the final queue delivery, but a routing smoke test
+also needs one legal, disposable downstream outbox row for the live generic
+dispatcher to publish. Giving that test Pod raw `jobs` or `outbox_events`
+table privileges would let it create arbitrary work. The prepared
+[`PostgreSQL bootstrap Job`](../../tests/generic-dispatcher-smoke/generic-dispatcher-smoke-database-bootstrap-job.yaml)
+instead creates the no-inherit `clouddsp-generic-dispatcher-smoke` role with no
+table, sequence, or schema-create privilege. It may execute only these
+security-definer functions:
+
+| Function | Narrow capability |
+| --- | --- |
+| `clouddsp_generic_dispatcher_smoke_create(job_id, event_id)` | Creates one short-lived synthetic Job and its valid `basic-pitch`/`vocals` outbox event. |
+| `clouddsp_generic_dispatcher_smoke_status(job_id)` | Reads only that synthetic event's non-sensitive publication state. |
+| `clouddsp_generic_dispatcher_smoke_cleanup(job_id)` | Deletes that synthetic Job only after the event is published; its outbox row then cascades. |
+
+The synthetic payload follows the normal private-WAV contract but intentionally
+does not require a real MinIO object, because this test proves dispatcher
+routing—not Basic Pitch object retrieval. Its permanent app-namespace and
+temporary data-namespace Secret templates are adjacent to the Job. Their
+ignored local copies were applied after the v004 downstream-outbox migration,
+and the bootstrap Job completed: its privilege report confirms the role has no
+direct `jobs`/`outbox_events` access and execute permission only on the three
+functions above.
+
+The unit-tested
+[`generic Basic Pitch smoke client`](../../tests/generic-dispatcher-smoke/client/generic_dispatcher_basic_pitch_smoke.py)
+is the next narrow layer above those identities. It creates one opaque
+synthetic event through `create`, waits through `status` until the generic
+dispatcher records `published`, verifies/acknowledges one exact persistent
+`basic-pitch.requested` delivery, then calls `cleanup`. It has no direct SQL
+statement against application tables, no RabbitMQ publish/configure operation,
+no MinIO client, no Keycloak credential, and no Kubernetes API access. If a
+foreign delivery appears it requeues it and fails; if verification fails it
+does not request cleanup, leaving the 10-minute synthetic record as bounded
+diagnostic evidence.
+
+Its adjacent
+[`requirements.lock`](../../tests/generic-dispatcher-smoke/client/requirements.lock)
+pins only the Pika reader, Psycopg/binary PostgreSQL client, and Psycopg's
+typing helper with SHA-256 hashes. It was resolved with `--require-hashes` for
+the local Linux/ARM64 CPython 3.12 profile. Its adjacent
+[`Dockerfile`](../../tests/generic-dispatcher-smoke/client/Dockerfile): a
+temporary validation stage installs the lock and runs the isolated tests, while
+the final stage copies only verified packages and the one client module under a
+numeric non-root account. The local Linux/ARM64 build passed all 16 tests and
+is pushed under this immutable reference:
+`clouddsp-registry.localhost:5001/generic-dispatcher-basic-pitch-smoke-client@sha256:886bdb2d29b29a6aa6eee674283c769524e0e51f86b6e310e03e437f25af9eb3`.
+The prepared, unapplied
+[`one-shot Job`](../../tests/generic-dispatcher-smoke/generic-dispatcher-basic-pitch-routing-smoke-job.yaml)
+uses that digest in `clouddsp-app`, mounts only the two restricted app-namespace
+Secrets, disables the ServiceAccount token, and runs as the image's non-root
+UID/GID `10002`. It creates no Service, Ingress, PVC, or Kubernetes API client.
+Its `backoffLimit: 0` preserves a failed synthetic event for inspection instead
+of rerunning automatically against an active 10-minute test record.
 
 ## Prepared smoke-test RabbitMQ identity
 

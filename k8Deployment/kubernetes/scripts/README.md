@@ -178,6 +178,21 @@ registry and prints an immutable digest and local image size. It does not
 create a Kubernetes Job, Keycloak identity, MinIO object, RabbitMQ delivery, or
 PostgreSQL record.
 
+## Build the generic dispatcher Basic Pitch smoke-client image
+
+```bash
+./k8Deployment/kubernetes/scripts/build-generic-dispatcher-basic-pitch-smoke-client-image.sh
+```
+
+This builds the separate, restricted v004 Basic Pitch routing verifier for
+`linux/arm64`. Its validation stage installs only hash-locked Psycopg/Pika
+dependencies and runs its 16 isolated tests. The non-root runtime image can
+call only its three PostgreSQL smoke functions and read/ack its exact Basic
+Pitch queue once a later Job supplies the already-applied Secrets. The script
+pushes it to the local registry and prints the immutable digest that is
+recorded in `images.lock.yaml`; it does not create a Job, synthetic event,
+RabbitMQ delivery, or other cluster workload.
+
 ## Smoke-test the local Job API image
 
 ```bash

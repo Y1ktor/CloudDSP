@@ -1,0 +1,123 @@
+# This one-shot Job proves only the downstream Basic Pitch routing boundary:
+#
+#   restricted PostgreSQL functions -> generic dispatcher -> RabbitMQ queue
+#
+# It deliberately does not run Demucs/Basic Pitch, upload an object, call
+# Keycloak/MinIO/Kubernetes, or use any administrator credential. The Job may
+# be started only while ordinary Basic Pitch work is absent: its reader safely
+# requeues an unexpected delivery, but the test should never touch normal work.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: generic-dispatcher-basic-pitch-routing-smoke
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: generic-dispatcher-basic-pitch-routing-smoke
+    app.kubernetes.io/component: integration-test
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: restricted-generic-dispatcher-basic-pitch-routing-verification
+spec:
+  # Leave the completed Pod briefly so its safe progress output can be read,
+  # then let Kubernetes' TTL controller remove this disposable test evidence.
+  ttlSecondsAfterFinished: 600
+  # The client manages one bounded sequence and leaves a failed synthetic event
+  # intact for diagnosis. Retrying this Pod automatically could collide with
+  # that still-active event, so an operator must inspect before rerunning it.
+  backoffLimit: 0
+  # The client uses a maximum 60-second publication/delivery wait. This larger
+  # deadline includes image start-up and private Service connection time while
+  # preventing a failed integration test from holding resources indefinitely.
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: generic-dispatcher-basic-pitch-routing-smoke
+        app.kubernetes.io/component: integration-test
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      terminationGracePeriodSeconds: 10
+      # This Pod never calls the Kubernetes API. Avoid mounting the default
+      # ServiceAccount token so a compromised test dependency has no API token.
+      automountServiceAccountToken: false
+      securityContext:
+        # These numeric IDs match the explicit non-root account in the pinned
+        # image. No volume needs ownership changes because this Job has no data
+        # volume and the container root filesystem is read-only.
+        runAsNonRoot: true
+        runAsUser: 10002
+        runAsGroup: 10002
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: routing-smoke-client
+          # A digest identifies exact registry content. The readable source tag
+          # is intentionally absent so a registry retag cannot change this Job.
+          image: clouddsp-registry.localhost:5001/generic-dispatcher-basic-pitch-smoke-client@sha256:886bdb2d29b29a6aa6eee674283c769524e0e51f86b6e310e03e437f25af9eb3
+          imagePullPolicy: IfNotPresent
+          env:
+            # Both destinations are internal Kubernetes Service DNS names. The
+            # client rejects localhost-style values, so it cannot accidentally
+            # test a Mac host port or a public endpoint.
+            - name: GENERIC_DISPATCHER_SMOKE_DB_HOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: GENERIC_DISPATCHER_SMOKE_DB_PORT
+              value: "5432"
+            - name: BASIC_PITCH_SMOKE_AMQP_HOST
+              value: clouddsp-rabbitmq.clouddsp-data.svc
+            - name: BASIC_PITCH_SMOKE_AMQP_PORT
+              value: "5672"
+            # This controls both bounded poll phases in the client. It remains
+            # lower than the Job deadline so Kubernetes can clean up a hung Pod.
+            - name: GENERIC_DISPATCHER_SMOKE_TIMEOUT_SECONDS
+              value: "60"
+            # This permanent app-namespace identity has no direct Jobs/Outbox
+            # table privilege—only the three reviewed SECURITY DEFINER functions.
+            - name: GENERIC_DISPATCHER_SMOKE_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-generic-dispatcher-smoke-database-credentials
+                  key: GENERIC_DISPATCHER_SMOKE_DB_NAME
+            - name: GENERIC_DISPATCHER_SMOKE_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-generic-dispatcher-smoke-database-credentials
+                  key: GENERIC_DISPATCHER_SMOKE_DB_USERNAME
+            - name: GENERIC_DISPATCHER_SMOKE_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-generic-dispatcher-smoke-database-credentials
+                  key: GENERIC_DISPATCHER_SMOKE_DB_PASSWORD
+            # This separate no-tag RabbitMQ user has no configure/write regex
+            # permission. It can read and acknowledge only the Basic Pitch queue.
+            - name: RABBITMQ_BASIC_PITCH_SMOKE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-smoke-rabbitmq-credentials
+                  key: RABBITMQ_BASIC_PITCH_SMOKE_USERNAME
+            - name: RABBITMQ_BASIC_PITCH_SMOKE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-smoke-rabbitmq-credentials
+                  key: RABBITMQ_BASIC_PITCH_SMOKE_PASSWORD
+          resources:
+            # This is a short API/queue verifier, not an audio-processing
+            # workload. Tight requests/limits make it schedulable beside the
+            # workers without implying GPU, CPU-ML, or storage capacity.
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 200m
+              memory: 192Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL

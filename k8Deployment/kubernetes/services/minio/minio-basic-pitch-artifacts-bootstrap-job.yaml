@@ -1,0 +1,366 @@
+# This one-shot administrator Job creates/rotates the future Basic Pitch S3 key
+# pair and attaches the reviewed stem-read/MIDI-write policy:
+#
+#   bootstrap Job Pod -> MinIO ClusterIP Service -> MinIO StatefulSet
+#   future Basic Pitch Pod -> MinIO ClusterIP Service -> private objects only
+#
+# It does not run Basic Pitch, create a worker Deployment/ServiceAccount, touch
+# PostgreSQL/RabbitMQ, create a bucket, issue browser URLs, or call the
+# Kubernetes API. Only this short-lived Pod mounts MinIO root credentials; the
+# future worker receives only its own restricted S3 key pair.
+#
+# Apply separately and in this order: the immutable policy ConfigMap, then
+# this Job. The `clouddsp-uploads` bucket, root Secret, and temporary bootstrap
+# Secret must already exist. Delete a completed Job before a deliberate key
+# rotation or policy repair because applying an unchanged complete Job reruns
+# nothing.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-basic-pitch-artifacts-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: minio-basic-pitch-artifacts-bootstrap
+    app.kubernetes.io/component: object-storage-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: least-privilege-basic-pitch-stem-read-and-midi-write
+spec:
+  # Keep non-secret user/policy association logs briefly, then let Kubernetes
+  # remove the only Pod that was permitted to mount the MinIO root Secret.
+  ttlSecondsAfterFinished: 600
+  # IAM/key failures require one visible, deliberate diagnosis rather than
+  # repeatedly retrying a root-credential-bearing administration operation.
+  backoffLimit: 0
+  # Bound local image pulls, readiness waits, and all small `mc` operations.
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: minio-basic-pitch-artifacts-bootstrap
+        app.kubernetes.io/component: object-storage-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # This Job calls only MinIO through private Service DNS. It requires no
+      # Kubernetes API token and receives no application ServiceAccount token.
+      automountServiceAccountToken: false
+      securityContext:
+        # The pinned official `mc` client works with this arbitrary non-root
+        # identity. Its configuration can write only to the emptyDir below.
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      # Init containers run strictly in order. This gives the administrative
+      # procedure an auditable sequence without putting a general shell into a
+      # root-credential-bearing image.
+      initContainers:
+        - name: configure-minio-root-alias
+          # The MinIO-maintained client is digest-pinned under images.minio-mc
+          # in images.lock.yaml; it performs no package install at runtime.
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+            # Kubernetes resolves root credentials only at Pod start. Neither
+            # value appears in source, arguments, or retained logs.
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_PASSWORD
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          args:
+            - alias
+            - set
+            - minio-admin
+            - http://clouddsp-minio:9000
+            - $(MINIO_ROOT_USER)
+            - $(MINIO_ROOT_PASSWORD)
+
+        - name: wait-for-minio-service
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          # `ready` blocks only until the internal Service accepts the existing
+          # root alias; the Job-level deadline bounds a broken service/DNS path.
+          args:
+            - ready
+            - minio-admin
+
+        - name: create-or-update-basic-pitch-artifacts-policy
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+            - name: basic-pitch-artifacts-policy
+              mountPath: /policy
+              readOnly: true
+          # `policy create` creates or deliberately updates only this named
+          # policy from the immutable ConfigMap projected as a read-only file.
+          args:
+            - admin
+            - policy
+            - create
+            - minio-admin
+            - clouddsp-basic-pitch-artifacts-v001
+            - /policy/basic-pitch-artifacts-policy.json
+
+        - name: create-or-rotate-basic-pitch-user
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+            # This restricted pair exactly matches the future app-namespace
+            # runtime Secret. It is read only from the temporary data Secret
+            # and never printed; reusing the key intentionally rotates it.
+            - name: BASIC_PITCH_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-minio-bootstrap-credentials
+                  key: BASIC_PITCH_S3_ACCESS_KEY
+            - name: BASIC_PITCH_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-minio-bootstrap-credentials
+                  key: BASIC_PITCH_S3_SECRET_KEY
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          args:
+            - admin
+            - user
+            - add
+            - minio-admin
+            - $(BASIC_PITCH_S3_ACCESS_KEY)
+            - $(BASIC_PITCH_S3_SECRET_KEY)
+
+        - name: attach-basic-pitch-artifacts-policy
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+            - name: BASIC_PITCH_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-minio-bootstrap-credentials
+                  key: BASIC_PITCH_S3_ACCESS_KEY
+          resources:
+            # Init containers are sequential, so this temporary admin step
+            # never overlaps its resource budget with a sibling operation.
+            requests:
+              cpu: 50m
+              memory: 128Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          args:
+            - admin
+            - policy
+            - attach
+            - minio-admin
+            - clouddsp-basic-pitch-artifacts-v001
+            - --user=$(BASIC_PITCH_S3_ACCESS_KEY)
+
+        - name: verify-basic-pitch-user-policy
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+            - name: BASIC_PITCH_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-minio-bootstrap-credentials
+                  key: BASIC_PITCH_S3_ACCESS_KEY
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          # This prints the access-key/policy association only. It never prints
+          # the secret key; a later smoke Job will test allowed/denied S3 calls.
+          args:
+            - admin
+            - user
+            - info
+            - minio-admin
+            - $(BASIC_PITCH_S3_ACCESS_KEY)
+
+        - name: remove-root-alias-from-temporary-config
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          # The alias file is the only temporary place that holds root values.
+          # Remove it before the normal container runs; the bounded emptyDir is
+          # also removed once Kubernetes cleans up the finished Pod.
+          args:
+            - alias
+            - remove
+            - minio-admin
+      containers:
+        - name: completion-marker
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          # All administrative work happened in ordered init containers. This
+          # small regular container gives the Job controller a completion state.
+          args:
+            - --version
+      volumes:
+        - name: mc-config
+          emptyDir:
+            # This holds a few KiB of `mc` alias state, never application data
+            # or a persistent object. It is bounded and dies with the Pod.
+            sizeLimit: 1Mi
+        - name: basic-pitch-artifacts-policy
+          configMap:
+            # Mount only the immutable reviewed policy; no interactive policy
+            # document or unversioned configuration can alter this Job's scope.
+            name: clouddsp-basic-pitch-artifacts-policy-v001
+            defaultMode: 0444
+            items:
+              - key: basic-pitch-artifacts-policy.json
+                path: basic-pitch-artifacts-policy.json

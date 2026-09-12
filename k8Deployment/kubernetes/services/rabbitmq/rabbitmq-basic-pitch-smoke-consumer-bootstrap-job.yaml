@@ -1,0 +1,251 @@
+# This one-shot administrator Job creates or rotates a test-only RabbitMQ user
+# for a future generic-dispatcher routing smoke test. Its narrow paths are:
+#
+#   bootstrap Job -> RabbitMQ management API -> user/permission definition
+#   future smoke Job -> ordinary AMQP port -> clouddsp.basic-pitch.requests only
+#
+# The production-like dispatcher identity can publish to the processing
+# exchange but cannot consume. This smoke identity has the opposite authority:
+# it can read one exact worker queue, but cannot publish, configure topology,
+# administer RabbitMQ, or access the management API. The separation makes a
+# verification Job unable to create processing work or alter broker resources.
+#
+# Prerequisites, created and applied separately:
+#   1. existing clouddsp-rabbitmq-credentials in clouddsp-data; and
+#   2. the ignored temporary bootstrap Secret documented beside this Job.
+#
+# A completed fixed-name Job is not rerun by `kubectl apply`. Delete it before
+# an intentional password rotation or permission repair, then apply it again.
+# This Job does not create a dispatcher/worker Deployment, publish an event, or
+# consume a message.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rabbitmq-basic-pitch-smoke-consumer-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: rabbitmq-basic-pitch-smoke-consumer-bootstrap
+    app.kubernetes.io/component: message-identity-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: least-privilege-basic-pitch-queue-smoke-reader
+spec:
+  # Preserve non-secret verification output for inspection, then remove the
+  # short-lived administrator-credential-bearing Pod from the local cluster.
+  ttlSecondsAfterFinished: 600
+  # Retrying an administrator operation can conceal the useful initial error.
+  backoffLimit: 0
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rabbitmq-basic-pitch-smoke-consumer-bootstrap
+        app.kubernetes.io/component: message-identity-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # This Pod calls RabbitMQ's private management API, never Kubernetes.
+      automountServiceAccountToken: false
+      securityContext:
+        # The pinned RabbitMQ Docker Official Image provides rabbitmqadmin and
+        # this non-root account, matching the existing bootstrap convention.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: wait-for-rabbitmq-management-api
+          # The immutable Docker Official Image digest is recorded in
+          # images.lock.yaml. Administrator variables exist only in this Job;
+          # the later smoke client uses AMQP port 5672 instead.
+          image: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: RABBITMQADMIN_TARGET_HOST
+              value: clouddsp-rabbitmq-0.clouddsp-rabbitmq-headless.clouddsp-data.svc.cluster.local
+            - name: RABBITMQADMIN_TARGET_PORT
+              value: "15672"
+            - name: RABBITMQADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_USER
+            - name: RABBITMQADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_PASS
+            - name: RABBITMQADMIN_NON_INTERACTIVE_MODE
+              value: "true"
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -ec
+            - |
+              # A successful authenticated vhost listing proves that both the
+              # management listener and existing administrator Secret are ready.
+              attempt=1
+              while [ "$attempt" -le 24 ]; do
+                if rabbitmqadmin --quiet vhosts list >/dev/null 2>&1; then
+                  exit 0
+                fi
+                sleep 5
+                attempt=$((attempt + 1))
+              done
+              echo "RabbitMQ management API did not become ready before bootstrap timeout." >&2
+              exit 1
+
+        - name: create-or-rotate-basic-pitch-smoke-reader
+          image: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: RABBITMQADMIN_TARGET_HOST
+              value: clouddsp-rabbitmq-0.clouddsp-rabbitmq-headless.clouddsp-data.svc.cluster.local
+            - name: RABBITMQADMIN_TARGET_PORT
+              value: "15672"
+            - name: RABBITMQADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_USER
+            - name: RABBITMQADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_PASS
+            - name: RABBITMQADMIN_NON_INTERACTIVE_MODE
+              value: "true"
+            # This temporary Secret carries only the new restricted user. Its
+            # values are CLI arguments and are never echoed by this Job.
+            - name: BASIC_PITCH_SMOKE_RABBITMQ_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-smoke-rabbitmq-bootstrap-credentials
+                  key: RABBITMQ_BASIC_PITCH_SMOKE_USERNAME
+            - name: BASIC_PITCH_SMOKE_RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-smoke-rabbitmq-bootstrap-credentials
+                  key: RABBITMQ_BASIC_PITCH_SMOKE_PASSWORD
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -ec
+            - |
+              # Declaring the user again deliberately rotates its password.
+              # No tags are supplied, so this account cannot use management UI.
+              rabbitmqadmin users declare \
+                --name "$BASIC_PITCH_SMOKE_RABBITMQ_USERNAME" \
+                --password "$BASIC_PITCH_SMOKE_RABBITMQ_PASSWORD"
+
+              # These regexes are RabbitMQ's authorization rules in /clouddsp.
+              # Empty configure/write patterns deny topology edits and all
+              # publication. The one read pattern allows basic.get/consume/ack
+              # for this queue only; it cannot read Demucs, ADTOF, retry, or DLQ
+              # queues.
+              rabbitmqadmin permissions declare \
+                --vhost /clouddsp \
+                --username "$BASIC_PITCH_SMOKE_RABBITMQ_USERNAME" \
+                --configure '^$' \
+                --write '^$' \
+                --read '^clouddsp\.basic-pitch\.requests$'
+
+        - name: verify-basic-pitch-smoke-reader-permission
+          image: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: RABBITMQADMIN_TARGET_HOST
+              value: clouddsp-rabbitmq-0.clouddsp-rabbitmq-headless.clouddsp-data.svc.cluster.local
+            - name: RABBITMQADMIN_TARGET_PORT
+              value: "15672"
+            - name: RABBITMQADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_USER
+            - name: RABBITMQADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_PASS
+            - name: RABBITMQADMIN_NON_INTERACTIVE_MODE
+              value: "true"
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -ec
+            - |
+              # This output has usernames, vhosts, and regexes only. It never
+              # prints any password, hash, or AMQP message body.
+              echo "RabbitMQ Basic Pitch smoke reader bootstrap: verifying vhost permissions."
+              rabbitmqadmin --quiet permissions list --vhost /clouddsp
+      containers:
+        - name: completion-marker
+          image: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          # Init containers run in order. This ordinary container lets the Job
+          # controller report completion only after all permission checks pass.
+          command:
+            - rabbitmqadmin
+          args:
+            - --version

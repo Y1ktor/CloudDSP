@@ -173,13 +173,21 @@ grants the intake role only the columns needed to insert its initial
 `pending` Demucs event. It still cannot publish RabbitMQ work, inspect or
 update outbox rows, or run a dispatcher; those remain separate small tasks.
 
-The prepared, unapplied
-[`v004 downstream-outbox migration`](job-api-schema-migration-v004-downstream-outbox-configmap.yaml)
-is the next additive schema evolution. It retains v002's same idempotency and
-publication-state fields while permitting only per-stem `basic-pitch.requested`
-and `adtof.requested` records after Demucs completes. Its companion Job must be
-explicitly applied before the matching Demucs role-permission extension and a
-future rebuilt worker image; neither action is implied by this document.
+The applied [`v004 downstream-outbox migration`](job-api-schema-migration-v004-downstream-outbox-configmap.yaml)
+retains v002's idempotency/publication-state fields while allowing only
+per-stem `basic-pitch.requested` and `adtof.requested` records after Demucs
+completes. The applied
+[`v005 Basic Pitch processing-task migration`](job-api-schema-migration-v005-basic-pitch-processing-tasks-configmap.yaml)
+is the separate task-table evolution. It replaces only v003's Demucs-only stage,
+stem, and input-key checks with one compound constraint: a Demucs task still
+uses its job-wide `uploads/{job-id}/...` source, while Basic Pitch can use only
+one allowed non-drum `stems/{job-id}/{stem}.wav` task coordinate. It retains
+the existing task primary key, request-event uniqueness, `(job_id, stage,
+stem_name)` idempotency key, retry/lease indexes, status/lease checks, and
+timestamps. Its completed companion Job recorded
+`v005_basic_pitch_processing_tasks` in the authoritative migration ledger. A
+future Basic Pitch database role or worker image remains separate work; neither
+is implied by this documentation.
 
 ## PostgreSQL readiness boundary
 
