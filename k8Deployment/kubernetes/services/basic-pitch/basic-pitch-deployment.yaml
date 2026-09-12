@@ -1,0 +1,234 @@
+# This Deployment runs the long-lived, internal Basic Pitch MIDI-extraction
+# consumer. It receives one durable RabbitMQ `basic-pitch.requested` delivery
+# at a time, proves ownership through a PostgreSQL task lease, reads/writes
+# only the restricted private MinIO prefixes, and runs CPU inference locally.
+#
+# It intentionally has no Service or Ingress. The worker has no inbound HTTP or
+# gRPC interface: it initiates its own private connections to RabbitMQ,
+# PostgreSQL, and MinIO. Adding a Service would create an unused address, and
+# adding an Ingress would wrongly expose a processing worker to browsers.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clouddsp-basic-pitch
+  namespace: clouddsp-app
+  labels:
+    # Standard labels identify this controller without selecting the separate
+    # Demucs, dispatcher, ADTOF, upload-intake, or browser-facing components.
+    app.kubernetes.io/name: basic-pitch
+    app.kubernetes.io/instance: clouddsp-basic-pitch
+    app.kubernetes.io/component: midi-extraction-worker
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: private-stem-to-midi-processing
+spec:
+  # One replica keeps this first CPU-worker rollout easy to inspect. The worker
+  # has `prefetch=1`, and PostgreSQL task leases make a future deliberate scale
+  # out safe; KEDA-based queue scaling remains a separate task once metrics and
+  # laptop capacity limits have been established.
+  replicas: 1
+  # Retain two digest-pinned rollback points without accumulating old
+  # ReplicaSets indefinitely in the local teaching cluster.
+  revisionHistoryLimit: 2
+  # Pulling a 496 MiB TensorFlow image can take longer than a small API rollout.
+  # This is only a controller-progress bound; it does not limit model runtime.
+  progressDeadlineSeconds: 600
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # Avoid temporarily running two CPU-intensive inference Pods during a
+      # local image update. RabbitMQ retains work while the old Pod completes
+      # its graceful stop and the new Pod starts, so this availability tradeoff
+      # is safe at this initial one-replica learning stage.
+      maxUnavailable: 1
+      maxSurge: 0
+  selector:
+    # A Deployment selector is immutable after creation. It must exactly match
+    # this Pod template and never include another processor's labels.
+    matchLabels:
+      app.kubernetes.io/name: basic-pitch
+      app.kubernetes.io/instance: clouddsp-basic-pitch
+      app.kubernetes.io/component: midi-extraction-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: basic-pitch
+        app.kubernetes.io/instance: clouddsp-basic-pitch
+        app.kubernetes.io/component: midi-extraction-worker
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      # This process never creates or reads Kubernetes resources. Do not give a
+      # compromised worker the default in-namespace ServiceAccount token.
+      automountServiceAccountToken: false
+      # The manifest states every permitted dependency explicitly rather than
+      # relying on automatically injected legacy `*_SERVICE_HOST` variables.
+      enableServiceLinks: false
+      # SIGTERM sets the Python worker's cooperative shutdown event. The Basic
+      # Pitch CLI has a five-minute bounded process timeout, so 330 seconds
+      # lets an in-flight inference finish and close RabbitMQ normally before
+      # Kubernetes would send SIGKILL and rely on lease/delivery recovery.
+      terminationGracePeriodSeconds: 330
+      securityContext:
+        # The locked image creates this exact unprivileged account. Repeating
+        # it here prevents an accidental root-capable replacement image from
+        # silently broadening the worker's Linux privileges.
+        runAsNonRoot: true
+        runAsUser: 10004
+        runAsGroup: 10004
+        # `emptyDir` starts owned by the node. The group makes all three
+        # bounded writable mounts usable by the locked non-root image account.
+        fsGroup: 10004
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: basic-pitch
+          # Copied exactly from images.basic-pitch.immutableReference in
+          # ../../images.lock.yaml. The digest fixes reviewed application,
+          # TensorFlow, model, and base-image bytes; never use the mutable tag.
+          image: clouddsp-registry.localhost:5001/basic-pitch@sha256:18bafea2df9e4ee1c8ea5924a38afc3f60fea8ab974d78f7b188670e82c30456
+          # A digest cannot be retargeted. K3s may safely reuse a cached copy,
+          # while a node without it pulls from this cluster's local registry.
+          imagePullPolicy: IfNotPresent
+          env:
+            # These are fixed, non-secret private Service coordinates. The
+            # Python settings adapters validate each one again before opening
+            # a socket, so an accidental manifest edit cannot repoint a
+            # least-privilege credential to another system.
+            - name: BASIC_PITCH_DB_HOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: BASIC_PITCH_DB_PORT
+              value: "5432"
+            - name: BASIC_PITCH_DB_CONNECT_TIMEOUT_SECONDS
+              value: "3"
+            - name: BASIC_PITCH_S3_INTERNAL_ENDPOINT
+              value: http://clouddsp-minio.clouddsp-data.svc:9000
+            - name: BASIC_PITCH_S3_ARTIFACTS_BUCKET
+              value: clouddsp-uploads
+            - name: BASIC_PITCH_S3_REGION
+              value: us-east-1
+            # One internal MinIO Service exposes all approved buckets by path;
+            # no browser host, host port, or virtual-hosted bucket route is
+            # available to this worker.
+            - name: BASIC_PITCH_S3_ADDRESSING_STYLE
+              value: path
+            - name: BASIC_PITCH_AMQP_HOST
+              value: clouddsp-rabbitmq.clouddsp-data.svc
+            - name: BASIC_PITCH_AMQP_PORT
+              value: "5672"
+            - name: BASIC_PITCH_AMQP_VHOST
+              value: /clouddsp
+            - name: BASIC_PITCH_AMQP_QUEUE
+              value: clouddsp.basic-pitch.requests
+            - name: BASIC_PITCH_AMQP_CONNECT_TIMEOUT_SECONDS
+              value: "5"
+            - name: BASIC_PITCH_AMQP_HEARTBEAT_SECONDS
+              value: "30"
+            # Keep Python and third-party transient files on their own bounded
+            # writable mount; the image root remains immutable. Large WAV/MIDI
+            # data uses the separate `/worker-scratch` mount below.
+            - name: TMPDIR
+              value: /tmp
+            # These three Secrets live in this Pod's namespace and each holds
+            # only one restricted runtime identity. This Pod never receives a
+            # PostgreSQL, MinIO, or RabbitMQ administrator/bootstrap Secret.
+            - name: BASIC_PITCH_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-database-credentials
+                  key: BASIC_PITCH_DB_NAME
+            - name: BASIC_PITCH_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-database-credentials
+                  key: BASIC_PITCH_DB_USERNAME
+            - name: BASIC_PITCH_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-database-credentials
+                  key: BASIC_PITCH_DB_PASSWORD
+            - name: BASIC_PITCH_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-minio-credentials
+                  key: BASIC_PITCH_S3_ACCESS_KEY
+            - name: BASIC_PITCH_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-minio-credentials
+                  key: BASIC_PITCH_S3_SECRET_KEY
+            - name: RABBITMQ_BASIC_PITCH_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-rabbitmq-credentials
+                  key: RABBITMQ_BASIC_PITCH_USERNAME
+            - name: RABBITMQ_BASIC_PITCH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-rabbitmq-credentials
+                  key: RABBITMQ_BASIC_PITCH_PASSWORD
+          resources:
+            # Requests reserve one CPU and 2 GiB before scheduling the
+            # TensorFlow-based process. Limits keep one local worker from
+            # monopolizing Docker Desktop capacity needed by stateful services
+            # and other workloads. These are CPU limits only: this Mac/k3d
+            # profile does not provide NVIDIA CUDA resources.
+            requests:
+              cpu: "1"
+              memory: 2Gi
+              # The three explicit emptyDirs can collectively use 704 MiB.
+              # Requesting one GiB keeps scheduler accounting above that
+              # bounded maximum plus container logs and filesystem overhead.
+              ephemeral-storage: 1Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+              ephemeral-storage: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            # Application/model packages are baked into the immutable image.
+            # Only the three explicit emptyDir mounts below may be written.
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: worker-scratch
+              # The worker bootstrap requires this fixed coordinate. It holds
+              # one verified WAV, a fresh Basic Pitch output directory, and
+              # transient MIDI evidence; all data vanishes when this Pod does.
+              mountPath: /worker-scratch
+            - name: runtime-tmp
+              # Native/Python libraries may need a POSIX temporary directory,
+              # but they must not make the container root writable.
+              mountPath: /tmp
+            - name: runtime-home
+              # Some dependency libraries consult HOME for small cache/config
+              # state. This disposable mount keeps that state out of the image
+              # and bounds it separately from audio-processing scratch data.
+              mountPath: /home/clouddsp-basic-pitch
+          # No liveness/readiness probe is defined in this focused task. This
+          # worker exposes no listener, and an `exec` check that only proves
+          # Python is alive would falsely claim health during dependency loss.
+          # The entrypoint fails invalid configuration visibly; truthful worker
+          # health metrics/probes and KEDA scaling are later dedicated tasks.
+      volumes:
+        - name: worker-scratch
+          emptyDir:
+            # Disk-backed, not `medium: Memory`: an audio stem can be up to
+            # 256 MiB. The 512 MiB cap covers one input plus generated MIDI
+            # and guards the node from unbounded transient media use.
+            sizeLimit: 512Mi
+        - name: runtime-tmp
+          emptyDir:
+            # Small dependency-only temporary files. This is not a MinIO cache
+            # or durable processing volume and is included in Pod ephemeral
+            # storage accounting above.
+            sizeLimit: 128Mi
+        - name: runtime-home
+          emptyDir:
+            # The non-root HOME has no durable task/state authority. It is
+            # intentionally discarded on restart, unlike PostgreSQL/MinIO.
+            sizeLimit: 64Mi

@@ -14,6 +14,7 @@ from uuid import UUID
 
 from app.basic_pitch_requested_message import BasicPitchRequestedMessage
 from app.task_lease import (
+    CLAIM_NEXT_DUE_BASIC_PITCH_RETRY_SQL,
     DEFAULT_BASIC_PITCH_LEASE_SECONDS,
     INSERT_FIRST_BASIC_PITCH_TASK_LEASE_SQL,
     LOCK_EXISTING_BASIC_PITCH_TASK_SQL,
@@ -24,6 +25,7 @@ from app.task_lease import (
     BasicPitchTaskLease,
     BasicPitchTaskLeaseProtocolError,
     claim_basic_pitch_task_for_delivery,
+    claim_next_due_basic_pitch_retry,
     start_leased_basic_pitch_task,
 )
 
@@ -318,6 +320,79 @@ class TaskStartTests(unittest.TestCase):
         with self.assertRaises(BasicPitchTaskLeaseProtocolError):
             start_leased_basic_pitch_task(cursor, lease=lease(input_object_key=f"stems/{JOB_ID}/bass.wav"))
         self.assertEqual(cursor.calls, [])
+
+
+class DueRetryRecoveryTests(unittest.TestCase):
+    """Prove one due durable retry can receive exactly one fresh lease."""
+
+    def test_due_retry_is_claimed_with_a_new_token_and_incremented_attempt(self) -> None:
+        """The SQL uses an ordered skip-locked candidate, not a broker delivery."""
+
+        recovery_token = "63c9d8d2-11db-41c4-9cc5-79889f912f98"
+        cursor = FakeCursor(
+            [
+                leased_task_row(
+                    attempt_count=2,
+                    lease_token=recovery_token,
+                )
+            ]
+        )
+
+        recovered = claim_next_due_basic_pitch_retry(
+            cursor,
+            uuid_factory=FixedUuidFactory(recovery_token),
+        )
+
+        self.assertIsNotNone(recovered)
+        assert recovered is not None
+        self.assertEqual(recovered.task_id, TASK_ID)
+        self.assertEqual(recovered.stem_name, STEM_NAME)
+        self.assertEqual(recovered.attempt_count, 2)
+        self.assertEqual(recovered.lease_token, recovery_token)
+        self.assertEqual(
+            cursor.calls,
+            [
+                (
+                    CLAIM_NEXT_DUE_BASIC_PITCH_RETRY_SQL,
+                    (3, recovery_token, DEFAULT_BASIC_PITCH_LEASE_SECONDS),
+                )
+            ],
+        )
+        self.assertIn("status = 'retry_scheduled'", CLAIM_NEXT_DUE_BASIC_PITCH_RETRY_SQL)
+        self.assertIn("available_at <= CURRENT_TIMESTAMP", CLAIM_NEXT_DUE_BASIC_PITCH_RETRY_SQL)
+        self.assertIn("FOR UPDATE SKIP LOCKED", CLAIM_NEXT_DUE_BASIC_PITCH_RETRY_SQL)
+        self.assertIn("attempt_count = task.attempt_count + 1", CLAIM_NEXT_DUE_BASIC_PITCH_RETRY_SQL)
+        self.assertNotIn("public.outbox_events", CLAIM_NEXT_DUE_BASIC_PITCH_RETRY_SQL)
+        self.assertNotIn("UPDATE public.jobs", CLAIM_NEXT_DUE_BASIC_PITCH_RETRY_SQL)
+
+    def test_no_due_retry_returns_none_without_creating_work(self) -> None:
+        """An empty indexed scan is normal idle recovery, not a worker error."""
+
+        self.assertIsNone(
+            claim_next_due_basic_pitch_retry(
+                FakeCursor([None]),
+                uuid_factory=FixedUuidFactory("63c9d8d2-11db-41c4-9cc5-79889f912f98"),
+            )
+        )
+
+    def test_invalid_returned_lease_or_duration_never_grants_recovery_ownership(self) -> None:
+        """A malformed driver row cannot authorize unverified recovery work."""
+
+        recovery_token = "63c9d8d2-11db-41c4-9cc5-79889f912f98"
+        for row in (
+            leased_task_row(attempt_count=1, lease_token=recovery_token),
+            leased_task_row(attempt_count=2, lease_token=LEASE_TOKEN),
+            leased_task_row(attempt_count=2, lease_token=recovery_token, input_object_key=f"stems/{JOB_ID}/bass.wav"),
+        ):
+            with self.subTest(row=row):
+                with self.assertRaises(BasicPitchTaskLeaseProtocolError):
+                    claim_next_due_basic_pitch_retry(
+                        FakeCursor([row]),
+                        uuid_factory=FixedUuidFactory(recovery_token),
+                    )
+
+        with self.assertRaises(BasicPitchTaskLeaseProtocolError):
+            claim_next_due_basic_pitch_retry(FakeCursor([]), lease_seconds=59)
 
 
 if __name__ == "__main__":

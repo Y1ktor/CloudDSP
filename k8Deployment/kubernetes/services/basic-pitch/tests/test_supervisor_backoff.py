@@ -22,8 +22,11 @@ from app.supervisor_backoff import (
     BasicPitchSupervisorDecision,
     BasicPitchSupervisorEvent,
     next_basic_pitch_supervisor_decision,
+    supervisor_event_for_basic_pitch_fair_work_iteration,
     supervisor_event_for_basic_pitch_iteration,
 )
+from app.work_schedule import BasicPitchWorkScheduleState, BasicPitchWorkSource
+from app.work_source_iteration import BasicPitchFairWorkIterationOutcome, BasicPitchFairWorkIterationResult
 
 
 class BasicPitchSupervisorIterationClassificationTests(unittest.TestCase):
@@ -54,6 +57,43 @@ class BasicPitchSupervisorIterationClassificationTests(unittest.TestCase):
 
         with self.assertRaises(TypeError):
             supervisor_event_for_basic_pitch_iteration(object())  # type: ignore[arg-type]
+
+    def test_fair_iteration_waits_only_after_both_sources_report_idle(self) -> None:
+        """The new bounded composition prevents an empty broker from delaying retries."""
+
+        progress = BasicPitchFairWorkIterationResult(
+            outcome=BasicPitchFairWorkIterationOutcome.PROGRESS,
+            next_state=BasicPitchWorkScheduleState(
+                next_source=BasicPitchWorkSource.DUE_RETRY_RECOVERY,
+            ),
+            attempted_sources=(BasicPitchWorkSource.RABBITMQ_DELIVERY,),
+            broker_result=BasicPitchWorkerIterationResult(
+                outcome=BasicPitchWorkerIterationOutcome.ACKNOWLEDGED_NO_WORK,
+            ),
+        )
+        idle = BasicPitchFairWorkIterationResult(
+            outcome=BasicPitchFairWorkIterationOutcome.IDLE,
+            next_state=BasicPitchWorkScheduleState(),
+            attempted_sources=(
+                BasicPitchWorkSource.RABBITMQ_DELIVERY,
+                BasicPitchWorkSource.DUE_RETRY_RECOVERY,
+            ),
+        )
+
+        self.assertEqual(
+            supervisor_event_for_basic_pitch_fair_work_iteration(progress),
+            BasicPitchSupervisorEvent.ITERATION_PROGRESS,
+        )
+        self.assertEqual(
+            supervisor_event_for_basic_pitch_fair_work_iteration(idle),
+            BasicPitchSupervisorEvent.ITERATION_IDLE,
+        )
+
+    def test_fair_iteration_classifier_rejects_non_result_input(self) -> None:
+        """A caught exception cannot be relabeled as a normal two-source idle result."""
+
+        with self.assertRaises(TypeError):
+            supervisor_event_for_basic_pitch_fair_work_iteration(object())  # type: ignore[arg-type]
 
 
 class BasicPitchSupervisorBackoffPolicyTests(unittest.TestCase):

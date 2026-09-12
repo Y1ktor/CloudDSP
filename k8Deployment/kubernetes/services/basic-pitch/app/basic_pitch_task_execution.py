@@ -57,8 +57,12 @@ from app.midi_task_completion_commit import (
     BasicPitchMidiTaskCompletionDatabase,
     commit_verified_basic_pitch_midi_task,
 )
+from app.stem_retry_handling import BasicPitchPreModelRetryDatabase
 from app.stem_download import BasicPitchGetObjectClient
 from app.stem_object import BasicPitchHeadObjectClient, verify_claimed_basic_pitch_stem_head_object
+from app.stem_task_terminal_failure import BasicPitchStemTerminalFailure
+from app.stem_task_retry_exhaustion import BasicPitchStemRetryExhaustion
+from app.stem_task_retry_schedule import BasicPitchStemRetrySchedule
 from app.stem_task_start import (
     BasicPitchTaskStartDatabase,
     RunningBasicPitchStem,
@@ -87,25 +91,38 @@ class BasicPitchTaskExecutionStorageClient(
 class BasicPitchTaskExecutionDatabase(
     BasicPitchTaskStartDatabase,
     BasicPitchMidiTaskCompletionDatabase,
+    BasicPitchPreModelRetryDatabase,
     Protocol,
 ):
-    """One restricted database provider for the two short task transactions.
+    """One restricted database provider for the task's short transactions.
 
     ``PsycopgBasicPitchDatabase`` already implements the shared
-    ``write_cursor()`` shape.  The coordinator gives it only to the start and
-    completion helpers; it never opens a cursor around MinIO or model work.
+    ``write_cursor()`` shape. The post-ack gate gives it to a pre-model
+    terminal/retry transition only after a caught reviewed error; the
+    coordinator gives it to start and completion helpers. It never opens a
+    cursor around MinIO or model work.
     """
 
 
 class BasicPitchClaimedTaskExecutionOutcome(StrEnum):
-    """The two normal, non-exception outcomes after one committed lease.
+    """The normal, non-exception outcomes after one committed lease.
 
-    Dependency and process errors intentionally do not become an outcome.
-    They must remain exceptions so the future consumer supervisor cannot
-    accidentally acknowledge a delivery while durable work is incomplete.
+    Only a committed task result may become an outcome. A reviewed transient
+    *pre-model* storage failure now has two explicit results: a durable retry
+    schedule on attempts one/two, or a terminal exhausted-retry record on
+    attempt three. Storage-protocol, database, model, and post-model output
+    errors intentionally remain exceptions, so the later supervisor cannot
+    mistake incomplete work for a successful broker or PostgreSQL decision.
     """
 
     SUCCEEDED = "succeeded"
+    # A permanent stem-integrity failure was durably recorded before model
+    # start. It is terminal for this task, not a successful MIDI extraction.
+    TERMINAL_FAILURE = "terminal_failure"
+    # A temporary pre-model storage failure has a committed later retry time.
+    RETRY_SCHEDULED = "retry_scheduled"
+    # The same temporary failure occurred on the final permitted attempt.
+    RETRY_EXHAUSTED = "retry_exhausted"
     OWNERSHIP_LOST = "ownership_lost"
 
 
@@ -114,24 +131,67 @@ class BasicPitchClaimedTaskExecution:
     """Non-sensitive result of one post-claim execution attempt.
 
     A success carries only the completion evidence returned after the final
-    short transaction commits.  ``OWNERSHIP_LOST`` means the start or completion
+    short transaction commits. A permanent pre-model failure and a
+    final-attempt storage failure each carry their own committed terminal
+    evidence. A first/second temporary storage failure carries the committed
+    later retry time. ``OWNERSHIP_LOST`` means a start, completion, or failure
     token guard returned no row; no further work should be attempted by this
-    owner.  It includes no object key, local path, credential, or raw backend
+    owner. It includes no object key, local path, credential, or raw backend
     response, keeping it safe for a future metrics boundary.
     """
 
     outcome: BasicPitchClaimedTaskExecutionOutcome
     completion: BasicPitchMidiTaskCompletion | None = None
+    terminal_failure: BasicPitchStemTerminalFailure | None = None
+    retry_schedule: BasicPitchStemRetrySchedule | None = None
+    retry_exhaustion: BasicPitchStemRetryExhaustion | None = None
 
     def __post_init__(self) -> None:
         """Keep the public outcome/result pairing unambiguous for callers."""
 
         if self.outcome is BasicPitchClaimedTaskExecutionOutcome.SUCCEEDED:
-            if not isinstance(self.completion, BasicPitchMidiTaskCompletion):
+            if (
+                not isinstance(self.completion, BasicPitchMidiTaskCompletion)
+                or self.terminal_failure is not None
+                or self.retry_schedule is not None
+                or self.retry_exhaustion is not None
+            ):
                 raise TypeError("A successful Basic Pitch task execution requires completion evidence.")
             return
+        if self.outcome is BasicPitchClaimedTaskExecutionOutcome.TERMINAL_FAILURE:
+            if (
+                self.completion is not None
+                or not isinstance(self.terminal_failure, BasicPitchStemTerminalFailure)
+                or self.retry_schedule is not None
+                or self.retry_exhaustion is not None
+            ):
+                raise TypeError("A terminal Basic Pitch task failure requires failure evidence.")
+            return
+        if self.outcome is BasicPitchClaimedTaskExecutionOutcome.RETRY_SCHEDULED:
+            if (
+                self.completion is not None
+                or self.terminal_failure is not None
+                or not isinstance(self.retry_schedule, BasicPitchStemRetrySchedule)
+                or self.retry_exhaustion is not None
+            ):
+                raise TypeError("A scheduled Basic Pitch retry requires retry evidence.")
+            return
+        if self.outcome is BasicPitchClaimedTaskExecutionOutcome.RETRY_EXHAUSTED:
+            if (
+                self.completion is not None
+                or self.terminal_failure is not None
+                or self.retry_schedule is not None
+                or not isinstance(self.retry_exhaustion, BasicPitchStemRetryExhaustion)
+            ):
+                raise TypeError("An exhausted Basic Pitch retry requires terminal evidence.")
+            return
         if self.outcome is BasicPitchClaimedTaskExecutionOutcome.OWNERSHIP_LOST:
-            if self.completion is not None:
+            if (
+                self.completion is not None
+                or self.terminal_failure is not None
+                or self.retry_schedule is not None
+                or self.retry_exhaustion is not None
+            ):
                 raise TypeError("A lost Basic Pitch task lease cannot include completion evidence.")
             return
         raise TypeError("Basic Pitch task execution outcome is invalid.")

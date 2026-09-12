@@ -23,11 +23,14 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from app.receive_execute_once import BasicPitchWorkerIterationOutcome, BasicPitchWorkerIterationResult
+from app.work_source_iteration import BasicPitchFairWorkIterationOutcome, BasicPitchFairWorkIterationResult
 
 
-# An idle ``basic_get`` check needs a modest pause so an empty RabbitMQ queue
-# cannot turn one Basic Pitch Pod into a CPU hot loop.  The future runtime, not
-# this policy, is responsible for making that pause interruptible by SIGTERM.
+# A fair iteration checks both the normal RabbitMQ source and due PostgreSQL
+# recovery source before it reports idle. This modest pause therefore happens
+# only after both are empty, so it cannot delay a durable retry behind an empty
+# broker poll. The future runtime, not this policy, makes it interruptible by
+# SIGTERM.
 DEFAULT_BASIC_PITCH_IDLE_DELAY_SECONDS = 1.0
 
 # A retryable connection/dependency failure waits 1, 2, 4, 8, 16, then at most
@@ -166,6 +169,30 @@ def supervisor_event_for_basic_pitch_iteration(
     if not isinstance(result, BasicPitchWorkerIterationResult):
         raise TypeError("Basic Pitch supervisor requires a worker iteration result.")
     if result.outcome is BasicPitchWorkerIterationOutcome.IDLE:
+        return BasicPitchSupervisorEvent.ITERATION_IDLE
+    return BasicPitchSupervisorEvent.ITERATION_PROGRESS
+
+
+def supervisor_event_for_basic_pitch_fair_work_iteration(
+    result: BasicPitchFairWorkIterationResult,
+) -> BasicPitchSupervisorEvent:
+    """Classify one two-source normal result for the existing backoff policy.
+
+    ``work_source_iteration.py`` performs up to two fair source checks before
+    producing this result. Its `IDLE` outcome proves that *both* normal
+    RabbitMQ delivery and due PostgreSQL retry recovery found nothing, making
+    it the sole safe input for the short idle delay. Every `PROGRESS` result
+    causes an immediate next fair selection and resets any local retry-failure
+    streak. Exceptions do not become results here; the later runtime must
+    classify them independently without hiding their original type.
+
+    This adapter does not alter scheduling state, sleep, poll either source,
+    reconnect, or change RabbitMQ/PostgreSQL/MinIO/model/Kubernetes state.
+    """
+
+    if not isinstance(result, BasicPitchFairWorkIterationResult):
+        raise TypeError("Basic Pitch supervisor requires a fair work iteration result.")
+    if result.outcome is BasicPitchFairWorkIterationOutcome.IDLE:
         return BasicPitchSupervisorEvent.ITERATION_IDLE
     return BasicPitchSupervisorEvent.ITERATION_PROGRESS
 

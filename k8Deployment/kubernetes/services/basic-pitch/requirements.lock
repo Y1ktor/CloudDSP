@@ -1,0 +1,182 @@
+# Hash-enforced dependency lock for the local Linux/ARM64 Basic Pitch worker.
+#
+# This closure was resolved inside the pinned official Python 3.11 Linux/ARM64
+# base image recorded in `images.lock.yaml`. The future Dockerfile must install
+# it with:
+#
+#   pip install --require-hashes --no-deps --only-binary=:all: \
+#       --requirement requirements.lock
+#
+# Every runtime package, including the direct MinIO/RabbitMQ/PostgreSQL clients
+# and their transitive dependencies, is explicit. `--no-deps` prevents pip
+# from selecting a newer package while `--require-hashes` verifies that a
+# downloaded wheel is one of the exact reviewed bytes below.
+#
+# Basic Pitch 0.4.0 requires TensorFlow below 2.15.1 for Linux Python 3.11.
+# On Linux/ARM64, TensorFlow 2.15.0's small selector wheel depends on the
+# `tensorflow-cpu-aws` binary wheel. Despite that distribution name, it is the
+# platform-specific CPU inference runtime; it does not contact AWS, discover
+# credentials, or grant the worker AWS access. MinIO continues to use the
+# explicitly configured private S3-compatible endpoint and restricted key.
+#
+# Native wheel hashes deliberately target CPython 3.11 on Linux/ARM64 only—the
+# current Apple-Silicon k3d profile. A Linux/AMD64 or NVIDIA/CUDA profile must
+# resolve and review its own compatible native wheel hashes rather than weaken
+# hash verification or reuse this CPU-only lock.
+
+# Direct worker/application dependencies and the base-image build tooling that
+# TensorFlow's closure imports. Pinning these explicitly avoids relying on
+# mutable pre-installed pip tooling in a future base-image change.
+basic-pitch==0.4.0 \
+    --hash=sha256:738adb503aae7fdfc7d1e1511aa0ce35052315f260a19531ef4c356708425db0
+boto3==1.43.89 \
+    --hash=sha256:fe4190afe63eb562b6ba6a3911cf4427473b35fa047adde093bf696d3ae09fc0
+packaging==26.3 \
+    --hash=sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c
+pika==1.4.4 \
+    --hash=sha256:48de960c97a93b55db06b8be4c53eb977c9c8a2754c57cdae9097abcbd70ce04
+psycopg==3.2.13 \
+    --hash=sha256:a481374514f2da627157f767a9336705ebefe93ea7a0522a6cbacba165da179a
+psycopg-binary==3.2.13 \
+    --hash=sha256:cbbac4cd5b0e14b91ad8244268ca3fc2f527d1a337b489af57d7669c9d2e1a24
+setuptools==79.0.1 \
+    --hash=sha256:e147c0549f27767ba362f9da434eab9c5dc0045d5304feb602a0af001089fc51
+wheel==0.46.3 \
+    --hash=sha256:4b399d56c9d9338230118d705d9737a2a468ccca63d5e813e2a4fc7815d8bc4d
+
+# Complete Basic Pitch, TensorFlow CPU, audio/MIDI, S3, AMQP, PostgreSQL, and
+# utility closure. The selected archive hash is the exact Linux/ARM64 wheel
+# when a package has native code; universal wheels use their platform-neutral
+# PyPI hash.
+absl-py==2.5.0 \
+    --hash=sha256:0f17b89f2a4eaaedc4f28c622998aa690564b3012a396a4ffad0821007fe03ba
+astunparse==1.6.3 \
+    --hash=sha256:c2652417f2c8b5bb325c885ae329bdf3f86424075c4fd1a128674bc6fba4b8e8
+audioread==3.1.0 \
+    --hash=sha256:b30d1df6c5d3de5dcef0fb0e256f6ea17bdcf5f979408df0297d8a408e2971b4
+botocore==1.43.93 \
+    --hash=sha256:3ca57bb5d26d88b554a74de708a5c991f45306436c91aacca931252d1d4d54ff
+certifi==2026.7.22 \
+    --hash=sha256:62f22742b58a1a33014a2b6b706588a8d7e2a88ae7bd1a6ebe8c992928483775
+cffi==2.1.1 \
+    --hash=sha256:3311ed60d36f83378794e1009ac6258bafbf81f7888b4caa7b35a521e3f95813
+charset-normalizer==3.5.1 \
+    --hash=sha256:aa2bb0b37202dca27175591f761108b5d34096ade1191ffe4808bdf6b1571488
+cloudpickle==3.1.2 \
+    --hash=sha256:9acb47f6afd73f60dc1df93bb801b472f05ff42fa6c84167d25cb206be1fbf4a
+cryptography==50.0.1 \
+    --hash=sha256:e2ca8fd1b6b4b82a1c4cb02841d0837e3c12336c2e24b520ab8ab3b969733d8f
+decorator==5.3.1 \
+    --hash=sha256:f47fe6fdbd2edd623ecfe36875d37aba411624e2670dd395dddae1358689bb3c
+flatbuffers==25.12.19 \
+    --hash=sha256:7634f50c427838bb021c2d66a3d1168e9d199b0607e6329399f04846d42e20b4
+gast==0.7.0 \
+    --hash=sha256:99cbf1365633a74099f69c59bd650476b96baa5ef196fec88032b00b31ba36f7
+google-auth==2.58.0 \
+    --hash=sha256:8a9c4645bb4c8e91668fb1934b95ae6a8687084232753639220ba9bf04a1610d
+google-auth-oauthlib==1.4.1 \
+    --hash=sha256:a1be43ec69fe563ac9b2c4d6fc4334b323b21cbdc59a638b5fa34dd4d5a2a348
+google-pasta==0.2.0 \
+    --hash=sha256:b32482794a366b5366a32c92a9a9201b107821889935a02b3e51f6b432ea84ed
+grpcio==1.83.1 \
+    --hash=sha256:34f1841fc6d1d76f8a2d74177eafa2d1ec7d7e039633488c9fcc1b375a1fc165
+h5py==3.16.0 \
+    --hash=sha256:a6fbc5367d4046801f9b7db9191b31895f22f1c6df1f9987d667854cac493538
+idna==3.19 \
+    --hash=sha256:815e7be7a7806d54abb586dc943addc79e8b2ee16915059658cbeff4b1b43bf4
+importlib-resources==7.1.0 \
+    --hash=sha256:1bd7b48b4088eddb2cd16382150bb515af0bd2c70128194392725f82ad2c96a1
+jmespath==1.1.0 \
+    --hash=sha256:a5663118de4908c91729bea0acadca56526eb2698e83de10cd116ae0f4e97c64
+joblib==1.6.0 \
+    --hash=sha256:3dbbf9f6e4b592a2357b854608e980fe6390d131d7a82f011a377ef2ebef7aba
+keras==2.15.0 \
+    --hash=sha256:2dcc6d2e30cf9c951064b63c1f4c404b966c59caf09e01f3549138ec8ee0dd1f
+lazy-loader==0.5 \
+    --hash=sha256:ab0ea149e9c554d4ffeeb21105ac60bed7f3b4fd69b1d2360a4add51b170b005
+libclang==18.1.1 \
+    --hash=sha256:54dda940a4a0491a9d1532bf071ea3ef26e6dbaf03b5000ed94dd7174e8f9592
+librosa==0.11.0 \
+    --hash=sha256:0b6415c4fd68bff4c29288abe67c6d80b587e0e1e2cfb0aad23e4559504a7fa1
+llvmlite==0.49.0 \
+    --hash=sha256:20496a5c9fdb8179fb9300e7d19f6782555d98aeeb4a322264aa7fd99f980618
+markdown==3.10.3 \
+    --hash=sha256:fa6c92a00a4a3c98b22728c64a935ae1928250ae65058a6ded814d2cc29a4cea
+markupsafe==3.0.3 \
+    --hash=sha256:6b5420a1d9450023228968e7e6a9ce57f65d148ab56d2313fcd589eee96a7a50
+mido==1.3.3 \
+    --hash=sha256:01033c9b10b049e4436fca2762194ca839b09a4334091dd3c34e7f4ae674fd8a
+mir-eval==0.8.2 \
+    --hash=sha256:114cda33d8e17408c170598e0b36ed0d71ff4a2fee8eaf9e165b58ecf1c87170
+ml-dtypes==0.2.0 \
+    --hash=sha256:36d28b8861a8931695e5a31176cad5ae85f6504906650dea5598fbec06c94606
+msgpack==1.2.2 \
+    --hash=sha256:b9b0c1f2aa7b0026b4bd50718100e8b04175e4f36e160aa852502377b5e572e7
+narwhals==2.26.0 \
+    --hash=sha256:29326d74f107c347fd1009bd58e38d9f7c7c5b51e6de97bc93dbc325d9038b54
+numba==0.67.0 \
+    --hash=sha256:e7a7b0121466f1e9a8a074b0545fe90e16389623abf979b5d7c299dca1294d7e
+numpy==1.26.4 \
+    --hash=sha256:7ab55401287bfec946ced39700c053796e7cc0e3acbef09993a9ad2adba6ca6e
+oauthlib==3.3.1 \
+    --hash=sha256:88119c938d2b8fb88561af5f6ee0eec8cc8d552b7bb1f712743136eb7523b7a1
+opt-einsum==3.4.0 \
+    --hash=sha256:69bb92469f86a1565195ece4ac0323943e83477171b91d24c35afe028a90d7cd
+platformdirs==4.11.8 \
+    --hash=sha256:52f2f181bbfde907966932cc8312d967d02976422d66d537ea16092b8e291081
+pooch==1.9.0 \
+    --hash=sha256:f265597baa9f760d25ceb29d0beb8186c243d6607b0f60b83ecf14078dbc703b
+pretty-midi==0.2.11.post0 \
+    --hash=sha256:a3e2321736245a9c92259716d85a4762f16b7bde2f591fb0dba95bdb6e793d8a
+protobuf==4.25.9 \
+    --hash=sha256:999146ef02e7fa6a692477badd1528bcd7268df211852a3df2d834ba2b480791
+pyasn1==0.6.4 \
+    --hash=sha256:deda9277cfd454080ec40b207fb6df82206a3a2688735233cdcd8d3d565f088b
+pyasn1-modules==0.4.2 \
+    --hash=sha256:29253a9207ce32b64c3ac6600edc75368f98473906e8fd1043bd6b5b1de2c14a
+pycparser==3.0 \
+    --hash=sha256:b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992
+python-dateutil==2.9.0.post0 \
+    --hash=sha256:a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427
+requests==2.34.2 \
+    --hash=sha256:2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0
+requests-oauthlib==2.0.0 \
+    --hash=sha256:7dd8a5c40426b779b0868c404bdef9768deccf22749cde15852df527e6269b36
+resampy==0.4.2 \
+    --hash=sha256:4340b6c4e685a865621dfcf016e2a3dd49d865446b6025e30fe88567f22e052e
+s3transfer==0.19.2 \
+    --hash=sha256:d8168eccca828cbb2cd573675333f3bddd254313a9c42494b84c76b539e8ba25
+scikit-learn==1.9.1 \
+    --hash=sha256:4298fcc01b3d8fa9768d36894e99cce0747b3b2dd73bfd80779e393769d0afab
+scipy==1.17.1 \
+    --hash=sha256:744b2bf3640d907b79f3fd7874efe432d1cf171ee721243e350f55234b4cec4c
+six==1.17.0 \
+    --hash=sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274
+soundfile==0.14.0 \
+    --hash=sha256:e85724a90bc99a6e8062c0b4ddf725f53b2a3b70afd4da875e9d2cfc4e92f377
+soxr==1.1.0 \
+    --hash=sha256:1577865e993f98ffb261257c3060fa76ec3db44ed3f181b16464268000424464
+tensorboard==2.15.2 \
+    --hash=sha256:a6f6443728064d962caea6d34653e220e34ef8df764cb06a8212c17e1a8f0622
+tensorboard-data-server==0.7.2 \
+    --hash=sha256:7e0610d205889588983836ec05dc098e80f97b7e7bbff7e994ebb78f578d0ddb
+tensorflow==2.15.0 \
+    --hash=sha256:852efeb4d18beedac0120c4f2d4f4dccf4c090bb6740c5199d395ff609e85e98
+tensorflow-cpu-aws==2.15.0 \
+    --hash=sha256:e60763a3140306f9d6a793fbe888cea0f7da158f1c1fb4984a6e050aa75d5ce9
+tensorflow-estimator==2.15.0 \
+    --hash=sha256:aedf21eec7fb2dc91150fc91a1ce12bc44dbb72278a08b58e79ff87c9e28f153
+tensorflow-io-gcs-filesystem==0.37.1 \
+    --hash=sha256:6e1f2796b57e799a8ca1b75bf47c2aaa437c968408cc1a402a9862929e104cda
+termcolor==3.3.0 \
+    --hash=sha256:cf642efadaf0a8ebbbf4bc7a31cec2f9b5f21a9f726f4ccbb08192c9c26f43a5
+threadpoolctl==3.6.0 \
+    --hash=sha256:43a0b8fd5a2928500110039e43a5eed8480b918967083ea48dc3ab9f13c4a7fb
+typing-extensions==4.16.0 \
+    --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8
+urllib3==2.7.0 \
+    --hash=sha256:9fb4c81ebbb1ce9531cce37674bbc6f1360472bc18ca9a553ede278ef7276897
+werkzeug==3.1.8 \
+    --hash=sha256:63a77fb8892bf28ebc3178683445222aa500e48ebad5ec77b0ad80f8726b1f50
+wrapt==1.14.2 \
+    --hash=sha256:257a53f69737f340d0ba6e4d5554b56a579ca884de6eada15a7126baae8dacc0

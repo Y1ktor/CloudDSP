@@ -193,6 +193,23 @@ pushes it to the local registry and prints the immutable digest that is
 recorded in `images.lock.yaml`; it does not create a Job, synthetic event,
 RabbitMQ delivery, or other cluster workload.
 
+## Build the Basic Pitch worker image
+
+```bash
+./k8Deployment/kubernetes/scripts/build-basic-pitch-image.sh
+```
+
+This builds the CPU-only Basic Pitch worker for `linux/arm64` from its separate
+pinned Python 3.11 base image. The two-stage Dockerfile installs the complete
+hash-locked inference/client dependency closure, runs the worker unit suite,
+and proves that the fixed `basic-pitch` command and bundled TensorFlow Lite
+model are present before the final non-root image is published to
+`clouddsp-registry.localhost:5001/basic-pitch`. The script prints the immutable
+registry digest and Docker's local uncompressed size. It does not create or
+update a Deployment, Pod, Service, Ingress, Secret, database row, MinIO object,
+or RabbitMQ message. Its published digest is recorded separately in
+`images.lock.yaml` before a future workload manifest may refer to it.
+
 ## Smoke-test the local Job API image
 
 ```bash

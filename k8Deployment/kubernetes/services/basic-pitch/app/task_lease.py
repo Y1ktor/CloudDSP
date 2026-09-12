@@ -239,6 +239,56 @@ INSERT_FIRST_BASIC_PITCH_TASK_LEASE_SQL = """
 """
 
 
+# A scheduled retry is PostgreSQL-authoritative after the original RabbitMQ
+# delivery was acknowledged. This indexed one-row claim gives a later recovery
+# component a fresh lease without trusting an old delivery or scanning task
+# history. ``FOR UPDATE SKIP LOCKED`` permits multiple future replicas to pass
+# over a candidate another transaction is already leasing, instead of waiting
+# or granting the same task to two workers.
+#
+# Attempt three is deliberately excluded. A temporary storage failure on that
+# final permitted lease must follow the separate guarded terminal-exhaustion
+# transition rather than silently creating attempt four. Expired active-task
+# recovery is also intentionally outside this first narrow retry-schedule
+# adapter; it needs its own reviewed policy because a model may have started.
+CLAIM_NEXT_DUE_BASIC_PITCH_RETRY_SQL = """
+    WITH candidate AS (
+      SELECT task_id
+      FROM public.processing_tasks
+      WHERE stage = 'basic-pitch'
+        AND status = 'retry_scheduled'
+        AND attempt_count < %s::integer
+        AND available_at <= CURRENT_TIMESTAMP
+      ORDER BY available_at ASC, created_at ASC, task_id ASC
+      FOR UPDATE SKIP LOCKED
+      LIMIT 1
+    )
+    UPDATE public.processing_tasks AS task
+    SET
+      status = 'leased',
+      attempt_count = task.attempt_count + 1,
+      available_at = CURRENT_TIMESTAMP,
+      lease_token = %s::uuid,
+      lease_expires_at = CURRENT_TIMESTAMP + (%s::integer * INTERVAL '1 second'),
+      last_error_code = NULL
+    FROM candidate
+    WHERE task.task_id = candidate.task_id
+    RETURNING
+      task.task_id::text AS task_id,
+      task.job_id::text AS job_id,
+      task.stage,
+      task.stem_name,
+      task.request_event_id::text AS request_event_id,
+      task.input_bucket,
+      task.input_object_key,
+      task.stem_mode,
+      task.status,
+      task.attempt_count,
+      task.lease_token::text AS lease_token,
+      task.lease_expires_at
+"""
+
+
 # MinIO metadata/download verification happens while the task is still
 # `leased`: an unsuitable stem can later reach a terminal/retry decision
 # without falsely recording that the Basic Pitch model began. Only after all
@@ -542,6 +592,54 @@ def claim_basic_pitch_task_for_delivery(
         disposition=BasicPitchTaskClaimDisposition.CLAIMED,
         lease=lease,
     )
+
+
+def claim_next_due_basic_pitch_retry(
+    cursor: DatabaseCursor,
+    *,
+    lease_seconds: int = DEFAULT_BASIC_PITCH_LEASE_SECONDS,
+    uuid_factory: Callable[[], UUID] = uuid4,
+) -> BasicPitchTaskLease | None:
+    """Claim one due retry-scheduled Basic Pitch task with a fresh lease.
+
+    Invoke this in one short PostgreSQL transaction. ``None`` is a normal
+    indexed idle result: no Basic Pitch retry was due when PostgreSQL evaluated
+    the candidate query. A returned lease carries a new token and incremented
+    attempt count; it is not permission to run the model until a later recovery
+    boundary reconstructs the strict request evidence and completes the normal
+    pre-model validation/start transition.
+
+    This pure decision creates no connection, transaction, RabbitMQ message,
+    MinIO request, model process, sleep, loop, or Kubernetes resource. It also
+    deliberately ignores expired ``leased``/``running`` rows: recovering a
+    possibly started model attempt requires a separate reviewed policy.
+    """
+
+    bounded_lease_seconds = _validated_lease_seconds(lease_seconds)
+    lease_token = _new_canonical_uuid(uuid_factory)
+    cursor.execute(
+        CLAIM_NEXT_DUE_BASIC_PITCH_RETRY_SQL,
+        (
+            MAX_BASIC_PITCH_TASK_ATTEMPTS,
+            lease_token,
+            bounded_lease_seconds,
+        ),
+    )
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    lease = _row_lease(_mapping_or_error(row))
+    expected_key = f"stems/{lease.job_id}/{lease.stem_name}.wav"
+    if (
+        lease.lease_token != lease_token
+        or not 2 <= lease.attempt_count <= MAX_BASIC_PITCH_TASK_ATTEMPTS
+        or lease.input_bucket != LOCAL_UPLOADS_BUCKET
+        or lease.input_object_key != expected_key
+        or lease.stem_mode not in BASIC_PITCH_STEMS_BY_MODE
+        or lease.stem_name not in BASIC_PITCH_STEMS_BY_MODE[lease.stem_mode]
+    ):
+        raise BasicPitchTaskLeaseProtocolError("Basic Pitch task database state is invalid.")
+    return lease
 
 
 def start_leased_basic_pitch_task(

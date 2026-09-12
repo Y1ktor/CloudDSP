@@ -21,6 +21,15 @@ from app.basic_pitch_task_execution import (
 from app.basic_pitch_requested_message import BasicPitchRequestedMessage
 from app.midi_artifact_upload import BasicPitchMidiUploadUnavailable
 from app.midi_task_completion import BasicPitchMidiTaskCompletion
+from app.stem_task_terminal_failure import (
+    BasicPitchStemTerminalFailure,
+    BasicPitchStemTerminalFailureCode,
+)
+from app.stem_task_retry_exhaustion import (
+    BasicPitchStemRetryExhaustion,
+    BasicPitchStemRetryExhaustionCode,
+)
+from app.stem_task_retry_schedule import BasicPitchStemRetrySchedule, BasicPitchStemRetryScheduleCode
 from app.task_lease import BasicPitchTaskLease
 
 
@@ -217,6 +226,63 @@ class BasicPitchTaskExecutionTests(unittest.TestCase):
         self.assertEqual(events, ["head-stem", "stem-scope-enter", "stem-scope-exit"])
         build_inference.assert_not_called()
         commit.assert_not_called()
+
+    def test_execution_result_requires_exact_success_failure_retry_or_ownership_evidence(self) -> None:
+        """The acknowledged gate cannot expose any durable outcome without its receipt."""
+
+        from app.basic_pitch_task_execution import BasicPitchClaimedTaskExecution
+
+        terminal_failure = BasicPitchStemTerminalFailure(
+            task_id=TASK_ID,
+            job_id=JOB_ID,
+            failure_code=BasicPitchStemTerminalFailureCode.METADATA_MISMATCH,
+            completed_at=datetime(2026, 9, 11, 12, 25, tzinfo=UTC),
+        )
+        valid = BasicPitchClaimedTaskExecution(
+            outcome=BasicPitchClaimedTaskExecutionOutcome.TERMINAL_FAILURE,
+            terminal_failure=terminal_failure,
+        )
+        self.assertIs(valid.terminal_failure, terminal_failure)
+        retry_schedule = BasicPitchStemRetrySchedule(
+            task_id=TASK_ID,
+            job_id=JOB_ID,
+            attempt_count=1,
+            failure_code=BasicPitchStemRetryScheduleCode.STORAGE_UNAVAILABLE,
+            available_at=datetime(2026, 9, 11, 12, 26, tzinfo=UTC),
+        )
+        scheduled = BasicPitchClaimedTaskExecution(
+            outcome=BasicPitchClaimedTaskExecutionOutcome.RETRY_SCHEDULED,
+            retry_schedule=retry_schedule,
+        )
+        self.assertIs(scheduled.retry_schedule, retry_schedule)
+        retry_exhaustion = BasicPitchStemRetryExhaustion(
+            task_id=TASK_ID,
+            job_id=JOB_ID,
+            failure_code=BasicPitchStemRetryExhaustionCode.STORAGE_UNAVAILABLE,
+            completed_at=datetime(2026, 9, 11, 12, 27, tzinfo=UTC),
+        )
+        exhausted = BasicPitchClaimedTaskExecution(
+            outcome=BasicPitchClaimedTaskExecutionOutcome.RETRY_EXHAUSTED,
+            retry_exhaustion=retry_exhaustion,
+        )
+        self.assertIs(exhausted.retry_exhaustion, retry_exhaustion)
+
+        for outcome, completion, failure, schedule, exhaustion in (
+            (BasicPitchClaimedTaskExecutionOutcome.TERMINAL_FAILURE, None, None, None, None),
+            (BasicPitchClaimedTaskExecutionOutcome.RETRY_SCHEDULED, None, None, None, None),
+            (BasicPitchClaimedTaskExecutionOutcome.RETRY_EXHAUSTED, None, None, None, None),
+            (BasicPitchClaimedTaskExecutionOutcome.OWNERSHIP_LOST, None, terminal_failure, None, None),
+            (BasicPitchClaimedTaskExecutionOutcome.OWNERSHIP_LOST, None, None, retry_schedule, None),
+        ):
+            with self.subTest(outcome=outcome):
+                with self.assertRaises(TypeError):
+                    BasicPitchClaimedTaskExecution(
+                        outcome=outcome,
+                        completion=completion,
+                        terminal_failure=failure,
+                        retry_schedule=schedule,
+                        retry_exhaustion=exhaustion,
+                    )
 
     @patch("app.basic_pitch_task_execution.commit_verified_basic_pitch_midi_task")
     @patch("app.basic_pitch_task_execution.verify_uploaded_basic_pitch_midi_head_object")
