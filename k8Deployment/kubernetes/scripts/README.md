@@ -193,6 +193,21 @@ pushes it to the local registry and prints the immutable digest that is
 recorded in `images.lock.yaml`; it does not create a Job, synthetic event,
 RabbitMQ delivery, or other cluster workload.
 
+## Build the Basic Pitch worker smoke-client image
+
+```bash
+./k8Deployment/kubernetes/scripts/build-basic-pitch-worker-smoke-client-image.sh
+```
+
+This builds the separate end-to-end Basic Pitch worker verifier for
+`linux/arm64`. Its validation stage installs only the hash-locked Boto3 and
+Psycopg dependency closure and runs eight isolated tests. The non-root runtime
+can call only its fixed PostgreSQL functions and access only its two reserved
+MinIO objects once a later Job supplies the already-applied restricted Secrets.
+The script pushes the image to the local registry and prints its immutable
+digest; it does not create a Job, synthetic event, RabbitMQ message, object, or
+other cluster workload.
+
 ## Build the Basic Pitch worker image
 
 ```bash

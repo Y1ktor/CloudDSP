@@ -1,0 +1,477 @@
+# This administrator-only one-shot Job provisions the database boundary for
+# the future Basic Pitch *worker* smoke test:
+#
+#   restricted smoke client -> three fixed SECURITY DEFINER functions -> PostgreSQL
+#   generic dispatcher -> RabbitMQ -> deployed Basic Pitch worker -> PostgreSQL
+#
+# It deliberately does not make a MinIO object, publish/consume RabbitMQ,
+# start a worker, create a smoke Job row, or use the Kubernetes API. The future
+# client invokes `prepare` only after it has stored the contract-valid WAV; the
+# real deployed worker creates its normal processing-task row after consuming
+# the resulting durable outbox event.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # A fixed Job name leaves the completed privilege evidence inspectable. Delete
+  # this Job before an intentional password rotation or grant repair; applying
+  # an unchanged completed Job does not cause Kubernetes to run it again.
+  name: basic-pitch-worker-smoke-database-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: basic-pitch-worker-smoke-database-bootstrap
+    app.kubernetes.io/component: database-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: fixed-scope-basic-pitch-worker-smoke-provisioning
+spec:
+  # Keep only safe structural log output briefly. TTL cleanup removes the Pod
+  # that mounted PostgreSQL administrator credentials; it does not delete the
+  # separately applied temporary Secret, which an operator deletes explicitly.
+  ttlSecondsAfterFinished: 600
+  # Do not repeat privileged DDL automatically after a failure. One failed
+  # result is easier to inspect than retries against a partial diagnosis.
+  backoffLimit: 0
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: basic-pitch-worker-smoke-database-bootstrap
+        app.kubernetes.io/component: database-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # This Pod connects only to the private PostgreSQL Service. It never
+      # talks to the Kubernetes API, so no ambient ServiceAccount token is
+      # mounted into this administrator-credential-bearing container.
+      automountServiceAccountToken: false
+      securityContext:
+        # The pinned PostgreSQL Docker Official Image supplies `psql` and this
+        # existing non-root account. PostgreSQL authorization, rather than a
+        # root container, supplies the required database administration power.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgresql-bootstrap-client
+          # This immutable reference is the same reviewed PostgreSQL client
+          # image used by other schema/role bootstrap Jobs. It avoids a mutable
+          # tag changing the executable that handles database credentials.
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          env:
+            # Kubernetes Service DNS survives a StatefulSet Pod replacement;
+            # this is not a host port or a browser-facing endpoint.
+            - name: PGHOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: PGPORT
+              value: "5432"
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+            # The existing database administrator login is mounted only into
+            # this short-lived Pod. No future smoke Job receives these values.
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_PASSWORD
+            # The namespace-local duplicate contains only the restricted smoke
+            # role to create. Its values must match the permanent app Secret.
+            - name: BASIC_PITCH_WORKER_SMOKE_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-worker-smoke-database-bootstrap-credentials
+                  key: BASIC_PITCH_WORKER_SMOKE_DB_NAME
+            - name: BASIC_PITCH_WORKER_SMOKE_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-worker-smoke-database-bootstrap-credentials
+                  key: BASIC_PITCH_WORKER_SMOKE_DB_USERNAME
+            - name: BASIC_PITCH_WORKER_SMOKE_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-worker-smoke-database-bootstrap-credentials
+                  key: BASIC_PITCH_WORKER_SMOKE_DB_PASSWORD
+          resources:
+            # Role/function DDL is short and performs no media work. Tight
+            # limits keep this administration Pod from competing with workers.
+            requests:
+              cpu: 10m
+              memory: 32Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -ec
+            - |
+              # `ON_ERROR_STOP` makes any SQL failure a nonzero Job result.
+              # The quoted heredoc prevents shell expansion; psql performs only
+              # the explicit value/identifier bindings passed below.
+              printf 'Provisioning fixed-scope Basic Pitch worker smoke access through Service %s:%s\n' "$PGHOST" "$PGPORT"
+
+              PGDATABASE="$BASIC_PITCH_WORKER_SMOKE_DB_NAME" \
+                psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                  --set=smoke_db_name="$BASIC_PITCH_WORKER_SMOKE_DB_NAME" \
+                  --set=smoke_db_username="$BASIC_PITCH_WORKER_SMOKE_DB_USERNAME" \
+                  --set=smoke_db_password="$BASIC_PITCH_WORKER_SMOKE_DB_PASSWORD" <<'SQL'
+              -- These zero-row probes verify only structural prerequisites; no
+              -- existing Job, subject, object key, event payload, or Secret is
+              -- printed. v004/v005 must be present before the smoke functions
+              -- can create a legal downstream Basic Pitch event.
+              SELECT job_id, status, source_uploaded, stem_mode, stems, expires_at
+              FROM public.jobs
+              LIMIT 0;
+              SELECT event_id, job_id, stage, stem_name, event_type, payload,
+                     publication_status, published_at
+              FROM public.outbox_events
+              LIMIT 0;
+              SELECT task_id, job_id, stage, stem_name, request_event_id,
+                     status, attempt_count, lease_token, lease_expires_at, completed_at
+              FROM public.processing_tasks
+              LIMIT 0;
+
+              -- Named dollar tags are intentional. Docker/Kubernetes command
+              -- processing can reduce an anonymous `$$` to `$`, which makes a
+              -- PostgreSQL block invalid; named tags remain intact.
+              DO $bootstrap$
+              BEGIN
+                IF NOT EXISTS (
+                  SELECT 1 FROM public.schema_migrations
+                  WHERE migration_id = 'v004_downstream_outbox_events'
+                ) THEN
+                  RAISE EXCEPTION 'Required v004 downstream outbox migration is missing.';
+                END IF;
+                IF NOT EXISTS (
+                  SELECT 1 FROM public.schema_migrations
+                  WHERE migration_id = 'v005_basic_pitch_processing_tasks'
+                ) THEN
+                  RAISE EXCEPTION 'Required v005 Basic Pitch task migration is missing.';
+                END IF;
+              END;
+              $bootstrap$;
+
+              -- Create the login once, then converge it on every deliberate
+              -- bootstrap rerun. psql's identifier/literal forms keep a role
+              -- name or password from changing the SQL statement structure.
+              SELECT format(
+                'CREATE ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT PASSWORD %L',
+                :'smoke_db_username',
+                :'smoke_db_password'
+              )
+              WHERE NOT EXISTS (
+                SELECT 1 FROM pg_roles WHERE rolname = :'smoke_db_username'
+              )
+              \gexec
+
+              ALTER ROLE :"smoke_db_username"
+                LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT
+                PASSWORD :'smoke_db_password';
+
+              -- Membership could let a reused role `SET ROLE` into unrelated
+              -- authority, even with NOINHERIT. `format` inserts the psql
+              -- literal before `\\gexec` sends the named-dollar PostgreSQL block;
+              -- direct psql substitution inside a dollar-quoted body would not
+              -- be reliable. Refuse membership rather than silently treating
+              -- a reused role as this dedicated test identity.
+              SELECT format(
+                $membership_sql$
+                  DO $membership$
+                  BEGIN
+                    IF EXISTS (
+                      SELECT 1
+                      FROM pg_auth_members AS membership
+                      JOIN pg_roles AS member_role ON member_role.oid = membership.member
+                      WHERE member_role.rolname = %L
+                    ) THEN
+                      RAISE EXCEPTION 'Smoke database role must not belong to another PostgreSQL role.';
+                    END IF;
+                  END;
+                  $membership$;
+                $membership_sql$,
+                :'smoke_db_username'
+              )
+              \gexec
+
+              -- Reset all direct access before adding the minimum. The smoke
+              -- client never gets table/sequence DML, schema creation, DDL,
+              -- role administration, or rights to inspect other Job history.
+              REVOKE ALL PRIVILEGES ON DATABASE :"smoke_db_name"
+                FROM :"smoke_db_username";
+              GRANT CONNECT ON DATABASE :"smoke_db_name"
+                TO :"smoke_db_username";
+              REVOKE ALL PRIVILEGES ON SCHEMA public
+                FROM :"smoke_db_username";
+              GRANT USAGE ON SCHEMA public
+                TO :"smoke_db_username";
+              REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public
+                FROM :"smoke_db_username";
+              REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public
+                FROM :"smoke_db_username";
+              REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public
+                FROM :"smoke_db_username";
+
+              -- `prepare` has no caller-selected UUID or object key. It can
+              -- create exactly the reserved Job and outbox event after a later
+              -- smoke client has uploaded the matching controlled WAV. The
+              -- worker creates the normal processing-task row after it claims
+              -- the published event, preserving real idempotent worker flow.
+              CREATE OR REPLACE FUNCTION public.clouddsp_basic_pitch_worker_smoke_prepare(
+                p_stem_size_bytes BIGINT,
+                p_stem_sha256 TEXT
+              )
+              RETURNS TABLE (smoke_job_id UUID, smoke_event_id UUID)
+              LANGUAGE plpgsql
+              SECURITY DEFINER
+              SET search_path = pg_catalog, public
+              AS $smoke_prepare$
+              DECLARE
+                v_job_id CONSTANT UUID := '7ea5ee7e-c726-4af8-8f21-4d0e227bdd0b';
+                v_event_id CONSTANT UUID := '66d8637f-4e80-4b53-aed3-4e4ea54bd110';
+                v_input_key CONSTANT TEXT :=
+                  'stems/7ea5ee7e-c726-4af8-8f21-4d0e227bdd0b/vocals.wav';
+                v_source_key CONSTANT TEXT :=
+                  'uploads/7ea5ee7e-c726-4af8-8f21-4d0e227bdd0b/basic-pitch-worker-smoke.wav';
+              BEGIN
+                -- The client owns the generated byte evidence, but this
+                -- definer function rejects malformed/unbounded values before
+                -- they can become durable worker input.
+                IF p_stem_size_bytes IS NULL
+                   OR p_stem_size_bytes < 1
+                   OR p_stem_size_bytes > 1048576
+                   OR p_stem_sha256 IS NULL
+                   OR p_stem_sha256 !~ '^[0-9a-f]{64}$' THEN
+                  RAISE EXCEPTION 'Basic Pitch worker smoke input evidence is invalid.';
+                END IF;
+
+                PERFORM pg_advisory_xact_lock(842930518);
+                -- Any residue is evidence from a failed or interrupted run.
+                -- Never overwrite it: the test needs an explicit diagnosis or
+                -- scoped manual cleanup before its exact coordinates are reused.
+                IF EXISTS (SELECT 1 FROM public.jobs WHERE job_id = v_job_id)
+                   OR EXISTS (SELECT 1 FROM public.outbox_events WHERE event_id = v_event_id)
+                   OR EXISTS (
+                     SELECT 1
+                     FROM public.processing_tasks
+                     WHERE job_id = v_job_id
+                       AND stage = 'basic-pitch'
+                       AND stem_name = 'vocals'
+                   ) THEN
+                  RAISE EXCEPTION 'Basic Pitch worker smoke coordinates are not clean.';
+                END IF;
+
+                INSERT INTO public.jobs (
+                  job_id, owner_sub, source_type, input_bucket, input_object_key,
+                  source_filename, source_content_type, source_size_bytes,
+                  source_uploaded, stem_mode, status, stems, expires_at
+                )
+                VALUES (
+                  v_job_id,
+                  'clouddsp-basic-pitch-worker-smoke',
+                  'direct_upload',
+                  'clouddsp-uploads',
+                  v_source_key,
+                  'basic-pitch-worker-smoke.wav',
+                  'audio/wav',
+                  p_stem_size_bytes,
+                  TRUE,
+                  '2-stems',
+                  'midi_processing',
+                  jsonb_build_object(
+                    'vocals',
+                    jsonb_build_object(
+                      'status', 'ready',
+                      's3_key', v_input_key,
+                      'bucket', 'clouddsp-uploads',
+                      'content_type', 'audio/wav',
+                      'size_bytes', p_stem_size_bytes,
+                      'sha256', p_stem_sha256
+                    )
+                  ),
+                  CURRENT_TIMESTAMP + INTERVAL '10 minutes'
+                );
+
+                -- This JSONB body exactly matches the persistent version-1
+                -- Basic Pitch requested contract. PostgreSQL commits it with
+                -- the Job so a crash cannot leave a Job without its event.
+                INSERT INTO public.outbox_events (
+                  event_id, job_id, stage, stem_name, event_type, payload
+                )
+                VALUES (
+                  v_event_id,
+                  v_job_id,
+                  'basic-pitch',
+                  'vocals',
+                  'basic-pitch.requested',
+                  jsonb_build_object(
+                    'schema_version', 1,
+                    'job_id', v_job_id::text,
+                    'stem_name', 'vocals',
+                    'stem', jsonb_build_object(
+                      'bucket', 'clouddsp-uploads',
+                      'object_key', v_input_key,
+                      'content_type', 'audio/wav',
+                      'size_bytes', p_stem_size_bytes,
+                      'sha256', p_stem_sha256
+                    )
+                  )
+                );
+
+                RETURN QUERY SELECT v_job_id, v_event_id;
+              END;
+              $smoke_prepare$;
+
+              -- `observe` exposes one compact safe projection. It returns no
+              -- owner, source/artifact JSON, error text, raw event payload, or
+              -- arbitrary rows, while still letting a future client prove the
+              -- dispatcher published and the actual worker completed its task.
+              CREATE OR REPLACE FUNCTION public.clouddsp_basic_pitch_worker_smoke_observe()
+              RETURNS TABLE (
+                publication_status TEXT,
+                published_at TIMESTAMPTZ,
+                task_id UUID,
+                task_status TEXT,
+                task_attempt_count INTEGER,
+                task_lease_is_clear BOOLEAN,
+                task_completed_at TIMESTAMPTZ,
+                job_status TEXT
+              )
+              LANGUAGE sql
+              SECURITY DEFINER
+              SET search_path = pg_catalog, public
+              AS $smoke_observe$
+                SELECT
+                  event.publication_status,
+                  event.published_at,
+                  task.task_id,
+                  task.status,
+                  task.attempt_count,
+                  (
+                    task.task_id IS NOT NULL
+                    AND task.lease_token IS NULL
+                    AND task.lease_expires_at IS NULL
+                  ) AS task_lease_is_clear,
+                  task.completed_at,
+                  job.status
+                FROM public.jobs AS job
+                JOIN public.outbox_events AS event
+                  ON event.job_id = job.job_id
+                LEFT JOIN public.processing_tasks AS task
+                  ON task.job_id = job.job_id
+                 AND task.stage = 'basic-pitch'
+                 AND task.stem_name = 'vocals'
+                WHERE job.job_id = '7ea5ee7e-c726-4af8-8f21-4d0e227bdd0b'::uuid
+                  AND job.owner_sub = 'clouddsp-basic-pitch-worker-smoke'
+                  AND event.event_id = '66d8637f-4e80-4b53-aed3-4e4ea54bd110'::uuid
+                  AND event.stage = 'basic-pitch'
+                  AND event.stem_name = 'vocals'
+                  AND event.event_type = 'basic-pitch.requested';
+              $smoke_observe$;
+
+              -- Cleanup is possible only after the actual worker created and
+              -- completed one task. The future client deletes both exact MinIO
+              -- objects before calling this function, so an object-delete
+              -- failure retains database evidence for investigation instead.
+              CREATE OR REPLACE FUNCTION public.clouddsp_basic_pitch_worker_smoke_cleanup()
+              RETURNS BOOLEAN
+              LANGUAGE plpgsql
+              SECURITY DEFINER
+              SET search_path = pg_catalog, public
+              AS $smoke_cleanup$
+              DECLARE
+                did_delete BOOLEAN;
+              BEGIN
+                DELETE FROM public.jobs AS job
+                WHERE job.job_id = '7ea5ee7e-c726-4af8-8f21-4d0e227bdd0b'::uuid
+                  AND job.owner_sub = 'clouddsp-basic-pitch-worker-smoke'
+                  AND job.status = 'midi_processing'
+                  AND EXISTS (
+                    SELECT 1
+                    FROM public.outbox_events AS event
+                    WHERE event.event_id = '66d8637f-4e80-4b53-aed3-4e4ea54bd110'::uuid
+                      AND event.job_id = job.job_id
+                      AND event.stage = 'basic-pitch'
+                      AND event.stem_name = 'vocals'
+                      AND event.event_type = 'basic-pitch.requested'
+                      AND event.publication_status = 'published'
+                  )
+                  AND EXISTS (
+                    SELECT 1
+                    FROM public.processing_tasks AS task
+                    WHERE task.job_id = job.job_id
+                      AND task.stage = 'basic-pitch'
+                      AND task.stem_name = 'vocals'
+                      AND task.status = 'succeeded'
+                      AND task.attempt_count = 1
+                      AND task.lease_token IS NULL
+                      AND task.lease_expires_at IS NULL
+                      AND task.completed_at IS NOT NULL
+                  )
+                RETURNING TRUE INTO did_delete;
+                RETURN COALESCE(did_delete, FALSE);
+              END;
+              $smoke_cleanup$;
+
+              -- Functions normally default to PUBLIC execution. Revoke that
+              -- implicit access every rerun, then grant only the dedicated
+              -- test role and no generic table/sequence privilege.
+              REVOKE ALL ON FUNCTION public.clouddsp_basic_pitch_worker_smoke_prepare(BIGINT, TEXT) FROM PUBLIC;
+              REVOKE ALL ON FUNCTION public.clouddsp_basic_pitch_worker_smoke_observe() FROM PUBLIC;
+              REVOKE ALL ON FUNCTION public.clouddsp_basic_pitch_worker_smoke_cleanup() FROM PUBLIC;
+              GRANT EXECUTE ON FUNCTION public.clouddsp_basic_pitch_worker_smoke_prepare(BIGINT, TEXT)
+                TO :"smoke_db_username";
+              GRANT EXECUTE ON FUNCTION public.clouddsp_basic_pitch_worker_smoke_observe()
+                TO :"smoke_db_username";
+              GRANT EXECUTE ON FUNCTION public.clouddsp_basic_pitch_worker_smoke_cleanup()
+                TO :"smoke_db_username";
+              SQL
+
+              # Reconnect as the restricted role and emit only privilege facts,
+              # never a Job/event/object value or mounted Secret. These checks
+              # make a broad grant or a missing function immediately visible.
+              PGDATABASE="$BASIC_PITCH_WORKER_SMOKE_DB_NAME" \
+              PGUSER="$BASIC_PITCH_WORKER_SMOKE_DB_USERNAME" \
+              PGPASSWORD="$BASIC_PITCH_WORKER_SMOKE_DB_PASSWORD" \
+                psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 <<'SQL'
+              SELECT
+                current_database() AS database,
+                current_user AS role,
+                has_table_privilege(current_user, 'public.jobs', 'SELECT') AS can_select_jobs,
+                has_table_privilege(current_user, 'public.jobs', 'INSERT') AS can_insert_jobs,
+                has_table_privilege(current_user, 'public.jobs', 'DELETE') AS can_delete_jobs,
+                has_table_privilege(current_user, 'public.outbox_events', 'SELECT') AS can_select_outbox,
+                has_table_privilege(current_user, 'public.outbox_events', 'INSERT') AS can_insert_outbox,
+                has_table_privilege(current_user, 'public.processing_tasks', 'SELECT') AS can_select_tasks,
+                has_function_privilege(
+                  current_user,
+                  'public.clouddsp_basic_pitch_worker_smoke_prepare(bigint,text)',
+                  'EXECUTE'
+                ) AS can_prepare_smoke,
+                has_function_privilege(
+                  current_user,
+                  'public.clouddsp_basic_pitch_worker_smoke_observe()',
+                  'EXECUTE'
+                ) AS can_observe_smoke,
+                has_function_privilege(
+                  current_user,
+                  'public.clouddsp_basic_pitch_worker_smoke_cleanup()',
+                  'EXECUTE'
+                ) AS can_cleanup_smoke;
+              SQL
+              printf 'Fixed-scope Basic Pitch worker smoke PostgreSQL bootstrap passed\n'

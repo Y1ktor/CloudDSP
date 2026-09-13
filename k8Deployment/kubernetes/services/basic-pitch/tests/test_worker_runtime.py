@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from app.amqp_connection import DEFAULT_BASIC_PITCH_AMQP_HOST, BasicPitchAMQPSettings
 from app.basic_pitch_task_execution import (
@@ -116,15 +116,40 @@ def fatal_step() -> BasicPitchSupervisorStepResult:
     )
 
 
+def retryable_failure_step() -> BasicPitchSupervisorStepResult:
+    """Return a retryable database/broker-style failure with a one-second delay.
+
+    The runtime does not need the raw exception at this point: the supervisor
+    already classified it and chose the bounded retry action. This fixture lets
+    the lifecycle test prove that the AMQP session closes before that wait.
+    """
+
+    next_state = BasicPitchSupervisorStepState(
+        backoff_state=BasicPitchSupervisorBackoffState(retryable_failure_streak=1),
+    )
+    return BasicPitchSupervisorStepResult(
+        event=BasicPitchSupervisorEvent.RETRYABLE_FAILURE,
+        decision=BasicPitchSupervisorDecision(
+            action=BasicPitchSupervisorAction.RETRY_AFTER_BACKOFF,
+            delay_seconds=1.0,
+            next_state=next_state.backoff_state,
+        ),
+        next_state=next_state,
+    )
+
+
 class SequencedShutdownWaiter:
     """Return scripted event-wait values and retain zero/timeout checks."""
 
-    def __init__(self, *results: bool) -> None:
+    def __init__(self, *results: bool, lifecycle_events: list[str] | None = None) -> None:
         self._results = iter(results)
         self.delays: list[float] = []
+        self._lifecycle_events = lifecycle_events
 
     def wait_for_shutdown(self, timeout_seconds: float) -> bool:
         self.delays.append(timeout_seconds)
+        if self._lifecycle_events is not None:
+            self._lifecycle_events.append(f"wait:{timeout_seconds}")
         return next(self._results)
 
 
@@ -169,6 +194,106 @@ class BasicPitchWorkerRuntimeTests(unittest.TestCase):
         self.assertEqual(waiter.delays, [0.0, 0.0, 0.0, DEFAULT_BASIC_PITCH_IDLE_DELAY_SECONDS])
         self.assertEqual(run_step.call_count, 2)
         self.assertEqual(run_step.call_args_list[1].kwargs["state"], progress_step().next_state)
+        connection.close.assert_called_once_with()
+
+    @patch("app.worker_runtime.run_one_basic_pitch_supervisor_step")
+    @patch("app.worker_runtime.configure_basic_pitch_rabbitmq_channel")
+    @patch("app.worker_runtime.open_basic_pitch_rabbitmq_connection")
+    def test_retryable_step_closes_before_backoff_then_recreates_the_amqp_session(
+        self, open_connection, configure_channel, run_step
+    ) -> None:
+        """Prove a pre-ack database failure cannot strand one prefetch slot.
+
+        A manual-ack receive may have a RabbitMQ delivery when PostgreSQL becomes
+        unavailable. The retryable supervisor result contains no successful ack
+        or nack decision, so closing the first connection is what asks RabbitMQ
+        to release that delivery for redelivery. Only after the prescribed
+        backoff may this runtime build a new channel and inspect work again.
+        """
+
+        lifecycle_events: list[str] = []
+        first_connection = MagicMock()
+        first_connection.channel.return_value = MagicMock()
+        first_connection.close.side_effect = lambda: lifecycle_events.append("first-connection-closed")
+        second_connection = MagicMock()
+        second_connection.channel.return_value = MagicMock()
+        second_connection.close.side_effect = lambda: lifecycle_events.append("second-connection-closed")
+        open_connection.side_effect = (first_connection, second_connection)
+        run_step.side_effect = (retryable_failure_step(), idle_step())
+        # Initial check; first session; retry backoff; reconnect check; second
+        # session; then shutdown interrupts the normal idle wait.
+        waiter = SequencedShutdownWaiter(
+            False,
+            False,
+            False,
+            False,
+            False,
+            True,
+            lifecycle_events=lifecycle_events,
+        )
+
+        result = run_basic_pitch_worker_runtime(
+            amqp_settings=settings(),
+            database=MagicMock(),
+            storage_client=MagicMock(),
+            work_directory=Path("/worker-scratch"),
+            shutdown_waiter=waiter,
+            jitter_fraction=0.0,
+        )
+
+        self.assertEqual(result.reason, BasicPitchWorkerExitReason.SHUTDOWN_REQUESTED)
+        self.assertEqual(result.completed_steps, 2)
+        self.assertEqual(
+            waiter.delays,
+            [0.0, 0.0, 1.0, 0.0, 0.0, DEFAULT_BASIC_PITCH_IDLE_DELAY_SECONDS],
+        )
+        self.assertLess(
+            lifecycle_events.index("first-connection-closed"),
+            lifecycle_events.index("wait:1.0"),
+        )
+        self.assertEqual(lifecycle_events[-1], "second-connection-closed")
+        open_connection.assert_has_calls([call(settings()), call(settings())])
+        self.assertEqual(open_connection.call_count, 2)
+        configure_channel.assert_has_calls(
+            [
+                call(first_connection.channel.return_value, settings=settings()),
+                call(second_connection.channel.return_value, settings=settings()),
+            ]
+        )
+        self.assertEqual(configure_channel.call_count, 2)
+        self.assertEqual(run_step.call_args_list[1].kwargs["state"], retryable_failure_step().next_state)
+        first_connection.close.assert_called_once_with()
+        second_connection.close.assert_called_once_with()
+
+    @patch("app.worker_runtime.run_one_basic_pitch_supervisor_step")
+    @patch("app.worker_runtime.configure_basic_pitch_rabbitmq_channel")
+    @patch("app.worker_runtime.open_basic_pitch_rabbitmq_connection")
+    def test_shutdown_during_retry_backoff_does_not_open_a_replacement_session(
+        self, open_connection, configure_channel, run_step
+    ) -> None:
+        """A terminating Pod requeues safely but never starts a fresh session."""
+
+        connection = MagicMock()
+        connection.channel.return_value = MagicMock()
+        open_connection.return_value = connection
+        run_step.return_value = retryable_failure_step()
+        # Initial check; first session; shutdown arrives during retry backoff.
+        waiter = SequencedShutdownWaiter(False, False, True)
+
+        result = run_basic_pitch_worker_runtime(
+            amqp_settings=settings(),
+            database=MagicMock(),
+            storage_client=MagicMock(),
+            work_directory=Path("/worker-scratch"),
+            shutdown_waiter=waiter,
+            jitter_fraction=0.0,
+        )
+
+        self.assertEqual(result.reason, BasicPitchWorkerExitReason.SHUTDOWN_REQUESTED)
+        self.assertEqual(result.completed_steps, 1)
+        self.assertEqual(waiter.delays, [0.0, 0.0, 1.0])
+        open_connection.assert_called_once_with(settings())
+        configure_channel.assert_called_once_with(connection.channel.return_value, settings=settings())
         connection.close.assert_called_once_with()
 
     @patch("app.worker_runtime.run_one_basic_pitch_supervisor_step")

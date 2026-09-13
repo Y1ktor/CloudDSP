@@ -1,0 +1,356 @@
+# This one-shot administrator Job provisions the separate MinIO identity for
+# the Basic Pitch worker smoke test:
+#
+#   bootstrap Pod (root key) -> private MinIO Service -> fixed-object policy
+#   future smoke client (restricted key) -> only its WAV and MIDI coordinates
+#
+# It does not create a bucket, upload/download an object, invoke Basic Pitch,
+# touch PostgreSQL/RabbitMQ, publish a message, or use Kubernetes API access.
+# Apply its immutable policy ConfigMap first, then this Job. A completed fixed
+# name must be deleted before a deliberate key rotation or policy repair.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-basic-pitch-worker-smoke-objects-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: minio-basic-pitch-worker-smoke-objects-bootstrap
+    app.kubernetes.io/component: object-storage-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: fixed-key-basic-pitch-worker-smoke-object-provisioning
+spec:
+  # Preserve safe identity/policy association evidence briefly, then delete the
+  # Pod that mounted root credentials. The independently applied temporary
+  # bootstrap Secret remains until an operator removes it explicitly.
+  ttlSecondsAfterFinished: 600
+  # Root-credential operations should fail visibly once; retries could hide a
+  # policy/configuration fault and are unnecessary for this small local setup.
+  backoffLimit: 0
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: minio-basic-pitch-worker-smoke-objects-bootstrap
+        app.kubernetes.io/component: object-storage-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # The MinIO administration client does not need Kubernetes API access.
+      automountServiceAccountToken: false
+      securityContext:
+        # All containers use the `mc` image's supported unprivileged account.
+        # `fsGroup` makes the bounded shared alias directory writable across
+        # ordered init containers without granting a root filesystem.
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      # Init containers are sequential. Each one has one narrow responsibility
+      # and shares only a bounded temporary `mc` alias configuration directory.
+      initContainers:
+        - name: configure-minio-root-alias
+          # The MinIO-maintained client is pinned in images.lock.yaml. No Pod
+          # package install or mutable image tag can change this root-key path.
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+            # The root key is resolved when the Pod starts; it never appears in
+            # source, command arguments, or normal Job output.
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_PASSWORD
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          args:
+            - alias
+            - set
+            - minio-admin
+            - http://clouddsp-minio:9000
+            - $(MINIO_ROOT_USER)
+            - $(MINIO_ROOT_PASSWORD)
+
+        - name: wait-for-private-minio-service
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          # Wait only for the internal Service/alias. The Job deadline bounds
+          # an unavailable StatefulSet, DNS problem, or invalid root secret.
+          args:
+            - ready
+            - minio-admin
+
+        - name: create-or-update-fixed-smoke-policy
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+            - name: fixed-smoke-policy
+              mountPath: /policy
+              readOnly: true
+          # The policy JSON comes only from the immutable reviewed ConfigMap;
+          # an operator cannot silently widen it through an interactive shell.
+          args:
+            - admin
+            - policy
+            - create
+            - minio-admin
+            - clouddsp-basic-pitch-worker-smoke-objects-v001
+            - /policy/basic-pitch-worker-smoke-objects-policy.json
+
+        - name: create-or-rotate-fixed-smoke-user
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+            # These values exactly match the eventual app-namespace Secret but
+            # are mounted here from a temporary data-namespace duplicate.
+            - name: BASIC_PITCH_WORKER_SMOKE_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-worker-smoke-minio-bootstrap-credentials
+                  key: BASIC_PITCH_WORKER_SMOKE_S3_ACCESS_KEY
+            - name: BASIC_PITCH_WORKER_SMOKE_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-worker-smoke-minio-bootstrap-credentials
+                  key: BASIC_PITCH_WORKER_SMOKE_S3_SECRET_KEY
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          args:
+            - admin
+            - user
+            - add
+            - minio-admin
+            - $(BASIC_PITCH_WORKER_SMOKE_S3_ACCESS_KEY)
+            - $(BASIC_PITCH_WORKER_SMOKE_S3_SECRET_KEY)
+
+        - name: attach-fixed-smoke-policy
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+            - name: BASIC_PITCH_WORKER_SMOKE_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-worker-smoke-minio-bootstrap-credentials
+                  key: BASIC_PITCH_WORKER_SMOKE_S3_ACCESS_KEY
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          args:
+            - admin
+            - policy
+            - attach
+            - minio-admin
+            - clouddsp-basic-pitch-worker-smoke-objects-v001
+            - --user=$(BASIC_PITCH_WORKER_SMOKE_S3_ACCESS_KEY)
+
+        - name: verify-fixed-smoke-user-policy
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+            - name: BASIC_PITCH_WORKER_SMOKE_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-worker-smoke-minio-bootstrap-credentials
+                  key: BASIC_PITCH_WORKER_SMOKE_S3_ACCESS_KEY
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          # This reports only the user/policy association; it never prints the
+          # secret key. A later smoke client proves allowed/denied S3 requests.
+          args:
+            - admin
+            - user
+            - info
+            - minio-admin
+            - $(BASIC_PITCH_WORKER_SMOKE_S3_ACCESS_KEY)
+
+        - name: remove-root-alias-from-temporary-config
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          # The only alias file holding root credentials is removed before the
+          # regular completion container starts; the bounded emptyDir then dies
+          # with the finished Pod.
+          args:
+            - alias
+            - remove
+            - minio-admin
+      containers:
+        - name: completion-marker
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          # All privileged work occurred in ordered init containers. This tiny
+          # regular container gives Kubernetes a conventional completion state.
+          args:
+            - --version
+      volumes:
+        - name: mc-config
+          emptyDir:
+            # `mc` alias state is a few KiB of temporary credential material,
+            # not object data. Bound it and remove it with the Job Pod.
+            sizeLimit: 1Mi
+        - name: fixed-smoke-policy
+          configMap:
+            # Mount only the immutable policy source under one read-only path.
+            # No unreviewed policy document or interactive config is available.
+            name: clouddsp-basic-pitch-worker-smoke-objects-policy-v001
+            defaultMode: 0444
+            items:
+              - key: basic-pitch-worker-smoke-objects-policy.json
+                path: basic-pitch-worker-smoke-objects-policy.json

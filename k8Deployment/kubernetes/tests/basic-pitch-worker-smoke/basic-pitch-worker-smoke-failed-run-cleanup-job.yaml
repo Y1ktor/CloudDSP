@@ -1,0 +1,251 @@
+# This administrator-only Job removes the *two* fixed MinIO objects and the
+# one fixed PostgreSQL Job left by a diagnosed failed Basic Pitch worker smoke
+# run. It is deliberately not a production cleanup controller: it has no
+# parameter, no prefix scan, no RabbitMQ access, and no ability to affect a
+# browser-created CloudDSP Job. Apply it only after a human has reviewed the
+# failed test evidence and explicitly approved a fresh run of these coordinates.
+#
+# Cleanup order is intentional:
+#
+#   1. delete exactly the synthetic WAV and MIDI object names;
+#   2. delete exactly the expired failed-run Job after strict database guards;
+#   3. let PostgreSQL's existing foreign keys cascade only that Job's outbox
+#      event (and any matching task, although this diagnosed case has none).
+#
+# The old RabbitMQ dead-letter message is intentionally outside this Job's
+# authority and is preserved as independent transport evidence.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # A fixed name keeps this privileged manual operation visible. Delete this
+  # completed Job only before another human-approved cleanup attempt.
+  name: basic-pitch-worker-smoke-failed-run-cleanup
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: basic-pitch-worker-smoke-failed-run-cleanup
+    app.kubernetes.io/component: manual-test-cleanup
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: exact-coordinate-basic-pitch-smoke-evidence-cleanup
+spec:
+  # Keep the safe proof of deletion long enough for `kubectl logs`, then remove
+  # the Pods that temporarily mounted administrator credentials.
+  ttlSecondsAfterFinished: 600
+  # Retrying a partial administrator cleanup could obscure its first failure.
+  # One visible failure is safer than automatic repeated mutation.
+  backoffLimit: 0
+  # These exact object/row operations are tiny; the deadline catches a broken
+  # Service/DNS path without retaining privileged credentials indefinitely.
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: basic-pitch-worker-smoke-failed-run-cleanup
+        app.kubernetes.io/component: manual-test-cleanup
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # This Job talks only to private MinIO and PostgreSQL Services. It does
+      # not need, and must not receive, a Kubernetes API credential.
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      # Init containers serialize the destructive sequence. The final marker
+      # cannot run until both private-object and database cleanup succeeded.
+      initContainers:
+        - name: delete-only-fixed-smoke-objects
+          # Reuse the already-published local smoke-client image. Its pinned
+          # Boto3/Botocore dependency lock is available to every k3d node
+          # through the local registry, unlike the retired Docker Hub `mc`
+          # reference that caused the first cleanup attempt to stop before any
+          # credential or object operation began.
+          image: clouddsp-registry.localhost:5001/basic-pitch-worker-smoke-client@sha256:c37acb0177e213cdecff061057f1f91e4ecf554bf2f52f52a5d6f8b8c62f72d1
+          imagePullPolicy: IfNotPresent
+          env:
+            # Kubernetes resolves these only in the short-lived Pod. Neither
+            # root value is printed or committed. The inline client has no
+            # arbitrary key input and invokes only two literal DeleteObject
+            # calls below.
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_PASSWORD
+            - name: MINIO_INTERNAL_ENDPOINT
+              value: http://clouddsp-minio:9000
+            - name: AWS_EC2_METADATA_DISABLED
+              value: "true"
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10003
+            runAsGroup: 10003
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - python
+            - -c
+            - |
+              # Both values are source constants rather than environment
+              # variables, command arguments, globs, or user input. Deleting
+              # an already-absent exact key is intentionally idempotent.
+              import os
+
+              import boto3
+              from botocore.config import Config
+
+              client = boto3.client(
+                  "s3",
+                  endpoint_url=os.environ["MINIO_INTERNAL_ENDPOINT"],
+                  aws_access_key_id=os.environ["MINIO_ROOT_USER"],
+                  aws_secret_access_key=os.environ["MINIO_ROOT_PASSWORD"],
+                  region_name="us-east-1",
+                  config=Config(s3={"addressing_style": "path"}),
+              )
+              for object_key in (
+                  "stems/7ea5ee7e-c726-4af8-8f21-4d0e227bdd0b/vocals.wav",
+                  "midi/7ea5ee7e-c726-4af8-8f21-4d0e227bdd0b/vocals.mid",
+              ):
+                  client.delete_object(Bucket="clouddsp-uploads", Key=object_key)
+              print("Exact diagnosed Basic Pitch smoke MinIO cleanup passed")
+
+        - name: delete-only-diagnosed-smoke-job
+          # The reviewed Docker Official PostgreSQL image provides `psql` with
+          # no package install. It talks to the ClusterIP Service, never a
+          # host-forwarded port or direct StatefulSet Pod address.
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PGHOST
+              value: clouddsp-postgresql
+            - name: PGPORT
+              value: "5432"
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+            # The PostgreSQL installation database is not CloudDSP's
+            # application database, so this exact reviewed database name is
+            # intentionally explicit rather than reading POSTGRES_DB.
+            - name: PGDATABASE
+              value: clouddsp_job_api
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -ec
+            - |
+              # The Job is useful only if it deletes exactly one previously
+              # diagnosed, expired smoke Job. The owner/event/no-task guards
+              # prevent it from becoming a generic Job deletion capability.
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 <<'SQL'
+              DO $$$$
+              DECLARE
+                deleted_count INTEGER;
+              BEGIN
+                WITH deleted AS (
+                  DELETE FROM public.jobs AS job
+                  WHERE job.job_id = '7ea5ee7e-c726-4af8-8f21-4d0e227bdd0b'::uuid
+                    AND job.owner_sub = 'clouddsp-basic-pitch-worker-smoke'
+                    AND job.status = 'midi_processing'
+                    AND job.expires_at <= CURRENT_TIMESTAMP
+                    AND EXISTS (
+                      SELECT 1
+                      FROM public.outbox_events AS event
+                      WHERE event.event_id = '66d8637f-4e80-4b53-aed3-4e4ea54bd110'::uuid
+                        AND event.job_id = job.job_id
+                        AND event.stage = 'basic-pitch'
+                        AND event.stem_name = 'vocals'
+                        AND event.event_type = 'basic-pitch.requested'
+                        AND event.publication_status = 'published'
+                    )
+                    AND NOT EXISTS (
+                      SELECT 1
+                      FROM public.processing_tasks AS task
+                      WHERE task.job_id = job.job_id
+                    )
+                  RETURNING job.job_id
+                )
+                SELECT COUNT(*) INTO deleted_count FROM deleted;
+
+                IF deleted_count <> 1 THEN
+                  RAISE EXCEPTION 'Refused: expected one expired diagnosed Basic Pitch smoke Job.';
+                END IF;
+              END
+              $$$$;
+              SQL
+              printf 'Exact diagnosed Basic Pitch smoke database cleanup passed\n'
+      containers:
+        - name: completion-marker
+          # This no-credential marker gives the Job a normal container whose
+          # success means every ordered init cleanup step completed.
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -ec
+            - |
+              printf 'Exact diagnosed Basic Pitch smoke object and database cleanup passed\n'

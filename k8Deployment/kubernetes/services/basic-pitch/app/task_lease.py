@@ -153,16 +153,26 @@ LOCK_EXISTING_BASIC_PITCH_TASK_SQL = """
 # A missing task is a gap and cannot itself be locked. Locking the Job row
 # serializes this insertion with completion/deletion changes, then a second
 # task lookup closes the race where another consumer inserted it while waiting.
-LOCK_JOB_FOR_BASIC_PITCH_CLAIM_SQL = """
+#
+# PostgreSQL requires ``UPDATE`` privilege for every ``SELECT … FOR UPDATE``
+# form, even when the caller only reads a row. Granting that broad privilege
+# would let this worker mutate a Job directly, which is outside its reviewed
+# authority. The administrator-owned, schema-qualified SECURITY DEFINER
+# function below is therefore the sole row-lock capability: it accepts one
+# typed UUID, locks exactly that row, and returns only the five fields this
+# adapter already needs. The function's transaction-scoped lock still belongs
+# to this database session, so the second task lookup remains race-safe.
+BASIC_PITCH_JOB_CLAIM_LOCK_FUNCTION = "public.clouddsp_lock_basic_pitch_job_for_claim"
+
+
+LOCK_JOB_FOR_BASIC_PITCH_CLAIM_SQL = f"""
     SELECT
       job_id::text AS job_id,
       stem_mode,
       status,
       revision,
-      (expires_at > CURRENT_TIMESTAMP) AS is_retained
-    FROM public.jobs
-    WHERE job_id = %s::uuid
-    FOR UPDATE
+      is_retained
+    FROM {BASIC_PITCH_JOB_CLAIM_LOCK_FUNCTION}(%s::uuid)
 """
 
 

@@ -3,16 +3,18 @@
 This module is the first actual loop composition for the local Basic Pitch
 worker.  It deliberately receives already-constructed restricted dependencies:
 the approved AMQP settings, Basic Pitch PostgreSQL adapter, MinIO client, and
-shutdown-aware waiter.  It opens one RabbitMQ connection, configures one
-prefetch-one/passive-checked channel, then repeatedly combines the existing
-supervisor step and action boundaries until shutdown or fatal configuration.
+shutdown-aware waiter.  It opens one RabbitMQ connection for each healthy
+broker session, configures one prefetch-one/passive-checked channel, then
+repeatedly combines the existing supervisor step and action boundaries until
+shutdown or fatal configuration.
 
 The scope is intentionally narrow:
 
 * it does **not** read environment variables or construct database/MinIO
   clients (a later bootstrap/entrypoint task owns that);
-* it does **not** reconnect after a connection/step failure (the surrounding
-  process policy needs its own reviewed resource-recreation task); and
+* it reconnects only after a supervisor-classified retryable failure, closing
+  the old connection before its bounded backoff so RabbitMQ can redeliver any
+  unacknowledged delivery; and
 * it does **not** install signal handlers, call ``sys.exit``, expose health
   endpoints, modify Kubernetes resources, or make a deployment change.
 
@@ -38,6 +40,7 @@ from app.supervisor_action import (
     BasicPitchSupervisorActionOutcome,
     apply_basic_pitch_supervisor_decision,
 )
+from app.supervisor_backoff import BasicPitchSupervisorEvent
 from app.supervisor_step import (
     BasicPitchSupervisorStepResult,
     BasicPitchSupervisorStepState,
@@ -111,21 +114,29 @@ def run_basic_pitch_worker_runtime(
     process_runner: BasicPitchProcessRunner | None = None,
     jitter_fraction: float = 0.0,
 ) -> BasicPitchWorkerRuntimeResult:
-    """Open/configure one broker connection and run steps until normal exit.
+    """Run broker sessions until normal exit, rebuilding only after safe retries.
 
     The function checks the injected shutdown waiter before opening a socket,
-    after channel setup, and before each new supervisor step.  Therefore a
+    after channel setup, and before each new supervisor step. Therefore a
     termination request can prevent both initial and subsequent work attempts.
     Normal supervisor-action outcomes choose whether to continue, exit cleanly
-    after an interrupted wait, or return fatal configuration. The connection
-    is closed in ``finally`` on every post-open path, including an unclassified
-    task exception or channel configuration error.
+    after an interrupted wait, or return fatal configuration.
+
+    A retryable supervisor step is special: it may have received a
+    ``prefetch=1`` manual-ack delivery and then lost PostgreSQL/RabbitMQ
+    availability before an acknowledgement decision. The runtime closes that
+    connection *before* waiting. RabbitMQ then releases the channel's
+    unacknowledged delivery for at-least-once redelivery, and a fresh
+    connection/channel is created only after the bounded backoff expires.
+    This prevents the old channel's prefetch limit from holding a delivery
+    indefinitely. The connection is otherwise closed in ``finally`` on every
+    post-open normal or exceptional path.
 
     Connection open/channel creation/configuration faults occur outside a
-    supervisor step and propagate after cleanup; reconnecting them is a later
-    focused lifecycle policy. This loop does not call ``sleep``, install a
-    signal handler, construct clients from environment variables, or call
-    ``sys.exit``.
+    supervisor step and still propagate after cleanup; they have no known
+    completed delivery decision to recover here. This loop does not call
+    ``sleep``, install a signal handler, construct clients from environment
+    variables, or call ``sys.exit``.
     """
 
     if not isinstance(amqp_settings, BasicPitchAMQPSettings):
@@ -137,75 +148,96 @@ def run_basic_pitch_worker_runtime(
     if not callable(getattr(shutdown_waiter, "wait_for_shutdown", None)):
         raise TypeError("shutdown_waiter must provide wait_for_shutdown.")
 
-    # Do not open a broker socket if Kubernetes termination was already
-    # requested before the entrypoint called this worker runtime.
-    if _shutdown_requested(shutdown_waiter):
-        return BasicPitchWorkerRuntimeResult(
-            reason=BasicPitchWorkerExitReason.SHUTDOWN_REQUESTED,
-            completed_steps=0,
-            final_state=initial_state,
-        )
+    state = initial_state
+    completed_steps = 0
+    while True:
+        # Do not open an initial or replacement broker socket after Kubernetes
+        # termination was requested. This check is intentionally outside the
+        # per-session scope as well as inside it below.
+        if _shutdown_requested(shutdown_waiter):
+            return BasicPitchWorkerRuntimeResult(
+                reason=BasicPitchWorkerExitReason.SHUTDOWN_REQUESTED,
+                completed_steps=completed_steps,
+                final_state=state,
+            )
 
-    connection = open_basic_pitch_rabbitmq_connection(amqp_settings)
-    if not callable(getattr(connection, "channel", None)):
-        # `finally` below still closes a connection-shaped object if it has a
-        # close method; a malformed factory result is never treated as a
-        # channel or normal worker exit.
+        connection = open_basic_pitch_rabbitmq_connection(amqp_settings)
+        if not callable(getattr(connection, "channel", None)):
+            # A malformed factory result is never treated as a channel or
+            # normal worker exit. Close it before surfacing the programmer or
+            # dependency failure, exactly as for a normal session failure.
+            try:
+                _close_connection(connection)
+            finally:
+                raise TypeError("Basic Pitch RabbitMQ connection must provide channel.")
+
+        # A retryable step closes the session explicitly before it waits, so
+        # `finally` must not close the same Pika connection a second time.
+        connection_closed_for_retry = False
         try:
-            _close_connection(connection)
+            channel = connection.channel()
+            configure_basic_pitch_rabbitmq_channel(channel, settings=amqp_settings)
+
+            while True:
+                # This zero-time check is distinct from the action wait: an
+                # immediate-progress decision otherwise starts a next task before
+                # noticing shutdown because it intentionally has no delay.
+                if _shutdown_requested(shutdown_waiter):
+                    return BasicPitchWorkerRuntimeResult(
+                        reason=BasicPitchWorkerExitReason.SHUTDOWN_REQUESTED,
+                        completed_steps=completed_steps,
+                        final_state=state,
+                    )
+
+                step = run_one_basic_pitch_supervisor_step(
+                    channel,
+                    state=state,
+                    database=database,
+                    storage_client=storage_client,
+                    work_directory=work_directory,
+                    process_timeout_seconds=process_timeout_seconds,
+                    process_runner=process_runner,
+                    jitter_fraction=jitter_fraction,
+                )
+                if not isinstance(step, BasicPitchSupervisorStepResult):
+                    raise TypeError("Basic Pitch supervisor step returned an invalid result.")
+                completed_steps += 1
+
+                retryable_failure = step.event is BasicPitchSupervisorEvent.RETRYABLE_FAILURE
+                if retryable_failure:
+                    # Do not wait while an unacknowledged delivery remains on a
+                    # `prefetch=1` channel. Closing without an ack/nack leaves
+                    # RabbitMQ as the delivery authority: it requeues the
+                    # message for a later at-least-once redelivery instead of
+                    # losing it or holding this worker session permanently.
+                    _close_connection(connection)
+                    connection_closed_for_retry = True
+
+                action_result = apply_basic_pitch_supervisor_decision(
+                    step.decision,
+                    shutdown_waiter=shutdown_waiter,
+                )
+                if action_result.outcome is BasicPitchSupervisorActionOutcome.CONTINUE:
+                    state = step.next_state
+                    if retryable_failure:
+                        # Leave this closed session only after the backoff. The
+                        # outer loop rechecks SIGTERM then opens/configures a
+                        # fresh private connection and channel.
+                        break
+                    continue
+                if action_result.outcome is BasicPitchSupervisorActionOutcome.SHUTDOWN_REQUESTED:
+                    return BasicPitchWorkerRuntimeResult(
+                        reason=BasicPitchWorkerExitReason.SHUTDOWN_REQUESTED,
+                        completed_steps=completed_steps,
+                        final_state=step.next_state,
+                    )
+                if action_result.outcome is BasicPitchSupervisorActionOutcome.EXIT_FATAL:
+                    return BasicPitchWorkerRuntimeResult(
+                        reason=BasicPitchWorkerExitReason.FATAL_CONFIGURATION,
+                        completed_steps=completed_steps,
+                        final_state=step.next_state,
+                    )
+                raise RuntimeError("Basic Pitch supervisor action returned an invalid outcome.")
         finally:
-            raise TypeError("Basic Pitch RabbitMQ connection must provide channel.")
-
-    try:
-        channel = connection.channel()
-        configure_basic_pitch_rabbitmq_channel(channel, settings=amqp_settings)
-
-        state = initial_state
-        completed_steps = 0
-        while True:
-            # This zero-time check is distinct from the action wait: an
-            # immediate-progress decision otherwise starts a next task before
-            # noticing shutdown because it intentionally has no delay.
-            if _shutdown_requested(shutdown_waiter):
-                return BasicPitchWorkerRuntimeResult(
-                    reason=BasicPitchWorkerExitReason.SHUTDOWN_REQUESTED,
-                    completed_steps=completed_steps,
-                    final_state=state,
-                )
-
-            step = run_one_basic_pitch_supervisor_step(
-                channel,
-                state=state,
-                database=database,
-                storage_client=storage_client,
-                work_directory=work_directory,
-                process_timeout_seconds=process_timeout_seconds,
-                process_runner=process_runner,
-                jitter_fraction=jitter_fraction,
-            )
-            if not isinstance(step, BasicPitchSupervisorStepResult):
-                raise TypeError("Basic Pitch supervisor step returned an invalid result.")
-            completed_steps += 1
-
-            action_result = apply_basic_pitch_supervisor_decision(
-                step.decision,
-                shutdown_waiter=shutdown_waiter,
-            )
-            if action_result.outcome is BasicPitchSupervisorActionOutcome.CONTINUE:
-                state = step.next_state
-                continue
-            if action_result.outcome is BasicPitchSupervisorActionOutcome.SHUTDOWN_REQUESTED:
-                return BasicPitchWorkerRuntimeResult(
-                    reason=BasicPitchWorkerExitReason.SHUTDOWN_REQUESTED,
-                    completed_steps=completed_steps,
-                    final_state=step.next_state,
-                )
-            if action_result.outcome is BasicPitchSupervisorActionOutcome.EXIT_FATAL:
-                return BasicPitchWorkerRuntimeResult(
-                    reason=BasicPitchWorkerExitReason.FATAL_CONFIGURATION,
-                    completed_steps=completed_steps,
-                    final_state=step.next_state,
-                )
-            raise RuntimeError("Basic Pitch supervisor action returned an invalid outcome.")
-    finally:
-        _close_connection(connection)
+            if not connection_closed_for_retry:
+                _close_connection(connection)

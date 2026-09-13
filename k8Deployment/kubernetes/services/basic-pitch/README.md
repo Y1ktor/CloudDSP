@@ -57,11 +57,18 @@ the temporary data-namespace duplicate is
 The role may create and lifecycle-manage a processing task, and read the small
 Job/event fields needed to compare a delivery with durable state. It cannot
 read an owner or source coordinate, update a Job, write/lease/publish an outbox
-event, delete records, or run DDL. PostgreSQL column grants do not encode the
-stage row predicate, so the later lease adapter must always bind both
-`stage = 'basic-pitch'` and the current lease token in its guarded statements.
-Its grant report confirmed task creation/lease updates and limited Job/outbox
-reads while reporting denied input replacement, owner read, Job update, outbox
+event, delete records, or run DDL. PostgreSQL requires `UPDATE` privilege for
+any `SELECT … FOR UPDATE` row lock, so the bootstrap additionally grants
+`EXECUTE`—and nothing else—on
+`public.clouddsp_lock_basic_pitch_job_for_claim(uuid)`. That administrator-owned
+`SECURITY DEFINER` function locks only the requested Job row and returns only
+the existing claim projection (ID, stem mode, status, revision, retention).
+It is not a general Job mutation API; direct Job `UPDATE` remains denied.
+PostgreSQL column grants do not encode the stage row predicate, so the later
+lease adapter must always bind both `stage = 'basic-pitch'` and the current
+lease token in its guarded statements. Its grant report confirms task
+creation/lease updates, limited Job/outbox reads, the exact function execute
+right, and denied input replacement, owner read, direct Job update, outbox
 publication update/insertion, and deletion. The temporary data-namespace
 Secret is now deleted; the permanent app-namespace runtime Secret remains. No
 worker Deployment or database connection is created by the identity alone.
@@ -539,12 +546,15 @@ checks shutdown before opening RabbitMQ, opens one private connection, creates
 one `prefetch=1` passively verified channel, and repeatedly applies the
 supervisor step/action boundaries until interrupted shutdown or fatal
 configuration. The connection closes on every post-open normal and exceptional
-path; task-specific errors still propagate after cleanup. It deliberately does
-not read environment variables, construct clients, install signal handlers,
-call `sys.exit`, or reconnect after a failure. The next narrow task is a
-bootstrap/entrypoint composition that constructs the validated database,
-MinIO, and AMQP dependencies from the worker's mounted configuration and maps
-the runtime exit reason to a process exit status.
+path; task-specific errors still propagate after cleanup. A classified
+retryable failure closes the connection *before* its bounded backoff. That
+causes RabbitMQ to release any unacknowledged `prefetch=1` delivery for
+at-least-once redelivery; once the delay ends, the runtime reopens and
+passively verifies a new private channel. This avoids holding one delivery in
+an old channel indefinitely after a temporary PostgreSQL/RabbitMQ outage. It
+does not change PostgreSQL grants, task SQL, RabbitMQ topology, or task-state
+policy. It deliberately does not read environment variables, construct
+clients, install signal handlers, or call `sys.exit`.
 
 [`app/worker_entrypoint.py`](app/worker_entrypoint.py) now provides that
 bootstrap composition. It validates fixed AMQP/PostgreSQL/MinIO configuration

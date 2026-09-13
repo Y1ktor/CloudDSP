@@ -1,0 +1,43 @@
+# This immutable ConfigMap holds the reviewed S3-compatible policy for the
+# future Basic Pitch worker smoke client. A policy is safe to version in Git:
+# it describes authority but contains neither an access key nor a secret key.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  # The version is part of the name because an immutable ConfigMap cannot be
+  # edited in place. Any future scope change must create a new policy version
+  # and a deliberate credential-rotation/bootstrap operation.
+  name: clouddsp-basic-pitch-worker-smoke-objects-policy-v001
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: basic-pitch-worker-smoke
+    app.kubernetes.io/component: object-storage-policy
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: fixed-key-basic-pitch-worker-smoke-object-access
+immutable: true
+data:
+  # MinIO evaluates this IAM-compatible document for every signed S3 request.
+  # `HeadObject` is authorized by `s3:GetObject`; there is intentionally no
+  # ListBucket permission. The smoke identity may access exactly its generated
+  # WAV and observed MIDI—not any regular user's uploads, stems, or results.
+  basic-pitch-worker-smoke-objects-policy.json: |
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Sid": "ReadWriteDeleteOnlyTheFixedSmokeInputAndOutput",
+          "Effect": "Allow",
+          "Action": [
+            "s3:GetObject",
+            "s3:PutObject",
+            "s3:DeleteObject"
+          ],
+          "Resource": [
+            "arn:aws:s3:::clouddsp-uploads/stems/7ea5ee7e-c726-4af8-8f21-4d0e227bdd0b/vocals.wav",
+            "arn:aws:s3:::clouddsp-uploads/midi/7ea5ee7e-c726-4af8-8f21-4d0e227bdd0b/vocals.mid"
+          ]
+        }
+      ]
+    }

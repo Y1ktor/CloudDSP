@@ -923,15 +923,17 @@ shutdown behavior.
 
 The completed
 [`Basic Pitch worker runtime`](kubernetes/services/basic-pitch/app/worker_runtime.py)
-now owns that one broker connection lifecycle. With already-constructed
-restricted dependencies, it checks shutdown before opening RabbitMQ, creates
-one prefetched/passively verified channel, runs supervisor steps/actions until
-clean shutdown or fatal configuration, and closes the connection on every
-post-open normal or exceptional path. It deliberately does not construct
-environment-backed clients, install signals, call `sys.exit`, reconnect after
-a failure, or change Kubernetes. The next isolated task is a bootstrap
-entrypoint that builds validated AMQP/PostgreSQL/MinIO dependencies and maps
-the compact runtime exit reason to an explicit process status.
+now owns the broker-session lifecycle. With already-constructed restricted
+dependencies, it checks shutdown before opening RabbitMQ, creates one
+prefetched/passively verified channel, runs supervisor steps/actions until
+clean shutdown or fatal configuration, and closes every post-open session on
+normal or exceptional paths. A classified retryable failure closes its session
+*before* bounded backoff, releasing any unacknowledged `prefetch=1` delivery
+for RabbitMQ redelivery; it then creates a fresh connection/channel after the
+delay. This fixes a temporary database failure that previously could strand a
+delivery on the old channel. It does not alter PostgreSQL grants, task SQL,
+RabbitMQ topology, or Kubernetes resources. It deliberately does not construct
+environment-backed clients, install signals, or call `sys.exit`.
 
 The completed
 [`Basic Pitch worker bootstrap entrypoint`](kubernetes/services/basic-pitch/app/worker_entrypoint.py)
@@ -1032,6 +1034,100 @@ isolated tests and its immutable output digest is pinned in `images.lock.yaml`.
 The build intentionally did not create a Job or alter cluster state. The next
 separate task can define the credential-scoped smoke Job using only that locked
 reference.
+
+The source-controlled [`Basic Pitch worker smoke contract`](kubernetes/tests/basic-pitch-worker-smoke/README.md)
+now reserves one fixed Job/event, synthetic upstream-Demucs task provenance,
+and exact MinIO input/output coordinates for a future real-worker verification.
+It specifies that a restricted test client first writes a deterministic
+contract-valid synthetic Demucs WAV, then uses a fixed-scope PostgreSQL prepare
+function to create the durable outbox event. The already deployed dispatcher
+and Basic Pitch worker—not the test—own RabbitMQ publication/consumption and
+the worker creates its normal per-stem task. Success requires that durable
+task to be `succeeded` and private MIDI to be independently verified; a failed
+run preserves only its fixed evidence for diagnosis. This documentation task
+creates no runtime identity, image, Job, database object, broker message, or
+cluster resource.
+
+The Basic Pitch worker's first durable claim requires a PostgreSQL row lock on
+the authoritative Job to serialize first-task insertion with terminal or
+deletion transitions. PostgreSQL requires `UPDATE` privilege for every
+`SELECT … FOR UPDATE` form, even when the caller makes no update. Rather than
+widening the worker's direct `jobs` authority, the revised database bootstrap
+creates one administrator-owned, typed `SECURITY DEFINER` function:
+`public.clouddsp_lock_basic_pitch_job_for_claim(uuid)`. It locks only the
+requested row and returns only its existing five-field claim projection. The
+Basic Pitch role receives only `EXECUTE` on that exact signature; direct Job
+`UPDATE` remains denied. The adapter now calls the function inside its existing
+short claim transaction, preserving the same task recheck and idempotency race
+closure. This source-and-manifest change has not yet been applied to the local
+cluster or worker image.
+
+The prepared, unapplied [`Basic Pitch worker smoke database bootstrap Job`](kubernetes/tests/basic-pitch-worker-smoke/basic-pitch-worker-smoke-database-bootstrap-job.yaml)
+adds the contract's PostgreSQL boundary without granting its future test client
+table access. It creates a distinct no-membership login and exactly three
+fixed-coordinate `SECURITY DEFINER` functions: `prepare` commits only the
+reserved Job/outbox event after the synthetic WAV exists; `observe` exposes
+only publication and per-task lifecycle evidence; and `cleanup` can delete
+only an observed successful test Job after object cleanup. The actual worker
+still creates its normal task after consuming the event. Adjacent ignored
+Secret templates keep the app client credential separate from the short-lived
+data-namespace bootstrap copy. Local copies of those two Secrets and the
+bootstrap Job were applied successfully: its safe privilege report confirms no
+direct Job/outbox/task table access and execute access to all three functions.
+It created no smoke Job/event or broker message.
+
+The next prepared, unapplied object boundary is the immutable
+[`Basic Pitch worker smoke MinIO policy`](kubernetes/tests/basic-pitch-worker-smoke/basic-pitch-worker-smoke-minio-policy-v001-configmap.yaml)
+and its matching bootstrap Job. It creates a distinct test identity with
+`GetObject`/`PutObject`/`DeleteObject` authority over exactly the reserved WAV
+and MIDI keys—no bucket listing, presigning, normal upload/stem/MIDI prefixes,
+or MinIO administration. The Job uses MinIO root credentials only in ordered
+init containers, removes its temporary root alias before completion, and never
+touches PostgreSQL, RabbitMQ, a model, or an object. Its ignored app/data
+Secret templates were applied locally; the Job completed successfully, created
+the fixed-key policy/user association, and the temporary data-namespace Secret
+was deleted. Only the permanent app-namespace credential remains.
+
+The new unit-tested [`Basic Pitch worker smoke client`](kubernetes/tests/basic-pitch-worker-smoke/client/basic_pitch_worker_smoke.py)
+uses only those fixed PostgreSQL functions and the exact-key MinIO identity.
+It deterministically creates a small WAV, uploads complete Demucs-compatible
+metadata, waits for a real worker-created task to reach one-attempt success,
+independently verifies the stored MIDI framing/hash/provenance, then removes
+only its two objects before fixed-scope database cleanup. It receives no AMQP
+credential or table authority and preserves durable evidence on every
+post-prepare failure. The source-only task includes eight isolated fake-client
+tests; it creates no image, smoke Job, object, database event, or message.
+
+The adjacent [`Basic Pitch worker smoke dependency lock`](kubernetes/tests/basic-pitch-worker-smoke/client/requirements.lock)
+now pins the smoke client's entire CPython 3.12/Linux ARM64 runtime closure:
+Boto3/Botocore and their S3 support packages plus Psycopg's binary libpq
+wheel. It intentionally excludes RabbitMQ, Keycloak, web, Kubernetes, audio,
+ML, and GPU dependencies because the test must use the already-deployed
+dispatcher and worker rather than recreate their responsibilities. A
+`pip download --require-hashes` resolution fetched exactly the ten locked
+wheels and verified every downloaded SHA-256 against the lock. The new
+two-stage non-root [`smoke-client Dockerfile`](kubernetes/tests/basic-pitch-worker-smoke/client/Dockerfile)
+installs that lock and runs the eight isolated tests only in its disposable
+validation stage. Its runtime retains one client module and verified packages,
+uses UID/GID `10003`, and has no baked Secret or listener. The matching
+non-interactive [`build script`](kubernetes/scripts/build-basic-pitch-worker-smoke-client-image.sh)
+targets only the local ARM64 registry and prints the immutable digest required
+for an image-lock record. That script built the image successfully, ran all
+eight tests in its validation stage, and published
+`clouddsp-registry.localhost:5001/basic-pitch-worker-smoke-client` as
+[`sha256:c37acb0177e213cdecff061057f1f91e4ecf554bf2f52f52a5d6f8b8c62f72d1`](kubernetes/images.lock.yaml).
+The image's uncompressed local size is 66,125,383 bytes (63.06 MiB); its pinned
+record is now available for a future Job. No Pod, Job, object, database event,
+or message was created. The prepared, unapplied
+[`Basic Pitch worker smoke Job`](kubernetes/tests/basic-pitch-worker-smoke/basic-pitch-worker-smoke-job.yaml)
+uses that pinned image in `clouddsp-app` with only the already-applied
+function-scoped PostgreSQL and exact-key MinIO Secrets. Its five-minute outer
+deadline bounds the client's 180-second durable poll; `backoffLimit: 0`
+preserves failed evidence for review, and the TTL later removes a completed
+credential-bearing Pod. It receives neither an AMQP credential nor a Kubernetes
+service-account token, uses no volume, and creates no Service/Ingress. The
+manifest remains unapplied: the next separate task is to review its execution
+and inspection/cleanup commands before the first controlled run.
 
 The prepared, unapplied `dispatcher-normal-path-smoke` Job runs in
 `clouddsp-data` and executes the single locked smoke-client process. It mounts

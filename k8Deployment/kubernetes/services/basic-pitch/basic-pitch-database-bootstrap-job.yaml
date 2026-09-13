@@ -121,7 +121,8 @@ spec:
                 psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
                   --set=basic_pitch_db_name="$BASIC_PITCH_DB_NAME" \
                   --set=basic_pitch_db_username="$BASIC_PITCH_DB_USERNAME" \
-                  --set=basic_pitch_db_password="$BASIC_PITCH_DB_PASSWORD" <<'SQL'
+                  --set=basic_pitch_db_password="$BASIC_PITCH_DB_PASSWORD" \
+                  --set=basic_pitch_bootstrap_owner="$PGUSER" <<'SQL'
               -- Limit-zero checks disclose schema shape only, never a Job,
               -- stem key, event payload, owner subject, or credential. v005's
               -- composite check must exist before this role can claim a task.
@@ -199,6 +200,59 @@ spec:
               REVOKE ALL PRIVILEGES ON TABLE public.outbox_events
                 FROM :"basic_pitch_db_username";
 
+              -- PostgreSQL requires UPDATE privilege for every SELECT ... FOR
+              -- UPDATE variant, including a read-only row lock. Giving this
+              -- worker UPDATE on `jobs` would let it mutate Job state outside
+              -- its reviewed task boundary. Keep the one necessary lock in an
+              -- administrator-owned, typed, SECURITY DEFINER function instead.
+              --
+              -- The function is deliberately narrow: no dynamic SQL, one UUID
+              -- input, one schema-qualified table, no writes, and only the
+              -- existing five claim fields. `pg_catalog` is the only search
+              -- path, preventing a caller-controlled object from shadowing a
+              -- name while the function uses its owner's privileges. Creating,
+              -- revoking PUBLIC access, and granting the worker occur in one
+              -- transaction so the new security-definer function is never
+              -- externally executable with PostgreSQL's default PUBLIC grant.
+              BEGIN;
+              CREATE OR REPLACE FUNCTION public.clouddsp_lock_basic_pitch_job_for_claim(
+                p_job_id uuid
+              )
+              RETURNS TABLE (
+                job_id uuid,
+                stem_mode text,
+                status text,
+                revision integer,
+                is_retained boolean
+              )
+              LANGUAGE sql
+              SECURITY DEFINER
+              SET search_path = pg_catalog
+              AS $basic_pitch_job_claim_lock$
+                SELECT
+                  job.job_id,
+                  job.stem_mode,
+                  job.status,
+                  job.revision,
+                  (job.expires_at > CURRENT_TIMESTAMP) AS is_retained
+                FROM public.jobs AS job
+                WHERE job.job_id = p_job_id
+                FOR UPDATE OF job;
+              $basic_pitch_job_claim_lock$;
+
+              -- The database-admin bootstrap account owns the function on a
+              -- new install. Reasserting that owner on a rerun prevents an
+              -- accidental prior owner from becoming the security boundary.
+              ALTER FUNCTION public.clouddsp_lock_basic_pitch_job_for_claim(uuid)
+                OWNER TO :"basic_pitch_bootstrap_owner";
+              REVOKE ALL PRIVILEGES ON FUNCTION public.clouddsp_lock_basic_pitch_job_for_claim(uuid)
+                FROM PUBLIC;
+              REVOKE ALL PRIVILEGES ON FUNCTION public.clouddsp_lock_basic_pitch_job_for_claim(uuid)
+                FROM :"basic_pitch_db_username";
+              GRANT EXECUTE ON FUNCTION public.clouddsp_lock_basic_pitch_job_for_claim(uuid)
+                TO :"basic_pitch_db_username";
+              COMMIT;
+
               -- The future lease adapter can create/read/recover its durable
               -- task and change only lifecycle fields. It cannot rewrite the
               -- task's Job/stage/stem/event/input identity after insertion.
@@ -223,7 +277,8 @@ spec:
               -- stem mode required for guarded validity checks. It cannot read
               -- the browser owner, source filename, source object metadata,
               -- artifact maps, quota fields, or error message, and it receives
-              -- no Job UPDATE grant in this task.
+              -- no direct Job UPDATE grant. Its separately granted function
+              -- call locks one requested Job row without granting mutation.
               GRANT SELECT (job_id, status, revision, expires_at, stem_mode)
                 ON TABLE public.jobs TO :"basic_pitch_db_username";
 
@@ -253,9 +308,22 @@ spec:
                 has_column_privilege(current_user, 'public.jobs', 'status', 'SELECT') AS can_read_job_state,
                 has_column_privilege(current_user, 'public.jobs', 'owner_sub', 'SELECT') AS can_read_job_owner,
                 has_column_privilege(current_user, 'public.jobs', 'status', 'UPDATE') AS can_update_job_state,
+                has_function_privilege(
+                  current_user,
+                  'public.clouddsp_lock_basic_pitch_job_for_claim(uuid)',
+                  'EXECUTE'
+                ) AS can_lock_claim_job,
                 has_column_privilege(current_user, 'public.outbox_events', 'payload', 'SELECT') AS can_read_request_payload,
                 has_column_privilege(current_user, 'public.outbox_events', 'publication_status', 'UPDATE') AS can_update_publication_state,
                 has_table_privilege(current_user, 'public.outbox_events', 'INSERT') AS can_insert_outbox_events,
                 has_table_privilege(current_user, 'public.jobs', 'DELETE') AS can_delete_jobs;
+
+              -- Use a UUID that cannot collide with an actual Job. This proves
+              -- the restricted role can execute the exact function signature
+              -- without exposing a durable Job row or granting direct UPDATE.
+              SELECT job_id, stem_mode, status, revision, is_retained
+              FROM public.clouddsp_lock_basic_pitch_job_for_claim(
+                '00000000-0000-0000-0000-000000000000'::uuid
+              );
               SQL
               printf 'Restricted Basic Pitch PostgreSQL role bootstrap passed\n'

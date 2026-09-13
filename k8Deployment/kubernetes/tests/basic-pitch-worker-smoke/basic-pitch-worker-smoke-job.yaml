@@ -1,0 +1,146 @@
+# This one-shot Job proves the real post-Demucs Basic Pitch path without
+# stealing an AMQP delivery or simulating either runtime component:
+#
+#   controlled private WAV -> fixed PostgreSQL prepare function -> generic
+#   dispatcher -> deployed Basic Pitch worker -> private MIDI + task success
+#
+# The client has no RabbitMQ credential and no direct application-table access.
+# Its two mounted Secrets independently restrict it to three fixed-coordinate
+# PostgreSQL functions and two fixed MinIO object keys. The deployed dispatcher
+# and worker retain ownership of publication, consumption, task creation,
+# retries, model execution, and result persistence.
+#
+# Prerequisites (all intentionally separate from this manifest):
+#   1. The fixed-scope PostgreSQL bootstrap Job has completed successfully.
+#   2. The exact-key MinIO policy/bootstrap Job has completed successfully.
+#   3. The generic dispatcher and Basic Pitch worker Deployments are healthy.
+#   4. No previous failed run retains this test's fixed database rows or objects.
+#
+# This file is deliberately unapplied. A later explicit task will provide the
+# apply, log, inspection, and human-approved failed-run cleanup commands.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Kubernetes will not rerun a completed fixed-name Job on reapply. A later
+  # deliberate run must delete only this exact Job after its logs are reviewed.
+  name: basic-pitch-worker-smoke
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: basic-pitch-worker-smoke
+    app.kubernetes.io/component: integration-test
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: durable-basic-pitch-worker-end-to-end-verification
+spec:
+  # Keep safe milestone/failure logs briefly for diagnosis, then let the TTL
+  # controller remove this credential-bearing completed Pod automatically.
+  ttlSecondsAfterFinished: 600
+  # The client preserves evidence after `prepare` succeeds. Automatic Pod
+  # retry could collide with that evidence, so a failure needs human review.
+  backoffLimit: 0
+  # The client polls durable state for at most 180 seconds. Five minutes allows
+  # local image start-up and Basic Pitch model initialization while still
+  # bounding a stuck test before it can hold credentials indefinitely.
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: basic-pitch-worker-smoke
+        app.kubernetes.io/component: integration-test
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      # A Job's container should exit once. Kubernetes records its result and
+      # will not restart this Pod because failure requires evidence inspection.
+      restartPolicy: Never
+      # Give an interrupted client a short opportunity to close PostgreSQL/S3
+      # sockets; it has no long model process or local artifact to preserve.
+      terminationGracePeriodSeconds: 10
+      # This client never calls Kubernetes. Avoid mounting a default service
+      # account token so compromised dependencies receive no API credential.
+      automountServiceAccountToken: false
+      securityContext:
+        # These IDs match the account created in the immutable image. Repeating
+        # them in the Pod prevents a later root-capable image from running by
+        # accident, even though no volume needs an ownership adjustment.
+        runAsNonRoot: true
+        runAsUser: 10003
+        runAsGroup: 10003
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: basic-pitch-worker-smoke-client
+          # This digest is images.basic-pitch-worker-smoke-client in
+          # ../../images.lock.yaml. The readable tag is deliberately absent:
+          # only this exact ARM64 image may execute the smoke sequence.
+          image: clouddsp-registry.localhost:5001/basic-pitch-worker-smoke-client@sha256:c37acb0177e213cdecff061057f1f91e4ecf554bf2f52f52a5d6f8b8c62f72d1
+          imagePullPolicy: IfNotPresent
+          env:
+            # Both dependencies use private Kubernetes Service DNS. The image
+            # rejects a localhost/public MinIO endpoint, so the test cannot be
+            # redirected to a Mac port-forward or browser-facing route.
+            - name: BASIC_PITCH_WORKER_SMOKE_DB_HOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: BASIC_PITCH_WORKER_SMOKE_DB_PORT
+              value: "5432"
+            - name: BASIC_PITCH_WORKER_SMOKE_MINIO_ENDPOINT_URL
+              value: http://clouddsp-minio.clouddsp-data.svc:9000
+            # This bounded client wait is intentionally shorter than the outer
+            # Job deadline, leaving Kubernetes time to terminate a hung Pod.
+            - name: BASIC_PITCH_WORKER_SMOKE_TIMEOUT_SECONDS
+              value: "180"
+            # This no-table PostgreSQL identity can execute only its reviewed
+            # fixed-coordinate prepare, observe, and cleanup functions.
+            - name: BASIC_PITCH_WORKER_SMOKE_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-worker-smoke-database-credentials
+                  key: BASIC_PITCH_WORKER_SMOKE_DB_NAME
+            - name: BASIC_PITCH_WORKER_SMOKE_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-worker-smoke-database-credentials
+                  key: BASIC_PITCH_WORKER_SMOKE_DB_USERNAME
+            - name: BASIC_PITCH_WORKER_SMOKE_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-worker-smoke-database-credentials
+                  key: BASIC_PITCH_WORKER_SMOKE_DB_PASSWORD
+            # This independent MinIO identity can Head/Get/Put/Delete only the
+            # one reserved WAV and MIDI key. It cannot list buckets, presign,
+            # reach normal CloudDSP objects, or administer MinIO.
+            - name: BASIC_PITCH_WORKER_SMOKE_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-worker-smoke-minio-credentials
+                  key: BASIC_PITCH_WORKER_SMOKE_S3_ACCESS_KEY
+            - name: BASIC_PITCH_WORKER_SMOKE_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-worker-smoke-minio-credentials
+                  key: BASIC_PITCH_WORKER_SMOKE_S3_SECRET_KEY
+            # Boto3 receives explicit MinIO credentials. Disable its cloud
+            # metadata fallback so this local Pod never probes an AWS endpoint.
+            - name: AWS_EC2_METADATA_DISABLED
+              value: "true"
+          resources:
+            # The client holds at most a 16 MiB MIDI verification buffer and
+            # performs only SQL/S3 control-plane work. It never invokes the ML
+            # model, so compact limits leave cluster CPU/memory for the worker.
+            requests:
+              cpu: 50m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+              ephemeral-storage: 96Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            # The image/client streams all evidence in memory and writes no
+            # cache, artifact, or Secret to disk. Enforce that claim at runtime.
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL

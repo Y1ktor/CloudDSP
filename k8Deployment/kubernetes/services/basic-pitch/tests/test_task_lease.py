@@ -14,10 +14,12 @@ from uuid import UUID
 
 from app.basic_pitch_requested_message import BasicPitchRequestedMessage
 from app.task_lease import (
+    BASIC_PITCH_JOB_CLAIM_LOCK_FUNCTION,
     CLAIM_NEXT_DUE_BASIC_PITCH_RETRY_SQL,
     DEFAULT_BASIC_PITCH_LEASE_SECONDS,
     INSERT_FIRST_BASIC_PITCH_TASK_LEASE_SQL,
     LOCK_EXISTING_BASIC_PITCH_TASK_SQL,
+    LOCK_JOB_FOR_BASIC_PITCH_CLAIM_SQL,
     START_LEASED_BASIC_PITCH_TASK_SQL,
     BasicPitchStaleRequestReason,
     BasicPitchTaskClaimDisposition,
@@ -145,6 +147,20 @@ class FixedUuidFactory:
 class FirstClaimTests(unittest.TestCase):
     """Prove one delivery becomes one lease, duplicate, stale result, or error."""
 
+    def test_job_claim_lock_uses_only_the_reviewed_security_definer_boundary(self) -> None:
+        """The worker must never regain direct `jobs` row-lock authority.
+
+        PostgreSQL treats every `FOR UPDATE` variant as requiring UPDATE
+        privilege. This static contract keeps that exceptional capability in
+        the database function, whose SQL and grants are reviewed separately in
+        the administrator-only bootstrap Job.
+        """
+
+        self.assertIn(BASIC_PITCH_JOB_CLAIM_LOCK_FUNCTION, LOCK_JOB_FOR_BASIC_PITCH_CLAIM_SQL)
+        self.assertIn("(%s::uuid)", LOCK_JOB_FOR_BASIC_PITCH_CLAIM_SQL)
+        self.assertNotIn("public.jobs", LOCK_JOB_FOR_BASIC_PITCH_CLAIM_SQL)
+        self.assertNotIn("FOR UPDATE", LOCK_JOB_FOR_BASIC_PITCH_CLAIM_SQL)
+
     def test_valid_delivery_locks_job_and_task_then_inserts_one_lease(self) -> None:
         """Commit of this result must precede a later AMQP acknowledgement."""
 
@@ -162,6 +178,8 @@ class FirstClaimTests(unittest.TestCase):
         self.assertEqual(len(cursor.calls), 5)
         self.assertEqual(cursor.calls[0][0], LOCK_EXISTING_BASIC_PITCH_TASK_SQL)
         self.assertEqual(cursor.calls[0][1], (JOB_ID, STEM_NAME))
+        self.assertEqual(cursor.calls[1][0], LOCK_JOB_FOR_BASIC_PITCH_CLAIM_SQL)
+        self.assertEqual(cursor.calls[1][1], (JOB_ID,))
         self.assertEqual(cursor.calls[2][0], LOCK_EXISTING_BASIC_PITCH_TASK_SQL)
         self.assertEqual(cursor.calls[4][0], INSERT_FIRST_BASIC_PITCH_TASK_LEASE_SQL)
         self.assertEqual(

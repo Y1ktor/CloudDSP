@@ -59,8 +59,11 @@ images:
     # a future Deployment must copy only the immutable reference below.
     repository: clouddsp-registry.localhost:5001/basic-pitch
     sourceTag: "0.1.0-cpu-worker-runtime"
-    digest: sha256:18bafea2df9e4ee1c8ea5924a38afc3f60fea8ab974d78f7b188670e82c30456
-    immutableReference: clouddsp-registry.localhost:5001/basic-pitch@sha256:18bafea2df9e4ee1c8ea5924a38afc3f60fea8ab974d78f7b188670e82c30456
+    # This rebuilt digest includes the reviewed PostgreSQL claim-lock adapter:
+    # the worker invokes only its restricted SECURITY DEFINER function instead
+    # of requiring direct UPDATE authority on the authoritative jobs table.
+    digest: sha256:c0455e52c2e484900b16ef3289e264591d23efc4cfca9533d6f0ac29fc79e4ca
+    immutableReference: clouddsp-registry.localhost:5001/basic-pitch@sha256:c0455e52c2e484900b16ef3289e264591d23efc4cfca9533d6f0ac29fc79e4ca
     supportedPlatforms:
       - linux/arm64/v8
     builtFrom:
@@ -84,9 +87,9 @@ images:
     # Docker reports uncompressed local layer bytes, rather than the small OCI
     # registry-manifest document size. The TensorFlow inference runtime is the
     # expected reason this CPU image is much larger than control-plane clients.
-    localDockerSizeBytes: 520348049
+    localDockerSizeBytes: 520349476
     localDockerSize: "496.24 MiB"
-    pushedAt: "2026-09-12"
+    pushedAt: "2026-09-13"
 
   job-api:
     # This is the locally built Job API runtime. Its readable tag names the
@@ -285,6 +288,35 @@ images:
     localDockerSizeBytes: 50978732
     localDockerSize: "48.62 MiB"
     pushedAt: "2026-09-11"
+
+  basic-pitch-worker-smoke-client:
+    # This finite Job image verifies the real durable Basic Pitch path through
+    # the deployed generic dispatcher and worker. It is neither a processing
+    # worker nor a general-purpose database, object-store, AMQP, or Kubernetes
+    # client. A future Job must use the immutable reference below; its readable
+    # tag is provenance only and can be replaced by a later build.
+    repository: clouddsp-registry.localhost:5001/basic-pitch-worker-smoke-client
+    sourceTag: "0.1.0-durable-worker-path"
+    digest: sha256:c37acb0177e213cdecff061057f1f91e4ecf554bf2f52f52a5d6f8b8c62f72d1
+    immutableReference: clouddsp-registry.localhost:5001/basic-pitch-worker-smoke-client@sha256:c37acb0177e213cdecff061057f1f91e4ecf554bf2f52f52a5d6f8b8c62f72d1
+    supportedPlatforms:
+      - linux/arm64/v8
+    builtFrom:
+      # The registry digest identifies the exact pushed bytes while this local
+      # Kubernetes teaching work is still uncommitted. Runtime Secret values,
+      # the fixed smoke coordinates, and cluster data were not Docker inputs.
+      sourceRevision: local-kubernetes-working-tree
+      sourceDirectory: kubernetes/tests/basic-pitch-worker-smoke/client
+      dockerfile: kubernetes/tests/basic-pitch-worker-smoke/client/Dockerfile
+      requirementsLock: kubernetes/tests/basic-pitch-worker-smoke/client/requirements.lock
+      clientTests: kubernetes/tests/basic-pitch-worker-smoke/client/test_basic_pitch_worker_smoke.py
+      runtimeImageLock: images.api-python-runtime
+      sourceLock: buildSources.basic-pitch-worker-smoke-client
+    # Docker reports local uncompressed layer bytes, which are larger than the
+    # small registry manifest shown by `docker push`.
+    localDockerSizeBytes: 66125383
+    localDockerSize: "63.06 MiB"
+    pushedAt: "2026-09-12"
 
   frontend:
     # This browser image embeds the reviewed public Job API and private-MinIO
@@ -882,6 +914,35 @@ buildSources:
         upstream: https://pypi.org/project/pika/1.4.4/
     clientTests: kubernetes/tests/generic-dispatcher-smoke/client/test_generic_dispatcher_basic_pitch_smoke.py
     resolvedAt: "2026-09-11"
+
+  basic-pitch-worker-smoke-client:
+    # This one-shot client drives an end-to-end assertion through the already
+    # deployed generic dispatcher and Basic Pitch worker. It owns only its two
+    # fixed MinIO keys and three fixed PostgreSQL functions: it has no AMQP,
+    # Keycloak, Kubernetes API, audio/ML, GPU, or general table authority.
+    # Its immutable build output is recorded above under
+    # `images.basic-pitch-worker-smoke-client`; the readable tag is never a
+    # deployable reference.
+    baseImageLock: images.api-python-runtime
+    sourceDirectory: kubernetes/tests/basic-pitch-worker-smoke/client
+    dockerfile: kubernetes/tests/basic-pitch-worker-smoke/client/Dockerfile
+    requirementsLock: kubernetes/tests/basic-pitch-worker-smoke/client/requirements.lock
+    intendedRepository: clouddsp-registry.localhost:5001/basic-pitch-worker-smoke-client
+    publishedImageLock: images.basic-pitch-worker-smoke-client
+    targetPlatform: linux/arm64
+    directPythonPackages:
+      - name: boto3
+        version: "1.43.89"
+        # Uses the exact-key MinIO identity; it never uses ambient AWS state.
+        upstream: https://pypi.org/project/boto3/1.43.89/
+      - name: psycopg
+        version: "3.2.13"
+        installationExtra: binary
+        binaryPackage: psycopg-binary
+        # Calls only the three restricted fixed-coordinate SQL functions.
+        upstream: https://www.psycopg.org/psycopg3/docs/basic/install.html
+    clientTests: kubernetes/tests/basic-pitch-worker-smoke/client/test_basic_pitch_worker_smoke.py
+    resolvedAt: "2026-09-12"
 
   rabbitmq-amqp-smoke-client:
     # This source lock makes the test image reproducible without installing

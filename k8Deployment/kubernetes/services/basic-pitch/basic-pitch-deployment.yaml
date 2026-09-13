@@ -88,7 +88,7 @@ spec:
           # Copied exactly from images.basic-pitch.immutableReference in
           # ../../images.lock.yaml. The digest fixes reviewed application,
           # TensorFlow, model, and base-image bytes; never use the mutable tag.
-          image: clouddsp-registry.localhost:5001/basic-pitch@sha256:18bafea2df9e4ee1c8ea5924a38afc3f60fea8ab974d78f7b188670e82c30456
+          image: clouddsp-registry.localhost:5001/basic-pitch@sha256:c0455e52c2e484900b16ef3289e264591d23efc4cfca9533d6f0ac29fc79e4ca
           # A digest cannot be retargeted. K3s may safely reuse a cached copy,
           # while a node without it pulls from this cluster's local registry.
           imagePullPolicy: IfNotPresent
