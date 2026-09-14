@@ -1,0 +1,52 @@
+# This immutable ConfigMap carries the reviewed IAM-compatible MinIO policy for
+# ADTOF. A policy is authorization source, not a credential, so it is safe to
+# review in Git. The access/secret key pair that receives this policy exists
+# only in ignored local Kubernetes Secret files.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  # The version is part of the name because immutable ConfigMaps cannot be
+  # edited after application. Any permission-scope change needs a reviewed v002
+  # policy and a deliberate identity/policy rotation.
+  name: clouddsp-adtof-artifacts-policy-v001
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: adtof
+    app.kubernetes.io/component: object-storage-policy
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: private-adtof-drums-read-and-midi-write
+immutable: true
+data:
+  # MinIO evaluates this policy for each signed S3 call. There is no bucket
+  # listing, object deletion, browser presigning, bucket administration,
+  # upload-prefix access, or general stem/MIDI wildcard. A future worker can
+  # read only a private Demucs `drums.wav` and write/verify exactly its two
+  # deterministic output objects.
+  adtof-artifacts-policy.json: |
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Sid": "ReadOnlyPrivateDemucsDrumsStem",
+          "Effect": "Allow",
+          "Action": "s3:GetObject",
+          "Resource": "arn:aws:s3:::clouddsp-uploads/stems/*/drums.wav"
+        },
+        {
+          "Sid": "WriteAndVerifyPrivateAdtofDrumArtifacts",
+          "Effect": "Allow",
+          "Action": [
+            "s3:GetObject",
+            "s3:PutObject",
+            "s3:AbortMultipartUpload",
+            "s3:ListMultipartUploadParts"
+          ],
+          "Resource": [
+            "arn:aws:s3:::clouddsp-uploads/midi/*/drums.mid",
+            "arn:aws:s3:::clouddsp-uploads/midi/*/drums_bpm.json"
+          ]
+        }
+      ]
+    }

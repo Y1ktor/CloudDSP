@@ -1,0 +1,112 @@
+# This immutable ConfigMap holds the reviewed v006 SQL source. Applying this
+# object stores non-secret migration text; the separate versioned Job is the
+# deliberate operation that can connect to PostgreSQL and run the DDL.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  # Historic migration ConfigMaps are never edited after application. v006
+  # extends v005's accepted processing-task coordinate vocabulary without
+  # revising the database history already recorded by this local cluster.
+  name: job-api-schema-migration-v006-adtof-processing-tasks
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: job-api-schema-migration-v006-adtof-processing-tasks
+    app.kubernetes.io/component: database-migration
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: adtof-processing-task-schema
+immutable: true
+data:
+  006_adtof_processing_tasks.sql: |
+    -- CloudDSP Job API schema migration v006
+    --
+    -- v004 made one durable `adtof.requested` outbox event legal for the
+    -- Demucs `drums` output. v005 deliberately stopped short of allowing a
+    -- matching processing-task row. This migration adds that one finite task
+    -- coordinate while preserving every existing Demucs and Basic Pitch
+    -- invariant. It creates no task row, ADTOF role, MinIO user, RabbitMQ
+    -- user, message, model process, Deployment, or KEDA resource.
+
+    BEGIN;
+
+    -- Serialize all Job API schema migrations. `ALTER TABLE` briefly changes
+    -- a CHECK constraint, so keeping it in this transaction ensures readers
+    -- cannot observe a partial vocabulary between the drop and replacement.
+    SELECT pg_advisory_xact_lock(834929517101);
+
+    -- Fail before DDL when the exact preceding task/outbox history is absent.
+    -- A future ADTOF worker must reference a legal v004 event and an already
+    -- reviewable v005 task table; it must never invent a parallel schema.
+    DO $migration$
+    BEGIN
+      IF to_regclass('public.processing_tasks') IS NULL THEN
+        RAISE EXCEPTION
+          'v006 requires public.processing_tasks from v003 before it can run';
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1
+        FROM public.schema_migrations
+        WHERE migration_id = 'v004_downstream_outbox_events'
+      ) THEN
+        RAISE EXCEPTION
+          'v006 requires applied migration v004_downstream_outbox_events';
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1
+        FROM public.schema_migrations
+        WHERE migration_id = 'v005_basic_pitch_processing_tasks'
+      ) THEN
+        RAISE EXCEPTION
+          'v006 requires applied migration v005_basic_pitch_processing_tasks';
+      END IF;
+    END;
+    $migration$;
+
+    -- Replace only the compound vocabulary check. The task primary key,
+    -- request-event uniqueness, `(job_id, stage, stem_name)` idempotency key,
+    -- retry/expired-lease indexes, lease/status checks, timestamps, and update
+    -- trigger remain exactly as v003-v005 established them.
+    ALTER TABLE public.processing_tasks
+      DROP CONSTRAINT IF EXISTS processing_tasks_stage_check,
+      DROP CONSTRAINT IF EXISTS processing_tasks_stem_name_check,
+      DROP CONSTRAINT IF EXISTS processing_tasks_check,
+      DROP CONSTRAINT IF EXISTS processing_tasks_stage_stem_input_key_matches;
+
+    ALTER TABLE public.processing_tasks
+      ADD CONSTRAINT processing_tasks_stage_stem_input_key_matches
+      CHECK (
+        -- Demucs remains one job-wide source-audio task. The canonical empty
+        -- stem name avoids PostgreSQL UNIQUE's special NULL treatment.
+        (stage = 'demucs'
+          AND stem_name = ''
+          AND input_object_key LIKE ('uploads/' || job_id::text || '/%'))
+        OR
+        -- Basic Pitch remains one approved non-drum task per Demucs WAV.
+        (stage = 'basic-pitch'
+          AND stem_name IN ('vocals', 'no_vocals', 'bass', 'other', 'guitar', 'piano')
+          AND input_object_key = (
+            'stems/' || job_id::text || '/' || stem_name || '.wav'
+          ))
+        OR
+        -- ADTOF is intentionally drums-only. This check prevents an ADTOF
+        -- role or message parser mistake from naming another stem/key even
+        -- before the future task-claim adapter rechecks the Job's stem mode.
+        (stage = 'adtof'
+          AND stem_name = 'drums'
+          AND input_object_key = ('stems/' || job_id::text || '/drums.wav'))
+      );
+
+    -- Reapplying the exact immutable SQL after an intentional Job deletion is
+    -- repair-safe: the constraint is reconstructed identically and the ledger
+    -- record remains one auditable migration event.
+    INSERT INTO public.schema_migrations (migration_id, description)
+    VALUES (
+      'v006_adtof_processing_tasks',
+      'Extends processing task stage, stem, and private input-key constraints for one drums-only ADTOF task while retaining Demucs and Basic Pitch leases.'
+    )
+    ON CONFLICT (migration_id) DO NOTHING;
+
+    COMMIT;

@@ -189,6 +189,21 @@ timestamps. Its completed companion Job recorded
 future Basic Pitch database role or worker image remains separate work; neither
 is implied by this documentation.
 
+The applied
+[`v006 ADTOF processing-task ConfigMap`](job-api-schema-migration-v006-adtof-processing-tasks-configmap.yaml)
+and its matching
+[`one-shot migration Job`](job-api-schema-migration-v006-adtof-processing-tasks-job.yaml)
+extend only that same compound task-coordinate check. They add the one legal
+ADTOF coordinate—`(stage='adtof', stem_name='drums',
+input_object_key='stems/{job-id}/drums.wav')`—while preserving Demucs and Basic
+Pitch rows, all generic idempotency keys, lease/retry indexes, and task-status
+rules. The Job uses the existing `clouddsp-app` schema-owner Secret through
+private PostgreSQL Service DNS, prints structural evidence only, and has no
+runtime ADTOF identity or access to MinIO, RabbitMQ, Keycloak, Kubernetes API,
+or audio processing. The completed Job recorded
+`v006_adtof_processing_tasks` in the migration ledger. This schema boundary is
+deliberately separate from all ADTOF worker credentials and workloads.
+
 ## PostgreSQL readiness boundary
 
 [`app/database.py`](app/database.py) centralizes the connection settings read

@@ -1138,6 +1138,669 @@ verification. That copy must use the existing smoke username/password and be
 deleted once the Job finishes; neither runtime dispatcher nor upload-intake
 Pod receives these administrator credentials.
 
+### ADTOF worker foundation
+
+The new versioned [`ADTOF worker contract`](kubernetes/services/adtof/README.md)
+records the Kubernetes-local drum-transcription boundary before a database
+migration, runtime identity, image, Deployment, smoke Job, or KEDA resource is
+introduced. It accepts only the existing v004 `adtof.requested` delivery for
+the `drums` stem, creates or recovers only the durable
+`(job_id, 'adtof', 'drums')` task coordinate, verifies the private Demucs WAV
+through MinIO metadata and a streamed SHA-256 before inference, and writes only
+the stable `midi/{job_id}/drums.mid` and
+`midi/{job_id}/drums_bpm.json` coordinates. A guarded completion will preserve
+the cloud-compatible `jobs.midi.drums` record while leaving the Job in
+`midi_processing` for a later all-task aggregate. This keeps RabbitMQ
+at-least-once delivery, PostgreSQL leases, private-object integrity, and the
+cloud tempo-candidate behaviour aligned without importing the cloud Lambda
+handler into Kubernetes.
+
+The contract deliberately defers KEDA until the worker has a measured image
+size, CPU/memory envelope, timeout, and retry behaviour. The applied
+[`v006 ADTOF processing-task ConfigMap`](kubernetes/services/api/job-api-schema-migration-v006-adtof-processing-tasks-configmap.yaml)
+and completed [`migration Job`](kubernetes/services/api/job-api-schema-migration-v006-adtof-processing-tasks-job.yaml)
+extend only the `processing_tasks` stage/stem/key check for ADTOF drums. They
+use the existing Job API schema-owner Secret and preserve all earlier Demucs/
+Basic Pitch task rows, but create no worker identity, storage/broker access,
+image, Deployment, KEDA resource, or task row. The prepared separate
+[`ADTOF PostgreSQL bootstrap Job`](kubernetes/services/adtof/adtof-database-bootstrap-job.yaml)
+completed successfully and provisioned the restricted `clouddsp-adtof` runtime
+role; its temporary data-namespace Secret was then removed. The applied
+immutable [`ADTOF MinIO policy`](kubernetes/services/minio/minio-adtof-artifacts-policy-v001-configmap.yaml)
+and completed separate
+[`bootstrap Job`](kubernetes/services/minio/minio-adtof-artifacts-bootstrap-job.yaml)
+provisioned the restricted `clouddsp-adtof` S3 identity. They permit only reading one
+private Demucs drums WAV and writing/verifying the two deterministic ADTOF
+drum-MIDI/tempo objects; no list, delete, browser presign, bucket access, or
+other worker identity is included. The completed independent RabbitMQ identity
+can consume only the existing `clouddsp.adtof.requests` queue and acknowledge
+its deliveries. Its separate runtime/temporary-bootstrap Secret templates and
+bootstrap Job grant no broker
+topology, publishing, retry/DLQ, or management-console access; only an exact
+vhost `read` regex was created by the completed bootstrap Job and its temporary
+data-namespace Secret was removed. The pure
+[`ADTOF request parser`](kubernetes/services/adtof/app/adtof_requested_message.py)
+now repeats that route/AMQP/body/object contract at the worker boundary before
+any database, MinIO, RabbitMQ-client, ADTOF, or Kubernetes API action can
+occur. Its standard-library tests reject malformed envelopes, AMQP properties,
+JSON, non-drums stems, private-object coordinates, sizes, and checksums.
+
+The pure [`ADTOF PostgreSQL first-claim adapter`](kubernetes/services/adtof/app/task_claim.py)
+now locks and rechecks the canonical drums task, narrow Job state, and immutable
+published outbox evidence before inserting one `leased` task. It returns only
+`claimed`, `duplicate`, or `stale` durable facts; it neither opens a database
+connection nor acknowledges RabbitMQ, accesses MinIO, starts ADTOF, changes Job
+state, creates output, or reaches Kubernetes. Its tests cover an initial claim,
+redelivery, stale Job, concurrent-insertion race, conflict, and direct-object
+validation.
+
+The new [`ADTOF first-claim transaction composition`](kubernetes/services/adtof/app/first_claim.py)
+now holds the restricted database write context only around the pure first-claim
+SQL decision. Claim, duplicate, and stale facts return only after commit; a
+conflict or database exception rolls back before any future RabbitMQ decision.
+It has no Pika, MinIO, ADTOF, Psycopg-driver, image, Deployment, or Kubernetes
+dependency. Its five in-memory tests verify commit/rollback order and the
+absence of a SQL call when a database context cannot open.
+
+The concrete [`ADTOF Psycopg database adapter`](kubernetes/services/adtof/app/postgresql.py)
+now validates only the restricted `clouddsp-adtof` runtime Secret values and
+the fixed private PostgreSQL Service before it opens one short dictionary-row
+transaction. It maps raw driver/OS failures to one retryable safe category and
+keeps connection/statement limits bounded, while lazy imports let all current
+ADTOF unit tests run before a Psycopg dependency or worker image exists. Its
+tests use a fake driver to verify settings validation, password redaction,
+commit/rollback scope, and diagnostic redaction. The next small task will pin
+Psycopg and its required transitive wheels in the future worker's requirements
+lock.
+
+[`ADTOF requirements.lock`](kubernetes/services/adtof/requirements.lock) now
+pins the CPython 3.11/Linux ARM64 `psycopg`/`psycopg-binary` pair plus its
+explicit `typing-extensions` runtime dependency. Its binary hash is the
+already-reviewed Apple-Silicon k3d wheel, and the lock documents the mandatory
+`--require-hashes --no-deps --only-binary=:all:` future image-install command.
+It intentionally excludes RabbitMQ, MinIO, ADTOF/PyTorch, and audio/MIDI
+dependencies, so it does not claim an image is buildable yet.
+
+The pure [`ADTOF RabbitMQ connection-settings adapter`](kubernetes/services/adtof/app/amqp_connection.py)
+now accepts only the private RabbitMQ Service, exact `/clouddsp` ADTOF queue,
+prefetch one, bounded timeouts, and the restricted untagged runtime identity.
+It imports no Pika and cannot open a socket, declare topology, consume/ack a
+delivery, or make database/storage/model/Kubernetes requests. Its tests prove
+the configuration rejects every endpoint, topology, identity, prefetch, and
+timing widening before a future broker factory exists.
+
+The ADTOF lock now also pins Pika 1.4.4's universal wheel with its reviewed
+SHA-256. Pika adds no transitive runtime distribution, so the lock's explicit
+database closure plus this single pure-Python AMQP package remains complete for
+the connection boundaries introduced so far. It still excludes MinIO and model
+dependencies and does not create a client, broker connection, or image.
+
+The same ADTOF AMQP module now exposes a lazy Pika connection factory. It
+revalidates the fixed private endpoint before opening only three bounded
+plain-AMQP connection attempts, with no TLS toggle and safe diagnostic
+redaction. It intentionally does not make a channel, consume/acknowledge a
+delivery, inspect/declare topology, or start a worker loop; those are separate
+layers after the durable first-claim ordering is composed.
+
+The completed [`ADTOF AMQP passive-channel boundary`](kubernetes/services/adtof/app/amqp_channel.py)
+now applies `prefetch_count=1` and passively checks only
+`clouddsp.adtof.requests`. This stops one CPU-bound Pod from reserving several
+unacknowledged drums-stem deliveries while it can process only one, while a
+passive declaration verifies the bootstrap-owned queue without granting this
+restricted worker a topology mutation. QoS or passive-lookup errors become one
+safe retryable category; the adapter receives no delivery, acknowledges
+nothing, and makes no PostgreSQL, MinIO, model, image, Deployment, or
+Kubernetes call. Five mocked tests prove the fixed queue, prefetch bound,
+redacted failures, no topology fallback, and direct-setting rejection before
+channel I/O.
+
+The new [`ADTOF parser-to-first-claim bridge`](kubernetes/services/adtof/app/delivery_claim.py)
+now performs the required parser-before-database composition without making a
+RabbitMQ decision. It exposes only parser-validated drums-stem evidence and a
+PostgreSQL result that has committed before normal return; it does not retain
+raw AMQP input, a delivery tag, a cursor, or a broker client. A malformed
+request cannot touch the database, while a database outage propagates with no
+acknowledgement/rejection action. Its four mocked tests prove that ordering and
+leave DLQ/redelivery policy for the following manual-ack layer. No MinIO/model
+work, image build, Deployment, or Kubernetes action is introduced.
+
+The completed [`ADTOF manual-ack adapter`](kubernetes/services/adtof/app/amqp_manual_ack.py)
+now reads one `clouddsp.adtof.requests` delivery using `auto_ack=False`, asks
+the parser-to-first-claim bridge for a committed fact, and acknowledges only a
+new lease, duplicate, or stale result. A malformed contract is nacked without
+requeueing into the bootstrap-owned DLQ; database, durable-evidence, or broker
+action errors stay unacknowledged for duplicate-safe redelivery. A claimed
+lease/message pair leaves this boundary only after acknowledgement succeeds.
+Nine mocked tests prove idle, durable, malformed, transient, malformed-claim,
+and failed-ack/nack behavior. It does not start a loop, contact MinIO/ADTOF,
+build an image, create a Deployment, or change the cluster.
+
+The new [`ADTOF MinIO settings/client boundary`](kubernetes/services/adtof/app/minio_client.py)
+now accepts only the restricted S3 identity and exact private MinIO Service,
+`clouddsp-uploads` bucket, `us-east-1`, and path-style configuration. Its lazy
+Boto3 factory provides the mounted pair explicitly, avoiding ambient AWS
+providers, host profiles, and browser/Ingress routes; MinIO's S3 protocol does
+not make an AWS request. Direct constructed settings are also revalidated
+before the SDK can load, stopping a code-path bypass from redirecting the key
+pair to another endpoint. Seven mocked tests prove strict configuration,
+credential redaction, bounded client construction, and the absence of client
+or network work until a later object verifier. No object is read/written and
+no image, Deployment, or cluster resource is created.
+
+The completed [`ADTOF drums HeadObject verifier`](kubernetes/services/adtof/app/stem_object.py)
+now revalidates a claimed ADTOF lease and strict `drums` request before it
+makes one metadata-only call for the fixed private Demucs WAV. It requires the
+exact current byte count, WAV type, and full immutable Demucs schema/producer/
+Job/task/stem/mode/size/SHA-256 metadata inventory. Missing inputs and known
+evidence mismatches have bounded permanent codes; unavailable MinIO is
+retryable; malformed headers are a safe protocol error. Five fake-client tests
+prove exact call count, evidence matching, input-bound validation, and failure
+classification. It neither downloads audio nor updates a task, acknowledges
+RabbitMQ, invokes ADTOF, builds an image, creates a Deployment, or changes the
+cluster.
+
+The completed [`ADTOF bounded drums-download adapter`](kubernetes/services/adtof/app/stem_download.py)
+now accepts only the verified canonical drums evidence, makes one matching
+GetObject call, rechecks its headers, and streams at most 256 MiB into a random
+0600 local file below Pod scratch while computing SHA-256. It yields the path
+only inside a cleanup-guaranteed context and only after exact byte/hash
+evidence agrees; short/grown/malformed/changed streams never reach model code.
+Five fake-client tests prove bounded reads, private scratch cleanup, exact
+checksum verification, retryable transport failures, and rejection before I/O
+for forged evidence or symlinked scratch. It does not start/complete a task,
+acknowledge RabbitMQ, invoke ADTOF, upload output, build an image, create a
+Deployment, or change the cluster.
+
+The pure [`ADTOF guarded task-start adapter`](kubernetes/services/adtof/app/task_claim.py)
+now changes only a current `leased` drums task to `running`. Its parameterized
+PostgreSQL update matches the exact task/Job/stage/stem/token identity and
+PostgreSQL-clock unexpired predicate, returning a timezone-aware start time
+only after successful admission. A missing returned row is normal ownership
+loss and exposes no execution authority; direct forged lease values and bad
+driver rows are rejected. Four in-memory tests cover admission, expiry/loss,
+input validation, and return validation. The adapter creates no connection or
+transaction and performs no MinIO, RabbitMQ, ADTOF, image, Deployment, or
+cluster action.
+
+The completed [`ADTOF verified-stem-to-running composition`](kubernetes/services/adtof/app/stem_task_start.py)
+now keeps the verified temporary drums WAV inside its scratch scope, invokes
+the guarded PostgreSQL start transition only after download proof exists, and
+yields the path only after that transaction commits. Ownership loss removes the
+WAV before it yields `None`; transaction/database/validation failure rolls
+back or propagates after cleanup. Five mocked-boundary tests prove ordering,
+commit/rollback, stale-ownership cleanup, and no cross-task source use. It
+does not receive/ack RabbitMQ, run ADTOF, upload output, build an image, create
+a Deployment, or call Kubernetes.
+
+The new pure [`ADTOF output-object planner`](kubernetes/services/adtof/app/output_object_plan.py)
+now accepts only a committed `RunningADTOFStem` handoff and returns the exact
+two private, non-attempt-specific coordinates: `midi/{job_id}/drums.mid` and
+`midi/{job_id}/drums_bpm.json`. Its frozen base provenance binds each output
+to the Job, ADTOF task, outbox event, drums stem/mode, verified input SHA-256,
+artifact kind, and the preserved cloud-default CPU ADTOF configuration
+identity (pinned `adtof-pytorch` revision, 100 FPS, and five thresholds). It
+explicitly excludes output byte counts and output SHA-256 because no model
+artifact exists at this boundary; a later verifier must derive them before an
+uploader may assemble complete metadata. Three standard-library tests prove
+fixed keys, exact provenance, no attempt suffix, and rejection of forged lease
+or download values. The planner performs no filesystem I/O, model inference,
+MinIO operation, PostgreSQL mutation, RabbitMQ acknowledgement, image build,
+or Kubernetes action.
+
+The new [`ADTOF local output-artifact verifier`](kubernetes/services/adtof/app/output_artifact.py)
+now accepts one exact output-object plan plus a future model runner's controlled
+local filename. It prevents plan/key widening before a file is opened; rejects
+symlinks, non-regular/wrong-name/oversized files, malformed Standard MIDI
+framing, malformed or duplicate/non-finite tempo JSON, and cloud-incompatible
+tempo candidate fields. It streams the local bytes to produce immutable size
+and SHA-256 evidence, returning structured tempo data only for the JSON output.
+Its four standard-library tests cover valid two-artifact evidence, pre-read plan
+rejection, invalid MIDI/JSON, and local symlink/filename rejection. It invokes
+no model, contacts no MinIO/PostgreSQL/RabbitMQ service, and makes no image or
+Kubernetes change.
+
+The new pure [`ADTOF CPU inference-command builder`](kubernetes/services/adtof/app/adtof_inference_command.py)
+now reserves a fresh mode-0700 `adtof-output` sibling of a verified temporary
+drums WAV and returns one fixed no-shell Python-module argv. It independently
+reuses the running-lease/output-plan proof before it touches a local path, then
+fixes the preserved cloud model revision, CPU device, FPS, five thresholds, and
+`drums.mid`/`drums_bpm.json` filenames. A shared
+[`model configuration`](kubernetes/services/adtof/app/model_configuration.py)
+prevents provenance metadata and inference arguments drifting apart. Three
+standard-library tests cover exact argv/path creation, unsafe input/stale output
+rejection, and forged identity rejection before filesystem access. It imports
+no model package and does not execute ADTOF, access MinIO/PostgreSQL/RabbitMQ,
+build an image, or change Kubernetes.
+
+The new [`ADTOF CPU inference entrypoint`](kubernetes/services/adtof/app/adtof_cpu_inference_entrypoint.py)
+now parses only that exact flag ordering and fixed revision/FPS/threshold/device
+configuration, rechecks a fresh sibling output tree, and lazily calls the
+pinned `adtof_pytorch` CPU API. It writes only `drums.mid` and a strict,
+cloud-compatible tempo JSON after passing the shared output-artifact parser.
+Lazy imports keep source tests independent of the eventual PyTorch/Librosa/
+PrettyMIDI image closure. Three injected-stand-in tests cover fixed CPU model
+arguments and outputs, altered argv rejection before model execution, and safe
+stale-output/malformed-tempo failure. It has no timeout/process supervision,
+MinIO/PostgreSQL/RabbitMQ/Kubernetes access, or image build.
+
+The new [`ADTOF CPU process runner`](kubernetes/services/adtof/app/adtof_cpu_process.py)
+now repeats command/configuration/scratch-tree checks directly before it runs
+one no-shell Python child in a private process session. It provides a ten-minute
+normal CPU deadline and twelve-minute hard cap within the existing fifteen-minute
+task lease; timeout cleanup sends `SIGTERM`, then `SIGKILL` if necessary, to the
+full process group. Three fake-runner tests prove normal execution, tampered or
+stale requests stopping before any model launch, and safe timeout propagation.
+It neither validates outputs nor contacts MinIO/PostgreSQL/RabbitMQ/Kubernetes.
+
+The new [`ADTOF local task execution composition`](kubernetes/services/adtof/app/local_task_execution.py)
+now joins an already-running temporary drums stem, fixed output plans, the
+bounded CPU process runner, and both local artifact checks. It returns the MIDI
+and tempo evidence together only after exit-zero and both bounded local formats
+hash successfully; no partial MIDI result escapes a missing/invalid tempo file.
+Its two injected-runner tests cover complete local evidence and safe process or
+artifact failure propagation. All paths remain valid only inside the existing
+running-stem scratch context, and this composition has no MinIO/PostgreSQL/
+RabbitMQ/Kubernetes access.
+
+The new pure [`ADTOF upload-object planner`](kubernetes/services/adtof/app/upload_object.py)
+now rebuilds base plans from the running lease, repeats local MIDI/tempo
+validation immediately before use, and appends only the newly proven
+`size-bytes` and output `sha256` fields to immutable provenance metadata. It
+returns the two complete private MinIO plans together, retaining their scratch
+paths only for the following streaming uploader. Its two tests prove exact
+coordinate/metadata construction and rejection when local bytes change after
+earlier verification. It performs no S3/MinIO call, PostgreSQL mutation,
+RabbitMQ action, image build, or Kubernetes operation.
+
+The new [`ADTOF streaming MinIO uploader`](kubernetes/services/adtof/app/minio_upload.py)
+now accepts only that complete pair, validates both full plans before the first
+request, repeats each local format/SHA proof, and opens only non-symlink
+regular files. Its streaming request wrapper calculates a second digest from
+the exact bytes the S3-compatible client consumes, returning receipts only
+when byte count and SHA-256 agree with the immutable plans. MIDI and tempo
+writes are deliberately sequential—never misrepresented as cross-object
+atomic—but their deterministic keys make a retry safe after a partial pair.
+The adapter makes no PostgreSQL change, RabbitMQ acknowledgement, model call,
+image build, or Kubernetes operation; stored-object verification must still
+precede guarded task completion.
+
+The new [`ADTOF stored-output verifier`](kubernetes/services/adtof/app/output_artifact_head_object.py)
+now validates the MIDI/tempo plans and receipts as a single task pair before
+issuing either metadata-only `HeadObject` request. It proves both current MinIO
+objects retain their fixed bucket/key/type, length, output SHA-256, and full
+provenance metadata. It yields only safe stored evidence, distinguishes a
+missing/mismatched object through reviewed permanent codes, and maps MinIO
+outages to one redacted retryable category. It neither reads bytes nor changes
+PostgreSQL/RabbitMQ, invokes a model, builds an image, or calls Kubernetes; a
+later lease-token-guarded completion transaction must still decide durable
+success.
+
+The new [`ADTOF guarded completion adapter`](kubernetes/services/adtof/app/task_completion.py)
+now validates the current drums lease, both verified stored outputs, and a
+strictly re-parsed cloud-compatible tempo candidate before it calls one typed
+administrator-owned completion function. That function locks the two rows,
+requires the current running unexpired lease and retained `midi_processing`
+Job, writes only the fixed `midi.drums` key/tempo record, increments the Job
+revision, and marks the task succeeded without advancing overall Job status.
+This source creates no database connection/transaction, accesses no
+MinIO/RabbitMQ/Kubernetes API, and runs no model or image.
+
+The existing [`ADTOF PostgreSQL bootstrap Job`](kubernetes/services/adtof/adtof-database-bootstrap-job.yaml)
+now also prepares that `SECURITY DEFINER` function. Its administrator-owned
+body repeats fixed task/key/tempo constraints, revokes PostgreSQL's default
+`PUBLIC` function execution, and grants only `clouddsp-adtof` the exact typed
+call; the role still has no direct Job UPDATE grant. The manifest includes an
+all-zero no-row invocation that verifies only signature access. The fixed-name
+bootstrap Job was deliberately reconciled successfully; the function is live
+and its temporary data-namespace credential Secret was removed afterwards.
+
+The new [`ADTOF completion-commit composition`](kubernetes/services/adtof/app/task_completion_commit.py)
+now places only the reviewed typed function call inside the existing short
+`write_cursor()` transaction scope. It exposes a completion only after normal
+commit, treats a no-row ownership loss as a non-error stop, and guarantees an
+adapter/database exception triggers rollback before a later supervisor could
+acknowledge a broker delivery. It does not apply the bootstrap Job, call MinIO
+or RabbitMQ, run a model, or access Kubernetes.
+
+The new [`ADTOF post-inference finalization composition`](kubernetes/services/adtof/app/task_finalization.py)
+now joins both local verified artifacts to their deterministic private upload
+plans, the two stored-object metadata proofs, and the committed guarded result
+write. It leaves MinIO outside every PostgreSQL transaction, returns no success
+when final ownership is lost, and lets storage/database errors propagate to a
+later supervisor. It does not parse/acknowledge RabbitMQ, start a task, run a
+model, select a retry, apply a manifest, or use Kubernetes.
+
+The new [`ADTOF post-claim success coordinator`](kubernetes/services/adtof/app/claimed_task_success.py)
+now composes one already committed first-claim lease with its matching parsed
+request through the existing drums `HeadObject` proof, bounded download plus
+guarded `running` transition, fixed CPU output composition, and post-inference
+finalization. CPU execution and finalization remain inside the temporary
+running-stem context, ensuring its scratch paths cannot be cleaned before the
+last required output upload/proof. It returns only committed `succeeded`
+evidence or normal `ownership_lost`; operational failures propagate unchanged
+to a later delivery supervisor. It neither parses, acknowledges, nor rejects a
+RabbitMQ delivery, selects retry policy, creates a worker Deployment, or calls
+Kubernetes.
+
+The new [`ADTOF acknowledged-lease execution gate`](kubernetes/services/adtof/app/acknowledged_lease_execution.py)
+now accepts only the prior manual-ack adapter's `ACKNOWLEDGED_LEASE` result.
+That result proves both that PostgreSQL committed the canonical drums lease and
+that RabbitMQ accepted acknowledgement for the delivery which produced it. The
+gate revalidates the exact lease/request evidence, then delegates to the
+post-claim success coordinator; idle, duplicate/stale, malformed-DLQ, and
+forged results cannot start MinIO or CPU work. It neither makes any RabbitMQ
+call nor opens a transaction, chooses retry policy, starts a loop, builds an
+image, creates a Deployment, or calls Kubernetes.
+
+The new [`ADTOF receive-and-execute-once composition`](kubernetes/services/adtof/app/receive_execute_once.py)
+now joins one already-prepared Pika-shaped channel with the existing manual-ack
+adapter and acknowledged-lease gate. The former retains commit-before-ack/DLQ
+responsibility; the latter starts the existing success coordinator only for an
+acknowledged current lease. `idle`, acknowledged duplicate/stale, and
+malformed-DLQ outcomes return compact no-work facts and cannot reach MinIO or
+CPU work. AMQP, PostgreSQL, MinIO, and ADTOF failures propagate unchanged to a
+later supervisor. The composition has no loop, sleep/backoff, connection
+lifecycle, retry policy, lease recovery, image entrypoint, Deployment, or
+Kubernetes action.
+
+The new pure [`ADTOF supervisor decision policy`](kubernetes/services/adtof/app/supervisor_backoff.py)
+now maps normal one-cycle results to either a fixed one-second idle wait or an
+immediate next check, resetting its local retry-failure counter in both cases.
+It also reserves explicit retryable and fatal events for a later exception
+classifier: retryable failures follow a capped 1, 2, 4, 8, 16, 30-second
+sequence with runtime-supplied bounded jitter, while fatal configuration exits
+immediately. Its compact in-memory state is not durable task retry state. The
+policy does not sleep, reconnect, poll any service, mutate PostgreSQL, run
+ADTOF, build an image, create a Deployment, or call Kubernetes.
+
+The new pure [`ADTOF supervisor failure classifier`](kubernetes/services/adtof/app/supervisor_failure_classification.py)
+now maps only reviewed static configuration/image-entrypoint errors to
+`fatal_configuration` and only established RabbitMQ/PostgreSQL/MinIO
+availability wrappers to `retryable_failure`. Integrity/contract/checksum,
+model/time-limit, and unknown exceptions deliberately remain unclassified.
+Classification examines only exception types: it does not catch an operational
+error, sleep, reconnect, acknowledge RabbitMQ, alter a task, build an image,
+create a Deployment, or call Kubernetes. A later runtime must still pair a
+retryable event with explicit lease/recovery policy before any action.
+
+The new [`ADTOF supervisor step`](kubernetes/services/adtof/app/supervisor_step.py)
+now invokes exactly one receive-and-execute iteration, maps a normal result to
+idle/progress or only a reviewed exception to retryable/fatal, then returns the
+matching pure backoff decision and next in-memory state. Classified failures
+retain no fake normal iteration result and unknown exceptions propagate
+unchanged. It does not sleep, reconnect, loop, open/close clients, add task
+mutations beyond the invoked iteration, build an image, create a Deployment, or
+call Kubernetes; a following shutdown-aware action adapter must perform any
+actual wait or exit.
+
+The new [`ADTOF supervisor action adapter`](kubernetes/services/adtof/app/supervisor_action.py)
+now applies a single existing decision through an injected shutdown-aware
+waiter. It continues immediately for progress, waits once for idle/backoff and
+returns `shutdown_requested` if interrupted, or returns a visible fatal-exit
+fact without waiting. It installs no signal handler and does not loop, sleep
+directly, reconnect/close clients, mutate a task, run ADTOF, build an image,
+create a Deployment, or call Kubernetes. Durable expired-lease recovery must
+be built before a long-running retrying runtime uses its retryable path.
+
+The new pure [`ADTOF expired-active-lease recovery claim`](kubernetes/services/adtof/app/task_claim.py)
+now grants at most one new `leased` token for an expired `leased` or `running`
+drums task, allowing recovery after a Pod crash or a post-ack failure without a
+second RabbitMQ delivery. PostgreSQL's own clock, the active-lease index, and
+`FOR UPDATE SKIP LOCKED` make the candidate decision safe across overlapping
+Pods. It increments only attempts one/two, leaving exhausted attempt-three
+handling and scheduled-retry policy for later reviewed transitions. It returns
+only durable lease/event coordinates; a following transaction-local reader must
+rebuild strict request evidence before external work. It does not open a
+connection/transaction, read event payloads, call MinIO/RabbitMQ/ADTOF, sleep,
+build an image, create a Deployment, or call Kubernetes.
+
+The new read-only [`ADTOF recovery-request reader`](kubernetes/services/adtof/app/recovery_request.py)
+now runs immediately after that claim inside its same short transaction. It
+requires the exact fresh second/third-attempt lease, binds every task/event/
+input/token coordinate plus PostgreSQL-clock lease expiry in its query, and
+rebuilds the ordinary strict drums request only from the immutable published
+outbox row. `None` is normal ownership loss; unsafe lease/event/payload proof
+raises so a following composition can roll back rather than commit a recoverable
+task with no executable evidence. The reader opens/commits no transaction and
+does not call RabbitMQ, MinIO, ADTOF, sleep, build an image, create a Deployment,
+or call Kubernetes.
+
+The new [`ADTOF expired-lease recovery composition`](kubernetes/services/adtof/app/recovery.py)
+now calls that claim and reader through the same restricted `write_cursor()`
+context, returning a recovery lease/request pair only after normal commit. An
+idle scan makes no mutation and commits normally. If a fresh claim loses its
+matching evidence before the reader finishes, an internal transaction-local
+sentinel forces rollback before the composition returns normal no-work; invalid
+evidence and database errors also propagate through rollback. This prevents a
+durable orphan lease with no strict execution input. It has no RabbitMQ, MinIO,
+ADTOF, sleep/loop, image, Deployment, or Kubernetes action.
+
+The new delivery-free [`ADTOF recovered-task execution gate`](kubernetes/services/adtof/app/recovered_task_execution.py)
+now accepts only that committed pair and repeats its canonical UUID, fresh
+recovery-attempt, lease timestamp, fixed drums-task/private-object, and shared
+event/Job/object identity proof before it delegates to the established
+post-claim success coordinator. It deliberately does not invent a RabbitMQ
+acknowledgement: recovery is authorized by PostgreSQL after the original
+delivery was already acknowledged. This source opens no transaction, scans no
+task, and makes no RabbitMQ/MinIO/ADTOF, sleep/loop, image, Deployment, or
+Kubernetes action itself.
+
+The new [`ADTOF recovery execute-once composition`](kubernetes/services/adtof/app/recovery_execute_once.py)
+now joins one expired-lease scan/transaction with the delivery-free gate. Its
+normal `idle` result means no safe expired lease exists; its `executed` result
+preserves only the existing post-claim success/ownership-loss fact. Invalid
+recovery output and operational errors intentionally propagate rather than
+being misreported as idle. It accepts no RabbitMQ channel and makes no broker
+operation, sleep/loop, image, Deployment, or Kubernetes call. A separate pure
+cadence policy must still bound how often the future supervisor invokes it when
+normal queue traffic remains busy.
+
+The pure [`ADTOF normal/recovery cadence policy`](kubernetes/services/adtof/app/recovery_cadence.py)
+now starts every new Pod with one recovery scan and then strictly alternates a
+bounded recovery iteration with one bounded normal AMQP iteration. This makes
+an expired task wait for no more than one normal iteration, even under a busy,
+duplicate, or malformed queue; an empty recovery scan is only a small
+no-mutation PostgreSQL check. Its immutable next-action state validates action
+ordering and complete iteration-result shapes, but makes no database, MinIO,
+RabbitMQ, sleep/loop, image, Deployment, or Kubernetes call. A following
+single-cycle composition will execute exactly the action selected by it.
+
+The new [`ADTOF cadence-driven worker cycle`](kubernetes/services/adtof/app/worker_cycle.py)
+now executes exactly one cadence-selected branch and returns its compact result
+plus the only valid next cadence state. A normal action alone receives the AMQP
+channel; the recovery action cannot receive/acknowledge/reject/publish a broker
+message because it passes no channel to its child. Errors leave the frozen input
+state unadvanced for a future bounded retry. The cycle owns no loop, wait,
+connection lifecycle, image, Deployment, or Kubernetes action. The next small
+change is to have the existing supervisor step own this result/state while
+keeping its reviewed backoff behavior.
+
+The updated [`ADTOF supervisor step`](kubernetes/services/adtof/app/supervisor_step.py)
+now owns both its bounded retry-backoff count and the worker cadence's next
+action. It runs exactly one worker cycle and advances cadence only when that
+cycle returns normally; recognized retryable/fatal failures preserve the prior
+action, so an outage cannot skip a selected recovery scan. Normal AMQP idle
+retains the short one-second wait, whereas recovery idle maps to immediate
+progress because it does not indicate the next normal broker poll is empty.
+The step still does not apply its decision, sleep, loop, reconnect, build an
+image, or create/use any Kubernetes resource. The following small composition
+will join this step to the existing shutdown-aware decision action once.
+
+The new [`ADTOF one-step supervisor runner`](kubernetes/services/adtof/app/supervisor_once.py)
+now composes one cadence-aware step with the existing shutdown-aware action
+adapter, returning the exact step, applied control result, and verified next
+state together. The action must match the step decision and the state must be
+the state advanced by that step, so a future loop cannot continue with unrelated
+local state. It has no persistent loop, signal handler, service lifecycle,
+image, Deployment, or Kubernetes action; failures propagate instead of being
+made-up `continue` facts. A subsequent focused shutdown-event adapter will own
+the SIGTERM/SIGINT event that its waiter needs.
+
+The new scoped [`ADTOF shutdown-event adapter`](kubernetes/services/adtof/app/shutdown_event.py)
+now installs main-thread SIGTERM/SIGINT handlers that only set one shared
+`threading.Event`, exposes the bounded 0–30 second supervisor-waiter protocol,
+and restores prior process handlers on normal/error cleanup or partial setup
+failure. It performs no service/model/Kubernetes work inside a signal callback,
+allowing a future loop to stop before a new cycle once its current bounded work
+returns. The next small source task will introduce that loop while keeping
+client creation and closure outside it.
+
+The new [`ADTOF shutdown-aware supervisor loop`](kubernetes/services/adtof/app/supervisor_loop.py)
+now repeats the one-step runner only after `continue`, returns on
+`shutdown_requested` or `exit_fatal`, and performs a zero-second event check
+before every new cycle. Thus SIGTERM that arrives during CPU work is observed
+before another RabbitMQ receive or recovery scan can begin, even when the prior
+step selected immediate progress. The loop takes already-created dependencies
+and owns no client/signal lifecycle, image, Deployment, or Kubernetes action.
+The next focused adapter will make the existing AMQP connection/channel setup
+closeable around this loop.
+
+The new closeable [`ADTOF AMQP session`](kubernetes/services/adtof/app/amqp_session.py)
+now composes the reviewed restricted connection factory and passive
+prefetch-one channel preparation, yielding only the prepared channel to a
+caller. It attempts channel-then-connection closure on every setup/body/normal
+cleanup path, preserving caller errors while mapping a normal cleanup failure
+to the existing redacted retryable channel category. It has no delivery,
+acknowledgement/rejection/publish/topology mutation, PostgreSQL/MinIO client,
+signal/loop, image, Deployment, or Kubernetes action. The next composition can
+now join restricted database/storage construction, scoped signal handling,
+session, and loop into one process entrypoint.
+
+The new [`ADTOF worker bootstrap entrypoint`](kubernetes/services/adtof/app/worker_entrypoint.py)
+now makes exactly that composition. It constructs the existing restricted
+PostgreSQL adapter and MinIO client, requires the future fixed
+`/worker-scratch` `emptyDir` mount to be an existing non-symlink directory,
+then scopes the reviewed SIGTERM/SIGINT event around one prepared private AMQP
+session and the persistent supervisor loop. Channel cleanup occurs before
+connection cleanup on normal and exceptional paths; unclassified operational
+errors still propagate rather than being disguised as success. The normal
+supervisor terminal facts map to `0` for shutdown and `78` for fatal
+configuration without calling `sys.exit`. It builds no image and makes no
+Deployment, manifest, or Kubernetes change. The next small task is a thin
+executable wrapper that emits one non-sensitive diagnostic only for known
+static configuration failures and returns the entrypoint status.
+
+The new [`ADTOF executable worker wrapper`](kubernetes/services/adtof/app/worker_main.py)
+now does only that final process-boundary work. It calls the bootstrap
+entrypoint, returns its ordinary status unchanged, and converts only malformed
+mounted AMQP/PostgreSQL/MinIO configuration or a missing/unsafe scratch mount
+to the stable non-sensitive stderr diagnostic plus exit status `78`. It does
+not print raw exception details and intentionally lets workload, availability,
+and unexpected exceptions propagate after the entrypoint's existing cleanup.
+The next small task is a source-only CPU container recipe that pins the already
+reviewed dependencies, starts this module as PID 1 under a non-root account,
+and preserves `/worker-scratch` for the future Deployment's bounded `emptyDir`
+instead of making it in the image.
+
+The expanded [`ADTOF CPU requirements lock`](kubernetes/services/adtof/requirements.lock)
+now provides the complete CPython 3.11/Linux ARM64 dependency closure needed
+by that recipe. It preserves the cloud's CPU Torch 2.5.1, Librosa 0.10.2.post1,
+PrettyMIDI 0.2.10, NumPy/Scipy/Numba audio stack, and the exact
+`adtof-pytorch` commit `85c192e78f716ea0b111cc8a5ee4a8f6a3a4f8a9` as a
+SHA-256-pinned GitHub source archive. It also adds the restricted existing
+Boto3, Pika, and Psycopg closures. Every wheel/source archive is hash pinned;
+the two reviewed source distributions use explicit locked `setuptools`/`wheel`
+build tools with build isolation disabled. The lock records only the target
+Python-3.11 dependencies—Python-3.13-only Audioread dead-battery packages are
+excluded deliberately. Source-package hash installation was exercised in an
+isolated Python 3.11 temporary environment without model imports or inference;
+no image or cluster resource was created.
+
+The new source-only [`ADTOF worker Dockerfile`](kubernetes/services/adtof/Dockerfile)
+now turns that reviewed closure into a build recipe without building, pushing,
+or deploying an image. Its validation stage begins from the locked official
+Python 3.11 multi-platform base, installs the lock's reviewed build tools, then
+fails closed with the complete hash-verified CPU closure and CPU PyTorch index.
+It runs every ADTOF unit test and verifies the installed ADTOF package carries
+its bundled `.pth` weights without performing transcription. The final stage
+copies only validated site packages and `app/`, runs as UID/GID `10005`, and
+uses the exec-form `python -m app.worker_main` entrypoint so SIGTERM reaches
+the reviewed shutdown path. It deliberately leaves `/worker-scratch` absent:
+the eventual restricted Deployment must supply its bounded writable `emptyDir`
+rather than allowing temporary media on the image filesystem. The next small
+task is source provenance only: add an unbuilt ADTOF entry to
+`kubernetes/images.lock.yaml`; do not yet build/push an image, record an output
+digest, or create a workload manifest.
+
+The new unbuilt [`ADTOF image-source provenance`](kubernetes/images.lock.yaml)
+record now fixes the Dockerfile, application/test directories, complete
+requirements lock, pinned Python 3.11 base, Linux/ARM64 CPU target, intended
+local registry repository, exact ADTOF revision, direct dependencies, and
+exec-form `app.worker_main` PID-1 contract. It intentionally creates neither
+an `images.adtof` entry nor a readable-tag deployment reference, immutable OCI
+digest, or registry output record: the image does not exist yet. Text-only
+tests ensure the input record cannot be mistaken for a deployable artifact.
+The next small task may build this reviewed source for Linux/ARM64 under a
+non-deployable local tag, inspect the build/test result and image size, and
+stop before any registry push, digest entry, workload manifest, or Kubernetes
+action.
+
+The reviewed local ADTOF source recipe has now built successfully as the
+non-deployable Docker tag `clouddsp-adtof:0.1.0-cpu-worker-local-only` for
+Linux/ARM64. The dependency install rejected and exposed one mistyped Numba
+wheel hash before it could create an image; the corrected lock is now covered
+by a structural test. The build then exposed `pretty-midi==0.2.10`'s required
+legacy `pkg_resources` import, so the closure explicitly pins its compatible
+hash-verified `setuptools==79.0.1` runtime rather than relying on mutable base
+image tooling. The final image's uncompressed Docker size is `345,133,026`
+bytes (`329.14 MiB`), it runs as UID/GID `10005:10005`, starts the reviewed
+exec-form `app.worker_main` entrypoint, imports the ADTOF/audio/CPU-Torch stack
+offline as that user, and leaves `/worker-scratch` absent for the future
+bounded Pod mount. The local-only tag has not been pushed and does not permit
+an `images.adtof` lock entry, digest-based Deployment, or Kubernetes action.
+The next small task is a registry push plus digest inspection only; do not add
+that result to `images.lock.yaml` or deploy it yet.
+
+The same ARM64 image has now been pushed to the dedicated local k3d registry as
+`clouddsp-registry.localhost:5001/adtof:0.1.0-cpu-worker-runtime`. A read-only
+registry manifest request returned HTTP 200 and the immutable
+`Docker-Content-Digest`
+`sha256:8b045fc256d80a95d8d0e94a2dbf6bd515a235ea274ae605bc68d24e556ddc73`,
+matching the locally inspected Linux/ARM64 image. This proves the local
+registry has the precise artifact, but it is still deliberately absent from
+the `images` output section: no manifest may consume its mutable tag or digest
+until a following lock-only task records `images.adtof`. No Kubernetes resource
+was applied.
+
+The verified registry artifact is now locked as `images.adtof` in
+[`kubernetes/images.lock.yaml`](kubernetes/images.lock.yaml). It binds only
+`clouddsp-registry.localhost:5001/adtof@sha256:8b045fc256d80a95d8d0e94a2dbf6bd515a235ea274ae605bc68d24e556ddc73`
+for Linux/ARM64 CPU use, records the `329.14 MiB` local Docker size, and links
+its source Dockerfile, complete hash lock, Python base, test directory, CPU
+policy, bundled ADTOF weights/model revision, PID-1 wrapper, and runtime import
+check back to `buildSources.adtof`. The readable tag remains non-deployable.
+No Deployment, Pod, Secret, Service, scaler, or other Kubernetes resource has
+been created or applied. The next small task is to prepare—but not apply—the
+restricted ADTOF worker Deployment that consumes this immutable image.
+
+The prepared [`ADTOF Deployment`](kubernetes/services/adtof/adtof-deployment.yaml)
+now defines one internal Linux/ARM64 CPU worker without applying it. It consumes
+only the locked `images.adtof` digest, has no Service/Ingress or Kubernetes API
+token, runs non-root with an immutable root filesystem and no capabilities, and
+uses the three existing least-privilege ADTOF runtime Secrets. Bounded `emptyDir`
+mounts provide `512Mi` source/output scratch, `128Mi` temporary/Numba cache,
+and `64Mi` HOME space; resource accounting reserves one CPU/2 GiB and caps the
+worker at two CPU/4 GiB/1 GiB ephemeral storage. Its 660-second termination
+grace accommodates the ten-minute CPU inference deadline before durable lease
+recovery is needed. The next focused task is read-only confirmation of the
+three runtime Secrets and their completed backend bootstrap state before any
+explicit Deployment apply request.
+
+That read-only pre-apply check is now complete. The three app-namespace ADTOF
+runtime Secret objects exist with their expected non-sensitive key counts;
+their temporary bootstrap counterparts and three completed bootstrap Jobs have
+been intentionally removed. Live PostgreSQL confirms the non-superuser,
+non-inheriting `clouddsp-adtof` login role and its execution grants for both
+guarded lease/completion functions. Live RabbitMQ confirms the durable ADTOF
+request/retry/DLQ queues and exact no-configure/no-publish/read-only request
+queue permission. MinIO and its private Service are Ready, and the retained
+non-secret v001 policy ConfigMap grants only the reviewed drums read and
+deterministic MIDI/tempo actions. The one unavailable proof is the live MinIO
+user-to-policy attachment: its administrative bootstrap evidence was correctly
+cleaned up and the hardened MinIO server contains no admin client. Therefore no
+Deployment was applied; a separate restricted-runtime MinIO policy smoke Job
+must prove allowed versus denied S3 access before deployment authorization.
+
 ### Demucs worker foundation
 
 The versioned [`Demucs worker contract`](kubernetes/services/demucs/README.md)
@@ -1534,6 +2197,37 @@ use stable `(job_id, stage, stem_name)` idempotency keys, manual
 acknowledgements after durable work, bounded retries, DLQs, and PostgreSQL
 outbox publication. RabbitMQ and WebSockets are at-least-once/best-effort;
 PostgreSQL is authoritative.
+
+### Prepared ADTOF runtime-MinIO authorization smoke boundary
+
+[`adtof-minio-runtime-policy-smoke-job.yaml`](kubernetes/services/adtof/adtof-minio-runtime-policy-smoke-job.yaml)
+is now prepared, structurally tested source only; it has not been applied. It
+runs in `clouddsp-app` and receives exactly the two values in the existing
+`clouddsp-adtof-minio-credentials` Secret. It carries no MinIO administrator
+or bootstrap credential, database/broker credential, ServiceAccount token,
+Service, Ingress, or Kubernetes API access.
+
+The Job uses the existing digest-pinned official AWS CLI as an S3 protocol
+client, with its endpoint explicitly fixed to MinIO's private ClusterIP
+Service. It proves the live narrow policy without leaving a completed object:
+the allowed `midi/<unique-run-id>/drums.mid` multipart upload accepts one tiny
+part and lists it, then `AbortMultipartUpload` removes its temporary server
+state. This exercises the ADTOF policy's output `PutObject`,
+`ListMultipartUploadParts`, and `AbortMultipartUpload` actions. The same
+runtime identity then attempts `midi/<same-run-id>/vocals.mid`; MinIO must
+return an explicit access denial because that filename lies outside the exact
+ADTOF policy. An unexpected success, transport error, or ambiguous error fails
+the Job. Exit and termination cleanup both best-effort abort the allowed upload;
+the termination trap then exits, so a SIGTERM-interrupted script cannot continue
+into another request.
+
+It intentionally does not use a fabricated drums `GetObject` request: without
+`ListBucket`, object storage can hide the absence of a made-up object behind a
+403 response. A later end-to-end worker smoke test will verify read access when
+it owns a known durable Demucs drums object. The next focused task is a review
+and explicit apply of this Job alone, inspection of its logs, and confirmation
+that no completed smoke object exists; it must not also apply the ADTOF worker
+Deployment.
 
 ## Authentication and browser rules
 

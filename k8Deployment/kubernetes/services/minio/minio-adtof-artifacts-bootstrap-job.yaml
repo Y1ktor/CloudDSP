@@ -1,0 +1,284 @@
+# This one-shot administrator Job creates or rotates the ADTOF S3 key pair and
+# attaches the reviewed drums-read/drums-MIDI-write policy:
+#
+#   bootstrap Job Pod -> MinIO ClusterIP Service -> MinIO StatefulSet
+#   future ADTOF Pod  -> MinIO ClusterIP Service -> two private object prefixes
+#
+# It does not run ADTOF, create a worker Deployment, access PostgreSQL or
+# RabbitMQ, create a bucket, issue browser URLs, or use Kubernetes API access.
+# Only this short-lived Pod mounts the MinIO root Secret; the later worker gets
+# only its restricted key pair from `clouddsp-app`.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # A completed fixed-name Job remains inspectable evidence. Delete it only for
+  # a deliberate key rotation or policy repair; reapplying a completed Job does
+  # not rerun its containers or silently revise the attached policy.
+  name: minio-adtof-artifacts-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: minio-adtof-artifacts-bootstrap
+    app.kubernetes.io/component: object-storage-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: least-privilege-adtof-drums-read-and-midi-write
+spec:
+  # Keep only non-secret user/policy association evidence briefly, then remove
+  # the Pod whose init containers mounted the MinIO root administrator Secret.
+  ttlSecondsAfterFinished: 600
+  # IAM/key failures need one deliberate diagnosable result rather than retries
+  # that repeatedly execute a root-credential-bearing administration operation.
+  backoffLimit: 0
+  # Bound image pulls, MinIO readiness, and every small `mc` administration call.
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: minio-adtof-artifacts-bootstrap
+        app.kubernetes.io/component: object-storage-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # This Job talks only to MinIO's in-cluster Service. No application needs
+      # a ServiceAccount token merely to configure the separate S3 server.
+      automountServiceAccountToken: false
+      securityContext:
+        # The pinned MinIO client supports this arbitrary non-root account. Its
+        # short-lived alias file can write only into the bounded emptyDir below.
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      # Init containers run serially. That makes the root-credential procedure
+      # auditable: alias, readiness, policy, user, attachment, verification,
+      # then removal of the local root alias before completion is recorded.
+      initContainers:
+        - name: configure-minio-root-alias
+          # `images.minio-mc` in images.lock.yaml pins this MinIO-maintained
+          # client; it downloads no package while holding root credentials.
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+            # Kubernetes resolves root values only when this Pod starts. They
+            # never appear in source, CLI arguments, or retained Job logs.
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_PASSWORD
+          resources: &minioClientResources
+            # This is metadata-only administrative work, not object transfer or ML.
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext: &minioClientSecurityContext
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          args:
+            - alias
+            - set
+            - minio-admin
+            - http://clouddsp-minio:9000
+            - $(MINIO_ROOT_USER)
+            - $(MINIO_ROOT_PASSWORD)
+
+        - name: wait-for-minio-service
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+          resources: *minioClientResources
+          securityContext: *minioClientSecurityContext
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          # `ready` tests the private alias only. The Job-level deadline bounds
+          # a broken Service, DNS, or MinIO readiness path.
+          args:
+            - ready
+            - minio-admin
+
+        - name: create-or-update-adtof-artifacts-policy
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+          resources: *minioClientResources
+          securityContext: *minioClientSecurityContext
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+            - name: adtof-artifacts-policy
+              mountPath: /policy
+              readOnly: true
+          # This command creates or deliberately updates only the versioned
+          # named policy from a read-only immutable ConfigMap projection.
+          args:
+            - admin
+            - policy
+            - create
+            - minio-admin
+            - clouddsp-adtof-artifacts-v001
+            - /policy/adtof-artifacts-policy.json
+
+        - name: create-or-rotate-adtof-user
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+            # This pair exactly matches the future runtime Secret. It is read
+            # only from the temporary bootstrap Secret and never printed.
+            - name: ADTOF_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-adtof-minio-bootstrap-credentials
+                  key: ADTOF_S3_ACCESS_KEY
+            - name: ADTOF_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-adtof-minio-bootstrap-credentials
+                  key: ADTOF_S3_SECRET_KEY
+          resources: *minioClientResources
+          securityContext: *minioClientSecurityContext
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          args:
+            - admin
+            - user
+            - add
+            - minio-admin
+            - $(ADTOF_S3_ACCESS_KEY)
+            - $(ADTOF_S3_SECRET_KEY)
+
+        - name: attach-adtof-artifacts-policy
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+            - name: ADTOF_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-adtof-minio-bootstrap-credentials
+                  key: ADTOF_S3_ACCESS_KEY
+          # `mc admin policy attach` can transiently use more memory than the
+          # simple alias/readiness/user commands. The first controlled run was
+          # OOM-killed at 128Mi here, so match the already-proven 256Mi ceiling
+          # used by the equivalent Basic Pitch association boundary.
+          resources: &minioPolicyAssociationResources
+            requests:
+              cpu: 50m
+              memory: 128Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+              ephemeral-storage: 32Mi
+          securityContext: *minioClientSecurityContext
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          args:
+            - admin
+            - policy
+            - attach
+            - minio-admin
+            - clouddsp-adtof-artifacts-v001
+            - --user=$(ADTOF_S3_ACCESS_KEY)
+
+        - name: verify-adtof-user-policy
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+            - name: ADTOF_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-adtof-minio-bootstrap-credentials
+                  key: ADTOF_S3_ACCESS_KEY
+          # Give the immediately following verification command the same
+          # bounded headroom. It can run only after the attach step and never
+          # overlaps memory with it because init containers are sequential.
+          resources: *minioPolicyAssociationResources
+          securityContext: *minioClientSecurityContext
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          # `user info` reports the access-key/policy association but never the
+          # secret key. A later smoke Job will verify actual allowed/denied calls.
+          args:
+            - admin
+            - user
+            - info
+            - minio-admin
+            - $(ADTOF_S3_ACCESS_KEY)
+
+        - name: remove-root-alias-from-temporary-config
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+          resources: *minioClientResources
+          securityContext: *minioClientSecurityContext
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          # The alias file is the only writable location containing root values.
+          # Remove it before the ordinary container establishes Job completion.
+          args:
+            - alias
+            - remove
+            - minio-admin
+      containers:
+        - name: completion-marker
+          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          resources: *minioClientResources
+          securityContext: *minioClientSecurityContext
+          # All root-credential work occurred in ordered init containers. This
+          # tiny ordinary process gives the Job controller a completion result.
+          args:
+            - --version
+      volumes:
+        - name: mc-config
+          emptyDir:
+            # The alias state is a few KiB, never application data or an object.
+            # It is bounded and disappears when Kubernetes removes the Pod.
+            sizeLimit: 1Mi
+        - name: adtof-artifacts-policy
+          configMap:
+            # Mount only the immutable reviewed policy. No inline or interactive
+            # JSON can broaden what this root-credential Job attaches.
+            name: clouddsp-adtof-artifacts-policy-v001
+            defaultMode: 0444
+            items:
+              - key: adtof-artifacts-policy.json
+                path: adtof-artifacts-policy.json

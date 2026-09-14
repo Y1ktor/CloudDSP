@@ -1,0 +1,153 @@
+# Hash-enforced dependency lock for the local CPU ADTOF worker.
+#
+# This closure targets CPython 3.11 on Linux/ARM64: the local Apple-Silicon
+# k3d profile. Native wheels below are intentionally not portable to Linux
+# AMD64 or an NVIDIA/CUDA image. A different platform needs its own reviewed
+# lock rather than weakening hash checks or downloading another architecture.
+#
+# The later Dockerfile must first install the locked `setuptools` and `wheel`
+# build tools, then install this complete closure with:
+#
+#   pip install --require-hashes --no-deps --no-build-isolation \
+#       --extra-index-url https://download.pytorch.org/whl/cpu \
+#       --requirement requirements.lock
+#
+# `--no-deps` fails closed if a transitive dependency disappears from this
+# file. `--require-hashes` verifies exact archive bytes. Build isolation is
+# disabled because the two source archives below use the separately locked
+# build tools instead of fetching mutable dependencies during image creation.
+#
+# `torch==2.5.1` is the official CPU wheel for Linux/ARM64. Unlike the Linux/
+# x86 PyTorch-index artifact, its version has no `+cpu` suffix; its ARM64
+# metadata has no NVIDIA dependency. This preserves the cloud ADTOF 2.5.1
+# baseline without putting CUDA in the local worker image.
+#
+# ADTOF itself declares Torch, Librosa, PrettyMIDI, and NumPy. This lock also
+# contains the existing restricted PostgreSQL, RabbitMQ, and MinIO clients plus
+# their full closures. The MinIO client still uses only the private in-cluster
+# service and mounted local credential, never an AWS service or ambient AWS
+# identity.
+
+# Build tools required before the two source distributions can be installed.
+# `pretty-midi==0.2.10` imports the legacy `pkg_resources` module at runtime;
+# the reviewed Python base's setuptools 79.0.1 still supplies it, whereas the
+# newer 84.0.0 release does not. Keep this runtime-compatible build tool in the
+# final closure rather than relying on an unpinned package already in the base.
+# `wheel` also requires the explicit packaging wheel recorded below.
+setuptools==79.0.1 \
+    --hash=sha256:e147c0549f27767ba362f9da434eab9c5dc0045d5304feb602a0af001089fc51
+wheel==0.46.3 \
+    --hash=sha256:4b399d56c9d9338230118d705d9737a2a468ccca63d5e813e2a4fc7815d8bc4d
+
+# Pin the exact public GitHub source archive—not a moving branch or VCS
+# checkout. The SHA-256 proves the archive bytes at the revision referenced by
+# `app/model_configuration.py`. Its package data includes reviewed `.pth`
+# weights, so a running Pod does not download model weights.
+adtof-pytorch @ https://codeload.github.com/xavriley/ADTOF-pytorch/tar.gz/85c192e78f716ea0b111cc8a5ee4a8f6a3a4f8a9 \
+    --hash=sha256:28602a3bd89836240d519396b566966c52b6439e2f3cda61d8a674433b350b56
+
+# The cloud ADTOF runtime uses PrettyMIDI 0.2.10. It is a pure-Python source
+# distribution rather than a wheel, so its sdist hash and the locked build
+# tools preserve MIDI behavior without an uncontrolled source build.
+pretty-midi==0.2.10 \
+    --hash=sha256:ea6e192f94044674e833336ea1f415318ddf28e320302ac7b109edff0d4534bd
+
+# Direct worker dependencies. Boto3 signs only MinIO requests; Pika uses the
+# pre-bootstrapped ADTOF queue; Psycopg's ARM64 binary wheel supplies libpq.
+boto3==1.43.89 \
+    --hash=sha256:fe4190afe63eb562b6ba6a3911cf4427473b35fa047adde093bf696d3ae09fc0
+librosa==0.10.2.post1 \
+    --hash=sha256:dc882750e8b577a63039f25661b7e39ec4cfbacc99c1cffba666cd664fb0a7a0
+numba==0.60.0 \
+    --hash=sha256:5f4fde652ea604ea3c86508a3fb31556a6157b2c76c8b51b1d45eb40c8598703
+numpy==1.26.4 \
+    --hash=sha256:7ab55401287bfec946ced39700c053796e7cc0e3acbef09993a9ad2adba6ca6e
+pika==1.4.4 \
+    --hash=sha256:48de960c97a93b55db06b8be4c53eb977c9c8a2754c57cdae9097abcbd70ce04
+psycopg==3.2.13 \
+    --hash=sha256:a481374514f2da627157f767a9336705ebefe93ea7a0522a6cbacba165da179a
+psycopg-binary==3.2.13 \
+    --hash=sha256:cbbac4cd5b0e14b91ad8244268ca3fc2f527d1a337b489af57d7669c9d2e1a24
+scikit-learn==1.5.1 \
+    --hash=sha256:909144d50f367a513cee6090873ae582dba019cb3fca063b38054fa42704c3a4
+scipy==1.13.1 \
+    --hash=sha256:e89369d27f9e7b0884ae559a3a956e77c02114cc60a6058b4e5011572eea9299
+soundfile==0.12.1 \
+    --hash=sha256:828a79c2e75abab5359f780c81dccd4953c45a2c4cd4f05ba3e233ddf984b882
+soxr==0.3.7 \
+    --hash=sha256:bfab27830f6217a15b83445988225c3aeea3bbccfa9399ced291e53e1b05925d
+torch==2.5.1 \
+    --hash=sha256:d5b3203f191bc40783c99488d2e776dcf93ac431a59491d627a1ca5b3ae20b22
+
+# Complete Boto3/MinIO closure. Boto3's range resolves to Botocore 1.43.93;
+# pinning it prevents a rebuild from choosing a different compatible patch.
+botocore==1.43.93 \
+    --hash=sha256:3ca57bb5d26d88b554a74de708a5c991f45306436c91aacca931252d1d4d54ff
+jmespath==1.1.0 \
+    --hash=sha256:a5663118de4908c91729bea0acadca56526eb2698e83de10cd116ae0f4e97c64
+python-dateutil==2.9.0.post0 \
+    --hash=sha256:a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427
+s3transfer==0.19.2 \
+    --hash=sha256:d8168eccca828cbb2cd573675333f3bddd254313a9c42494b84c76b539e8ba25
+six==1.17.0 \
+    --hash=sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274
+urllib3==2.7.0 \
+    --hash=sha256:9fb4c81ebbb1ce9531cce37674bbc6f1360472bc18ca9a553ede278ef7276897
+
+# Librosa/audio/MIDI closure. Audioread 3.1.0 marks `standard-aifc` and
+# `standard-sunau` for Python 3.13+ only, so they are absent from this CPython
+# 3.11 lock. A Python 3.13 worker must resolve them in its own lock.
+audioread==3.1.0 \
+    --hash=sha256:b30d1df6c5d3de5dcef0fb0e256f6ea17bdcf5f979408df0297d8a408e2971b4
+cffi==2.1.1 \
+    --hash=sha256:3311ed60d36f83378794e1009ac6258bafbf81f7888b4caa7b35a521e3f95813
+cloudpickle==3.1.2 \
+    --hash=sha256:9acb47f6afd73f60dc1df93bb801b472f05ff42fa6c84167d25cb206be1fbf4a
+decorator==5.3.1 \
+    --hash=sha256:f47fe6fdbd2edd623ecfe36875d37aba411624e2670dd395dddae1358689bb3c
+joblib==1.6.0 \
+    --hash=sha256:3dbbf9f6e4b592a2357b854608e980fe6390d131d7a82f011a377ef2ebef7aba
+lazy-loader==0.5 \
+    --hash=sha256:ab0ea149e9c554d4ffeeb21105ac60bed7f3b4fd69b1d2360a4add51b170b005
+llvmlite==0.43.0 \
+    --hash=sha256:c1da416ab53e4f7f3bc8d4eeba36d801cc1894b9fbfbf2022b29b6bad34a7df2
+mido==1.3.3 \
+    --hash=sha256:01033c9b10b049e4436fca2762194ca839b09a4334091dd3c34e7f4ae674fd8a
+msgpack==1.2.2 \
+    --hash=sha256:b9b0c1f2aa7b0026b4bd50718100e8b04175e4f36e160aa852502377b5e572e7
+pooch==1.9.0 \
+    --hash=sha256:f265597baa9f760d25ceb29d0beb8186c243d6607b0f60b83ecf14078dbc703b
+pycparser==3.0 \
+    --hash=sha256:b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992
+threadpoolctl==3.6.0 \
+    --hash=sha256:43a0b8fd5a2928500110039e43a5eed8480b918967083ea48dc3ab9f13c4a7fb
+
+# Shared HTTP/cache/build support selected by the locked audio/source packages.
+certifi==2026.7.22 \
+    --hash=sha256:62f22742b58a1a33014a2b6b706588a8d7e2a88ae7bd1a6ebe8c992928483775
+charset-normalizer==3.5.1 \
+    --hash=sha256:aa2bb0b37202dca27175591f761108b5d34096ade1191ffe4808bdf6b1571488
+filelock==3.32.6 \
+    --hash=sha256:3f16ecd0117feae0dfc147e8c62eb5daeccd8bd800378c3ddf416de9b4feb6b1
+fsspec==2026.7.0 \
+    --hash=sha256:b57ddbafedfaef7018c1ecab32aa200a9d7ca26b77965f64e48b70061249d279
+idna==3.19 \
+    --hash=sha256:815e7be7a7806d54abb586dc943addc79e8b2ee16915059658cbeff4b1b43bf4
+jinja2==3.1.6 \
+    --hash=sha256:85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67
+markupsafe==3.0.3 \
+    --hash=sha256:6b5420a1d9450023228968e7e6a9ce57f65d148ab56d2313fcd589eee96a7a50
+mpmath==1.3.0 \
+    --hash=sha256:a0b2b9fe80bbcd81a6647ff13108738cfb482d481d826cc0e02f5b35e5c88d2c
+networkx==3.6.1 \
+    --hash=sha256:d47fbf302e7d9cbbb9e2555a0d267983d2aa476bac30e90dfbe5669bd57f3762
+packaging==26.3 \
+    --hash=sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c
+platformdirs==4.11.8 \
+    --hash=sha256:52f2f181bbfde907966932cc8312d967d02976422d66d537ea16092b8e291081
+requests==2.34.2 \
+    --hash=sha256:2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0
+sympy==1.13.1 \
+    --hash=sha256:db36cdc64bf61b9b24578b6f7bab1ecdd2452cf008f34faa33776680c26d66f8
+typing-extensions==4.16.0 \
+    --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8

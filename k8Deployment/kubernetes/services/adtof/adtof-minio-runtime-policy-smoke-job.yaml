@@ -1,0 +1,239 @@
+# This disposable integration Job proves the *runtime* ADTOF MinIO boundary:
+#
+#   smoke Job in clouddsp-app -> MinIO ClusterIP Service in clouddsp-data
+#
+# It mounts only the existing ADTOF runtime S3 key pair. It deliberately does
+# not mount a MinIO root credential, a bootstrap credential, PostgreSQL, or
+# RabbitMQ credential. The Job proves one allowed ADTOF MIDI-path request and
+# one deliberately forbidden foreign-object request against the live MinIO
+# policy, rather than assuming that a past administrative bootstrap still has
+# the intended user-to-policy attachment.
+#
+# The permitted request is a temporary multipart upload at
+# `midi/<run-id>/drums.mid`. It writes one tiny part, verifies that the part can
+# be listed, and aborts the upload. Thus the policy's PutObject,
+# ListMultipartUploadParts, and AbortMultipartUpload permissions are exercised
+# without retaining an object or using an administrator identity. The forbidden
+# request changes only the final filename to `vocals.mid`; the reviewed policy
+# permits only the exact `drums.mid` suffix, so MinIO must reject it.
+#
+# This file is prepared source only. Applying it is an explicit later task.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # A fixed name makes the completed authorization evidence easy to inspect.
+  # Delete a completed Job before a deliberate re-run because applying an
+  # unchanged completed Job does not execute it again.
+  name: adtof-minio-runtime-policy-smoke
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: adtof-minio-runtime-policy-smoke
+    app.kubernetes.io/component: integration-test
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: adtof-minio-runtime-least-privilege-verification
+spec:
+  # Keep the successful or failed Pod briefly for `kubectl logs` and status
+  # inspection, then remove this disposable test workload automatically.
+  ttlSecondsAfterFinished: 600
+  # A policy test needs its first result preserved. Retrying could conceal a
+  # transient configuration mismatch behind a later successful execution.
+  backoffLimit: 0
+  # Bounds startup, in-cluster DNS, and small S3 protocol requests on the
+  # local learning cluster. It is not an ADTOF model-processing deadline.
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adtof-minio-runtime-policy-smoke
+        app.kubernetes.io/component: integration-test
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      # A completed integration test must not restart in place. The Job
+      # controller owns the zero permitted retries through `backoffLimit`.
+      restartPolicy: Never
+      # The AWS CLI talks only to MinIO's private S3 Service. No Kubernetes API
+      # request occurs, so the Pod receives no ServiceAccount token.
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        # The official AWS CLI image needs only the small writable emptyDir
+        # mounted below, so this arbitrary non-root identity is sufficient.
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: restricted-adtof-s3-client
+          # `images.aws-cli` in ../../images.lock.yaml records this official
+          # multi-architecture AWS CLI digest. The explicit endpoint below is
+          # local MinIO; this client neither contacts nor provisions AWS.
+          image: public.ecr.aws/aws-cli/aws-cli@sha256:f0dcd994da5c36ab09becf4259bba4c45ed4ecfd03d51c701912f4d8425b2d49
+          imagePullPolicy: IfNotPresent
+          env:
+            # These conventional client variable names receive only the two
+            # restricted ADTOF MinIO values. Kubernetes resolves them at Pod
+            # start; neither key appears in source, command arguments, or logs.
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-adtof-minio-credentials
+                  key: ADTOF_S3_ACCESS_KEY
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-adtof-minio-credentials
+                  key: ADTOF_S3_SECRET_KEY
+            # S3 request signing requires a region even for an in-cluster
+            # MinIO endpoint. This is a protocol setting, not AWS deployment.
+            - name: AWS_DEFAULT_REGION
+              value: us-east-1
+            # Do not allow a fallback probe for EC2 metadata credentials. The
+            # two restricted Secret values above are this client's only keys.
+            - name: AWS_EC2_METADATA_DISABLED
+              value: "true"
+            - name: AWS_PAGER
+              value: ""
+            # Store the CLI's small configuration and temporary one-byte part
+            # in the bounded emptyDir rather than the read-only image layer.
+            - name: HOME
+              value: /work
+          resources:
+            # Multipart metadata and a one-byte part are intentionally tiny;
+            # this test must not contend with databases or CPU DSP workers.
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+              ephemeral-storage: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: work
+              mountPath: /work
+          # The image normally starts `aws`. Override it with its POSIX shell
+          # solely to keep the allowed request, expected denial, and abort
+          # cleanup in one ordered, auditable short-lived process.
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              endpoint_url=http://clouddsp-minio.clouddsp-data.svc:9000
+              bucket=clouddsp-uploads
+              run_id="runtime-policy-smoke-$(date +%s)-$$"
+              allowed_key="midi/${run_id}/drums.mid"
+              foreign_key="midi/${run_id}/vocals.mid"
+              part_file=/work/one-byte-midi-part.bin
+              denied_log=/work/expected-denial.log
+              upload_id=""
+
+              # Force path-style S3 URLs for the in-cluster Service name. The
+              # setting and all local client files disappear with `work`.
+              mkdir -p "${HOME}/.aws"
+              aws configure set default.s3.addressing_style path
+
+              # A successful multipart upload has temporary server state. On
+              # normal exit, command failure, or SIGTERM, make a best-effort
+              # abort so the smoke test never retains an object or upload part.
+              abort_allowed_upload() {
+                if [ -n "${upload_id}" ]; then
+                  aws --no-cli-pager --endpoint-url "${endpoint_url}" \
+                    s3api abort-multipart-upload \
+                    --bucket "${bucket}" \
+                    --key "${allowed_key}" \
+                    --upload-id "${upload_id}" >/dev/null
+                  upload_id=""
+                fi
+              }
+
+              cleanup() {
+                abort_allowed_upload >/dev/null 2>&1 || true
+              }
+              # A normal shell exit invokes cleanup. A termination signal must
+              # also stop this one-shot Job after cleanup, rather than letting
+              # the script continue into another S3 request.
+              trap cleanup EXIT
+              trap 'cleanup; exit 143' HUP INT TERM
+
+              # An expected permission denial is a required success condition,
+              # but an outage, malformed request, or any other error is not.
+              expect_access_denied() {
+                description="$1"
+                shift
+                if "$@" >"${denied_log}" 2>&1; then
+                  printf 'Expected MinIO denial, but request succeeded: %s\n' \
+                    "${description}" >&2
+                  return 1
+                fi
+                if ! grep -Eqi 'AccessDenied|Access Denied|403' "${denied_log}"; then
+                  printf 'Expected explicit MinIO access denial: %s\n' \
+                    "${description}" >&2
+                  return 1
+                fi
+                printf 'Expected MinIO access denial confirmed: %s\n' "${description}"
+              }
+
+              printf 'Checking ADTOF runtime MinIO policy through Service %s\n' \
+                "${endpoint_url}"
+              printf 'MThd' > "${part_file}"
+
+              # This exact `midi/*/drums.mid` key matches the reviewed ADTOF
+              # policy. Successful creation proves MinIO authorized the runtime
+              # identity for an allowed output request, not merely that a
+              # Secret object exists in Kubernetes.
+              upload_id="$(aws --no-cli-pager --endpoint-url "${endpoint_url}" \
+                s3api create-multipart-upload \
+                --bucket "${bucket}" \
+                --key "${allowed_key}" \
+                --query UploadId \
+                --output text)"
+              test -n "${upload_id}"
+              test "${upload_id}" != "None"
+
+              # Uploading and listing a single temporary part additionally
+              # exercise the policy's PutObject and ListMultipartUploadParts
+              # permissions. Abort below removes this uncompleted upload.
+              aws --no-cli-pager --endpoint-url "${endpoint_url}" \
+                s3api upload-part \
+                --bucket "${bucket}" \
+                --key "${allowed_key}" \
+                --upload-id "${upload_id}" \
+                --part-number 1 \
+                --body "${part_file}" >/dev/null
+              aws --no-cli-pager --endpoint-url "${endpoint_url}" \
+                s3api list-parts \
+                --bucket "${bucket}" \
+                --key "${allowed_key}" \
+                --upload-id "${upload_id}" \
+                --max-parts 1 >/dev/null
+
+              # This differs only by a filename that the ADTOF policy never
+              # grants. A success would mean the live runtime policy is wider
+              # than the reviewed exact drums-MIDI contract.
+              expect_access_denied 'create foreign vocals MIDI multipart upload' \
+                aws --no-cli-pager --endpoint-url "${endpoint_url}" \
+                  s3api create-multipart-upload \
+                  --bucket "${bucket}" \
+                  --key "${foreign_key}"
+
+              # Require the allowed cleanup permission itself to work. Set the
+              # ID empty before the EXIT trap so it cannot issue a second call.
+              abort_allowed_upload
+              printf 'ADTOF runtime MinIO policy smoke test passed\n'
+      volumes:
+        - name: work
+          emptyDir:
+            # The AWS CLI config, one-byte multipart test part, and denial
+            # diagnostic are Pod-local scratch state, not CloudDSP artifacts.
+            sizeLimit: 16Mi

@@ -1,0 +1,126 @@
+# This one-shot Job applies the immutable v006 ADTOF task-schema evolution
+# through private PostgreSQL Service DNS. It uses the existing Job API schema
+# owner—not PostgreSQL administration and not a future ADTOF runtime identity.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # A completed versioned Job is auditable operational evidence. Reapplying
+  # this manifest does not run a new migration; delete it only for a deliberate
+  # re-verification of the same immutable v006 SQL source.
+  name: job-api-schema-migration-v006-adtof-processing-tasks
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: job-api-schema-migration-v006-adtof-processing-tasks
+    app.kubernetes.io/component: database-migration
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: adtof-processing-task-schema
+spec:
+  # PostgreSQL retains the schema after Kubernetes removes this short-lived
+  # password-consuming Pod and its non-sensitive structural logs.
+  ttlSecondsAfterFinished: 300
+  # An unmet migration precondition should stay visible for inspection rather
+  # than being automatically retried and concealing the earlier missing step.
+  backoffLimit: 0
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: job-api-schema-migration-v006-adtof-processing-tasks
+        app.kubernetes.io/component: database-migration
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # The Pod needs only one private PostgreSQL connection. It receives no
+      # Kubernetes API token and no MinIO, RabbitMQ, Keycloak, or ADTOF Secret.
+      automountServiceAccountToken: false
+      securityContext:
+        # The digest-pinned Docker Official postgres image runs psql as this
+        # existing non-root account; no writable root filesystem is required.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgresql-migration-client
+          # `images.postgresql` in images.lock.yaml pins this Docker Official
+          # Image, which supplies psql without downloading a package at runtime.
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PGHOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: PGPORT
+              value: "5432"
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+            # The existing schema-owner Secret stays namespaced in
+            # `clouddsp-app`. Its values never appear in this manifest, command
+            # output, or a copied `clouddsp-data` administrator Secret.
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-database-credentials
+                  key: JOB_API_DB_NAME
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-database-credentials
+                  key: JOB_API_DB_USERNAME
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-database-credentials
+                  key: JOB_API_DB_PASSWORD
+          resources:
+            # This is short DDL/metadata work, never model or audio processing.
+            requests:
+              cpu: 10m
+              memory: 32Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            # The SQL is projected as a read-only file from the immutable
+            # ConfigMap; a generic client image must not embed mutable DDL.
+            - name: migration
+              mountPath: /migrations
+              readOnly: true
+          command:
+            - sh
+            - -ec
+            - |
+              # Stop immediately on a SQL error so Kubernetes Job status is
+              # reliable evidence rather than a successful shell wrapper.
+              printf 'Applying CloudDSP ADTOF processing-task schema migration v006 through Service %s:%s\n' "$PGHOST" "$PGPORT"
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                --file /migrations/006_adtof_processing_tasks.sql
+
+              # Print only structural confirmation. This does not list jobs,
+              # task rows, audio keys, owner subjects, errors, or Secret data.
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                --command "SELECT migration_id, applied_at FROM schema_migrations WHERE migration_id = 'v006_adtof_processing_tasks';"
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                --command "SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'public.processing_tasks'::regclass AND conname = 'processing_tasks_stage_stem_input_key_matches';"
+              printf 'CloudDSP ADTOF processing-task schema migration v006 passed\n'
+      volumes:
+        - name: migration
+          configMap:
+            # This exact name ties the executable Job to the reviewed immutable
+            # source above. A future schema change needs a new version/name.
+            name: job-api-schema-migration-v006-adtof-processing-tasks
+            defaultMode: 0444
+            items:
+              - key: 006_adtof_processing_tasks.sql
+                path: 006_adtof_processing_tasks.sql

@@ -1,0 +1,228 @@
+# This one-shot administrator Job creates or rotates the future ADTOF worker's
+# RabbitMQ consumer login. Its administration path is intentionally separate
+# from normal audio-processing traffic:
+#
+#   bootstrap Job -> headless RabbitMQ Service management port -> broker Pod
+#   future ADTOF worker -> ClusterIP RabbitMQ Service AMQP port -> one queue
+#
+# The resulting user has no tags and only a read permission on the exact
+# `clouddsp.adtof.requests` queue in vhost `/clouddsp`. RabbitMQ's read
+# authority includes consuming and manually acknowledging deliveries; it does
+# not grant queue/exchange declaration, publishing, retry/DLQ access, or use of
+# the management UI. PostgreSQL owns ADTOF task retry scheduling, so a consumer
+# must not publish a broker retry itself.
+#
+# Prerequisites are deliberately separate and must already exist:
+#   1. `clouddsp-rabbitmq-credentials` administrator Secret in `clouddsp-data`;
+#   2. v002 downstream topology, including `clouddsp.adtof.requests`; and
+#   3. a temporary `clouddsp-adtof-rabbitmq-bootstrap-credentials` Secret in
+#      `clouddsp-data`, containing the same pair as the future runtime Secret.
+#
+# This Job creates no ADTOF worker Pod, Service, queue topology, PostgreSQL task,
+# MinIO object, Kubernetes API permission, or audio-processing workload. Delete
+# a completed Job before an intentional password rotation or permission repair;
+# applying an unchanged completed Job does not cause it to execute again.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rabbitmq-adtof-consumer-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: rabbitmq-adtof-consumer-bootstrap
+    app.kubernetes.io/component: message-identity-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: least-privilege-adtof-request-consumption
+spec:
+  # Keep non-secret username/vhost/permission evidence available briefly, then
+  # let the TTL controller remove this short-lived administrator-bearing Pod.
+  ttlSecondsAfterFinished: 600
+  # A bootstrap failure should stay visible for review rather than silently
+  # retrying privileged management calls with the same bad configuration.
+  backoffLimit: 0
+  # Bound image startup, RabbitMQ readiness, and tiny management operations on
+  # a laptop. A healthy broker completes this Job in seconds.
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rabbitmq-adtof-consumer-bootstrap
+        app.kubernetes.io/component: message-identity-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # This Pod calls RabbitMQ's private management endpoint only; it never
+      # calls Kubernetes, so suppress the default ServiceAccount token mount.
+      automountServiceAccountToken: false
+      securityContext:
+        # The digest-pinned Docker Official RabbitMQ image supplies
+        # rabbitmqadmin and its unprivileged `rabbitmq` account at UID/GID 999.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: wait-for-rabbitmq-management-api-and-adtof-queue
+          # This same immutable image is recorded as `images.rabbitmq` in
+          # images.lock.yaml. The management plugin supplies rabbitmqadmin v2.
+          image: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+          imagePullPolicy: IfNotPresent
+          env: &rabbitmqAdminEnvironment
+            # Ordinal DNS selects the local StatefulSet broker's management
+            # listener. The later worker uses the ClusterIP AMQP Service.
+            - name: RABBITMQADMIN_TARGET_HOST
+              value: clouddsp-rabbitmq-0.clouddsp-rabbitmq-headless.clouddsp-data.svc.cluster.local
+            - name: RABBITMQADMIN_TARGET_PORT
+              value: "15672"
+            - name: RABBITMQADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_USER
+            - name: RABBITMQADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_PASS
+            - name: RABBITMQADMIN_NON_INTERACTIVE_MODE
+              value: "true"
+            # rabbitmqadmin may write optional state under HOME. This temporary
+            # emptyDir is CLI scratch, never durable RabbitMQ data.
+            - name: HOME
+              value: /work
+          resources: &rabbitmqAdminResources
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext: &rabbitmqAdminSecurityContext
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts: &rabbitmqAdminVolumeMounts
+            - name: rabbitmqadmin-work
+              mountPath: /work
+          command:
+            - sh
+            - -ec
+            - |
+              # Queue discovery proves that the authenticated management API
+              # and the independently applied v002 topology are ready before
+              # we grant a user an exact permission expression for the queue.
+              attempt=1
+              while [ "$attempt" -le 24 ]; do
+                if rabbitmqadmin --quiet queues list --vhost /clouddsp 2>/dev/null \
+                  | grep -Eq '^clouddsp\.adtof\.requests[[:space:]]'; then
+                  exit 0
+                fi
+                sleep 5
+                attempt=$((attempt + 1))
+              done
+              echo "RabbitMQ management API or ADTOF request queue was not ready before bootstrap timeout." >&2
+              exit 1
+
+        - name: create-or-rotate-adtof-consumer
+          image: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+          imagePullPolicy: IfNotPresent
+          env:
+            # Reuse only the non-secret connection configuration above. The
+            # ADTOF credential below is namespace-local and never logged.
+            - name: RABBITMQADMIN_TARGET_HOST
+              value: clouddsp-rabbitmq-0.clouddsp-rabbitmq-headless.clouddsp-data.svc.cluster.local
+            - name: RABBITMQADMIN_TARGET_PORT
+              value: "15672"
+            - name: RABBITMQADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_USER
+            - name: RABBITMQADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_PASS
+            - name: RABBITMQADMIN_NON_INTERACTIVE_MODE
+              value: "true"
+            - name: HOME
+              value: /work
+            # Only this bootstrap Pod can read the data-namespace duplicate.
+            # The later worker mounts the same pair from `clouddsp-app`, while
+            # neither runtime credential can read the administrator Secret.
+            - name: ADTOF_RABBITMQ_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-adtof-rabbitmq-bootstrap-credentials
+                  key: RABBITMQ_ADTOF_USERNAME
+            - name: ADTOF_RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-adtof-rabbitmq-bootstrap-credentials
+                  key: RABBITMQ_ADTOF_PASSWORD
+          resources: *rabbitmqAdminResources
+          securityContext: *rabbitmqAdminSecurityContext
+          volumeMounts: *rabbitmqAdminVolumeMounts
+          command:
+            - sh
+            - -ec
+            - |
+              # Repeating this declaration safely converges a reviewed rerun
+              # to the supplied password. No tags means this user cannot enter
+              # the management UI; the vhost regexes are its entire authority.
+              rabbitmqadmin users declare \
+                --name "$ADTOF_RABBITMQ_USERNAME" \
+                --password "$ADTOF_RABBITMQ_PASSWORD"
+
+              # In `/clouddsp`, empty configure/write patterns deny topology
+              # changes and publishing. The exact read pattern allows consume,
+              # basic.get, and manual basic.ack on one request queue only. It
+              # excludes its retry/DLQ queues and every other component queue.
+              rabbitmqadmin permissions declare \
+                --vhost /clouddsp \
+                --username "$ADTOF_RABBITMQ_USERNAME" \
+                --configure '^$' \
+                --write '^$' \
+                --read '^clouddsp\.adtof\.requests$'
+
+        - name: verify-adtof-consumer-permission
+          image: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+          imagePullPolicy: IfNotPresent
+          env: *rabbitmqAdminEnvironment
+          resources: *rabbitmqAdminResources
+          securityContext: *rabbitmqAdminSecurityContext
+          volumeMounts: *rabbitmqAdminVolumeMounts
+          command:
+            - sh
+            - -ec
+            - |
+              # This prints only broker usernames, vhost names, and permission
+              # regexes—not passwords, password hashes, or message bodies.
+              echo "RabbitMQ ADTOF consumer bootstrap: verifying vhost permissions."
+              rabbitmqadmin --quiet permissions list --vhost /clouddsp
+      containers:
+        - name: completion-marker
+          image: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+          imagePullPolicy: IfNotPresent
+          resources: *rabbitmqAdminResources
+          securityContext: *rabbitmqAdminSecurityContext
+          # Init containers execute in order. This ordinary container produces
+          # the Job's success condition only after provisioning and verification
+          # have both completed; it needs no Secret or network configuration.
+          command:
+            - rabbitmqadmin
+          args:
+            - --version
+      volumes:
+        - name: rabbitmqadmin-work
+          emptyDir:
+            # RabbitMQ's durable queue data remains on the broker StatefulSet
+            # PVC. This tiny per-Pod CLI directory vanishes with the Job Pod.
+            sizeLimit: 1Mi

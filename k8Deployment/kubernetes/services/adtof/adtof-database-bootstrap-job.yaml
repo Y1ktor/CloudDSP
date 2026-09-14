@@ -1,0 +1,585 @@
+# This administrator-only Job creates or repairs the separate PostgreSQL login
+# for a future ADTOF worker. It creates no worker Deployment, RabbitMQ client,
+# MinIO client, MIDI object, task row, ServiceAccount, or KEDA resource. The
+# later long-running worker receives only its restricted app-namespace Secret.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # A completed fixed-name Job is inspectable privilege evidence. Delete this
+  # exact Job only to deliberately rotate the ADTOF database password or repair
+  # reviewed grants, then reapply the unchanged manifest.
+  name: adtof-database-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: adtof-database-bootstrap
+    app.kubernetes.io/component: database-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: least-privilege-adtof-task-provisioning
+spec:
+  # Retain non-sensitive role/grant evidence briefly, then remove the Pod that
+  # mounted the PostgreSQL administrator password and temporary worker Secret.
+  ttlSecondsAfterFinished: 600
+  # Do not repeat administrator DDL automatically after an error. One failed
+  # result makes a missing migration, Secret, or privilege problem inspectable.
+  backoffLimit: 0
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adtof-database-bootstrap
+        app.kubernetes.io/component: database-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # This Pod opens one private PostgreSQL connection and has no reason to
+      # call Kubernetes, MinIO, RabbitMQ, Keycloak, or any browser-facing route.
+      automountServiceAccountToken: false
+      securityContext:
+        # The digest-pinned Docker Official PostgreSQL image supplies this
+        # unprivileged account, which is sufficient for the `psql` client.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgresql-bootstrap-client
+          # The pinned official image supplies `psql` without an auxiliary
+          # package download in a Pod that temporarily receives admin access.
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          env:
+            # Private Service DNS remains stable when PostgreSQL's StatefulSet
+            # Pod changes. This Job never uses a Mac-forwarded database port.
+            - name: PGHOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: PGPORT
+              value: "5432"
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+            # Only this short-lived bootstrap container receives the PostgreSQL
+            # administrator login. The future ADTOF runtime will never mount it.
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_PASSWORD
+            # Kubernetes Secrets cannot cross namespaces, so this temporary
+            # data-namespace copy describes the new login during provisioning.
+            # It must contain the same values as the app-namespace runtime copy.
+            - name: ADTOF_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-adtof-database-bootstrap-credentials
+                  key: ADTOF_DB_NAME
+            - name: ADTOF_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-adtof-database-bootstrap-credentials
+                  key: ADTOF_DB_USERNAME
+            - name: ADTOF_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-adtof-database-bootstrap-credentials
+                  key: ADTOF_DB_PASSWORD
+          resources:
+            # Role/grant DDL is deliberately small, leaving local resources for
+            # PostgreSQL itself and later CPU audio-processing workloads.
+            requests:
+              cpu: 10m
+              memory: 32Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -ec
+            - |
+              # `ON_ERROR_STOP` converts any PostgreSQL error into a failed
+              # Kubernetes Job. The quoted heredoc prevents shell expansion of
+              # SQL; psql receives only the explicit identifier/literal values.
+              printf 'Provisioning restricted ADTOF access through Service %s:%s\n' "$PGHOST" "$PGPORT"
+
+              PGDATABASE="$ADTOF_DB_NAME" \
+                psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                  --set=adtof_db_name="$ADTOF_DB_NAME" \
+                  --set=adtof_db_username="$ADTOF_DB_USERNAME" \
+                  --set=adtof_db_password="$ADTOF_DB_PASSWORD" \
+                  --set=adtof_bootstrap_owner="$PGUSER" <<'SQL'
+              -- Zero-row selects validate only the expected schema shape; they
+              -- never disclose a durable Job, event payload, object key, owner,
+              -- error text, or credential. v006 is the required ADTOF gate.
+              SELECT task_id, job_id, stage, stem_name, request_event_id,
+                     input_bucket, input_object_key, stem_mode, status,
+                     attempt_count, available_at, lease_token, lease_expires_at,
+                     started_at, completed_at, last_error_code, created_at, updated_at
+              FROM public.processing_tasks
+              LIMIT 0;
+
+              SELECT job_id, status, revision, expires_at, stem_mode
+              FROM public.jobs
+              LIMIT 0;
+
+              SELECT event_id, job_id, stage, stem_name, event_type, payload,
+                     publication_status
+              FROM public.outbox_events
+              LIMIT 0;
+
+              DO $bootstrap$
+              BEGIN
+                IF NOT EXISTS (
+                  SELECT 1 FROM public.schema_migrations
+                  WHERE migration_id = 'v006_adtof_processing_tasks'
+                ) THEN
+                  RAISE EXCEPTION 'Required v006 ADTOF task migration is missing.';
+                END IF;
+
+                IF NOT EXISTS (
+                  SELECT 1 FROM pg_constraint
+                  WHERE conrelid = 'public.processing_tasks'::regclass
+                    AND conname = 'processing_tasks_stage_stem_input_key_matches'
+                ) THEN
+                  RAISE EXCEPTION 'Required ADTOF task-coordinate constraint is missing.';
+                END IF;
+              END;
+              $bootstrap$;
+
+              -- Create the login once, then reassert restrictive attributes
+              -- and rotate its password only when this reviewed Job is rerun.
+              -- Psql's `:"name"` / `:'value'` bindings quote identifiers and
+              -- literals safely, so punctuation cannot change SQL structure.
+              SELECT format(
+                'CREATE ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT PASSWORD %L',
+                :'adtof_db_username',
+                :'adtof_db_password'
+              )
+              WHERE NOT EXISTS (
+                SELECT 1 FROM pg_roles WHERE rolname = :'adtof_db_username'
+              )
+              \gexec
+
+              ALTER ROLE :"adtof_db_username"
+                LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT
+                PASSWORD :'adtof_db_password';
+
+              -- Start from no direct authority. The runtime role cannot run
+              -- DDL, administer PostgreSQL, delete Jobs, change source/owner/
+              -- retention fields, read MinIO/RabbitMQ credentials, or publish
+              -- and lease outbox events.
+              REVOKE ALL PRIVILEGES ON DATABASE :"adtof_db_name"
+                FROM :"adtof_db_username";
+              GRANT CONNECT ON DATABASE :"adtof_db_name"
+                TO :"adtof_db_username";
+
+              REVOKE ALL PRIVILEGES ON SCHEMA public
+                FROM :"adtof_db_username";
+              GRANT USAGE ON SCHEMA public
+                TO :"adtof_db_username";
+
+              REVOKE ALL PRIVILEGES ON TABLE public.processing_tasks
+                FROM :"adtof_db_username";
+              REVOKE ALL PRIVILEGES ON TABLE public.jobs
+                FROM :"adtof_db_username";
+              REVOKE ALL PRIVILEGES ON TABLE public.outbox_events
+                FROM :"adtof_db_username";
+
+              -- PostgreSQL requires UPDATE privilege for SELECT ... FOR UPDATE.
+              -- Direct Job UPDATE would let this worker mutate job-wide state
+              -- outside a reviewed completion boundary, so its one read-lock is
+              -- an administrator-owned typed SECURITY DEFINER function instead.
+              -- `pg_catalog` is the only search path, preventing a caller from
+              -- shadowing an object name while owner privileges are in effect.
+              BEGIN;
+              CREATE OR REPLACE FUNCTION public.clouddsp_lock_adtof_job_for_claim(
+                p_job_id uuid
+              )
+              RETURNS TABLE (
+                job_id uuid,
+                stem_mode text,
+                status text,
+                revision integer,
+                is_retained boolean
+              )
+              LANGUAGE sql
+              SECURITY DEFINER
+              SET search_path = pg_catalog
+              AS $adtof_job_claim_lock$
+                SELECT
+                  job.job_id,
+                  job.stem_mode,
+                  job.status,
+                  job.revision,
+                  (job.expires_at > CURRENT_TIMESTAMP) AS is_retained
+                FROM public.jobs AS job
+                WHERE job.job_id = p_job_id
+                FOR UPDATE OF job;
+              $adtof_job_claim_lock$;
+
+              -- Reassert the database administrator as owner on every
+              -- intentional repair. Revoke PostgreSQL's default PUBLIC execute
+              -- authority before granting only this ADTOF runtime role.
+              ALTER FUNCTION public.clouddsp_lock_adtof_job_for_claim(uuid)
+                OWNER TO :"adtof_bootstrap_owner";
+              REVOKE ALL PRIVILEGES ON FUNCTION public.clouddsp_lock_adtof_job_for_claim(uuid)
+                FROM PUBLIC;
+              REVOKE ALL PRIVILEGES ON FUNCTION public.clouddsp_lock_adtof_job_for_claim(uuid)
+                FROM :"adtof_db_username";
+              GRANT EXECUTE ON FUNCTION public.clouddsp_lock_adtof_job_for_claim(uuid)
+                TO :"adtof_db_username";
+
+              -- The ADTOF runtime must eventually update one Job-owned MIDI
+              -- record and its matching task atomically. Direct UPDATE on
+              -- `jobs` would allow it to rewrite owner-visible state beyond
+              -- that one coordinate, so expose only this typed, administrator-
+              -- owned completion capability. The function repeats the fixed
+              -- bucket/input/output paths and strict tempo JSON shape; an
+              -- arbitrary SQL caller cannot use a real lease to write another
+              -- Job key or arbitrary JSON into `jobs.midi`.
+              CREATE OR REPLACE FUNCTION public.clouddsp_complete_adtof_task(
+                p_task_id uuid,
+                p_job_id uuid,
+                p_input_bucket text,
+                p_input_object_key text,
+                p_stem_mode text,
+                p_lease_token uuid,
+                p_midi_key text,
+                p_tempo_key text,
+                p_tempo_candidate jsonb
+              )
+              RETURNS TABLE (
+                task_id uuid,
+                job_id uuid,
+                completed_at timestamptz,
+                revision integer
+              )
+              LANGUAGE plpgsql
+              SECURITY DEFINER
+              -- Only built-in names resolve without qualification while this
+              -- function runs with its administrator owner's table rights.
+              -- All application relations below remain schema-qualified.
+              SET search_path = pg_catalog
+              AS $adtof_task_completion$
+              DECLARE
+                candidate_bpm numeric;
+                candidate_beat_count numeric;
+                candidate_duration_seconds numeric;
+                candidate_interval_consistency numeric;
+                candidate_drum_event_count numeric;
+                candidate_credible boolean;
+              BEGIN
+                -- Use `IS DISTINCT FROM` so NULL is also rejected. These are
+                -- not flexible worker options: they are the only durable ADTOF
+                -- input/output coordinates the least-privilege role may use.
+                IF p_input_bucket IS DISTINCT FROM 'clouddsp-uploads'
+                  OR p_input_object_key IS DISTINCT FROM (
+                    'stems/' || p_job_id::text || '/drums.wav'
+                  )
+                  OR p_stem_mode IS NULL
+                  OR p_stem_mode NOT IN ('4-stems', '6-stems')
+                  OR p_midi_key IS DISTINCT FROM (
+                    'midi/' || p_job_id::text || '/drums.mid'
+                  )
+                  OR p_tempo_key IS DISTINCT FROM (
+                    'midi/' || p_job_id::text || '/drums_bpm.json'
+                  )
+                THEN
+                  RETURN;
+                END IF;
+
+                -- JSONB contains no duplicate field names, but it can still
+                -- hold arbitrary structures. Require the exact nine fields,
+                -- their primitive types, fixed producer/source labels, and the
+                -- same credibility constraints used by the Python verifier.
+                IF p_tempo_candidate IS NULL
+                  OR jsonb_typeof(p_tempo_candidate) <> 'object'
+                  OR NOT (p_tempo_candidate ?& ARRAY[
+                    'extractor', 'bpm', 'beat_count', 'duration_seconds',
+                    'interval_consistency', 'drum_event_count', 'credible',
+                    'confidence', 'source'
+                  ])
+                  OR (
+                    SELECT count(*)
+                    FROM jsonb_object_keys(p_tempo_candidate)
+                  ) <> 9
+                THEN
+                  RETURN;
+                END IF;
+
+                IF jsonb_typeof(p_tempo_candidate -> 'extractor') <> 'string'
+                  OR jsonb_typeof(p_tempo_candidate -> 'bpm') NOT IN ('null', 'number')
+                  OR jsonb_typeof(p_tempo_candidate -> 'beat_count') <> 'number'
+                  OR jsonb_typeof(p_tempo_candidate -> 'duration_seconds') <> 'number'
+                  OR jsonb_typeof(p_tempo_candidate -> 'interval_consistency') <> 'number'
+                  OR jsonb_typeof(p_tempo_candidate -> 'drum_event_count') <> 'number'
+                  OR jsonb_typeof(p_tempo_candidate -> 'credible') <> 'boolean'
+                  OR jsonb_typeof(p_tempo_candidate -> 'confidence') <> 'string'
+                  OR jsonb_typeof(p_tempo_candidate -> 'source') <> 'string'
+                  OR p_tempo_candidate ->> 'extractor' <> 'adtof'
+                  OR p_tempo_candidate ->> 'source' <> 'adtof_drums'
+                  OR p_tempo_candidate ->> 'confidence' NOT IN ('high', 'low')
+                THEN
+                  RETURN;
+                END IF;
+
+                -- These casts occur only after JSON types are proven. JSONB
+                -- numeric values are PostgreSQL numeric values, so this keeps
+                -- finite/non-boolean number handling inside the trusted SQL
+                -- boundary rather than relying solely on Python callers.
+                IF jsonb_typeof(p_tempo_candidate -> 'bpm') = 'number' THEN
+                  candidate_bpm := (p_tempo_candidate ->> 'bpm')::numeric;
+                END IF;
+                candidate_beat_count := (p_tempo_candidate ->> 'beat_count')::numeric;
+                candidate_duration_seconds := (p_tempo_candidate ->> 'duration_seconds')::numeric;
+                candidate_interval_consistency := (
+                  p_tempo_candidate ->> 'interval_consistency'
+                )::numeric;
+                candidate_drum_event_count := (
+                  p_tempo_candidate ->> 'drum_event_count'
+                )::numeric;
+                candidate_credible := (p_tempo_candidate ->> 'credible')::boolean;
+
+                IF (candidate_bpm IS NOT NULL AND candidate_bpm <= 0)
+                  OR candidate_beat_count < 0
+                  OR candidate_beat_count <> trunc(candidate_beat_count)
+                  OR candidate_duration_seconds < 0
+                  OR candidate_interval_consistency < 0
+                  OR candidate_interval_consistency > 1
+                  OR candidate_drum_event_count < 0
+                  OR candidate_drum_event_count <> trunc(candidate_drum_event_count)
+                  OR (candidate_credible AND p_tempo_candidate ->> 'confidence' <> 'high')
+                  OR (NOT candidate_credible AND p_tempo_candidate ->> 'confidence' <> 'low')
+                  OR (
+                    candidate_credible
+                    AND (
+                      candidate_bpm IS NULL
+                      OR candidate_drum_event_count < 8
+                      OR candidate_beat_count < CASE
+                        WHEN candidate_duration_seconds < 20 THEN 4
+                        ELSE 8
+                      END
+                      OR candidate_interval_consistency < 0.70
+                    )
+                  )
+                THEN
+                  RETURN;
+                END IF;
+
+                -- A data-modifying CTE is one atomic PostgreSQL statement.
+                -- `eligible` locks task then Job, matching the claim path's
+                -- lock order. Task success depends on the Job update, so no
+                -- returned row can claim a succeeded task without its durable
+                -- `midi.drums` entry and revision increment.
+                RETURN QUERY
+                WITH eligible AS (
+                  SELECT task.task_id, task.job_id
+                  FROM public.processing_tasks AS task
+                  INNER JOIN public.jobs AS job
+                    ON job.job_id = task.job_id
+                  WHERE task.task_id = p_task_id
+                    AND task.job_id = p_job_id
+                    AND task.stage = 'adtof'
+                    AND task.stem_name = 'drums'
+                    AND task.input_bucket = p_input_bucket
+                    AND task.input_object_key = p_input_object_key
+                    AND task.stem_mode = p_stem_mode
+                    AND task.status = 'running'
+                    AND task.lease_token = p_lease_token
+                    AND task.lease_expires_at > CURRENT_TIMESTAMP
+                    AND job.status = 'midi_processing'
+                    AND job.stem_mode = p_stem_mode
+                    AND job.expires_at > CURRENT_TIMESTAMP
+                    -- A succeeded task owns this one map key forever. Do not
+                    -- turn a retry, duplicate, or manual data anomaly into an
+                    -- overwrite of browser-visible drum result history.
+                    AND NOT (job.midi ? 'drums')
+                  FOR UPDATE OF task, job
+                ),
+                updated_job AS (
+                  UPDATE public.jobs AS job
+                  SET
+                    midi = jsonb_set(
+                      job.midi,
+                      ARRAY['drums'],
+                      jsonb_build_object(
+                        'status', 'ready',
+                        'extractor', 'adtof',
+                        's3_key', p_midi_key,
+                        'bpm_key', p_tempo_key,
+                        'tempo_candidate', p_tempo_candidate
+                      ),
+                      TRUE
+                    ),
+                    revision = job.revision + 1,
+                    error_message = NULL
+                  FROM eligible
+                  WHERE job.job_id = eligible.job_id
+                    AND job.status = 'midi_processing'
+                    AND job.stem_mode = p_stem_mode
+                    AND job.expires_at > CURRENT_TIMESTAMP
+                    AND NOT (job.midi ? 'drums')
+                  RETURNING job.job_id, job.revision
+                ),
+                updated_task AS (
+                  UPDATE public.processing_tasks AS task
+                  SET
+                    status = 'succeeded',
+                    available_at = CURRENT_TIMESTAMP,
+                    lease_token = NULL,
+                    lease_expires_at = NULL,
+                    completed_at = CURRENT_TIMESTAMP,
+                    last_error_code = NULL
+                  FROM eligible
+                  INNER JOIN updated_job
+                    ON updated_job.job_id = eligible.job_id
+                  WHERE task.task_id = eligible.task_id
+                    AND task.job_id = eligible.job_id
+                    AND task.stage = 'adtof'
+                    AND task.stem_name = 'drums'
+                    AND task.status = 'running'
+                  RETURNING task.task_id, task.job_id, task.completed_at
+                )
+                SELECT
+                  task.task_id,
+                  task.job_id,
+                  task.completed_at,
+                  job.revision
+                FROM updated_task AS task
+                INNER JOIN updated_job AS job
+                  ON job.job_id = task.job_id;
+              END;
+              $adtof_task_completion$;
+
+              -- Function ownership and grants are explicit on each controlled
+              -- rerun. PostgreSQL otherwise gives PUBLIC execute by default,
+              -- which would let every database login attempt Job updates.
+              ALTER FUNCTION public.clouddsp_complete_adtof_task(
+                uuid, uuid, text, text, text, uuid, text, text, jsonb
+              ) OWNER TO :"adtof_bootstrap_owner";
+              REVOKE ALL PRIVILEGES ON FUNCTION public.clouddsp_complete_adtof_task(
+                uuid, uuid, text, text, text, uuid, text, text, jsonb
+              ) FROM PUBLIC;
+              REVOKE ALL PRIVILEGES ON FUNCTION public.clouddsp_complete_adtof_task(
+                uuid, uuid, text, text, text, uuid, text, text, jsonb
+              ) FROM :"adtof_db_username";
+              GRANT EXECUTE ON FUNCTION public.clouddsp_complete_adtof_task(
+                uuid, uuid, text, text, text, uuid, text, text, jsonb
+              ) TO :"adtof_db_username";
+              COMMIT;
+
+              -- The future ADTOF claim/recovery adapter can create, read, and
+              -- advance only its generic task lifecycle. It cannot rewrite the
+              -- durable job/stage/stem/event/input identity after insertion.
+              GRANT SELECT (
+                task_id, job_id, stage, stem_name, request_event_id,
+                input_bucket, input_object_key, stem_mode, status,
+                attempt_count, available_at, lease_token, lease_expires_at,
+                started_at, completed_at, last_error_code, created_at, updated_at
+              ) ON TABLE public.processing_tasks TO :"adtof_db_username";
+              GRANT INSERT (
+                task_id, job_id, stage, stem_name, request_event_id,
+                input_bucket, input_object_key, stem_mode, status,
+                attempt_count, available_at, lease_token, lease_expires_at,
+                started_at, completed_at, last_error_code
+              ) ON TABLE public.processing_tasks TO :"adtof_db_username";
+              GRANT UPDATE (
+                status, attempt_count, available_at, lease_token, lease_expires_at,
+                started_at, completed_at, last_error_code
+              ) ON TABLE public.processing_tasks TO :"adtof_db_username";
+
+              -- A future claim may read only Job state, revision, retention,
+              -- and stem mode. It cannot read an owner subject, source object,
+              -- artifact map, quota, or error, and receives no Job UPDATE.
+              GRANT SELECT (job_id, status, revision, expires_at, stem_mode)
+                ON TABLE public.jobs TO :"adtof_db_username";
+
+              -- The worker must compare a broker delivery to its durable event
+              -- before claiming. It can read only the identity, route, payload,
+              -- and publication state needed for that comparison—never create,
+              -- modify, lease, retry, or delete an outbox row.
+              GRANT SELECT (
+                event_id, job_id, stage, stem_name, event_type, payload,
+                publication_status
+              ) ON TABLE public.outbox_events TO :"adtof_db_username";
+              SQL
+
+              # Reconnect as the new role. These structural booleans reveal no
+              # Job/event data and prove intended capability plus key denials.
+              PGDATABASE="$ADTOF_DB_NAME" \
+              PGUSER="$ADTOF_DB_USERNAME" \
+              PGPASSWORD="$ADTOF_DB_PASSWORD" \
+                psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 <<'SQL'
+              SELECT
+                current_database() AS database,
+                current_user AS role,
+                has_column_privilege(current_user, 'public.processing_tasks', 'task_id', 'INSERT') AS can_create_task,
+                has_column_privilege(current_user, 'public.processing_tasks', 'lease_token', 'UPDATE') AS can_change_task_lease,
+                has_column_privilege(current_user, 'public.processing_tasks', 'input_object_key', 'UPDATE') AS can_replace_task_input,
+                has_column_privilege(current_user, 'public.jobs', 'status', 'SELECT') AS can_read_job_state,
+                has_column_privilege(current_user, 'public.jobs', 'owner_sub', 'SELECT') AS can_read_job_owner,
+                has_column_privilege(current_user, 'public.jobs', 'status', 'UPDATE') AS can_update_job_state,
+                has_function_privilege(
+                  current_user,
+                  'public.clouddsp_lock_adtof_job_for_claim(uuid)',
+                  'EXECUTE'
+                ) AS can_lock_adtof_claim_job,
+                has_function_privilege(
+                  current_user,
+                  'public.clouddsp_complete_adtof_task(uuid,uuid,text,text,text,uuid,text,text,jsonb)',
+                  'EXECUTE'
+                ) AS can_complete_adtof_task,
+                has_column_privilege(current_user, 'public.outbox_events', 'payload', 'SELECT') AS can_read_request_payload,
+                has_column_privilege(current_user, 'public.outbox_events', 'publication_status', 'UPDATE') AS can_update_publication_state,
+                has_table_privilege(current_user, 'public.outbox_events', 'INSERT') AS can_insert_outbox_events,
+                has_table_privilege(current_user, 'public.jobs', 'DELETE') AS can_delete_jobs;
+
+              -- This all-zero UUID cannot collide with a real Job. The empty
+              -- result proves execution of the exact function signature without
+              -- exposing durable rows or granting direct Job UPDATE access.
+              SELECT job_id, stem_mode, status, revision, is_retained
+              FROM public.clouddsp_lock_adtof_job_for_claim(
+                '00000000-0000-0000-0000-000000000000'::uuid
+              );
+
+              -- The impossible all-zero task cannot mutate durable data. Its
+              -- empty result proves only that the role can execute the exact
+              -- completion signature—not that it has broad `jobs` UPDATE.
+              SELECT task_id, job_id, completed_at, revision
+              FROM public.clouddsp_complete_adtof_task(
+                '00000000-0000-0000-0000-000000000000'::uuid,
+                '00000000-0000-0000-0000-000000000000'::uuid,
+                'clouddsp-uploads',
+                'stems/00000000-0000-0000-0000-000000000000/drums.wav',
+                '4-stems',
+                '00000000-0000-0000-0000-000000000000'::uuid,
+                'midi/00000000-0000-0000-0000-000000000000/drums.mid',
+                'midi/00000000-0000-0000-0000-000000000000/drums_bpm.json',
+                '{
+                  "extractor": "adtof",
+                  "bpm": 120.0,
+                  "beat_count": 16,
+                  "duration_seconds": 32.5,
+                  "interval_consistency": 0.9,
+                  "drum_event_count": 24,
+                  "credible": true,
+                  "confidence": "high",
+                  "source": "adtof_drums"
+                }'::jsonb
+              );
+              SQL
+              printf 'Restricted ADTOF PostgreSQL role bootstrap passed\n'

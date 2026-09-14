@@ -91,6 +91,46 @@ images:
     localDockerSize: "496.24 MiB"
     pushedAt: "2026-09-13"
 
+  adtof:
+    # This is the first published local ADTOF drum-transcription worker image.
+    # It targets the current Linux/ARM64 CPU k3d nodes; it has no CUDA/NVIDIA
+    # layer, Apple-MPS bridge, Kubernetes client, browser listener, or baked
+    # credential. A readable tag can move, so every future workload must use
+    # only the immutable reference below.
+    repository: clouddsp-registry.localhost:5001/adtof
+    sourceTag: "0.1.0-cpu-worker-runtime"
+    # The local k3d registry returned this exact manifest digest through its
+    # Docker-Content-Digest header after the reviewed push. It identifies the
+    # precise image bytes independently of the mutable readable tag.
+    digest: sha256:8b045fc256d80a95d8d0e94a2dbf6bd515a235ea274ae605bc68d24e556ddc73
+    immutableReference: clouddsp-registry.localhost:5001/adtof@sha256:8b045fc256d80a95d8d0e94a2dbf6bd515a235ea274ae605bc68d24e556ddc73
+    supportedPlatforms:
+      - linux/arm64/v8
+    builtFrom:
+      # The immutable digest identifies the pushed artifact while the local
+      # Kubernetes worker source remains uncommitted. It never includes the
+      # separately preserved AWS/cloud source tree in this image provenance.
+      sourceRevision: local-kubernetes-working-tree
+      sourceDirectory: kubernetes/services/adtof/app
+      dockerfile: kubernetes/services/adtof/Dockerfile
+      requirementsLock: kubernetes/services/adtof/requirements.lock
+      unitTestDirectory: kubernetes/services/adtof/tests
+      runtimeImageLock: images.basic-pitch-python-runtime
+      sourceLock: buildSources.adtof
+      workerEntrypoint:
+        - python
+        - -m
+        - app.worker_main
+      devicePolicy: cpu
+      modelSourceRevision: "85c192e78f716ea0b111cc8a5ee4a8f6a3a4f8a9"
+      verifiedBundledPthWeights: true
+      runtimeImportCheck: true
+    # Docker's size is uncompressed layer bytes. The much smaller 2,073-byte
+    # registry manifest describes those layers; it is not the worker's size.
+    localDockerSizeBytes: 345133026
+    localDockerSize: "329.14 MiB"
+    pushedAt: "2026-09-14"
+
   job-api:
     # This is the locally built Job API runtime. Its readable tag names the
     # current code milestone, but every future Deployment must use only the
@@ -807,6 +847,91 @@ buildSources:
         # development package in the later slim worker image.
         upstream: https://www.psycopg.org/psycopg3/docs/basic/install.html
     resolvedAt: "2026-09-12"
+
+  adtof:
+    # This immutable source provenance produced `images.adtof`. The readable
+    # intended repository is still never a workload reference: a future
+    # Deployment must copy only that image record's immutable digest.
+    #
+    # The source recipe has no CUDA/NVIDIA/Apple-MPS bridge, Kubernetes client,
+    # browser listener, cloud credential, or baked Secret. It is ordinary
+    # Linux/ARM64 CPU PyTorch processing for the local Apple-Silicon k3d nodes.
+    baseImageLock: images.basic-pitch-python-runtime
+    sourceDirectory: kubernetes/services/adtof/app
+    dockerfile: kubernetes/services/adtof/Dockerfile
+    requirementsLock: kubernetes/services/adtof/requirements.lock
+    unitTestDirectory: kubernetes/services/adtof/tests
+    intendedRepository: clouddsp-registry.localhost:5001/adtof
+    publishedImageLock: images.adtof
+    targetPlatform: linux/arm64
+    devicePolicy: cpu
+    pythonVersion: "3.11"
+    # This exec-form module is the image's exact PID 1 contract. Kubernetes
+    # SIGTERM therefore reaches its scoped cooperative shutdown wrapper rather
+    # than an intermediary shell process.
+    entrypoint:
+      - python
+      - -m
+      - app.worker_main
+    directPythonPackages:
+      - name: adtof-pytorch
+        # The source archive, revision, and hash live together in the complete
+        # requirements lock. It bundles reviewed model `.pth` weights, avoiding
+        # model download at Pod runtime.
+        sourceRevision: "85c192e78f716ea0b111cc8a5ee4a8f6a3a4f8a9"
+        sourceArchive: https://codeload.github.com/xavriley/ADTOF-pytorch/tar.gz/85c192e78f716ea0b111cc8a5ee4a8f6a3a4f8a9
+        bundledModelWeights: true
+        upstream: https://github.com/xavriley/ADTOF-pytorch
+      - name: torch
+        version: "2.5.1"
+        # Linux/ARM64 CPU PyTorch has no NVIDIA/CUDA requirement and no `+cpu`
+        # version suffix. The extra index is declared by the Dockerfile.
+        device: cpu
+        upstream: https://download.pytorch.org/whl/cpu/
+      - name: librosa
+        version: "0.10.2.post1"
+        upstream: https://pypi.org/project/librosa/0.10.2.post1/
+      - name: pretty-midi
+        version: "0.2.10"
+        # This SHA-pinned source distribution preserves the cloud MIDI behavior
+        # while build isolation stays disabled under locked build tools.
+        upstream: https://pypi.org/project/pretty-midi/0.2.10/
+      - name: numpy
+        version: "1.26.4"
+        upstream: https://pypi.org/project/numpy/1.26.4/
+      - name: scipy
+        version: "1.13.1"
+        upstream: https://pypi.org/project/scipy/1.13.1/
+      - name: numba
+        version: "0.60.0"
+        upstream: https://pypi.org/project/numba/0.60.0/
+      - name: scikit-learn
+        version: "1.5.1"
+        upstream: https://pypi.org/project/scikit-learn/1.5.1/
+      - name: soundfile
+        version: "0.12.1"
+        upstream: https://pypi.org/project/soundfile/0.12.1/
+      - name: soxr
+        version: "0.3.7"
+        upstream: https://pypi.org/project/soxr/0.3.7/
+      - name: boto3
+        version: "1.43.89"
+        # Boto3 uses explicit credentials only for private in-cluster MinIO S3
+        # operations. It does not use ambient AWS configuration or AWS APIs.
+        upstream: https://pypi.org/project/boto3/1.43.89/
+      - name: pika
+        version: "1.4.4"
+        # The runtime identity consumes and acknowledges only its pre-created
+        # private ADTOF request queue; it cannot manage broker topology.
+        upstream: https://pypi.org/project/pika/1.4.4/
+      - name: psycopg
+        version: "3.2.13"
+        installationExtra: binary
+        binaryPackage: psycopg-binary
+        # The reviewed ARM64 binary package supplies libpq without a compiler
+        # or an unpinned system PostgreSQL dependency in the final image.
+        upstream: https://www.psycopg.org/psycopg3/docs/basic/install.html
+    resolvedAt: "2026-09-14"
 
   demucs:
     # This source lock defines the first local CPU image only. It has no CUDA,
