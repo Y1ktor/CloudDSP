@@ -90,7 +90,7 @@ spec:
         - name: adtof
           # Copied exactly from images.adtof.immutableReference in
           # ../../images.lock.yaml. Never substitute its mutable readable tag.
-          image: clouddsp-registry.localhost:5001/adtof@sha256:8b045fc256d80a95d8d0e94a2dbf6bd515a235ea274ae605bc68d24e556ddc73
+          image: clouddsp-registry.localhost:5001/adtof@sha256:c8706bb0b814ed3a0c1e58455a7c153848ddf7808e65d4e3f4ed52a37b521b91
           # A digest cannot change. Nodes may reuse it locally, while a new
           # node pulls the same precise ARM64 bytes from the k3d registry.
           imagePullPolicy: IfNotPresent

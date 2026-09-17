@@ -16,12 +16,14 @@ from app.adtof_requested_message import ADTOFRequestedMessage
 from app.task_claim import (
     DEFAULT_ADTOF_LEASE_SECONDS,
     CLAIM_NEXT_EXPIRED_ADTOF_TASK_SQL,
+    FINALIZE_NEXT_EXPIRED_EXHAUSTED_ADTOF_TASK_SQL,
     INSERT_FIRST_ADTOF_TASK_LEASE_SQL,
     LOCK_EXISTING_ADTOF_TASK_SQL,
     LOCK_JOB_FOR_ADTOF_CLAIM_SQL,
     READ_PUBLISHED_ADTOF_OUTBOX_SQL,
     START_LEASED_ADTOF_TASK_SQL,
     ADTOFStaleRequestReason,
+    ADTOFExpiredLeaseTerminalization,
     ADTOFTaskClaimDisposition,
     ADTOFTaskClaimInconsistency,
     ADTOFTaskClaimProtocolError,
@@ -29,6 +31,7 @@ from app.task_claim import (
     MAX_ADTOF_TASK_ATTEMPTS,
     claim_adtof_task_for_delivery,
     claim_next_expired_adtof_task,
+    finalize_next_expired_exhausted_adtof_task,
     start_leased_adtof_task,
 )
 
@@ -115,6 +118,23 @@ def leased_task_row(**overrides: object) -> dict[str, object]:
         "attempt_count": 1,
         "lease_token": LEASE_TOKEN,
         "lease_expires_at": LEASE_EXPIRES_AT,
+    }
+    row.update(overrides)
+    return row
+
+
+def exhausted_terminalization_row(**overrides: object) -> dict[str, object]:
+    """Return the exact safe projection from one exhausted-lease transition."""
+
+    row: dict[str, object] = {
+        "task_id": TASK_ID,
+        "job_id": JOB_ID,
+        "stage": "adtof",
+        "stem_name": "drums",
+        "status": "failed",
+        "attempt_count": 3,
+        "completed_at": datetime(2026, 9, 13, 12, 30, tzinfo=UTC),
+        "last_error_code": "lease_expired_attempts_exhausted",
     }
     row.update(overrides)
     return row
@@ -386,6 +406,55 @@ class ADTOFExpiredLeaseRecoveryCandidateTests(unittest.TestCase):
                         cursor,
                         uuid_factory=FixedUuidFactory(LEASE_TOKEN),
                     )
+
+
+class ADTOFExpiredLeaseTerminalizationTests(unittest.TestCase):
+    """Prove a third expired active lease becomes one durable task failure."""
+
+    def test_terminalizes_only_one_expired_active_third_attempt(self) -> None:
+        """The SQL lock, final state, and returned evidence are all explicit."""
+
+        cursor = ScriptedCursor([exhausted_terminalization_row()])
+
+        terminalization = finalize_next_expired_exhausted_adtof_task(cursor)
+
+        self.assertEqual(
+            terminalization,
+            ADTOFExpiredLeaseTerminalization(
+                task_id=TASK_ID,
+                job_id=JOB_ID,
+                stem_name="drums",
+                attempt_count=3,
+                completed_at=datetime(2026, 9, 13, 12, 30, tzinfo=UTC),
+                error_code="lease_expired_attempts_exhausted",
+            ),
+        )
+        self.assertEqual(cursor.calls, [(FINALIZE_NEXT_EXPIRED_EXHAUSTED_ADTOF_TASK_SQL, ())])
+        self.assertIn("attempt_count = 3", FINALIZE_NEXT_EXPIRED_EXHAUSTED_ADTOF_TASK_SQL)
+        self.assertIn("status IN ('leased', 'running')", FINALIZE_NEXT_EXPIRED_EXHAUSTED_ADTOF_TASK_SQL)
+        self.assertIn("lease_expires_at <= CURRENT_TIMESTAMP", FINALIZE_NEXT_EXPIRED_EXHAUSTED_ADTOF_TASK_SQL)
+        self.assertIn("FOR UPDATE SKIP LOCKED", FINALIZE_NEXT_EXPIRED_EXHAUSTED_ADTOF_TASK_SQL)
+        self.assertIn("status = 'failed'", FINALIZE_NEXT_EXPIRED_EXHAUSTED_ADTOF_TASK_SQL)
+        self.assertIn("lease_token = NULL", FINALIZE_NEXT_EXPIRED_EXHAUSTED_ADTOF_TASK_SQL)
+        self.assertIn("lease_expires_at = NULL", FINALIZE_NEXT_EXPIRED_EXHAUSTED_ADTOF_TASK_SQL)
+        self.assertIn("completed_at = CURRENT_TIMESTAMP", FINALIZE_NEXT_EXPIRED_EXHAUSTED_ADTOF_TASK_SQL)
+        self.assertIn("lease_expired_attempts_exhausted", FINALIZE_NEXT_EXPIRED_EXHAUSTED_ADTOF_TASK_SQL)
+        self.assertNotIn("UPDATE public.jobs", FINALIZE_NEXT_EXPIRED_EXHAUSTED_ADTOF_TASK_SQL)
+
+    def test_idle_or_forged_terminalization_row_never_invents_safe_progress(self) -> None:
+        """No candidate is idle; a changed query/driver projection is rejected."""
+
+        self.assertIsNone(finalize_next_expired_exhausted_adtof_task(ScriptedCursor([None])))
+
+        for forged_row in (
+            exhausted_terminalization_row(attempt_count=2),
+            exhausted_terminalization_row(status="running"),
+            exhausted_terminalization_row(last_error_code="model_timeout"),
+            exhausted_terminalization_row(completed_at=datetime(2026, 9, 13, 12, 30)),
+        ):
+            with self.subTest(forged_row=forged_row):
+                with self.assertRaises(ADTOFTaskClaimProtocolError):
+                    finalize_next_expired_exhausted_adtof_task(ScriptedCursor([forged_row]))
 
 
 if __name__ == "__main__":

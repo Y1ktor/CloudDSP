@@ -84,14 +84,14 @@ class ADTOFImageSourceLockTests(unittest.TestCase):
         section = adtof_image_section()
         for required_field in (
             "repository: clouddsp-registry.localhost:5001/adtof",
-            "sourceTag: \"0.1.0-cpu-worker-runtime\"",
-            "digest: sha256:8b045fc256d80a95d8d0e94a2dbf6bd515a235ea274ae605bc68d24e556ddc73",
-            "immutableReference: clouddsp-registry.localhost:5001/adtof@sha256:8b045fc256d80a95d8d0e94a2dbf6bd515a235ea274ae605bc68d24e556ddc73",
+            "sourceTag: \"0.1.4-exhausted-lease-recovery\"",
+            "digest: sha256:c8706bb0b814ed3a0c1e58455a7c153848ddf7808e65d4e3f4ed52a37b521b91",
+            "immutableReference: clouddsp-registry.localhost:5001/adtof@sha256:c8706bb0b814ed3a0c1e58455a7c153848ddf7808e65d4e3f4ed52a37b521b91",
             "- linux/arm64/v8",
             "sourceLock: buildSources.adtof",
-            "localDockerSizeBytes: 345133026",
-            "localDockerSize: \"329.14 MiB\"",
-            "pushedAt: \"2026-09-14\"",
+            "localDockerSizeBytes: 346446624",
+            "localDockerSize: \"330.40 MiB\"",
+            "pushedAt: \"2026-09-16\"",
         ):
             self.assertIn(required_field, section)
 

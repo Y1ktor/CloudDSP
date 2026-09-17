@@ -51,6 +51,13 @@ class ADTOFDockerfileTests(unittest.TestCase):
         self.assertIn("USER 10005:10005", dockerfile)
         self.assertIn('ENTRYPOINT ["python", "-m", "app.worker_main"]', dockerfile)
 
+    def test_runtime_installs_the_minimal_native_audio_decoder(self) -> None:
+        """Librosa's hash-pinned SoundFile wheel still needs libsndfile at runtime."""
+
+        dockerfile = self.dockerfile()
+        self.assertIn("apt-get install --yes --no-install-recommends libsndfile1", dockerfile)
+        self.assertIn("rm -rf /var/lib/apt/lists/*", dockerfile)
+
     def test_recipe_leaves_required_scratch_directory_to_the_future_pod_volume(self) -> None:
         """A missing bounded emptyDir must fail rather than use image filesystem space."""
 

@@ -25,6 +25,7 @@ from enum import StrEnum
 from app.recovery_execute_once import ADTOFRecoveryIterationOutcome, ADTOFRecoveryIterationResult
 from app.receive_execute_once import ADTOFWorkerIterationOutcome, ADTOFWorkerIterationResult
 from app.claimed_task_success import ADTOFClaimedTaskSuccess
+from app.task_claim import ADTOFExpiredLeaseTerminalization
 
 
 class ADTOFWorkerCadenceAction(StrEnum):
@@ -34,7 +35,8 @@ class ADTOFWorkerCadenceAction(StrEnum):
     # an arbitrary normal-message backlog.
     RUN_RECOVERY_SCAN = "run_recovery_scan"
     # One normal manual-ack receive/optional-execution iteration follows every
-    # recovery attempt, whether the recovery scan was idle or executed work.
+    # recovery attempt, whether it was idle, terminalized a third attempt, or
+    # executed reclaimable work.
     RUN_NORMAL_ITERATION = "run_normal_iteration"
 
 
@@ -89,12 +91,21 @@ def _validate_recovery_result(value: object) -> ADTOFRecoveryIterationResult:
         raise TypeError("ADTOF recovery iteration result is invalid.")
     outcome = value.outcome
     execution = value.execution
+    # ``getattr`` keeps the error category deterministic for a deliberately
+    # forged frozen dataclass used by a boundary test; real constructed results
+    # always have this field.
+    terminalization = getattr(value, "terminalization", None)
     if not isinstance(outcome, ADTOFRecoveryIterationOutcome):
         raise TypeError("ADTOF recovery iteration result is invalid.")
     if outcome is ADTOFRecoveryIterationOutcome.EXECUTED:
-        if not isinstance(execution, ADTOFClaimedTaskSuccess):
+        if not isinstance(execution, ADTOFClaimedTaskSuccess) or terminalization is not None:
             raise TypeError("ADTOF recovery iteration result is invalid.")
-    elif execution is not None:
+    elif outcome is ADTOFRecoveryIterationOutcome.TERMINALIZED:
+        # A terminalized third attempt is durable progress but intentionally
+        # has no model completion fact: no MinIO or CPU work may follow it.
+        if not isinstance(terminalization, ADTOFExpiredLeaseTerminalization) or execution is not None:
+            raise TypeError("ADTOF recovery iteration result is invalid.")
+    elif execution is not None or terminalization is not None:
         raise TypeError("ADTOF recovery iteration result is invalid.")
     return value
 

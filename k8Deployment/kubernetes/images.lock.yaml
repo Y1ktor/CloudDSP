@@ -92,18 +92,22 @@ images:
     pushedAt: "2026-09-13"
 
   adtof:
-    # This is the first published local ADTOF drum-transcription worker image.
+    # This is the current published local ADTOF drum-transcription worker image.
     # It targets the current Linux/ARM64 CPU k3d nodes; it has no CUDA/NVIDIA
     # layer, Apple-MPS bridge, Kubernetes client, browser listener, or baked
     # credential. A readable tag can move, so every future workload must use
     # only the immutable reference below.
     repository: clouddsp-registry.localhost:5001/adtof
-    sourceTag: "0.1.0-cpu-worker-runtime"
+    # This readable tag identifies the rebuild that includes the durable
+    # exhausted-third-lease terminal transition. It retains the earlier
+    # fsGroup, fixed-child-CWD, and libsndfile runtime corrections. It remains
+    # mutable build provenance only; the immutable digest is authoritative.
+    sourceTag: "0.1.4-exhausted-lease-recovery"
     # The local k3d registry returned this exact manifest digest through its
     # Docker-Content-Digest header after the reviewed push. It identifies the
     # precise image bytes independently of the mutable readable tag.
-    digest: sha256:8b045fc256d80a95d8d0e94a2dbf6bd515a235ea274ae605bc68d24e556ddc73
-    immutableReference: clouddsp-registry.localhost:5001/adtof@sha256:8b045fc256d80a95d8d0e94a2dbf6bd515a235ea274ae605bc68d24e556ddc73
+    digest: sha256:c8706bb0b814ed3a0c1e58455a7c153848ddf7808e65d4e3f4ed52a37b521b91
+    immutableReference: clouddsp-registry.localhost:5001/adtof@sha256:c8706bb0b814ed3a0c1e58455a7c153848ddf7808e65d4e3f4ed52a37b521b91
     supportedPlatforms:
       - linux/arm64/v8
     builtFrom:
@@ -125,11 +129,11 @@ images:
       modelSourceRevision: "85c192e78f716ea0b111cc8a5ee4a8f6a3a4f8a9"
       verifiedBundledPthWeights: true
       runtimeImportCheck: true
-    # Docker's size is uncompressed layer bytes. The much smaller 2,073-byte
+    # Docker's size is uncompressed layer bytes. The much smaller 2,271-byte
     # registry manifest describes those layers; it is not the worker's size.
-    localDockerSizeBytes: 345133026
-    localDockerSize: "329.14 MiB"
-    pushedAt: "2026-09-14"
+    localDockerSizeBytes: 346446624
+    localDockerSize: "330.40 MiB"
+    pushedAt: "2026-09-16"
 
   job-api:
     # This is the locally built Job API runtime. Its readable tag names the
@@ -358,6 +362,35 @@ images:
     localDockerSize: "63.06 MiB"
     pushedAt: "2026-09-12"
 
+  adtof-worker-smoke-client:
+    # This finite Job image verifies the real durable ADTOF path through the
+    # deployed generic dispatcher and CPU worker. It is neither a processing
+    # worker nor a general-purpose database, object-store, AMQP, cloud, or
+    # Kubernetes client. A future Job must copy the immutable reference below;
+    # its readable tag is provenance only and can be replaced by a later build.
+    repository: clouddsp-registry.localhost:5001/adtof-worker-smoke-client
+    sourceTag: "0.1.1-psycopg-uuid-observation"
+    digest: sha256:f6908bfabe930a1066fed18446aa6006d58dbea43764d75265557bdd6771c74f
+    immutableReference: clouddsp-registry.localhost:5001/adtof-worker-smoke-client@sha256:f6908bfabe930a1066fed18446aa6006d58dbea43764d75265557bdd6771c74f
+    supportedPlatforms:
+      - linux/arm64/v8
+    builtFrom:
+      # This confirms the exact image pushed from the current local K8 teaching
+      # worktree. Runtime Secret values and smoke-cluster data never enter the
+      # Docker build context or image layers.
+      sourceRevision: local-kubernetes-working-tree
+      sourceDirectory: kubernetes/tests/adtof-worker-smoke/client
+      dockerfile: kubernetes/tests/adtof-worker-smoke/client/Dockerfile
+      requirementsLock: kubernetes/tests/adtof-worker-smoke/client/requirements.lock
+      clientTestDirectory: kubernetes/tests/adtof-worker-smoke/client
+      runtimeImageLock: images.api-python-runtime
+      sourceLock: buildSources.adtof-worker-smoke-client
+    # Docker reports uncompressed local layer bytes. Registry manifest bytes
+    # printed by `docker push` are a different, much smaller measurement.
+    localDockerSizeBytes: 66164647
+    localDockerSize: "63.10 MiB"
+    pushedAt: "2026-09-16"
+
   frontend:
     # This browser image embeds the reviewed public Job API and private-MinIO
     # browser origins alongside local OIDC configuration. The readable tag
@@ -458,11 +491,11 @@ images:
     # The manifest-list digest fixes the command implementation while allowing
     # k3d on arm64 and a future native amd64 cluster to choose their matching
     # image child.
-    repository: docker.io/minio/mc
+    repository: quay.io/minio/mc
     sourceTag: "RELEASE.2025-08-13T08-35-41Z"
     resolvedVersion: "RELEASE.2025-08-13T08-35-41Z"
     digest: sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
-    immutableReference: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+    immutableReference: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
     supportedPlatforms:
       - linux/arm64/v8
       - linux/amd64
@@ -1068,6 +1101,34 @@ buildSources:
         upstream: https://www.psycopg.org/psycopg3/docs/basic/install.html
     clientTests: kubernetes/tests/basic-pitch-worker-smoke/client/test_basic_pitch_worker_smoke.py
     resolvedAt: "2026-09-12"
+
+  adtof-worker-smoke-client:
+    # This one-shot verifier owns only its three restricted PostgreSQL
+    # functions and three fixed MinIO object keys. It exercises the deployed
+    # dispatcher/ADTOF worker instead of receiving AMQP, model, cloud, or
+    # Kubernetes client authority. The matching immutable output appears above
+    # at `images.adtof-worker-smoke-client`; a manifest must never use its tag.
+    baseImageLock: images.api-python-runtime
+    sourceDirectory: kubernetes/tests/adtof-worker-smoke/client
+    dockerfile: kubernetes/tests/adtof-worker-smoke/client/Dockerfile
+    requirementsLock: kubernetes/tests/adtof-worker-smoke/client/requirements.lock
+    intendedRepository: clouddsp-registry.localhost:5001/adtof-worker-smoke-client
+    publishedImageLock: images.adtof-worker-smoke-client
+    targetPlatform: linux/arm64
+    directPythonPackages:
+      - name: boto3
+        version: "1.43.89"
+        # Uses explicit credentials solely with the three-key private MinIO
+        # identity; it neither discovers ambient AWS credentials nor lists.
+        upstream: https://pypi.org/project/boto3/1.43.89/
+      - name: psycopg
+        version: "3.2.13"
+        installationExtra: binary
+        binaryPackage: psycopg-binary
+        # Invokes only the three administrator-owned fixed smoke functions.
+        upstream: https://www.psycopg.org/psycopg3/docs/basic/install.html
+    clientTestDirectory: kubernetes/tests/adtof-worker-smoke/client
+    resolvedAt: "2026-09-16"
 
   rabbitmq-amqp-smoke-client:
     # This source lock makes the test image reproducible without installing

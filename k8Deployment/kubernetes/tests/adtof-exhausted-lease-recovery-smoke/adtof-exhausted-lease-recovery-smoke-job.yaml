@@ -1,0 +1,386 @@
+# This one-shot Job verifies one narrow ADTOF crash-recovery rule against the
+# deployed worker and real PostgreSQL state:
+#
+#   fixed expired ADTOF third-attempt task -> deployed ADTOF recovery scan
+#       -> task failed / lease cleared / reviewed error code -> scoped cleanup
+#
+# It is deliberately *not* an end-to-end media test. The seed event is already
+# marked ``published``, so the dispatcher has no pending outbox work to send to
+# RabbitMQ. The Job mounts no RabbitMQ or MinIO credential and creates no
+# object. That isolates the exact rule that a stranded third active lease must
+# become durable task failure before normal lease recovery could consider model
+# work. The existing ADTOF worker smoke remains responsible for the full
+# dispatcher, AMQP, MinIO, inference, and output path.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Kubernetes does not rerun a completed fixed-name Job on reapply. A later
+  # deliberate repeat must delete this exact Job only after reviewing its
+  # retained safe logs; its database rows clean themselves up on success.
+  name: clouddsp-adtof-exhausted-lease-recovery-smoke
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: adtof-exhausted-lease-recovery-smoke
+    app.kubernetes.io/component: integration-test
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: terminal-third-attempt-adtof-recovery-verification
+spec:
+  # Keep the completed Pod long enough to inspect its non-sensitive milestone
+  # logs, then let Kubernetes remove the Pod that briefly mounted admin auth.
+  ttlSecondsAfterFinished: 600
+  # Repeating a failed seed/poll could hide or collide with evidence. One
+  # failed Pod is intentionally visible for diagnosis rather than retried.
+  backoffLimit: 0
+  # The worker normally scans recovery at startup and after each bounded normal
+  # iteration. Two minutes gives the local Deployment generous scheduling and
+  # connection time while still bounding this credential-bearing test.
+  activeDeadlineSeconds: 150
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adtof-exhausted-lease-recovery-smoke
+        app.kubernetes.io/component: integration-test
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      # A smoke test reports one durable result. Restarting its container could
+      # seed the same fixed coordinate twice, so Kubernetes must not retry it.
+      restartPolicy: Never
+      terminationGracePeriodSeconds: 10
+      # The test talks only to the private PostgreSQL Service. It does not need
+      # a ServiceAccount token, MinIO/RabbitMQ credential, host port, Ingress,
+      # or permission to call the Kubernetes API.
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        # The pinned Docker Official PostgreSQL image provides this non-root
+        # account. Repeating it prevents an unexpected replacement image from
+        # executing this narrowly scoped administrator SQL as root.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: exhausted-lease-recovery-verifier
+          # ``psql`` in this already-reviewed, digest-pinned image can seed and
+          # observe PostgreSQL. The image has no project-specific runtime code,
+          # so the deployed ADTOF worker remains the only component under test.
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          env:
+            # Service DNS is stable across StatefulSet Pod replacement. These
+            # are internal cluster coordinates, not a macOS port-forward.
+            - name: PGHOST
+              value: clouddsp-postgresql
+            - name: PGPORT
+              value: "5432"
+            - name: PGDATABASE
+              value: clouddsp_job_api
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+            # The PostgreSQL administrator is required only because this test
+            # intentionally creates one synthetic Job/event/task coordinate.
+            # The value is resolved only at Pod creation and is never printed.
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_PASSWORD
+          resources:
+            # This Pod runs only small indexed SQL queries and short sleeps. It
+            # neither downloads audio nor performs model inference, leaving
+            # cluster CPU/RAM available for the actual ADTOF worker.
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            # Psql streams SQL and output; no data belongs in the image layer
+            # or an unbounded temporary directory, so no volume is declared.
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -ec
+            - |
+              # The SQL uses only literal, fixed test coordinates. The quoted
+              # heredocs prevent shell interpolation, so mounted credentials
+              # cannot become SQL source or appear in logs.
+              printf '%s\n' 'ADTOF exhausted-lease smoke: verifying schema prerequisites'
+
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 <<'SQL'
+              DO $adtof_exhausted_lease_schema_check$
+              BEGIN
+                IF NOT EXISTS (
+                  SELECT 1 FROM public.schema_migrations
+                  WHERE migration_id = 'v003_processing_tasks'
+                ) THEN
+                  RAISE EXCEPTION 'Required v003 processing task migration is missing.';
+                END IF;
+                IF NOT EXISTS (
+                  SELECT 1 FROM public.schema_migrations
+                  WHERE migration_id = 'v004_downstream_outbox_events'
+                ) THEN
+                  RAISE EXCEPTION 'Required v004 downstream outbox migration is missing.';
+                END IF;
+                IF NOT EXISTS (
+                  SELECT 1 FROM public.schema_migrations
+                  WHERE migration_id = 'v006_adtof_processing_tasks'
+                ) THEN
+                  RAISE EXCEPTION 'Required v006 ADTOF task migration is missing.';
+                END IF;
+              END;
+              $adtof_exhausted_lease_schema_check$;
+              SQL
+
+              printf '%s\n' 'ADTOF exhausted-lease smoke: seeding one expired third-attempt task'
+
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 <<'SQL'
+              BEGIN;
+
+              -- Serialize only this fixed smoke coordinate. The advisory lock
+              -- disappears automatically at COMMIT/ROLLBACK and cannot block
+              -- production task coordinates or the worker's row-level locks.
+              SELECT pg_advisory_xact_lock(371946829);
+
+              DO $adtof_exhausted_lease_seed$
+              DECLARE
+                v_job_id CONSTANT UUID := 'af1a785b-2e71-476a-b483-405c10606a23';
+                v_event_id CONSTANT UUID := 'b627b72e-e1b3-413a-a51d-80d019d5bbf0';
+                v_task_id CONSTANT UUID := 'cc3acb39-04ac-4ab8-afc5-a66d50cb8b66';
+                v_lease_token CONSTANT UUID := 'e76dc37e-ef3b-4fa9-b6c5-2e0fc4e9ca79';
+                v_source_key CONSTANT TEXT :=
+                  'uploads/af1a785b-2e71-476a-b483-405c10606a23/adtof-exhausted-lease-smoke.wav';
+                v_stem_key CONSTANT TEXT :=
+                  'stems/af1a785b-2e71-476a-b483-405c10606a23/drums.wav';
+              BEGIN
+                -- Existing evidence is never overwritten. A failed or
+                -- interrupted earlier run remains visible for human review.
+                IF EXISTS (SELECT 1 FROM public.jobs WHERE job_id = v_job_id)
+                   OR EXISTS (SELECT 1 FROM public.outbox_events WHERE event_id = v_event_id)
+                   OR EXISTS (SELECT 1 FROM public.processing_tasks WHERE task_id = v_task_id)
+                   OR EXISTS (SELECT 1 FROM public.jobs WHERE input_object_key = v_source_key) THEN
+                  RAISE EXCEPTION 'ADTOF exhausted-lease smoke coordinates are not clean.';
+                END IF;
+
+                -- A real Job/outbox/task relationship satisfies the same
+                -- foreign keys and stage/key constraints as worker-created
+                -- state. The deliberately absent object is safe: terminalizing
+                -- an exhausted task must finish before any storage operation.
+                INSERT INTO public.jobs (
+                  job_id, owner_sub, source_type, input_bucket, input_object_key,
+                  source_filename, source_content_type, source_size_bytes,
+                  source_uploaded, stem_mode, status, stems, expires_at
+                )
+                VALUES (
+                  v_job_id,
+                  'clouddsp-adtof-exhausted-lease-smoke',
+                  'direct_upload',
+                  'clouddsp-uploads',
+                  v_source_key,
+                  'adtof-exhausted-lease-smoke.wav',
+                  'audio/wav',
+                  1,
+                  TRUE,
+                  '4-stems',
+                  'midi_processing',
+                  jsonb_build_object(
+                    'drums',
+                    jsonb_build_object(
+                      'status', 'ready',
+                      'bucket', 'clouddsp-uploads',
+                      's3_key', v_stem_key,
+                      'content_type', 'audio/wav',
+                      'size_bytes', 1,
+                      'sha256', repeat('0', 64)
+                    )
+                  ),
+                  CURRENT_TIMESTAMP + INTERVAL '10 minutes'
+                );
+
+                -- ``published`` and its matching timestamp deliberately keep
+                -- this synthetic event out of the dispatcher pending scan.
+                -- The payload is valid JSON only; recovery must not read it
+                -- while terminalizing a third lease, so no broker message can
+                -- cause duplicate normal-path work during this focused test.
+                INSERT INTO public.outbox_events (
+                  event_id, job_id, stage, stem_name, event_type, payload,
+                  publication_status, published_at
+                )
+                VALUES (
+                  v_event_id,
+                  v_job_id,
+                  'adtof',
+                  'drums',
+                  'adtof.requested',
+                  '{}'::jsonb,
+                  'published',
+                  CURRENT_TIMESTAMP
+                );
+
+                -- This is the sole mutable fact the deployed worker must
+                -- change. It starts in an active state with exactly attempt
+                -- three and PostgreSQL-visible past expiry; all lease/status
+                -- constraints remain valid before the recovery scan starts.
+                INSERT INTO public.processing_tasks (
+                  task_id, job_id, stage, stem_name, request_event_id,
+                  input_bucket, input_object_key, stem_mode, status,
+                  attempt_count, available_at, lease_token, lease_expires_at,
+                  started_at, completed_at, last_error_code
+                )
+                VALUES (
+                  v_task_id,
+                  v_job_id,
+                  'adtof',
+                  'drums',
+                  v_event_id,
+                  'clouddsp-uploads',
+                  v_stem_key,
+                  '4-stems',
+                  'leased',
+                  3,
+                  CURRENT_TIMESTAMP,
+                  v_lease_token,
+                  CURRENT_TIMESTAMP - INTERVAL '1 minute',
+                  NULL,
+                  NULL,
+                  NULL
+                );
+              END;
+              $adtof_exhausted_lease_seed$;
+
+              COMMIT;
+              SQL
+
+              # The long-running worker alternates a recovery scan with one
+              # normal queue iteration. Poll a fixed coordinate only; no broad
+              # table scan, RabbitMQ request, MinIO request, or model work is
+              # performed by this verifier. Forty-five two-second checks leave
+              # ample time inside the 150-second Kubernetes Job deadline.
+              attempt=1
+              while [ "$attempt" -le 45 ]; do
+                observation="$(psql --no-password --no-psqlrc --tuples-only --no-align --set=ON_ERROR_STOP=1 <<'SQL'
+              SELECT CASE
+                WHEN EXISTS (
+                  SELECT 1
+                  FROM public.jobs AS job
+                  JOIN public.outbox_events AS event
+                    ON event.job_id = job.job_id
+                  JOIN public.processing_tasks AS task
+                    ON task.job_id = job.job_id
+                  WHERE job.job_id = 'af1a785b-2e71-476a-b483-405c10606a23'::uuid
+                    AND job.owner_sub = 'clouddsp-adtof-exhausted-lease-smoke'
+                    AND job.status = 'midi_processing'
+                    AND job.midi = '{}'::jsonb
+                    AND job.tempo IS NULL
+                    AND event.event_id = 'b627b72e-e1b3-413a-a51d-80d019d5bbf0'::uuid
+                    AND event.stage = 'adtof'
+                    AND event.stem_name = 'drums'
+                    AND event.event_type = 'adtof.requested'
+                    AND event.publication_status = 'published'
+                    AND event.published_at IS NOT NULL
+                    AND task.task_id = 'cc3acb39-04ac-4ab8-afc5-a66d50cb8b66'::uuid
+                    AND task.stage = 'adtof'
+                    AND task.stem_name = 'drums'
+                    AND task.status = 'failed'
+                    AND task.attempt_count = 3
+                    AND task.lease_token IS NULL
+                    AND task.lease_expires_at IS NULL
+                    AND task.completed_at IS NOT NULL
+                    AND task.last_error_code = 'lease_expired_attempts_exhausted'
+                ) THEN 'verified'
+                WHEN EXISTS (
+                  SELECT 1 FROM public.processing_tasks
+                  WHERE task_id = 'cc3acb39-04ac-4ab8-afc5-a66d50cb8b66'::uuid
+                ) THEN 'waiting'
+                ELSE 'missing'
+              END;
+              SQL
+                )"
+
+                if [ "$observation" = 'verified' ]; then
+                  break
+                fi
+                if [ "$observation" = 'missing' ]; then
+                  printf '%s\n' 'ADTOF exhausted-lease smoke failed: fixed task disappeared'
+                  exit 1
+                fi
+                attempt=$((attempt + 1))
+                sleep 2
+              done
+
+              if [ "${observation:-}" != 'verified' ]; then
+                printf '%s\n' 'ADTOF exhausted-lease smoke failed: timed out waiting for terminal task state'
+                exit 1
+              fi
+
+              printf '%s\n' 'ADTOF exhausted-lease smoke: terminal third-attempt state verified'
+
+              # Cleanup runs only after every terminal-state invariant above
+              # passed. If setup, worker recovery, or verification failed, the
+              # fixed rows intentionally remain for diagnosis rather than being
+              # erased by an automatic cleanup path.
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 <<'SQL'
+              DO $adtof_exhausted_lease_cleanup$
+              DECLARE
+                deleted_count INTEGER;
+              BEGIN
+                WITH deleted AS (
+                  DELETE FROM public.jobs AS job
+                  WHERE job.job_id = 'af1a785b-2e71-476a-b483-405c10606a23'::uuid
+                    AND job.owner_sub = 'clouddsp-adtof-exhausted-lease-smoke'
+                    AND job.status = 'midi_processing'
+                    AND job.midi = '{}'::jsonb
+                    AND job.tempo IS NULL
+                    AND EXISTS (
+                      SELECT 1
+                      FROM public.outbox_events AS event
+                      WHERE event.event_id = 'b627b72e-e1b3-413a-a51d-80d019d5bbf0'::uuid
+                        AND event.job_id = job.job_id
+                        AND event.stage = 'adtof'
+                        AND event.stem_name = 'drums'
+                        AND event.event_type = 'adtof.requested'
+                        AND event.publication_status = 'published'
+                        AND event.published_at IS NOT NULL
+                    )
+                    AND EXISTS (
+                      SELECT 1
+                      FROM public.processing_tasks AS task
+                      WHERE task.task_id = 'cc3acb39-04ac-4ab8-afc5-a66d50cb8b66'::uuid
+                        AND task.job_id = job.job_id
+                        AND task.stage = 'adtof'
+                        AND task.stem_name = 'drums'
+                        AND task.status = 'failed'
+                        AND task.attempt_count = 3
+                        AND task.lease_token IS NULL
+                        AND task.lease_expires_at IS NULL
+                        AND task.completed_at IS NOT NULL
+                        AND task.last_error_code = 'lease_expired_attempts_exhausted'
+                    )
+                  RETURNING job.job_id
+                )
+                SELECT COUNT(*) INTO deleted_count FROM deleted;
+
+                IF deleted_count <> 1 THEN
+                  RAISE EXCEPTION 'ADTOF exhausted-lease smoke cleanup refused.';
+                END IF;
+              END;
+              $adtof_exhausted_lease_cleanup$;
+              SQL
+
+              printf '%s\n' 'ADTOF exhausted-lease smoke passed and removed its fixed test rows'

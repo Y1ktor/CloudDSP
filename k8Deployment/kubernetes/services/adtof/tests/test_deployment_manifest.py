@@ -14,7 +14,7 @@ import unittest
 DEPLOYMENT_PATH = Path(__file__).resolve().parents[1] / "adtof-deployment.yaml"
 IMMUTABLE_IMAGE = (
     "clouddsp-registry.localhost:5001/adtof@sha256:"
-    "8b045fc256d80a95d8d0e94a2dbf6bd515a235ea274ae605bc68d24e556ddc73"
+    "c8706bb0b814ed3a0c1e58455a7c153848ddf7808e65d4e3f4ed52a37b521b91"
 )
 
 

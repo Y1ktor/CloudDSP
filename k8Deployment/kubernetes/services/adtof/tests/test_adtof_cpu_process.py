@@ -10,10 +10,13 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
+import stat
 import tempfile
 import unittest
+from unittest.mock import MagicMock, patch
 
 from app.adtof_cpu_process import (
+    ADTOF_CPU_PROCESS_WORKING_DIRECTORY,
     DEFAULT_ADTOF_CPU_PROCESS_TIMEOUT_SECONDS,
     ADTOFCPUProcessContractError,
     ADTOFCPUProcessPathError,
@@ -113,6 +116,30 @@ class ADTOFCPUProcessRunnerTests(unittest.TestCase):
                 run_adtof_cpu_inference_process(inference, runner=runner)
             self.assertEqual(runner.calls, [])
 
+    def test_accepts_the_private_setgid_output_created_under_a_kubernetes_fsgroup(self) -> None:
+        """Allow only the harmless setgid bit inherited from an ``emptyDir``.
+
+        Kubernetes prepares this worker's scratch ``emptyDir`` with the Pod
+        ``fsGroup`` and its setgid bit. A child output directory therefore has
+        mode ``02700`` even though its access permissions are still exactly
+        owner-only ``0700``. The process boundary must accept that normal
+        Kubernetes filesystem behavior without allowing group or other access.
+        """
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            inference = self._inference(Path(temporary_directory))
+            # Simulate the inherited bit directly so this portable unit test
+            # does not depend on host filesystem support for group inheritance.
+            inference.output_directory.chmod(
+                stat.S_IMODE(inference.output_directory.stat().st_mode) | stat.S_ISGID
+            )
+            runner = FakeRunner()
+
+            returned = run_adtof_cpu_inference_process(inference, runner=runner)
+
+            self.assertEqual(returned, inference)
+            self.assertEqual(runner.calls, [(inference, DEFAULT_ADTOF_CPU_PROCESS_TIMEOUT_SECONDS)])
+
     def test_invalid_timeout_or_runner_timeout_never_fabricates_success(self) -> None:
         """Timeout policy propagates a safe category and leaves no false evidence."""
 
@@ -127,6 +154,30 @@ class ADTOFCPUProcessRunnerTests(unittest.TestCase):
             with self.assertRaises(ADTOFCPUProcessTimedOut):
                 run_adtof_cpu_inference_process(inference, timeout_seconds=60, runner=timeout_runner)
             self.assertEqual(timeout_runner.calls, [(inference, 60)])
+
+    @patch("app.adtof_cpu_process.subprocess.Popen")
+    def test_real_runner_uses_the_fixed_application_directory_for_module_imports(self, popen) -> None:
+        """The private output directory must not replace `/app` on ``sys.path``.
+
+        The approved command starts ``python -m app.adtof_cpu_inference_entrypoint``.
+        Python resolves that package from its CWD, so the subprocess must retain
+        the image's fixed application directory rather than executing from the
+        disposable output folder. Input and output files remain absolute command
+        arguments and do not depend on the CWD.
+        """
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            inference = self._inference(Path(temporary_directory))
+            completed_process = MagicMock()
+            completed_process.returncode = 0
+            popen.return_value = completed_process
+
+            returned = run_adtof_cpu_inference_process(inference)
+
+            self.assertEqual(returned, inference)
+            self.assertEqual(popen.call_args.kwargs["cwd"], ADTOF_CPU_PROCESS_WORKING_DIRECTORY)
+            self.assertFalse(popen.call_args.kwargs["shell"])
+            self.assertTrue(popen.call_args.kwargs["start_new_session"])
 
 
 if __name__ == "__main__":

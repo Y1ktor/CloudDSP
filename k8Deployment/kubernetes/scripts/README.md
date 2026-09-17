@@ -208,6 +208,24 @@ The script pushes the image to the local registry and prints its immutable
 digest; it does not create a Job, synthetic event, RabbitMQ message, object, or
 other cluster workload.
 
+## Build the ADTOF worker smoke-client image
+
+```bash
+./k8Deployment/kubernetes/scripts/build-adtof-worker-smoke-client-image.sh
+```
+
+This rebuilds the separate end-to-end ADTOF worker verifier for `linux/arm64`
+from its digest-pinned Python 3.12 base. The Docker validation stage installs
+only the full hash-pinned Boto3/Psycopg closure and runs the 63 isolated client
+tests. The final non-root image can call only its three fixed PostgreSQL smoke
+functions and access only its three reserved MinIO object keys after a future
+Job provides its restricted Secrets. The script checks Docker, the exact k3d
+registry, and all narrow build inputs before it builds and pushes. It then
+prints the immutable registry digest and Docker's uncompressed local size; copy
+that digest into `images.lock.yaml` before any future Job manifest refers to a
+new rebuild. It does not create a Job, synthetic event, RabbitMQ message,
+object, or other cluster workload.
+
 ## Build the Basic Pitch worker image
 
 ```bash
@@ -224,6 +242,22 @@ registry digest and Docker's local uncompressed size. It does not create or
 update a Deployment, Pod, Service, Ingress, Secret, database row, MinIO object,
 or RabbitMQ message. Its published digest is recorded separately in
 `images.lock.yaml` before a future workload manifest may refer to it.
+
+## Build the ADTOF worker image
+
+```bash
+./k8Deployment/kubernetes/scripts/build-adtof-image.sh
+```
+
+This builds the CPU-only ADTOF drum-to-MIDI worker for `linux/arm64` from its
+dedicated digest-pinned Python 3.11 base. Its throwaway validation stage runs
+the complete worker test suite, including Kubernetes `fsGroup` scratch-path and
+fixed `/app` CPU-child-import working-directory checks, and confirms the pinned
+ADTOF model package and bundled weights are present. The script pushes only the image to
+`clouddsp-registry.localhost:5001/adtof` and prints the immutable digest and
+Docker's uncompressed local image size. Copy that digest into
+`images.lock.yaml`, then explicitly update and apply the ADTOF Deployment; the
+script never changes cluster workloads or durable processing data itself.
 
 ## Smoke-test the local Job API image
 

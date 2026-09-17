@@ -116,6 +116,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# The hash-pinned Python ``soundfile`` package deliberately links to the
+# system-provided libsndfile shared library instead of bundling a second native
+# copy.  ADTOF reaches it through Librosa when decoding the already-verified
+# WAV stem.  Keep this Debian runtime dependency explicit and install no
+# recommended packages; without it, model imports succeed but every real
+# transcription fails at audio decode with ``libsndfile.so`` missing.
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends libsndfile1 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Both stages use the same Python 3.11 digest, so this is the exact matching
 # site-packages location.  There is no ADTOF console executable: the reviewed
 # `app.worker_main` module is the one process entrypoint for the worker.

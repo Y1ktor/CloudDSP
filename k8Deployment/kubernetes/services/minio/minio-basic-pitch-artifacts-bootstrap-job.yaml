@@ -63,7 +63,7 @@ spec:
         - name: configure-minio-root-alias
           # The MinIO-maintained client is digest-pinned under images.minio-mc
           # in images.lock.yaml; it performs no package install at runtime.
-          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
           imagePullPolicy: IfNotPresent
           env:
             - name: MC_CONFIG_DIR
@@ -107,7 +107,7 @@ spec:
             - $(MINIO_ROOT_PASSWORD)
 
         - name: wait-for-minio-service
-          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
           imagePullPolicy: IfNotPresent
           env:
             - name: MC_CONFIG_DIR
@@ -137,7 +137,7 @@ spec:
             - minio-admin
 
         - name: create-or-update-basic-pitch-artifacts-policy
-          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
           imagePullPolicy: IfNotPresent
           env:
             - name: MC_CONFIG_DIR
@@ -174,7 +174,7 @@ spec:
             - /policy/basic-pitch-artifacts-policy.json
 
         - name: create-or-rotate-basic-pitch-user
-          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
           imagePullPolicy: IfNotPresent
           env:
             - name: MC_CONFIG_DIR
@@ -219,7 +219,7 @@ spec:
             - $(BASIC_PITCH_S3_SECRET_KEY)
 
         - name: attach-basic-pitch-artifacts-policy
-          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
           imagePullPolicy: IfNotPresent
           env:
             - name: MC_CONFIG_DIR
@@ -258,7 +258,7 @@ spec:
             - --user=$(BASIC_PITCH_S3_ACCESS_KEY)
 
         - name: verify-basic-pitch-user-policy
-          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
           imagePullPolicy: IfNotPresent
           env:
             - name: MC_CONFIG_DIR
@@ -296,7 +296,7 @@ spec:
             - $(BASIC_PITCH_S3_ACCESS_KEY)
 
         - name: remove-root-alias-from-temporary-config
-          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
           imagePullPolicy: IfNotPresent
           env:
             - name: MC_CONFIG_DIR
@@ -328,7 +328,7 @@ spec:
             - minio-admin
       containers:
         - name: completion-marker
-          image: docker.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
           imagePullPolicy: IfNotPresent
           resources:
             requests:

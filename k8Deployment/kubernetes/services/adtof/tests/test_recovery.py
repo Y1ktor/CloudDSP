@@ -15,9 +15,13 @@ from unittest.mock import patch
 from uuid import UUID
 
 from app.adtof_requested_message import ADTOFRequestedMessage
-from app.recovery import ADTOFRecoveredTask, recover_one_expired_adtof_task
+from app.recovery import (
+    ADTOFRecoveredTask,
+    recover_one_expired_adtof_task,
+    terminalize_one_expired_exhausted_adtof_task,
+)
 from app.recovery_request import ADTOFRecoveryRequestProtocolError
-from app.task_claim import ADTOFTaskLease
+from app.task_claim import ADTOFExpiredLeaseTerminalization, ADTOFTaskLease
 
 
 EVENT_ID = "93b31df9-ea8c-46bb-b2c0-19e9db5365d5"
@@ -54,6 +58,19 @@ def recovered_message() -> ADTOFRequestedMessage:
         stem_object_key=f"stems/{JOB_ID}/drums.wav",
         stem_content_length=1234,
         stem_sha256="a" * 64,
+    )
+
+
+def terminalization() -> ADTOFExpiredLeaseTerminalization:
+    """Return compact evidence of one PostgreSQL-owned third-attempt failure."""
+
+    return ADTOFExpiredLeaseTerminalization(
+        task_id=TASK_ID,
+        job_id=JOB_ID,
+        stem_name="drums",
+        attempt_count=3,
+        completed_at=datetime(2026, 9, 14, 12, 30, tzinfo=UTC),
+        error_code="lease_expired_attempts_exhausted",
     )
 
 
@@ -198,6 +215,46 @@ class ADTOFRecoveryCompositionTests(unittest.TestCase):
 
         claim.assert_not_called()
         reader.assert_not_called()
+
+
+class ADTOFExpiredLeaseTerminalizationCompositionTests(unittest.TestCase):
+    """Prove exhausted-lease failure is its own short committed transaction."""
+
+    @patch("app.recovery.finalize_next_expired_exhausted_adtof_task")
+    def test_idle_terminalization_scan_commits_without_claiming_recovery_work(self, finalize) -> None:
+        """No exhausted candidate is normal no-mutation progress."""
+
+        database = RecordingDatabase()
+        finalize.return_value = None
+
+        result = terminalize_one_expired_exhausted_adtof_task(database=database)
+
+        self.assertIsNone(result)
+        self.assertEqual(database.events, ["transaction-open", "transaction-commit"])
+        finalize.assert_called_once_with(database.cursor)
+
+    @patch("app.recovery.finalize_next_expired_exhausted_adtof_task")
+    def test_terminalization_commits_exact_evidence(self, finalize) -> None:
+        """The separate aggregate can later inspect this task-level failure."""
+
+        database = RecordingDatabase()
+        evidence = terminalization()
+        finalize.return_value = evidence
+
+        self.assertIs(terminalize_one_expired_exhausted_adtof_task(database=database), evidence)
+        self.assertEqual(database.events, ["transaction-open", "transaction-commit"])
+
+    @patch("app.recovery.finalize_next_expired_exhausted_adtof_task")
+    def test_invalid_terminalization_rolls_back_instead_of_committing_untrusted_state(self, finalize) -> None:
+        """A future adapter cannot report progress from an unchecked object."""
+
+        database = RecordingDatabase()
+        finalize.return_value = object()
+
+        with self.assertRaisesRegex(TypeError, "terminalization is invalid"):
+            terminalize_one_expired_exhausted_adtof_task(database=database)
+
+        self.assertEqual(database.events, ["transaction-open", "transaction-rollback"])
 
 
 if __name__ == "__main__":

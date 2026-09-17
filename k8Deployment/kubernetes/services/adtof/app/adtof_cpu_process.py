@@ -47,6 +47,13 @@ DEFAULT_ADTOF_CPU_PROCESS_TIMEOUT_SECONDS = 10 * 60
 MIN_ADTOF_CPU_PROCESS_TIMEOUT_SECONDS = 1
 MAX_ADTOF_CPU_PROCESS_TIMEOUT_SECONDS = 12 * 60
 
+# The worker image copies the `app` package into this fixed, read-only location
+# and starts its own PID 1 from here. The model child uses ``python -m app...``;
+# it must therefore keep this directory on Python's module-search path. Source
+# and output paths are absolute reviewed arguments, so the child never needs a
+# writable current working directory to locate its media files.
+ADTOF_CPU_PROCESS_WORKING_DIRECTORY = "/app"
+
 
 class ADTOFCPUProcessError(RuntimeError):
     """Base safe operational category for an ADTOF CPU child-process outcome."""
@@ -126,7 +133,16 @@ def _approved_inference_or_raise(value: object) -> ADTOFCPUInferenceCommand:
     except (OSError, RuntimeError) as error:
         raise ADTOFCPUProcessPathError("ADTOF CPU process paths are invalid.") from error
     try:
+        # An ``emptyDir`` prepared with the Pod ``fsGroup`` is set-group-ID
+        # (mode ``02777``). POSIX then propagates that *group-ID* bit to the
+        # private child we create here, producing ``02700`` instead of bare
+        # ``0700``. The group has no read, write, or execute permissions, so
+        # this does not widen access to model inputs or outputs. Check the
+        # permission bits separately, allow only the inherited setgid bit,
+        # and continue rejecting setuid/sticky special modes.
         output_directory_mode = stat.S_IMODE(output_directory.stat().st_mode)
+        output_directory_permissions = output_directory_mode & 0o777
+        has_disallowed_special_mode = bool(output_directory_mode & (stat.S_ISUID | stat.S_ISVTX))
     except OSError as error:
         raise ADTOFCPUProcessPathError("ADTOF CPU process paths are invalid.") from error
     if (
@@ -138,7 +154,11 @@ def _approved_inference_or_raise(value: object) -> ADTOFCPUInferenceCommand:
         or not output_directory.is_dir()
         or output_directory.name != ADTOF_OUTPUT_DIRECTORY_NAME
         or output_directory.parent != source_path.parent
-        or output_directory_mode != 0o700
+        # ``02700`` is the expected Kubernetes ``fsGroup`` variant of this
+        # otherwise owner-only directory. Any group/other permission remains
+        # forbidden, as do setuid and sticky bits.
+        or output_directory_permissions != 0o700
+        or has_disallowed_special_mode
         or value.midi_output_path != output_directory / ADTOF_MIDI_OUTPUT_FILENAME
         or value.tempo_output_path != output_directory / ADTOF_TEMPO_OUTPUT_FILENAME
         or value.command
@@ -227,7 +247,14 @@ class SubprocessADTOFCPUProcessRunner:
         try:
             process = subprocess.Popen(
                 approved.command,
-                cwd=str(approved.output_directory),
+                # Do not use the private output directory as CWD. Python puts
+                # the CWD on ``sys.path`` for ``-m`` execution, and that
+                # scratch directory cannot import the image's `/app/app`
+                # package. All audio/output paths are explicit absolute argv
+                # values, while this fixed read-only CWD keeps module import
+                # deterministic and prevents a scratch path from becoming a
+                # code-import location.
+                cwd=ADTOF_CPU_PROCESS_WORKING_DIRECTORY,
                 stdin=subprocess.DEVNULL,
                 # Model/audio libraries can mention private scratch paths in
                 # diagnostics. Later task state uses safe categories only.

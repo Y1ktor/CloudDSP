@@ -28,7 +28,13 @@ from app.claimed_task_success import (
     ADTOFClaimedTaskSuccessStorageClient,
 )
 from app.recovered_task_execution import execute_recovered_adtof_task
-from app.recovery import ADTOFRecoveredTask, ADTOFRecoveryDatabase, recover_one_expired_adtof_task
+from app.recovery import (
+    ADTOFRecoveredTask,
+    ADTOFRecoveryDatabase,
+    recover_one_expired_adtof_task,
+    terminalize_one_expired_exhausted_adtof_task,
+)
+from app.task_claim import ADTOFExpiredLeaseTerminalization
 
 
 class ADTOFRecoveryIterationDatabase(
@@ -46,10 +52,13 @@ class ADTOFRecoveryIterationDatabase(
 
 
 class ADTOFRecoveryIterationOutcome(StrEnum):
-    """The two normal results of one delivery-free recovery attempt."""
+    """The normal durable outcomes of one delivery-free recovery attempt."""
 
     # The recovery query found no safe expired active lease.
     IDLE = "idle"
+    # An expired third attempt was durably marked failed; it must not receive
+    # an impossible fourth lease or enter the model-execution gate.
+    TERMINALIZED = "terminalized"
     # One committed recovery pair reached the standard post-claim coordinator.
     EXECUTED = "executed"
 
@@ -59,23 +68,35 @@ class ADTOFRecoveryIterationResult:
     """Compact result that keeps recovery scheduling separate from execution.
 
     The result intentionally retains no lease token, outbox payload, object
-    key, scratch path, storage response, or RabbitMQ information. Only an
+    key, scratch path, storage response, or RabbitMQ information. An
     `EXECUTED` result includes the coordinator's compact completion or
-    ownership-loss fact.
+    ownership-loss fact, while `TERMINALIZED` includes only the durable
+    third-attempt task failure evidence.
     """
 
     outcome: ADTOFRecoveryIterationOutcome
     execution: ADTOFClaimedTaskSuccess | None = None
+    terminalization: ADTOFExpiredLeaseTerminalization | None = None
 
     def __post_init__(self) -> None:
         """Prevent idle scans from being represented as successful CPU work."""
 
         has_execution = self.execution is not None
-        requires_execution = self.outcome is ADTOFRecoveryIterationOutcome.EXECUTED
-        if has_execution != requires_execution:
+        has_terminalization = self.terminalization is not None
+        if has_execution and has_terminalization:
+            raise ValueError("ADTOF recovery iteration cannot execute and terminalize together.")
+        if (self.outcome is ADTOFRecoveryIterationOutcome.EXECUTED) != has_execution:
             raise ValueError("ADTOF recovery iteration execution does not match its outcome.")
+        if (self.outcome is ADTOFRecoveryIterationOutcome.TERMINALIZED) != has_terminalization:
+            raise ValueError("ADTOF recovery iteration terminalization does not match its outcome.")
+        if self.outcome is ADTOFRecoveryIterationOutcome.IDLE and (has_execution or has_terminalization):
+            raise ValueError("ADTOF idle recovery iteration cannot retain work evidence.")
         if has_execution and not isinstance(self.execution, ADTOFClaimedTaskSuccess):
             raise ValueError("ADTOF recovery iteration execution is invalid.")
+        if has_terminalization and not isinstance(
+            self.terminalization, ADTOFExpiredLeaseTerminalization
+        ):
+            raise ValueError("ADTOF recovery iteration terminalization is invalid.")
 
 
 def recover_and_execute_adtof_once(
@@ -86,13 +107,23 @@ def recover_and_execute_adtof_once(
     process_timeout_seconds: int = DEFAULT_ADTOF_CPU_PROCESS_TIMEOUT_SECONDS,
     process_runner: ADTOFCPUProcessRunner | None = None,
 ) -> ADTOFRecoveryIterationResult:
-    """Recover and execute at most one task, or return normal recovery idle.
+    """Make one terminal/recovery decision, execute at most one task, or idle.
 
     PostgreSQL claim/read failures and success-path operational failures are
     deliberately not mapped to idle: a later supervisor must classify them and
     choose bounded retry or process restart behavior. This composition makes
     no RabbitMQ action and does not inspect normal broker traffic.
     """
+
+    # A third expired lease is terminal durable work, not recoverable CPU work.
+    # Perform this small transition first so the following recovery claim can
+    # remain strictly limited to attempts one and two.
+    terminalization = terminalize_one_expired_exhausted_adtof_task(database=database)
+    if terminalization is not None:
+        return ADTOFRecoveryIterationResult(
+            outcome=ADTOFRecoveryIterationOutcome.TERMINALIZED,
+            terminalization=terminalization,
+        )
 
     recovered_task = recover_one_expired_adtof_task(database=database)
     if recovered_task is None:

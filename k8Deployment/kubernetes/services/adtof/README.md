@@ -433,10 +433,15 @@ The same module now has the pure
 one expired active (`leased` or `running`) drums task with a new token and
 incremented attempt, using PostgreSQL's clock and `FOR UPDATE SKIP LOCKED` so
 overlapping Pods cannot recover the same task concurrently. It handles only
-crash/post-ack active-lease recovery; a future durable retry-scheduling policy
-and third-attempt terminal transition remain separate. The returned lease
-contains the durable task and published-event coordinates, but not an outbox
-payload. A following read-only boundary must rebuild strict request evidence
+crash/post-ack active-lease recovery through attempt three. Before each
+recovery claim, the separate
+`finalize_next_expired_exhausted_adtof_task()` query locks at most one expired
+active third attempt and records the terminal task fact `failed` with the safe
+code `lease_expired_attempts_exhausted`; it clears the stale lease but does not
+change `jobs.status`, delete an object, or issue a fourth attempt. A future
+job-level aggregate remains responsible for the wider Job result. The returned
+recovery lease contains the durable task and published-event coordinates, but
+not an outbox payload. A following read-only boundary must rebuild strict request evidence
 inside the same short transaction before MinIO or CPU work may begin.
 
 ## First-claim transaction composition
@@ -767,11 +772,13 @@ sleep, loop, build an image, or use Kubernetes.
 
 ## Recovery execute-once composition
 
-[`app/recovery_execute_once.py`](app/recovery_execute_once.py) joins one
-expired-lease recovery transaction to the delivery-free execution gate. Its
-`idle` outcome means PostgreSQL found no safe expired lease; its `executed`
-outcome contains only the existing coordinator's compact success or
-ownership-loss result. An invalid recovery result or an operational failure
+[`app/recovery_execute_once.py`](app/recovery_execute_once.py) first makes the
+third-attempt terminal transition, then joins one reclaimable expired-lease
+recovery transaction to the delivery-free execution gate. Its `idle` outcome
+means PostgreSQL found no safe expired lease; `terminalized` carries only the
+task-level exhausted-lease fact and deliberately enters no MinIO or model path;
+its `executed` outcome contains only the existing coordinator's compact success
+or ownership-loss result. An invalid recovery result or an operational failure
 propagates rather than being hidden as idle, leaving later supervisor policy
 able to distinguish an outage from an empty scan.
 
@@ -964,9 +971,12 @@ tool.
 That throwaway stage runs the complete unit suite and imports the reviewed
 ADTOF, Torch, Librosa, and PrettyMIDI packages. It also verifies that the ADTOF
 package contains bundled `.pth` weights, without running inference or fetching
-any runtime model. The final stage copies only verified site packages and
-`app/` onto the identical base. It excludes tests, locks, credentials, cloud
-configuration, Kubernetes clients, and a public listener.
+any runtime model. The final stage installs only Debian's `libsndfile1` native
+audio decoder: the hash-pinned Python `soundfile` package used by Librosa links
+to this operating-system library when it decodes a WAV. It then copies only
+verified site packages and `app/` onto the identical base. It excludes tests,
+locks, credentials, cloud configuration, Kubernetes clients, and a public
+listener.
 
 The runtime uses the unprivileged UID/GID `10005` and starts
 `python -m app.worker_main` in exec form as PID 1, so Kubernetes can send its
@@ -994,9 +1004,9 @@ repository or a readable tag.
 ## Local ARM64 build result
 
 The reviewed recipe has now built successfully in the local Docker daemon as
-`clouddsp-adtof:0.1.0-cpu-worker-local-only`. Docker reported an uncompressed
-image size of `345,133,026` bytes (`329.14 MiB`) and Linux/ARM64 platform. Its
-runtime configuration has the expected exec-form
+`clouddsp-registry.localhost:5001/adtof:0.1.4-exhausted-lease-recovery`.
+Docker reported an uncompressed image size of `346,446,624` bytes (`330.40
+MiB`) and Linux/ARM64 platform. Its runtime configuration has the expected exec-form
 `["python", "-m", "app.worker_main"]` entrypoint and UID/GID `10005:10005`.
 An offline runtime check, executed as that non-root user, imported ADTOF,
 Librosa, PrettyMIDI, and CPU Torch `2.5.1`, and confirmed that
@@ -1010,13 +1020,43 @@ the Docker validation stage; they run normally in the source checkout.
 ## Local registry push result
 
 The same verified bytes are now pushed to the dedicated k3d registry as
-`clouddsp-registry.localhost:5001/adtof:0.1.0-cpu-worker-runtime`. The
+`clouddsp-registry.localhost:5001/adtof:0.1.4-exhausted-lease-recovery`. The
 registry's own `Docker-Content-Digest` response confirms the immutable
 manifest reference:
 
 ```text
-clouddsp-registry.localhost:5001/adtof@sha256:8b045fc256d80a95d8d0e94a2dbf6bd515a235ea274ae605bc68d24e556ddc73
+clouddsp-registry.localhost:5001/adtof@sha256:c8706bb0b814ed3a0c1e58455a7c153848ddf7808e65d4e3f4ed52a37b521b91
 ```
+
+This rebuild also corrects the CPU-process output-directory validator for
+Kubernetes `fsGroup` volumes. An `emptyDir` mounted with `fsGroup: 10005` is
+setgid, so the worker's owner-only output directory inherits mode `02700`
+rather than bare `0700`. The validator now requires the same private `0700`
+permission bits, permits that harmless inherited setgid bit, and still rejects
+setuid, sticky, group-readable, group-writable, or any other-access modes.
+
+The CPU child now uses `/app` as its fixed working directory. This matters
+because `python -m app.adtof_cpu_inference_entrypoint` resolves the image's
+`app` package from that directory; using disposable output scratch as CWD made
+the child unable to import its own module. The WAV and output paths remain
+absolute, reviewed command arguments, so changing CWD does not redirect media
+I/O or turn scratch into a code-import location.
+
+The latest rebuild also installs Debian's minimal `libsndfile1` system library
+in the final runtime stage. ADTOF's `librosa.load` reaches the hash-pinned
+Python `soundfile` package during real WAV transcription, and that package
+loads `libsndfile.so` dynamically. The prior image had all Python imports and
+model weights but lacked that native decoder, so it failed only once a real
+audio file reached inference. The current build proves the package is present;
+the end-to-end smoke rerun is the separate proof that model inference succeeds
+through the deployed worker.
+
+This release also makes exhausted active leases inspectable rather than
+stranded: before ordinary recovery, PostgreSQL can lock one expired ADTOF
+third attempt and terminalize only its task with
+`lease_expired_attempts_exhausted`. It clears the stale lease, sets completion
+time, and leaves Job-level aggregation to a later dedicated policy. The worker
+therefore never grants a fourth lease or runs MinIO/model work for that task.
 
 ## Immutable image lock
 
@@ -1111,13 +1151,62 @@ multipart upload, so no object is retained. Its termination trap exits after
 cleanup instead of allowing a SIGTERM-interrupted script to continue into a
 new request.
 
-The source is structurally tested but remains **not applied**. It is also not a
-full worker test: actual read access to an existing private Demucs drums WAV is
-verified only later as part of the end-to-end ADTOF worker smoke flow, where an
-authorized durable stem coordinate exists.
+The source was structurally tested and then applied successfully with only the
+existing ADTOF runtime MinIO Secret. Its completion proves the live identity
+can perform the temporary allowed ADTOF output operation, must abort it, and
+cannot create the foreign `vocals.mid` object. The ADTOF Deployment was then
+rolled out successfully. Its normal worker loop uses RabbitMQ `basic_get`
+polling, so `rabbitmqctl list_consumers` correctly shows no persistent consumer
+row even while RabbitMQ reports the live `clouddsp-adtof` connection.
 
-## Next focused task
+This authorization check is still not a full worker test: actual read access to
+a private Demucs drums WAV is verified only later as part of the end-to-end
+ADTOF worker smoke flow, where an authorized durable stem coordinate exists.
 
-Review and explicitly apply only the prepared ADTOF MinIO runtime-policy smoke
-Job, then inspect its logs and confirm the temporary multipart upload was
-aborted. Do not apply the ADTOF worker Deployment in that task.
+## Prepared ADTOF end-to-end smoke fixture
+
+[`../../tests/adtof-worker-smoke/`](../../tests/adtof-worker-smoke/) now fixes
+the future smoke test's one `4-stems`/`drums` input coordinate, one synthetic
+upstream Demucs-task identity, one downstream request-event identity, and its
+two ADTOF outputs. Its standard-library fixture builds a deterministic,
+bounded, four-second 120-BPM PCM drum pattern in memory and derives its
+run-time byte length/SHA-256 plus the exact Demucs metadata inventory that the
+deployed worker independently enforces. It does not create an object, durable
+row, broker message, image, or Kubernetes resource.
+
+The later test will prove pipeline correctness—not model quality. It must
+observe generic-dispatcher publication, the real worker-created ADTOF task,
+both stored outputs and their provenance/checksums, and one successful guarded
+completion. It must not require a particular note count, BPM, or confidence
+level from the CPU model.
+
+## Prepared ADTOF worker-smoke PostgreSQL boundary
+
+[`../../tests/adtof-worker-smoke/adtof-worker-smoke-database-bootstrap-job.yaml`](../../tests/adtof-worker-smoke/adtof-worker-smoke-database-bootstrap-job.yaml)
+now defines the database-only boundary for this fixed ADTOF smoke fixture. It
+is source only and remains unapplied. Its ignored credential templates describe
+a dedicated temporary data-namespace copy and a later app-namespace copy of a
+restricted role; no password is versioned.
+
+The short-lived administrator Job verifies the existing v004/v006 schema gates,
+removes the role's direct table/sequence/function authority, and grants only
+three administrator-owned fixed-coordinate `SECURITY DEFINER` functions:
+`prepare`, `observe`, and successful-only `cleanup`. Its local credentials were
+applied and bootstrap completed successfully; that action created no smoke
+object, durable Job/event, or broker message.
+
+The companion
+[`MinIO smoke identity`](../../tests/adtof-worker-smoke/adtof-worker-smoke-minio-policy-v001-configmap.yaml)
+is a separate fixed-key policy and root-key bootstrap Job. Its future client may
+write/read/delete only the controlled drums WAV and read/delete only the ADTOF
+MIDI/tempo outputs—never list a bucket, write an output, access another job, or
+administer MinIO. Its ignored local credentials and immutable policy were
+applied, and the bootstrap reported the restricted user enabled with exactly
+`clouddsp-adtof-worker-smoke-objects-v001` attached. This provisioning action
+created no object, PostgreSQL event, or broker message, so it is still distinct
+from a full worker smoke run.
+
+That bootstrap also exposed a shared image-lock correction: the verified
+MinIO-Client manifest-list digest is hosted by `quay.io/minio/mc`, not Docker
+Hub. Every Kubernetes MinIO Client manifest now uses that Quay reference while
+retaining the same pinned digest for local ARM64 and future AMD64 clusters.

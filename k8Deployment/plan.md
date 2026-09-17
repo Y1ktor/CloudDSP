@@ -2201,8 +2201,8 @@ PostgreSQL is authoritative.
 ### Prepared ADTOF runtime-MinIO authorization smoke boundary
 
 [`adtof-minio-runtime-policy-smoke-job.yaml`](kubernetes/services/adtof/adtof-minio-runtime-policy-smoke-job.yaml)
-is now prepared, structurally tested source only; it has not been applied. It
-runs in `clouddsp-app` and receives exactly the two values in the existing
+was prepared, structurally tested, and successfully applied. It runs in
+`clouddsp-app` and receives exactly the two values in the existing
 `clouddsp-adtof-minio-credentials` Secret. It carries no MinIO administrator
 or bootstrap credential, database/broker credential, ServiceAccount token,
 Service, Ingress, or Kubernetes API access.
@@ -2223,11 +2223,369 @@ into another request.
 
 It intentionally does not use a fabricated drums `GetObject` request: without
 `ListBucket`, object storage can hide the absence of a made-up object behind a
-403 response. A later end-to-end worker smoke test will verify read access when
-it owns a known durable Demucs drums object. The next focused task is a review
-and explicit apply of this Job alone, inspection of its logs, and confirmation
-that no completed smoke object exists; it must not also apply the ADTOF worker
-Deployment.
+403 response. The successful result confirmed the allowed temporary multipart
+upload and mandatory foreign-key denial; the abort removed the incomplete
+upload rather than retaining a completed smoke object. The ADTOF Deployment was
+then rolled out successfully. Its `basic_get` polling loop creates a live
+RabbitMQ connection but intentionally no `list_consumers` row. A later
+end-to-end worker smoke test will verify actual read access when it owns a
+known durable Demucs drums object.
+
+### ADTOF end-to-end worker smoke fixture
+
+[`tests/adtof-worker-smoke/`](kubernetes/tests/adtof-worker-smoke/) now holds
+the source-only fixed fixture for a future production-like ADTOF worker smoke
+test. Its standard-library
+[`fixture module`](kubernetes/tests/adtof-worker-smoke/client/adtof_worker_smoke_fixture.py)
+reserves one canonical Job, upstream synthetic-Demucs-task, and request-event
+identity; limits a future smoke MinIO identity to exactly one drums input and
+two ADTOF output keys; and builds a bounded deterministic four-second 120-BPM
+PCM drums pattern in memory. It derives the actual size and SHA-256 at runtime
+and supplies the complete Demucs stem metadata that ADTOF independently checks
+before downloading its input.
+
+The fixture is deliberately not an audio-quality benchmark. A future successful
+run will prove durable publication through the generic dispatcher, one real
+ADTOF claim/completion, and the validated private MIDI/tempo objects. It will
+not assert an exact model note count, BPM, or confidence level. No fixture
+source contacts MinIO, PostgreSQL, RabbitMQ, ADTOF/PyTorch, Docker, or
+Kubernetes; no smoke object or durable row exists yet.
+
+### Prepared ADTOF worker-smoke PostgreSQL boundary
+
+The source-only
+[`adtof-worker-smoke-database-bootstrap-job.yaml`](kubernetes/tests/adtof-worker-smoke/adtof-worker-smoke-database-bootstrap-job.yaml)
+now defines the next narrow database step. It is not applied. Its ignored
+Secret templates make one temporary data-namespace and one future app-namespace
+copy of a dedicated `clouddsp-adtof-worker-smoke` login; the real password stays
+outside Git. The short-lived administrator Job validates the v004/v006 schema
+gates, removes direct table/sequence/function privileges, and grants that role
+only three exact administrator-owned `SECURITY DEFINER` functions.
+
+`prepare(size, sha256)` accepts only bounded generated-WAV evidence and
+transactionally creates the one fixed 4-stems Job plus one fixed
+`adtof.requested` outbox event. `observe()` reads only corresponding
+publication/task facts. `cleanup()` can delete the fixed Job only after a
+published first-attempt ADTOF task succeeded with no lease; failed/interrupted
+evidence remains. This boundary has no MinIO, RabbitMQ, Keycloak, Kubernetes
+API, or runtime-object access. The ignored local credentials were then applied
+and the database-only bootstrap completed successfully; no smoke object, Job,
+outbox event, task, or broker message was created.
+
+### Prepared ADTOF worker-smoke MinIO identity
+
+The source-only
+[`adtof-worker-smoke-minio-policy-v001-configmap.yaml`](kubernetes/tests/adtof-worker-smoke/adtof-worker-smoke-minio-policy-v001-configmap.yaml)
+defines one independent S3-compatible identity for the later smoke client. It
+can `PutObject` only to the fixed controlled `drums.wav` input, and can
+`GetObject`/`DeleteObject` only for that input plus the two fixed ADTOF output
+keys. It has no wildcard, bucket-list, presign, output-write, normal-user
+object, or MinIO-administration authority.
+
+The paired
+[`MinIO bootstrap Job`](kubernetes/tests/adtof-worker-smoke/minio-adtof-worker-smoke-objects-bootstrap-job.yaml)
+mounts root credentials only in ordered temporary init containers. It creates
+the immutable policy, creates/rotates the restricted user from a temporary
+data-namespace Secret, attaches/prints the policy association, then removes its
+root alias before the completion marker begins. The actual smoke client will
+receive only the separate app-namespace restricted Secret. Neither new Secret,
+ConfigMap, nor bootstrap Job created an object, PostgreSQL record, or RabbitMQ
+event. The ignored local Secrets and ConfigMap were applied and the bootstrap
+completed successfully, reporting the user enabled with exactly the reviewed
+`clouddsp-adtof-worker-smoke-objects-v001` policy attached.
+
+The first Job attempt revealed a shared manifest error rather than a MinIO
+policy or deadline problem: its `docker.io/minio/mc` repository cannot resolve
+the otherwise valid digest. The central image lock and every Kubernetes MinIO
+Client manifest now use `quay.io/minio/mc` with the same pinned multi-platform
+digest. The corrected Job completed in fourteen seconds. The next task is the
+source-only end-to-end smoke client, not a runtime smoke Job.
+
+### ADTOF worker-smoke client contract
+
+[`adtof_worker_smoke_contract.py`](kubernetes/tests/adtof-worker-smoke/client/adtof_worker_smoke_contract.py)
+is now the dependency-free first layer of that client. It centralizes the fixed
+private PostgreSQL/MinIO routes, fixed bucket, restricted identity names, three
+security-definer function names, and a bounded observation window. It rejects
+environment-based endpoint, port, database-role, or S3-identity substitution
+before any future network adapter can be created.
+
+The contract deliberately receives high-level least-privilege interfaces—not
+generic Boto3/Psycopg clients. The eventual database adapter can only prepare,
+observe, and successful-clean the reserved Job/event. The eventual object
+adapter can only prove the three fixed keys are clean, upload the controlled
+drums WAV, verify the two ADTOF outputs, and clean exactly those keys after
+success. Typed observations require broker publication plus one succeeded,
+first-attempt, lease-cleared ADTOF task while the Job remains
+`midi_processing`. Nine standard-library unit tests prove those boundaries.
+
+The next small task is a source-only fixed-key MinIO adapter for clean-state
+checks and controlled-WAV upload. It must not add PostgreSQL, RabbitMQ, ADTOF
+output verification, an image, or a Kubernetes Job.
+
+### ADTOF worker-smoke fixed-key MinIO input adapter
+
+[`adtof_worker_smoke_minio_input.py`](kubernetes/tests/adtof-worker-smoke/client/adtof_worker_smoke_minio_input.py)
+now implements that initial storage phase over an injected S3-shaped protocol.
+It imports no Boto3 or other network client. It checks exactly the three
+policy-granted keys for explicit absence, refuses to overwrite a present key,
+and treats MinIO permission/transport failures as infrastructure failures rather
+than a clean state. Its only write is the deterministic drums WAV at its exact
+key with the complete Demucs metadata inventory; a post-write `HeadObject`
+comparison establishes length/type/metadata evidence before a durable database
+event may exist. Fifteen standard-library client tests prove no generic-list,
+arbitrary-key, output-read, or delete capability was added.
+
+### ADTOF worker-smoke fixed-function PostgreSQL adapter
+
+[`adtof_worker_smoke_database.py`](kubernetes/tests/adtof-worker-smoke/client/adtof_worker_smoke_database.py)
+now implements the three fixed smoke-function calls over an injected
+DB-API-like connection factory. It imports no Psycopg and has no raw SQL/table
+access capability. `prepare` commits only after the function returns the
+reserved Job/event pair; `observe` accepts only its safe eight-column projection
+and explicitly rolls back the read transaction; successful-only `cleanup`
+commits a `true` deletion but rolls `false` back. Driver failures are converted
+to bounded infrastructure categories and every connection closes in `finally`.
+Twenty-one standard-library client tests now cover the fixture, settings,
+MinIO-input, and database boundaries.
+
+### ADTOF worker-smoke fixed-key output reader
+
+[`adtof_worker_smoke_minio_outputs.py`](kubernetes/tests/adtof-worker-smoke/client/adtof_worker_smoke_minio_outputs.py)
+now adds the narrow read-only verification boundary over an injected
+S3-compatible client. It requires the real worker-created dynamic task ID from
+the successful database observation and the exact input evidence from the
+previous MinIO upload proof. For each exact ADTOF output key it checks both
+current `HeadObject` and streamed `GetObject` headers/metadata, bounded bytes,
+and SHA-256. The MIDI verifier checks complete Standard MIDI framing; the tempo
+verifier checks the bounded cloud-compatible ADTOF JSON candidate schema. It
+does not make an assertion about note count, tempo, or inference quality.
+
+The adapter exposes neither a generic key/bucket method nor a mutation: it
+cannot list, put, or delete objects, construct Boto3, call PostgreSQL,
+publish RabbitMQ work, invoke ADTOF, build an image, or create a Job. Twenty-five
+standard-library client tests now cover the fixture, contract, MinIO input,
+PostgreSQL function, and output verification boundaries.
+
+### ADTOF worker-smoke successful-only object cleanup adapter
+
+[`adtof_worker_smoke_minio_cleanup.py`](kubernetes/tests/adtof-worker-smoke/client/adtof_worker_smoke_minio_cleanup.py)
+now defines the future client's only destructive S3-compatible capability. It
+requires the already observed published/succeeded first attempt with its lease
+cleared, plus the fixed input proof and verified MIDI/tempo output pair, before
+any deletion can begin. It then calls only `DeleteObject` for the fixed tempo,
+MIDI, and controlled input keys—never a bucket, prefix, caller-chosen key, or
+retry loop. A failure stops in order and is redacted, retaining the input WAV
+when an earlier output deletion fails.
+
+This operation is intentionally not a distributed transaction. It neither
+opens PostgreSQL nor claims that object deletion removes the durable Job/event;
+a later state-machine/composition boundary makes that cleanup ordering explicit. Twenty-nine
+standard-library tests now cover the fixture, contract, MinIO input/output,
+database function, and successful-only object-cleanup boundaries.
+
+### ADTOF worker-smoke orchestration state machine
+
+[`adtof_worker_smoke_orchestration.py`](kubernetes/tests/adtof-worker-smoke/client/adtof_worker_smoke_orchestration.py)
+now makes the existing source-only adapter sequence explicit without calling a
+single adapter. Its immutable phases allow only: fixed-key preflight, controlled
+WAV upload, atomic durable prepare, bounded worker observation, output
+verification, fixed-object cleanup, guarded database cleanup, and `passed`.
+The future composition root must supply elapsed monotonic time; this pure model
+does not read a clock or sleep.
+
+Pending/running progress remains observable until the reviewed deadline. A
+dead-lettered event, retry, second task attempt, task failure, failed Job, or
+incoherent would-be success becomes a terminal evidence-preserving failure.
+The model accurately distinguishes those outcomes from `object_cleanup_incomplete`
+and `database_cleanup_incomplete`, because S3-compatible MinIO and PostgreSQL
+cannot offer a shared transaction. It records the documented object-first,
+guarded-database-second cleanup sequence, and has no retry or resource
+creation capability. Thirty-four standard-library client tests now cover all
+fixture, boundary, and pure workflow transitions.
+
+### ADTOF worker-smoke one-step composition facade
+
+[`adtof_worker_smoke_composition.py`](kubernetes/tests/adtof-worker-smoke/client/adtof_worker_smoke_composition.py)
+now executes only the action selected by the pure state machine through the
+four existing injected boundaries. It passes the deterministic input proof to
+the fixed database prepare function, passes future caller-supplied elapsed
+monotonic seconds only to observation, and passes only the accumulated success
+proof to output verification and cleanup. It cannot call a direct RabbitMQ
+publisher/consumer or a generic S3/PostgreSQL method.
+
+The facade creates no concrete SDK/driver client, socket, clock/sleep loop,
+image, Secret, or Kubernetes Job. An injected adapter error updates the stored
+state to its truthful terminal outcome and raises one redacted composition
+error. Thirty-nine standard-library tests now cover fixture, boundaries, pure
+states, and one-action composition behavior.
+
+The next small task is to create a hash-pinned, source-only runtime dependency
+lock for the future entrypoint's minimal PostgreSQL and S3-compatible clients.
+It will not construct the entrypoint, image, or Kubernetes Job.
+
+### ADTOF worker-smoke runtime dependency lock
+
+[`requirements.lock`](kubernetes/tests/adtof-worker-smoke/client/requirements.lock)
+now pins the full CPython 3.12/Linux ARM64 S3-compatible and PostgreSQL driver
+closure for the future smoke entrypoint: Boto3/Botocore, their strict
+transitives, Psycopg, and the matching binary libpq wheel. Every package has
+one reviewed SHA-256, so a future image must use `pip --require-hashes`; it
+cannot silently resolve a mutable or unreviewed transitive package. The lock
+deliberately excludes RabbitMQ, HTTP, identity, ML/GPU, and Kubernetes packages
+because the smoke client observes those deployed components rather than owning
+their responsibilities.
+
+Four offline tests verify the exact closure, paired Boto3/Botocore and Psycopg
+versions, binary ARM64 hash, and lack of index/direct-URL escape hatches.
+Nothing was installed, no entrypoint/image/Job was created, and no cluster
+resource changed. The next small task is a source-only lazy PostgreSQL
+connection factory that consumes the fixed settings and lock; MinIO construction
+and workflow execution remain out of scope.
+
+### ADTOF worker-smoke lazy PostgreSQL factory
+
+[`adtof_worker_smoke_postgresql.py`](kubernetes/tests/adtof-worker-smoke/client/adtof_worker_smoke_postgresql.py)
+now returns a zero-argument connection factory for the existing three
+fixed-function database adapter. Factory construction is side-effect free. Its
+future invocation lazily imports Psycopg, revalidates the exact internal
+Service/database/restricted-role authority, and opens a dictionary-row,
+non-autocommit connection with a three-second connect and five-second
+server-side statement bound. The adapter retains responsibility for each short
+commit/rollback/close lifecycle, so no transaction crosses worker observation.
+
+The focused tests use a patched driver to prove exact connection arguments,
+laziness, forged-setting rejection, and redacted dependency/connection failure
+categories. No SQL, MinIO client, workflow execution, image, or Job was added.
+Forty-seven standard-library smoke-client tests now pass. The next small task
+is an equally narrow lazy MinIO S3-compatible client factory; it will not run
+the workflow or create an image/Job.
+
+### ADTOF worker-smoke lazy MinIO factory
+
+[`adtof_worker_smoke_minio.py`](kubernetes/tests/adtof-worker-smoke/client/adtof_worker_smoke_minio.py)
+now lazily imports Boto3/Botocore and constructs the future smoke client's one
+private path-style S3 client. It repeats the fixed internal Service URL, region,
+and restricted access-key checks before credentials reach the SDK; explicit
+credentials prevent host AWS-profile or metadata lookup. The client receives
+SigV4 configuration, a three-second connect timeout, ten-second read timeout,
+and two bounded SDK attempts. It performs no object request by itself.
+
+Patched-SDK tests verify client-construction laziness, exact route/credential
+arguments, settings forgery rejection, and redacted SDK failures. No PostgreSQL
+call, workflow run, image, or Job was added. Fifty-one standard-library client
+tests now pass. The next small task is a source-only runtime-assembly function
+that combines the two factories with the existing fixed adapters/facade; it
+will not add a loop, image, or Kubernetes Job.
+
+### ADTOF worker-smoke runtime assembly
+
+[`adtof_worker_smoke_runtime.py`](kubernetes/tests/adtof-worker-smoke/client/adtof_worker_smoke_runtime.py)
+now validates the pure observation deadline, constructs the lazy PostgreSQL
+connection factory, constructs one configured MinIO client, and wires that
+client into the existing fixed-key input/output/cleanup adapters before
+returning a preflight-state composition facade. The database adapter receives
+only its zero-argument factory, so assembly opens no PostgreSQL connection;
+the MinIO factory makes no object request. A future entrypoint alone may call
+the facade's one-action method.
+
+Three patched-factory tests confirm one-client wiring, no assembly-time
+database/S3 operation, and early timeout rejection. The module has no SDK,
+driver, clock/sleep loop, entrypoint, image, or Job capability. Fifty-four
+standard-library smoke-client tests now pass.
+
+### ADTOF worker-smoke bounded runtime entrypoint
+
+`kubernetes/tests/adtof-worker-smoke/client/adtof_worker_smoke_entrypoint.py`
+is now the future one-shot Job process boundary. It loads the fixed settings,
+builds the wired composition once, and advances only its currently allowed
+action. It uses monotonic elapsed time and a two-second maximum cadence solely
+while observing the deployed dispatcher and ADTOF worker; no I/O failure gains
+an implicit retry loop. It reports non-sensitive milestones and returns zero
+only for the state-machine `passed` outcome. Every other terminal fact,
+including evidence-preserving failure, timeout, or incomplete cleanup, returns
+non-zero without exposing credentials or SDK details.
+
+Five offline entrypoint tests use a fake facade, clock, and sleeper to verify
+cadence, non-retry behavior, exit mapping, and error redaction. The full client
+suite now has fifty-nine standard-library tests. No image, Kubernetes Job, or
+cluster resource has been created.
+
+### ADTOF worker-smoke digest-pinned image recipe
+
+`kubernetes/tests/adtof-worker-smoke/client/Dockerfile` now defines a
+two-stage, source-only recipe for the future finite verifier Job. Both stages
+use the existing immutable `images.api-python-runtime` Python 3.12 digest. The
+validation stage hash-installs the complete explicit Boto3/Psycopg closure,
+runs every client test, and never reaches a cluster service. The runtime stage
+receives only verified site-packages and the bounded client graph; it executes
+the reviewed entrypoint as a dedicated non-root UID/GID 10006 process. It has
+no Secret, runtime package install, AMQP/model/cloud/Kubernetes client, HTTP
+listener, Service, or Ingress behavior.
+
+The lock's Psycopg wheel is Linux/ARM64-specific, so the build explicitly used
+`--platform linux/arm64`. Four static tests inspect the Dockerfile's digest,
+hash enforcement, runtime contents, identity, and omitted capabilities without
+calling Docker. Docker's validation stage then ran all sixty-three smoke-client
+tests successfully and produced the local tag
+`clouddsp-registry.localhost:5001/adtof-worker-smoke-client:0.1.0-durable-worker-path`.
+Its local image ID is
+`sha256:0c66126460d43e2cb5766d585055f00c7fa0dad9da7f9df3c944f21d216dfe41`
+and Docker reports 66,164,217 uncompressed bytes (63.10 MiB). The local k3d
+registry accepted the image and confirmed that same immutable digest. It is now
+recorded as `images.adtof-worker-smoke-client`, with the exact source recipe,
+ARM64-only platform, hash lock, test directory, and readable-tag provenance;
+future manifests must copy only the immutable reference. No Kubernetes
+Job/resource, smoke object, database event, or queue message has been created.
+
+### ADTOF worker-smoke reproducible build/push helper
+
+`kubernetes/scripts/build-adtof-worker-smoke-client-image.sh` now gives the
+published image one non-interactive local rebuild path. It validates the exact
+Docker context inputs, Docker daemon, and the named k3d registry before an
+explicit `linux/arm64` Docker build. The Dockerfile itself runs the offline
+client suite; only then does the helper push the dedicated repository, discover
+the registry-confirmed immutable reference, and print its uncompressed local
+size. It accepts no runtime credentials, never calls `kubectl`, and creates no
+Kubernetes resource or pipeline evidence. A rebuild can change its digest, so
+that output must be deliberately reviewed and copied into `images.lock.yaml`
+before a future manifest refers to it. The next small task is the source-only
+ADTOF smoke Job manifest; applying it remains separate.
+
+### ADTOF end-to-end worker-smoke Job manifest
+
+`kubernetes/tests/adtof-worker-smoke/adtof-worker-smoke-job.yaml` now defines
+the finite verifier Pod without applying it. It executes only the immutable
+`images.adtof-worker-smoke-client` ARM64 reference in `clouddsp-app`, under its
+dedicated UID/GID 10006 with a read-only root filesystem, default seccomp, no
+Linux capabilities, no Kubernetes API token, and no automatic Service-link
+environment. It mounts only the previously applied restricted PostgreSQL
+function and MinIO exact-key credentials; it has no RabbitMQ, worker,
+administrator, Keycloak, browser, or cloud credential.
+
+The entrypoint observes for twelve minutes inside a thirteen-minute Job
+deadline. `backoffLimit: 0` intentionally preserves the first failure's fixed
+evidence instead of risking an automatic collision. A successful path executes
+the client’s reviewed object-first/database-second cleanup, while failed or
+timed-out evidence remains for a later explicit cleanup task. Four offline
+structural tests check the immutable image, identities, routes, finite timing,
+and hardened Pod settings. The manifest has not been applied and has created no
+Pod, object, database event/task, or RabbitMQ message. The next small task is
+to review the explicit apply/log/inspection procedure; applying remains
+separate.
+
+### ADTOF worker-smoke reviewed run procedure
+
+The smoke README now gives a copy/paste procedure without executing it. Its
+read-only preflight checks only the two app-namespace restricted Secret names,
+the generic dispatcher rollout, the ADTOF rollout, and whether an existing
+fixed-name Job needs investigation. The one subsequent `kubectl apply` command
+is clearly isolated as the sole resource-creating action. Follow-up commands
+tail safe entrypoint milestones and inspect Job/Pod status without printing
+Secret values. A failed run must not be reapplied, manually messaged, or
+silently cleaned: its durable fixed evidence is the diagnosis surface for a
+later narrow cleanup task. The Job is still unapplied; explicit user direction
+is required before the resource-creating command is run.
 
 ## Authentication and browser rules
 

@@ -32,9 +32,11 @@ from app.adtof_requested_message import ADTOFRequestedMessage
 from app.recovery_request import read_current_adtof_recovery_request
 from app.task_claim import (
     DEFAULT_ADTOF_LEASE_SECONDS,
+    ADTOFExpiredLeaseTerminalization,
     ADTOFTaskLease,
     DatabaseCursor,
     claim_next_expired_adtof_task,
+    finalize_next_expired_exhausted_adtof_task,
 )
 
 
@@ -63,6 +65,38 @@ class ADTOFRecoveredTask:
 
     lease: ADTOFTaskLease
     message: ADTOFRequestedMessage
+
+
+def terminalize_one_expired_exhausted_adtof_task(
+    *,
+    database: ADTOFRecoveryDatabase,
+) -> ADTOFExpiredLeaseTerminalization | None:
+    """Commit one expired third-attempt terminalization before lease recovery.
+
+    This is intentionally a separate short transaction from recovery claiming.
+    Once an expired third attempt is marked ``failed``, no outbox reconstruction
+    or model work is permitted for it; the scan reports that durable progress
+    and lets the next fairness-selected recovery scan consider another task.
+    Conversely, an idle terminalization scan makes no mutation and leaves the
+    existing recovery claim/read composition unchanged.
+
+    The database context manager owns commit/rollback. This boundary does not
+    receive broker messages, use object storage, execute ADTOF, mutate a Job,
+    or turn a terminal task failure into a Pod-level failure.
+    """
+
+    if not callable(getattr(database, "write_cursor", None)):
+        raise TypeError("database must provide write_cursor.")
+    with database.write_cursor() as cursor:
+        terminalization = finalize_next_expired_exhausted_adtof_task(cursor)
+        # The pure SQL adapter already validates production rows. Keep this
+        # defensive composition check *inside* the transaction too, so a
+        # future replacement cannot commit a partially trusted transition.
+        if terminalization is not None and not isinstance(
+            terminalization, ADTOFExpiredLeaseTerminalization
+        ):
+            raise TypeError("ADTOF exhausted-lease terminalization is invalid.")
+    return terminalization
 
 
 class _RecoveryOwnershipLost(Exception):

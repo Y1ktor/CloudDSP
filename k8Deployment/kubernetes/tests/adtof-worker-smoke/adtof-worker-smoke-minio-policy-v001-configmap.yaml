@@ -1,0 +1,52 @@
+# This immutable ConfigMap holds a reviewed S3-compatible policy for the future
+# ADTOF worker smoke client. A policy can be versioned safely because it defines
+# authority only; it contains no access key, secret key, object body, or token.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  # An immutable ConfigMap cannot be edited in place. Any scope change therefore
+  # needs a new versioned policy, an explicit credential rotation, and review.
+  name: clouddsp-adtof-worker-smoke-objects-policy-v001
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: adtof-worker-smoke
+    app.kubernetes.io/component: object-storage-policy
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: fixed-key-adtof-worker-smoke-object-access
+immutable: true
+data:
+  # MinIO evaluates this IAM-compatible policy for every signed S3 request.
+  # `HeadObject` is authorized by `s3:GetObject`; there is deliberately no
+  # `ListBucket` authority. The test can write only its controlled input WAV,
+  # then read/delete only that WAV and the two outputs that the deployed ADTOF
+  # worker creates. It cannot modify an output or touch regular user objects.
+  adtof-worker-smoke-objects-policy.json: |
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Sid": "WriteReadDeleteOnlyTheFixedControlledDrumsInput",
+          "Effect": "Allow",
+          "Action": [
+            "s3:GetObject",
+            "s3:PutObject",
+            "s3:DeleteObject"
+          ],
+          "Resource": "arn:aws:s3:::clouddsp-uploads/stems/8d94ca4d-8f27-4d78-a01f-73ee0fb8c6bc/drums.wav"
+        },
+        {
+          "Sid": "ReadDeleteOnlyTheFixedADTOFOutputs",
+          "Effect": "Allow",
+          "Action": [
+            "s3:GetObject",
+            "s3:DeleteObject"
+          ],
+          "Resource": [
+            "arn:aws:s3:::clouddsp-uploads/midi/8d94ca4d-8f27-4d78-a01f-73ee0fb8c6bc/drums.mid",
+            "arn:aws:s3:::clouddsp-uploads/midi/8d94ca4d-8f27-4d78-a01f-73ee0fb8c6bc/drums_bpm.json"
+          ]
+        }
+      ]
+    }

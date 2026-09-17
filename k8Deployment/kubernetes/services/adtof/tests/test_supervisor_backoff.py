@@ -7,11 +7,13 @@ change Kubernetes state.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 import unittest
 
 from app.claimed_task_success import ADTOFClaimedTaskSuccess, ADTOFClaimedTaskSuccessOutcome
 from app.recovery_execute_once import ADTOFRecoveryIterationOutcome, ADTOFRecoveryIterationResult
 from app.receive_execute_once import ADTOFWorkerIterationOutcome, ADTOFWorkerIterationResult
+from app.task_claim import ADTOFExpiredLeaseTerminalization
 from app.supervisor_backoff import (
     DEFAULT_ADTOF_IDLE_DELAY_SECONDS,
     DEFAULT_ADTOF_RETRY_MAX_DELAY_SECONDS,
@@ -54,19 +56,34 @@ class ADTOFSupervisorIterationClassificationTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             supervisor_event_for_adtof_iteration(object())  # type: ignore[arg-type]
 
-    def test_recovery_idle_is_progress_so_normal_queue_can_be_checked_next(self) -> None:
-        """An empty recovery scan must not imply the AMQP queue is empty too."""
+    def test_every_valid_recovery_outcome_is_progress_for_the_next_normal_turn(self) -> None:
+        """Recovery idle/terminalization must not suppress the normal AMQP poll."""
 
-        for outcome, maybe_execution in (
-            (ADTOFRecoveryIterationOutcome.IDLE, None),
-            (ADTOFRecoveryIterationOutcome.EXECUTED, ADTOFClaimedTaskSuccess(
-                outcome=ADTOFClaimedTaskSuccessOutcome.OWNERSHIP_LOST,
-            )),
+        exhausted = ADTOFExpiredLeaseTerminalization(
+            task_id="9381d35a-355f-4fb1-bb39-32ceba7d917f",
+            job_id="08ec1d44-3106-4fcb-91c8-5d0c78e7e046",
+            stem_name="drums",
+            attempt_count=3,
+            completed_at=datetime(2026, 9, 14, 12, 30, tzinfo=UTC),
+            error_code="lease_expired_attempts_exhausted",
+        )
+        for outcome, maybe_execution, maybe_terminalization in (
+            (ADTOFRecoveryIterationOutcome.IDLE, None, None),
+            (
+                ADTOFRecoveryIterationOutcome.EXECUTED,
+                ADTOFClaimedTaskSuccess(outcome=ADTOFClaimedTaskSuccessOutcome.OWNERSHIP_LOST),
+                None,
+            ),
+            (ADTOFRecoveryIterationOutcome.TERMINALIZED, None, exhausted),
         ):
             with self.subTest(outcome=outcome):
                 self.assertEqual(
                     supervisor_event_for_adtof_recovery_iteration(
-                        ADTOFRecoveryIterationResult(outcome, execution=maybe_execution),
+                        ADTOFRecoveryIterationResult(
+                            outcome,
+                            execution=maybe_execution,
+                            terminalization=maybe_terminalization,
+                        ),
                     ),
                     ADTOFSupervisorEvent.ITERATION_PROGRESS,
                 )

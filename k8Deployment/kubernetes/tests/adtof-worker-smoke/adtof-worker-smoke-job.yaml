@@ -1,0 +1,161 @@
+# This one-shot Job proves the real post-Demucs ADTOF route without taking an
+# AMQP delivery or simulating a dispatcher/worker result:
+#
+#   controlled private drums WAV -> fixed PostgreSQL prepare function -> generic
+#   dispatcher -> deployed ADTOF worker -> private MIDI + tempo + task success
+#
+# The client has no RabbitMQ credential and no direct application-table access.
+# Its two app-namespace Secrets independently restrict it to three fixed
+# PostgreSQL functions and three fixed MinIO keys. The deployed dispatcher and
+# ADTOF worker retain ownership of publication, AMQP consumption, task leases,
+# retries, model execution, and output persistence.
+#
+# Prerequisites (all intentionally separate from this manifest):
+#   1. The fixed-scope PostgreSQL bootstrap Job completed successfully.
+#   2. The exact-key MinIO policy/bootstrap Job completed successfully.
+#   3. The generic dispatcher and ADTOF worker Deployments are healthy.
+#   4. No previous failed run retains this test's fixed database rows/objects.
+#
+# This source is deliberately unapplied. A later explicit task will provide
+# apply, log, inspection, and human-approved failed-run cleanup commands.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Kubernetes does not rerun a completed fixed-name Job on reapply. A later,
+  # deliberate run must delete only this exact Job after reviewing its logs.
+  name: adtof-worker-smoke
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: adtof-worker-smoke
+    app.kubernetes.io/component: integration-test
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: durable-adtof-worker-end-to-end-verification
+spec:
+  # Retain the safe milestones/failure category briefly for diagnosis, then
+  # let the TTL controller remove the completed credential-bearing Pod.
+  ttlSecondsAfterFinished: 600
+  # `prepare` deliberately persists evidence before the dispatcher runs. An
+  # automatic Job retry could collide with it, so every failed run is reviewed
+  # and cleaned up deliberately rather than hidden by a second Pod attempt.
+  backoffLimit: 0
+  # The entrypoint observes for up to 12 minutes. Thirteen minutes allows a
+  # local image start plus ten seconds of graceful shutdown while preventing a
+  # stuck test from retaining its restricted credentials indefinitely. This is
+  # a smoke-client deadline, not the ADTOF worker's model-processing timeout.
+  activeDeadlineSeconds: 780
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adtof-worker-smoke
+        app.kubernetes.io/component: integration-test
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      # A finite Job container exits once. Its result is durable in Job status;
+      # Kubernetes must not restart it because failure evidence is intentional.
+      restartPolicy: Never
+      # The client holds short PostgreSQL/S3 connections only. Give it a small
+      # window to close them after SIGTERM; it owns no model or local artifact.
+      terminationGracePeriodSeconds: 10
+      # The verifier never calls Kubernetes. Disable both the API-token mount
+      # and automatic Service-link environment variables to keep its authority
+      # limited to the two explicitly named private Service routes below.
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # The locked image contains a Linux/ARM64 Psycopg binary wheel. This
+      # scheduling rule prevents a future AMD64 node from starting a Pod whose
+      # native dependency lock cannot run there.
+      nodeSelector:
+        kubernetes.io/arch: arm64
+      securityContext:
+        # These numeric IDs match the dedicated non-root account in the locked
+        # image. Repeating them here makes a later root-capable replacement
+        # image fail rather than silently acquiring extra operating-system power.
+        runAsNonRoot: true
+        runAsUser: 10006
+        runAsGroup: 10006
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: adtof-worker-smoke-client
+          # Copied exactly from images.adtof-worker-smoke-client in
+          # ../../images.lock.yaml. A readable tag is deliberately absent: the
+          # test must run this exact ARM64 image even if a tag is repointed.
+          image: clouddsp-registry.localhost:5001/adtof-worker-smoke-client@sha256:f6908bfabe930a1066fed18446aa6006d58dbea43764d75265557bdd6771c74f
+          # A digest cannot move. K3s may reuse matching local bytes, while a
+          # newly created node still pulls the same immutable registry object.
+          imagePullPolicy: IfNotPresent
+          env:
+            # These are fixed, non-secret cluster-internal coordinates. The
+            # entrypoint revalidates them, rejecting a host-loopback, browser,
+            # or cloud redirect even if a future manifest were edited incorrectly.
+            - name: ADTOF_WORKER_SMOKE_DB_HOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: ADTOF_WORKER_SMOKE_DB_PORT
+              value: "5432"
+            - name: ADTOF_WORKER_SMOKE_MINIO_ENDPOINT_URL
+              value: http://clouddsp-minio.clouddsp-data.svc:9000
+            - name: ADTOF_WORKER_SMOKE_MINIO_REGION
+              value: us-east-1
+            # This is shorter than the outer Job deadline, preserving time for
+            # the result to be recorded and for Kubernetes to terminate safely.
+            - name: ADTOF_WORKER_SMOKE_TIMEOUT_SECONDS
+              value: "720"
+            # This identity has no direct table privilege. Its administrator-
+            # owned functions can prepare, observe, and success-clean only the
+            # reserved Job/event; they cannot accept arbitrary SQL or keys.
+            - name: ADTOF_WORKER_SMOKE_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-adtof-worker-smoke-database-credentials
+                  key: ADTOF_WORKER_SMOKE_DB_NAME
+            - name: ADTOF_WORKER_SMOKE_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-adtof-worker-smoke-database-credentials
+                  key: ADTOF_WORKER_SMOKE_DB_USERNAME
+            - name: ADTOF_WORKER_SMOKE_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-adtof-worker-smoke-database-credentials
+                  key: ADTOF_WORKER_SMOKE_DB_PASSWORD
+            # This separate MinIO identity can write/read/delete the one fixed
+            # drums WAV and read/delete the two ADTOF outputs. It cannot list,
+            # presign, administer MinIO, or access ordinary CloudDSP media.
+            - name: ADTOF_WORKER_SMOKE_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-adtof-worker-smoke-minio-credentials
+                  key: ADTOF_WORKER_SMOKE_S3_ACCESS_KEY
+            - name: ADTOF_WORKER_SMOKE_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-adtof-worker-smoke-minio-credentials
+                  key: ADTOF_WORKER_SMOKE_S3_SECRET_KEY
+            # Boto3 gets explicit MinIO credentials. Disable cloud metadata
+            # discovery so this local Pod never probes an AWS metadata route.
+            - name: AWS_EC2_METADATA_DISABLED
+              value: "true"
+          resources:
+            # This client performs compact SQL/S3 control-plane work and holds
+            # bounded MIDI/tempo evidence in memory. It does not run the ADTOF
+            # model, so tight limits preserve local CPU/RAM for the real worker.
+            requests:
+              cpu: 50m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+              ephemeral-storage: 96Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            # The client streams object data in memory and owns no cache,
+            # artifact, or mutable home. Enforce that its image root stays read
+            # only; this Pod deliberately declares no writable volume.
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL

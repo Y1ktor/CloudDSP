@@ -47,6 +47,12 @@ DEFAULT_ADTOF_LEASE_SECONDS = 15 * 60
 MIN_ADTOF_LEASE_SECONDS = 60
 MAX_ADTOF_LEASE_SECONDS = 60 * 60
 MAX_ADTOF_TASK_ATTEMPTS = 3
+# An exhausted active lease is not a retryable application error. It means the
+# durable owner disappeared or outlived the bounded ownership window three
+# times, so recovery must record a terminal task fact rather than issue an
+# impossible fourth token. This safe, stable code fits the database's bounded
+# ``last_error_code`` field and is intentionally free of object/host details.
+ADTOF_EXHAUSTED_LEASE_ERROR_CODE = "lease_expired_attempts_exhausted"
 
 # Demucs produces a drums stem only for these modes. Keeping the finite list in
 # this independently deployable service prevents a broker message from asking
@@ -122,6 +128,25 @@ class ADTOFTaskClaimResult:
     lease: ADTOFTaskLease | None = None
     duplicate_status: str | None = None
     stale_reason: ADTOFStaleRequestReason | None = None
+
+
+@dataclass(frozen=True)
+class ADTOFExpiredLeaseTerminalization:
+    """One committed terminal transition for an exhausted ADTOF task lease.
+
+    This is evidence that PostgreSQL, rather than a Pod-local timer, declared
+    an active third attempt expired and changed it to ``failed``. It contains
+    no raw exception, broker delivery, storage response, credential, or object
+    bytes. The wider Job deliberately remains in its current aggregation phase:
+    a later aggregate owns Job-level terminal status across all stems.
+    """
+
+    task_id: str
+    job_id: str
+    stem_name: str
+    attempt_count: int
+    completed_at: datetime
+    error_code: str
 
 
 # Lock the canonical idempotency coordinate first. A broker duplicate therefore
@@ -291,6 +316,51 @@ CLAIM_NEXT_EXPIRED_ADTOF_TASK_SQL = """
 """
 
 
+# Recovery first removes one terminally exhausted active lease before looking
+# for a reclaimable first/second attempt. The candidate row is locked with
+# ``SKIP LOCKED``, so overlapping ADTOF Pods cannot both terminalize it and one
+# slow scanner cannot block another eligible task. PostgreSQL's own clock—not a
+# worker's wall clock—decides expiry. Clearing both lease fields satisfies the
+# task-state constraint for a terminal ``failed`` row and prevents any stale
+# owner from later satisfying a guarded completion predicate.
+#
+# This transition does not set ``jobs.status = 'failed'``. A Job aggregates
+# Demucs, Basic Pitch, and ADTOF work; its aggregate terminal policy is a
+# separate boundary. The per-task failure remains durable evidence for it.
+FINALIZE_NEXT_EXPIRED_EXHAUSTED_ADTOF_TASK_SQL = """
+    WITH candidate AS (
+      SELECT task_id
+      FROM public.processing_tasks
+      WHERE stage = 'adtof'
+        AND stem_name = 'drums'
+        AND attempt_count = 3
+        AND status IN ('leased', 'running')
+        AND lease_expires_at <= CURRENT_TIMESTAMP
+      ORDER BY lease_expires_at ASC, created_at ASC, task_id ASC
+      FOR UPDATE SKIP LOCKED
+      LIMIT 1
+    )
+    UPDATE public.processing_tasks AS task
+    SET
+      status = 'failed',
+      lease_token = NULL,
+      lease_expires_at = NULL,
+      completed_at = CURRENT_TIMESTAMP,
+      last_error_code = 'lease_expired_attempts_exhausted'
+    FROM candidate
+    WHERE task.task_id = candidate.task_id
+    RETURNING
+      task.task_id::text AS task_id,
+      task.job_id::text AS job_id,
+      task.stage,
+      task.stem_name,
+      task.status,
+      task.attempt_count,
+      task.completed_at,
+      task.last_error_code
+"""
+
+
 # MinIO metadata/download verification deliberately happens while the task is
 # still `leased`: a bad drums object can later become a retry/terminal input
 # outcome without falsely recording that ADTOF CPU inference began. Only after
@@ -450,6 +520,37 @@ def _row_lease(row: Mapping[str, object]) -> ADTOFTaskLease:
     ):
         raise _protocol_error()
     return lease
+
+
+def _row_exhausted_lease_terminalization(
+    row: Mapping[str, object],
+) -> ADTOFExpiredLeaseTerminalization:
+    """Validate only the reviewed row shape returned by terminalization SQL.
+
+    The update itself fixes stage/stem/status/attempt/error code in its query,
+    but treating ``RETURNING`` data as untrusted still matters: an altered
+    query/driver must not let a caller report another task as safely finalized.
+    """
+
+    if (
+        _row_text(row, "stage") != ADTOF_STAGE
+        or _row_text(row, "stem_name") != ADTOF_STEM_NAME
+        or _row_text(row, "status") != "failed"
+        or _row_attempt_count(row) != MAX_ADTOF_TASK_ATTEMPTS
+        or _row_text(row, "last_error_code") != ADTOF_EXHAUSTED_LEASE_ERROR_CODE
+    ):
+        raise _protocol_error()
+    completed_at = row.get("completed_at")
+    if not isinstance(completed_at, datetime) or completed_at.tzinfo is None:
+        raise _protocol_error()
+    return ADTOFExpiredLeaseTerminalization(
+        task_id=_canonical_uuid(_row_text(row, "task_id")),
+        job_id=_canonical_uuid(_row_text(row, "job_id")),
+        stem_name=ADTOF_STEM_NAME,
+        attempt_count=MAX_ADTOF_TASK_ATTEMPTS,
+        completed_at=completed_at,
+        error_code=ADTOF_EXHAUSTED_LEASE_ERROR_CODE,
+    )
 
 
 def _existing_task_result(
@@ -673,6 +774,34 @@ def claim_next_expired_adtof_task(
     ):
         raise _protocol_error()
     return lease
+
+
+def finalize_next_expired_exhausted_adtof_task(
+    cursor: DatabaseCursor,
+) -> ADTOFExpiredLeaseTerminalization | None:
+    """Terminalize one expired active third attempt, or return normal idle.
+
+    Invoke this one-row SQL decision in a short PostgreSQL transaction before
+    checking reclaimable attempts. It changes only a matching ADTOF/drums task
+    with `attempt_count == 3` and an expired active lease. ``None`` means no
+    exhausted candidate was visible when PostgreSQL obtained the row lock;
+    concurrent scanners, a successful completion, deletion, or a non-expired
+    lease are all normal no-mutation outcomes.
+
+    This adapter opens no connection or transaction and never contacts MinIO,
+    RabbitMQ, a model process, or Kubernetes. It neither removes retained
+    artifacts nor changes Job-level status: it records only the irreversible
+    per-task ownership outcome that prevents a stranded row from blocking
+    inspection or a later aggregate policy.
+    """
+
+    if not callable(getattr(cursor, "execute", None)) or not callable(getattr(cursor, "fetchone", None)):
+        raise TypeError("cursor must provide execute and fetchone.")
+    cursor.execute(FINALIZE_NEXT_EXPIRED_EXHAUSTED_ADTOF_TASK_SQL, ())
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    return _row_exhausted_lease_terminalization(_mapping_or_error(row))
 
 
 def start_leased_adtof_task(

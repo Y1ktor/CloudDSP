@@ -1,0 +1,461 @@
+# This administrator-only one-shot Job provisions the PostgreSQL boundary for
+# the future ADTOF *worker* smoke test:
+#
+#   restricted smoke client -> three fixed SECURITY DEFINER functions -> PostgreSQL
+#   generic dispatcher -> RabbitMQ -> deployed ADTOF worker -> PostgreSQL
+#
+# It deliberately does not create a MinIO object, send or consume a RabbitMQ
+# message, start a worker, create a smoke Job row, or use the Kubernetes API.
+# A later client invokes `prepare` only after it has uploaded the matching
+# controlled drums WAV; the real deployed worker creates its processing-task
+# row only after it claims the resulting durable outbox event.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # A fixed name leaves the privilege evidence inspectable. Delete this Job
+  # before a deliberate password rotation or grant repair; applying an already
+  # completed Job does not cause Kubernetes to execute it a second time.
+  name: adtof-worker-smoke-database-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: adtof-worker-smoke-database-bootstrap
+    app.kubernetes.io/component: database-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: fixed-scope-adtof-worker-smoke-provisioning
+spec:
+  # Retain only non-sensitive structural output briefly, then remove the Pod
+  # that mounted the PostgreSQL administrator password. This does not delete
+  # the separately applied temporary data-namespace Secret.
+  ttlSecondsAfterFinished: 600
+  # Do not automatically retry privileged DDL. A failed bootstrap remains one
+  # clear diagnosable result rather than repeated state-changing attempts.
+  backoffLimit: 0
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adtof-worker-smoke-database-bootstrap
+        app.kubernetes.io/component: database-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # The Pod connects only to the private PostgreSQL Service. It has no
+      # reason to call Kubernetes, MinIO, RabbitMQ, Keycloak, or a browser
+      # route, so it deliberately receives no ServiceAccount token.
+      automountServiceAccountToken: false
+      securityContext:
+        # The pinned PostgreSQL Docker Official Image already contains this
+        # unprivileged account, which is sufficient for its `psql` client.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgresql-bootstrap-client
+          # This immutable Docker Official Image is already used by the
+          # reviewed database/bootstrap Jobs. A digest avoids an unreviewed
+          # mutable-tag change in the Pod that temporarily receives admin auth.
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          env:
+            # Private Service DNS remains valid if PostgreSQL's StatefulSet Pod
+            # changes; this is not a host-forwarded or browser-facing endpoint.
+            - name: PGHOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: PGPORT
+              value: "5432"
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+            # Only this short-lived Pod receives the PostgreSQL administrator
+            # login. The future non-privileged smoke client never mounts it.
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_PASSWORD
+            # Namespace scoping requires a temporary `clouddsp-data` copy of
+            # the restricted login values. They must match the durable later
+            # app-namespace client Secret, but only this Job may mount both it
+            # and administrator access.
+            - name: ADTOF_WORKER_SMOKE_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-adtof-worker-smoke-database-bootstrap-credentials
+                  key: ADTOF_WORKER_SMOKE_DB_NAME
+            - name: ADTOF_WORKER_SMOKE_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-adtof-worker-smoke-database-bootstrap-credentials
+                  key: ADTOF_WORKER_SMOKE_DB_USERNAME
+            - name: ADTOF_WORKER_SMOKE_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-adtof-worker-smoke-database-bootstrap-credentials
+                  key: ADTOF_WORKER_SMOKE_DB_PASSWORD
+          resources:
+            # Role/function DDL is small and performs no audio or model work,
+            # so it should not contend with long-running CPU worker Pods.
+            requests:
+              cpu: 10m
+              memory: 32Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -ec
+            - |
+              # `ON_ERROR_STOP` turns every SQL error into a failed Kubernetes
+              # Job. The quoted heredoc prevents shell expansion; psql receives
+              # only the explicit identifier/literal bindings below.
+              printf 'Provisioning fixed-scope ADTOF worker smoke access through Service %s:%s\n' "$PGHOST" "$PGPORT"
+
+              PGDATABASE="$ADTOF_WORKER_SMOKE_DB_NAME" \
+                psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                  --set=smoke_db_name="$ADTOF_WORKER_SMOKE_DB_NAME" \
+                  --set=smoke_db_username="$ADTOF_WORKER_SMOKE_DB_USERNAME" \
+                  --set=smoke_db_password="$ADTOF_WORKER_SMOKE_DB_PASSWORD" \
+                  --set=smoke_bootstrap_owner="$PGUSER" <<'SQL'
+              -- These zero-row probes reveal only required table shape. They
+              -- do not print a real Job, owner, event payload, object key,
+              -- task, error, or mounted credential. v006 is the ADTOF schema
+              -- gate; v004 supplied the legal `adtof.requested` vocabulary.
+              SELECT job_id, status, source_uploaded, stem_mode, stems, expires_at
+              FROM public.jobs
+              LIMIT 0;
+              SELECT event_id, job_id, stage, stem_name, event_type, payload,
+                     publication_status, published_at
+              FROM public.outbox_events
+              LIMIT 0;
+              SELECT task_id, job_id, stage, stem_name, request_event_id,
+                     status, attempt_count, lease_token, lease_expires_at, completed_at
+              FROM public.processing_tasks
+              LIMIT 0;
+
+              -- Named dollar tags are intentional. A shell/template layer can
+              -- reduce an anonymous `$$` to `$`, making a PostgreSQL block
+              -- invalid. A unique tag stays visible and safely balanced.
+              DO $adtof_smoke_bootstrap$
+              BEGIN
+                IF NOT EXISTS (
+                  SELECT 1 FROM public.schema_migrations
+                  WHERE migration_id = 'v004_downstream_outbox_events'
+                ) THEN
+                  RAISE EXCEPTION 'Required v004 downstream outbox migration is missing.';
+                END IF;
+                IF NOT EXISTS (
+                  SELECT 1 FROM public.schema_migrations
+                  WHERE migration_id = 'v006_adtof_processing_tasks'
+                ) THEN
+                  RAISE EXCEPTION 'Required v006 ADTOF task migration is missing.';
+                END IF;
+              END;
+              $adtof_smoke_bootstrap$;
+
+              -- Create the restricted login exactly once, then converge its
+              -- attributes/password on each deliberate rerun. Psql's forms
+              -- quote the identifier/literal so a value cannot alter SQL form.
+              SELECT format(
+                'CREATE ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT PASSWORD %L',
+                :'smoke_db_username',
+                :'smoke_db_password'
+              )
+              WHERE NOT EXISTS (
+                SELECT 1 FROM pg_roles WHERE rolname = :'smoke_db_username'
+              )
+              \gexec
+
+              ALTER ROLE :"smoke_db_username"
+                LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT
+                PASSWORD :'smoke_db_password';
+
+              -- Reset every direct privilege before adding the small capability
+              -- set. The future client gets neither DDL nor direct table /
+              -- sequence DML; it cannot inspect other Jobs or invent a second
+              -- test coordinate outside the trusted function bodies below.
+              REVOKE ALL PRIVILEGES ON DATABASE :"smoke_db_name"
+                FROM :"smoke_db_username";
+              GRANT CONNECT ON DATABASE :"smoke_db_name"
+                TO :"smoke_db_username";
+              REVOKE ALL PRIVILEGES ON SCHEMA public
+                FROM :"smoke_db_username";
+              GRANT USAGE ON SCHEMA public
+                TO :"smoke_db_username";
+              REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public
+                FROM :"smoke_db_username";
+              REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public
+                FROM :"smoke_db_username";
+              REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public
+                FROM :"smoke_db_username";
+
+              -- `prepare` accepts only generated size/digest evidence. All
+              -- UUIDs, object keys, owner, stage, stem, and event type are
+              -- hard-coded. It creates one legal ADTOF event, but deliberately
+              -- does not fabricate the worker-created processing-task row.
+              CREATE OR REPLACE FUNCTION public.clouddsp_adtof_worker_smoke_prepare(
+                p_stem_size_bytes BIGINT,
+                p_stem_sha256 TEXT
+              )
+              RETURNS TABLE (smoke_job_id UUID, smoke_event_id UUID)
+              LANGUAGE plpgsql
+              SECURITY DEFINER
+              SET search_path = pg_catalog, public
+              AS $adtof_smoke_prepare$
+              DECLARE
+                v_job_id CONSTANT UUID := '8d94ca4d-8f27-4d78-a01f-73ee0fb8c6bc';
+                v_event_id CONSTANT UUID := '0b37b59f-3634-47de-97f0-5a1f3e27ea2f';
+                v_input_key CONSTANT TEXT :=
+                  'stems/8d94ca4d-8f27-4d78-a01f-73ee0fb8c6bc/drums.wav';
+                v_source_key CONSTANT TEXT :=
+                  'uploads/8d94ca4d-8f27-4d78-a01f-73ee0fb8c6bc/adtof-worker-smoke.wav';
+              BEGIN
+                -- Evidence comes from the deterministic in-memory WAV. Reject
+                -- malformed or unbounded values before durable work exists.
+                IF p_stem_size_bytes IS NULL
+                   OR p_stem_size_bytes < 1
+                   OR p_stem_size_bytes > 1048576
+                   OR p_stem_sha256 IS NULL
+                   OR p_stem_sha256 !~ '^[0-9a-f]{64}$' THEN
+                  RAISE EXCEPTION 'ADTOF worker smoke input evidence is invalid.';
+                END IF;
+
+                PERFORM pg_advisory_xact_lock(842930519);
+                -- Residue is evidence of a failed/interrupted run. Never
+                -- overwrite it: an operator must diagnose or scoped-clean it
+                -- before reusing the one deliberately fixed test coordinate.
+                IF EXISTS (SELECT 1 FROM public.jobs WHERE job_id = v_job_id)
+                   OR EXISTS (SELECT 1 FROM public.outbox_events WHERE event_id = v_event_id)
+                   OR EXISTS (
+                     SELECT 1
+                     FROM public.processing_tasks
+                     WHERE job_id = v_job_id
+                       AND stage = 'adtof'
+                       AND stem_name = 'drums'
+                   ) THEN
+                  RAISE EXCEPTION 'ADTOF worker smoke coordinates are not clean.';
+                END IF;
+
+                INSERT INTO public.jobs (
+                  job_id, owner_sub, source_type, input_bucket, input_object_key,
+                  source_filename, source_content_type, source_size_bytes,
+                  source_uploaded, stem_mode, status, stems, expires_at
+                )
+                VALUES (
+                  v_job_id,
+                  'clouddsp-adtof-worker-smoke',
+                  'direct_upload',
+                  'clouddsp-uploads',
+                  v_source_key,
+                  'adtof-worker-smoke.wav',
+                  'audio/wav',
+                  p_stem_size_bytes,
+                  TRUE,
+                  '4-stems',
+                  'midi_processing',
+                  jsonb_build_object(
+                    'drums',
+                    jsonb_build_object(
+                      'status', 'ready',
+                      's3_key', v_input_key,
+                      'bucket', 'clouddsp-uploads',
+                      'content_type', 'audio/wav',
+                      'size_bytes', p_stem_size_bytes,
+                      'sha256', p_stem_sha256
+                    )
+                  ),
+                  CURRENT_TIMESTAMP + INTERVAL '10 minutes'
+                );
+
+                -- The JSONB body is exactly the persistent version-one
+                -- downstream-stem contract. This insert shares the Job's
+                -- transaction: it cannot leave a smoke Job without its durable
+                -- request event if PostgreSQL or the client stops mid-call.
+                INSERT INTO public.outbox_events (
+                  event_id, job_id, stage, stem_name, event_type, payload
+                )
+                VALUES (
+                  v_event_id,
+                  v_job_id,
+                  'adtof',
+                  'drums',
+                  'adtof.requested',
+                  jsonb_build_object(
+                    'schema_version', 1,
+                    'job_id', v_job_id::text,
+                    'stem_name', 'drums',
+                    'stem', jsonb_build_object(
+                      'bucket', 'clouddsp-uploads',
+                      'object_key', v_input_key,
+                      'content_type', 'audio/wav',
+                      'size_bytes', p_stem_size_bytes,
+                      'sha256', p_stem_sha256
+                    )
+                  )
+                );
+
+                RETURN QUERY SELECT v_job_id, v_event_id;
+              END;
+              $adtof_smoke_prepare$;
+
+              -- `observe` returns one compact, fixed-coordinate projection.
+              -- It reveals no raw payload, user subject, artifact JSON, error
+              -- text, or arbitrary table history, but allows a future client
+              -- to establish publication and real worker task completion.
+              CREATE OR REPLACE FUNCTION public.clouddsp_adtof_worker_smoke_observe()
+              RETURNS TABLE (
+                publication_status TEXT,
+                published_at TIMESTAMPTZ,
+                task_id UUID,
+                task_status TEXT,
+                task_attempt_count INTEGER,
+                task_lease_is_clear BOOLEAN,
+                task_completed_at TIMESTAMPTZ,
+                job_status TEXT
+              )
+              LANGUAGE sql
+              SECURITY DEFINER
+              SET search_path = pg_catalog, public
+              AS $adtof_smoke_observe$
+                SELECT
+                  event.publication_status,
+                  event.published_at,
+                  task.task_id,
+                  task.status,
+                  task.attempt_count,
+                  (
+                    task.task_id IS NOT NULL
+                    AND task.lease_token IS NULL
+                    AND task.lease_expires_at IS NULL
+                  ) AS task_lease_is_clear,
+                  task.completed_at,
+                  job.status
+                FROM public.jobs AS job
+                JOIN public.outbox_events AS event
+                  ON event.job_id = job.job_id
+                LEFT JOIN public.processing_tasks AS task
+                  ON task.job_id = job.job_id
+                 AND task.stage = 'adtof'
+                 AND task.stem_name = 'drums'
+                WHERE job.job_id = '8d94ca4d-8f27-4d78-a01f-73ee0fb8c6bc'::uuid
+                  AND job.owner_sub = 'clouddsp-adtof-worker-smoke'
+                  AND event.event_id = '0b37b59f-3634-47de-97f0-5a1f3e27ea2f'::uuid
+                  AND event.stage = 'adtof'
+                  AND event.stem_name = 'drums'
+                  AND event.event_type = 'adtof.requested';
+              $adtof_smoke_observe$;
+
+              -- Cleanup is a capability for an already-complete happy path,
+              -- not a failure eraser. The later client deletes the exact input
+              -- and output objects before calling this function; a failed or
+              -- timed-out test leaves durable rows available for diagnosis.
+              CREATE OR REPLACE FUNCTION public.clouddsp_adtof_worker_smoke_cleanup()
+              RETURNS BOOLEAN
+              LANGUAGE plpgsql
+              SECURITY DEFINER
+              SET search_path = pg_catalog, public
+              AS $adtof_smoke_cleanup$
+              DECLARE
+                did_delete BOOLEAN;
+              BEGIN
+                DELETE FROM public.jobs AS job
+                WHERE job.job_id = '8d94ca4d-8f27-4d78-a01f-73ee0fb8c6bc'::uuid
+                  AND job.owner_sub = 'clouddsp-adtof-worker-smoke'
+                  AND job.status = 'midi_processing'
+                  AND EXISTS (
+                    SELECT 1
+                    FROM public.outbox_events AS event
+                    WHERE event.event_id = '0b37b59f-3634-47de-97f0-5a1f3e27ea2f'::uuid
+                      AND event.job_id = job.job_id
+                      AND event.stage = 'adtof'
+                      AND event.stem_name = 'drums'
+                      AND event.event_type = 'adtof.requested'
+                      AND event.publication_status = 'published'
+                  )
+                  AND EXISTS (
+                    SELECT 1
+                    FROM public.processing_tasks AS task
+                    WHERE task.job_id = job.job_id
+                      AND task.stage = 'adtof'
+                      AND task.stem_name = 'drums'
+                      AND task.status = 'succeeded'
+                      AND task.attempt_count = 1
+                      AND task.lease_token IS NULL
+                      AND task.lease_expires_at IS NULL
+                      AND task.completed_at IS NOT NULL
+                  )
+                RETURNING TRUE INTO did_delete;
+                RETURN COALESCE(did_delete, FALSE);
+              END;
+              $adtof_smoke_cleanup$;
+
+              -- The owner is reasserted before the grants so a later repair
+              -- cannot make the restricted test role owner of its own trusted
+              -- functions. PostgreSQL otherwise grants PUBLIC execute by
+              -- default, so revoke that implicit authority on every rerun.
+              ALTER FUNCTION public.clouddsp_adtof_worker_smoke_prepare(BIGINT, TEXT)
+                OWNER TO :"smoke_bootstrap_owner";
+              ALTER FUNCTION public.clouddsp_adtof_worker_smoke_observe()
+                OWNER TO :"smoke_bootstrap_owner";
+              ALTER FUNCTION public.clouddsp_adtof_worker_smoke_cleanup()
+                OWNER TO :"smoke_bootstrap_owner";
+              REVOKE ALL ON FUNCTION public.clouddsp_adtof_worker_smoke_prepare(BIGINT, TEXT) FROM PUBLIC;
+              REVOKE ALL ON FUNCTION public.clouddsp_adtof_worker_smoke_observe() FROM PUBLIC;
+              REVOKE ALL ON FUNCTION public.clouddsp_adtof_worker_smoke_cleanup() FROM PUBLIC;
+              GRANT EXECUTE ON FUNCTION public.clouddsp_adtof_worker_smoke_prepare(BIGINT, TEXT)
+                TO :"smoke_db_username";
+              GRANT EXECUTE ON FUNCTION public.clouddsp_adtof_worker_smoke_observe()
+                TO :"smoke_db_username";
+              GRANT EXECUTE ON FUNCTION public.clouddsp_adtof_worker_smoke_cleanup()
+                TO :"smoke_db_username";
+              SQL
+
+              # Reconnect as the restricted role and emit privilege facts only.
+              # The Job intentionally prints no object coordinate, payload, or
+              # Secret. A broad direct grant or missing function is visible.
+              PGDATABASE="$ADTOF_WORKER_SMOKE_DB_NAME" \
+              PGUSER="$ADTOF_WORKER_SMOKE_DB_USERNAME" \
+              PGPASSWORD="$ADTOF_WORKER_SMOKE_DB_PASSWORD" \
+                psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 <<'SQL'
+              SELECT
+                current_database() AS database,
+                current_user AS role,
+                has_table_privilege(current_user, 'public.jobs', 'SELECT') AS can_select_jobs,
+                has_table_privilege(current_user, 'public.jobs', 'INSERT') AS can_insert_jobs,
+                has_table_privilege(current_user, 'public.jobs', 'DELETE') AS can_delete_jobs,
+                has_table_privilege(current_user, 'public.outbox_events', 'SELECT') AS can_select_outbox,
+                has_table_privilege(current_user, 'public.outbox_events', 'INSERT') AS can_insert_outbox,
+                has_table_privilege(current_user, 'public.processing_tasks', 'SELECT') AS can_select_tasks,
+                has_function_privilege(
+                  current_user,
+                  'public.clouddsp_adtof_worker_smoke_prepare(bigint,text)',
+                  'EXECUTE'
+                ) AS can_prepare_smoke,
+                has_function_privilege(
+                  current_user,
+                  'public.clouddsp_adtof_worker_smoke_observe()',
+                  'EXECUTE'
+                ) AS can_observe_smoke,
+                has_function_privilege(
+                  current_user,
+                  'public.clouddsp_adtof_worker_smoke_cleanup()',
+                  'EXECUTE'
+                ) AS can_cleanup_smoke;
+              SQL
+              printf 'Fixed-scope ADTOF worker smoke PostgreSQL bootstrap passed\n'

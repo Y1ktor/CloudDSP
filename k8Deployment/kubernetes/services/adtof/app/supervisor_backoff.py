@@ -162,12 +162,14 @@ def supervisor_event_for_adtof_recovery_iteration(
 ) -> ADTOFSupervisorEvent:
     """Map one recovery scan to immediate progress, including recovery idle.
 
-    A recovery ``idle`` means only that no expired PostgreSQL task was found.
-    It says nothing about the normal RabbitMQ queue, which is scheduled next by
-    the fairness cadence. Mapping it to normal progress avoids adding the
-    AMQP-empty one-second wait before that next broker poll. A recovery result
-    is still structurally validated by its own dataclass before it reaches this
-    policy; exceptions remain outside this normal-result mapper.
+    A recovery ``idle`` means only that no expired PostgreSQL task was found;
+    a third-attempt ``terminalized`` result is likewise durable progress, not
+    CPU work. Neither says anything about the normal RabbitMQ queue, which is
+    scheduled next by the fairness cadence. Mapping every valid recovery fact
+    to normal progress avoids adding the AMQP-empty one-second wait before that
+    next broker poll. A recovery result is still structurally validated by its
+    own dataclass before it reaches this policy; exceptions remain outside this
+    normal-result mapper.
     """
 
     if not isinstance(result, ADTOFRecoveryIterationResult):

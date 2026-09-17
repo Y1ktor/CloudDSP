@@ -7,6 +7,7 @@ resources.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 import unittest
 
 from app.claimed_task_success import ADTOFClaimedTaskSuccess, ADTOFClaimedTaskSuccessOutcome
@@ -19,12 +20,26 @@ from app.recovery_cadence import (
 )
 from app.recovery_execute_once import ADTOFRecoveryIterationOutcome, ADTOFRecoveryIterationResult
 from app.receive_execute_once import ADTOFWorkerIterationOutcome, ADTOFWorkerIterationResult
+from app.task_claim import ADTOFExpiredLeaseTerminalization
 
 
 def execution() -> ADTOFClaimedTaskSuccess:
     """Return compact ownership-loss evidence without an external side effect."""
 
     return ADTOFClaimedTaskSuccess(ADTOFClaimedTaskSuccessOutcome.OWNERSHIP_LOST)
+
+
+def terminalization() -> ADTOFExpiredLeaseTerminalization:
+    """Return task-only evidence that no fourth recovery lease is possible."""
+
+    return ADTOFExpiredLeaseTerminalization(
+        task_id="9381d35a-355f-4fb1-bb39-32ceba7d917f",
+        job_id="08ec1d44-3106-4fcb-91c8-5d0c78e7e046",
+        stem_name="drums",
+        attempt_count=3,
+        completed_at=datetime(2026, 9, 14, 12, 30, tzinfo=UTC),
+        error_code="lease_expired_attempts_exhausted",
+    )
 
 
 class ADTOFRecoveryCadenceTests(unittest.TestCase):
@@ -45,6 +60,23 @@ class ADTOFRecoveryCadenceTests(unittest.TestCase):
         state = advance_after_adtof_recovery_iteration(
             state,
             ADTOFRecoveryIterationResult(ADTOFRecoveryIterationOutcome.IDLE),
+        )
+        self.assertEqual(state.next_action, ADTOFWorkerCadenceAction.RUN_NORMAL_ITERATION)
+
+        # A terminal third attempt is durable recovery progress, not a failed
+        # scan. The cadence must still yield exactly one normal AMQP turn.
+        state = advance_after_adtof_normal_iteration(
+            state,
+            ADTOFWorkerIterationResult(
+                ADTOFWorkerIterationOutcome.ACKNOWLEDGED_NO_WORK,
+            ),
+        )
+        state = advance_after_adtof_recovery_iteration(
+            state,
+            ADTOFRecoveryIterationResult(
+                ADTOFRecoveryIterationOutcome.TERMINALIZED,
+                terminalization=terminalization(),
+            ),
         )
         self.assertEqual(state.next_action, ADTOFWorkerCadenceAction.RUN_NORMAL_ITERATION)
 
