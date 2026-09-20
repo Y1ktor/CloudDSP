@@ -15,6 +15,8 @@ upload, and all terminal/retry decisions.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -54,6 +56,71 @@ class ValidatedDemucsSource:
     audio_probe: VerifiedDemucsAudioProbe
 
 
+@dataclass(frozen=True)
+class OpenedValidatedDemucsSourceWorkspace:
+    """One verified source path that exists only inside a caller's ``with`` scope.
+
+    ``validated_source`` is durable-safe HeadObject/FFprobe evidence; its
+    companion ``source_path`` is intentionally ephemeral Pod-local data. The
+    context manager below owns the random scratch child and removes it after
+    the caller returns or raises. A future Demucs process must therefore run
+    *inside* that scope and must never persist or log ``source_path``.
+    """
+
+    validated_source: ValidatedDemucsSource
+    source_path: Path
+
+    def __post_init__(self) -> None:
+        """Reject a malformed handoff before it reaches a model command builder."""
+
+        if not isinstance(self.validated_source, ValidatedDemucsSource):
+            raise TypeError("Demucs source workspace requires validated source evidence.")
+        if not isinstance(self.source_path, Path):
+            raise TypeError("Demucs source workspace path is invalid.")
+
+
+@contextmanager
+def opened_validated_demucs_source_workspace(
+    client: DemucsSourcePreflightClient,
+    *,
+    lease: DemucsTaskLease,
+    work_directory: Path,
+    ffprobe_runner: DemucsFFprobeRunner | None = None,
+) -> Iterator[OpenedValidatedDemucsSourceWorkspace]:
+    """Open one verified local source only for a bounded caller-owned operation.
+
+    This is the reusable source-admission/workspace boundary:
+
+    ``HeadObject -> exact streaming GetObject -> FFprobe -> yield local path``.
+
+    The yielded path remains below the existing Pod scratch mount only until
+    the ``with`` block ends. The underlying download context then closes the
+    S3 body and deletes its random child directory on success, on a model
+    failure, or when an outer worker begins graceful shutdown. No database
+    state, RabbitMQ action, model command, artifact write, or retry decision is
+    made here; callers retain those distinct durable responsibilities.
+    """
+
+    verified_object = verify_claimed_demucs_source_head_object(client, lease=lease)
+    with downloaded_verified_demucs_source(
+        client,
+        source=verified_object,
+        work_directory=work_directory,
+    ) as downloaded:
+        audio_probe = run_verified_demucs_audio_probe(
+            source_path=downloaded.source_path,
+            work_directory=work_directory,
+            runner=ffprobe_runner,
+        )
+        yield OpenedValidatedDemucsSourceWorkspace(
+            validated_source=ValidatedDemucsSource(
+                source_object=verified_object,
+                audio_probe=audio_probe,
+            ),
+            source_path=downloaded.source_path,
+        )
+
+
 def validate_claimed_demucs_source(
     client: DemucsSourcePreflightClient,
     *,
@@ -73,18 +140,14 @@ def validate_claimed_demucs_source(
     FFprobe process condition.
     """
 
-    verified_object = verify_claimed_demucs_source_head_object(client, lease=lease)
-    with downloaded_verified_demucs_source(
+    # Keep the established evidence-only helper for callers that deliberately
+    # must not retain a local path. The new workspace API above is the separate
+    # future model handoff: it exposes the same source only inside its caller's
+    # context manager, then uses this identical cleanup boundary.
+    with opened_validated_demucs_source_workspace(
         client,
-        source=verified_object,
+        lease=lease,
         work_directory=work_directory,
-    ) as downloaded:
-        audio_probe = run_verified_demucs_audio_probe(
-            source_path=downloaded.source_path,
-            work_directory=work_directory,
-            runner=ffprobe_runner,
-        )
-    return ValidatedDemucsSource(
-        source_object=verified_object,
-        audio_probe=audio_probe,
-    )
+        ffprobe_runner=ffprobe_runner,
+    ) as workspace:
+        return workspace.validated_source

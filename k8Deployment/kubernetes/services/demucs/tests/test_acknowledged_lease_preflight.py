@@ -7,6 +7,8 @@ RabbitMQ, PostgreSQL, MinIO, FFprobe, a Demucs model, Docker, or Kubernetes.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 import unittest
@@ -14,10 +16,11 @@ from unittest.mock import MagicMock, patch
 
 from app.acknowledged_lease_preflight import (
     DemucsAcknowledgedLeasePreflightError,
+    opened_acknowledged_demucs_source_workspace,
     preflight_acknowledged_demucs_lease,
 )
 from app.amqp_manual_ack import DemucsConsumeOneOutcome, DemucsConsumeOneResult
-from app.source_preflight import ValidatedDemucsSource
+from app.source_preflight import OpenedValidatedDemucsSourceWorkspace, ValidatedDemucsSource
 from app.task_lease import DemucsTaskLease
 
 
@@ -116,6 +119,72 @@ class AcknowledgedLeasePreflightTests(unittest.TestCase):
             )
 
         self.assertIs(raised.exception, failure)
+
+    def test_workspace_retains_a_path_only_for_an_acknowledged_lease(self) -> None:
+        """A future `leased -> running` transaction can receive evidence without a path."""
+
+        lease = acknowledged_lease()
+        source = MagicMock(spec=ValidatedDemucsSource)
+        local_path = Path("/worker-scratch/demucs-source-random/source.media")
+        calls: list[tuple[object, object, object, object]] = []
+
+        @contextmanager
+        def opened_workspace(
+            client: object,
+            *,
+            lease: DemucsTaskLease,
+            work_directory: Path,
+            ffprobe_runner: object | None = None,
+        ) -> Iterator[OpenedValidatedDemucsSourceWorkspace]:
+            calls.append((client, lease, work_directory, ffprobe_runner))
+            yield OpenedValidatedDemucsSourceWorkspace(
+                validated_source=source,
+                source_path=local_path,
+            )
+
+        result = DemucsConsumeOneResult(
+            outcome=DemucsConsumeOneOutcome.ACKNOWLEDGED_LEASE,
+            lease=lease,
+        )
+        client = object()
+        runner = object()
+        with patch(
+            "app.acknowledged_lease_preflight.opened_validated_demucs_source_workspace",
+            opened_workspace,
+        ):
+            with opened_acknowledged_demucs_source_workspace(
+                result,
+                client,  # type: ignore[arg-type]
+                work_directory=Path("/worker-scratch"),
+                ffprobe_runner=runner,  # type: ignore[arg-type]
+            ) as workspace:
+                self.assertIs(workspace.lease, lease)
+                self.assertIs(workspace.source, source)
+                self.assertEqual(workspace.source_path, local_path)
+                self.assertIs(workspace.preflight.lease, lease)
+                self.assertIs(workspace.preflight.source, source)
+
+        self.assertEqual(calls, [(client, lease, Path("/worker-scratch"), runner)])
+
+    @patch("app.acknowledged_lease_preflight.opened_validated_demucs_source_workspace")
+    def test_workspace_rejects_every_no_work_outcome_before_opening_storage(self, opened_workspace) -> None:
+        """The temporary-file capability is not available for historic deliveries."""
+
+        for outcome in (
+            DemucsConsumeOneOutcome.IDLE,
+            DemucsConsumeOneOutcome.ACKNOWLEDGED_NO_WORK,
+            DemucsConsumeOneOutcome.MALFORMED_REJECTED,
+        ):
+            with self.subTest(outcome=outcome):
+                with self.assertRaises(DemucsAcknowledgedLeasePreflightError):
+                    with opened_acknowledged_demucs_source_workspace(
+                        DemucsConsumeOneResult(outcome=outcome),
+                        object(),  # type: ignore[arg-type]
+                        work_directory=Path("/worker-scratch"),
+                    ):
+                        self.fail("A no-work receive outcome must not open a source workspace.")
+
+        opened_workspace.assert_not_called()
 
 
 if __name__ == "__main__":

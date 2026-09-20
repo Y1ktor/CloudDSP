@@ -14,7 +14,11 @@ from pathlib import Path
 from app.audio_probe import DemucsAudioProbeProtocolError
 from app.source_download import DemucsSourceDownloadConsistencyError
 from app.source_object import DemucsPermanentSourceVerificationError
-from app.source_preflight import validate_claimed_demucs_source
+from app.source_preflight import (
+    OpenedValidatedDemucsSourceWorkspace,
+    opened_validated_demucs_source_workspace,
+    validate_claimed_demucs_source,
+)
 from app.task_lease import DemucsTaskLease
 
 
@@ -143,6 +147,44 @@ class DemucsSourcePreflightTests(unittest.TestCase):
         self.assertTrue(body.closed)
         self.assertEqual(len(runner.source_paths), 1)
         self.assertFalse(runner.source_paths[0].exists())
+
+    def test_workspace_exposes_verified_source_only_until_the_caller_leaves_scope(self) -> None:
+        """A future model can reuse FFprobe's bytes without retaining them afterward."""
+
+        body = FakeBody([b"abc", b"def"])
+        client = FakeMinioClient(
+            head_response=valid_head_response(),
+            get_response={"ContentLength": 6, "Body": body},
+        )
+        runner = FakeFFprobeRunner(
+            b'{"format":{"duration":"12.5"},"streams":[{"codec_type":"audio"}]}'
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            work_directory = Path(temporary_directory)
+            with opened_validated_demucs_source_workspace(
+                client,
+                lease=lease(),
+                work_directory=work_directory,
+                ffprobe_runner=runner,
+            ) as workspace:
+                self.assertIsInstance(workspace, OpenedValidatedDemucsSourceWorkspace)
+                source_path = workspace.source_path
+                self.assertTrue(source_path.exists())
+                self.assertEqual(source_path.read_bytes(), b"abcdef")
+                self.assertEqual(workspace.validated_source.source_object.size_bytes, 6)
+                self.assertEqual(str(workspace.validated_source.audio_probe.duration_seconds), "12.5")
+
+            self.assertFalse(source_path.exists())
+            self.assertEqual(list(work_directory.iterdir()), [])
+
+        self.assertEqual(
+            client.calls,
+            [
+                f"head:clouddsp-uploads:uploads/{JOB_ID}/mix.wav",
+                f"get:clouddsp-uploads:uploads/{JOB_ID}/mix.wav",
+            ],
+        )
+        self.assertTrue(body.closed)
 
     def test_headobject_rejection_stops_download_and_ffprobe(self) -> None:
         """Wrong object metadata is permanent evidence failure before byte transfer."""

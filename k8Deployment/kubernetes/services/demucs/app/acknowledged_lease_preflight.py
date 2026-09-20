@@ -16,6 +16,8 @@ make them explicit and testable.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -23,7 +25,9 @@ from app.amqp_manual_ack import DemucsConsumeOneOutcome, DemucsConsumeOneResult
 from app.ffprobe_process import DemucsFFprobeRunner
 from app.source_preflight import (
     DemucsSourcePreflightClient,
+    OpenedValidatedDemucsSourceWorkspace,
     ValidatedDemucsSource,
+    opened_validated_demucs_source_workspace,
     validate_claimed_demucs_source,
 )
 from app.task_lease import DemucsTaskLease
@@ -55,6 +59,94 @@ class DemucsAcknowledgedLeasePreflight:
     source: ValidatedDemucsSource
 
 
+@dataclass(frozen=True)
+class DemucsAcknowledgedLeaseSourceWorkspace:
+    """A broker-acknowledged lease plus a temporary model-eligible source path.
+
+    The ``source_path`` has no meaning after the surrounding context manager
+    exits. ``preflight`` deliberately returns only the durable-safe lease and
+    source evidence needed by the existing guarded `leased -> running`
+    transaction; it never carries the local path into PostgreSQL.
+    """
+
+    lease: DemucsTaskLease
+    source: ValidatedDemucsSource
+    source_path: Path
+
+    def __post_init__(self) -> None:
+        """Keep durable evidence and ephemeral media handoff shapes explicit."""
+
+        if not isinstance(self.lease, DemucsTaskLease):
+            raise TypeError("Demucs acknowledged source workspace lease is invalid.")
+        if not isinstance(self.source, ValidatedDemucsSource):
+            raise TypeError("Demucs acknowledged source workspace evidence is invalid.")
+        if not isinstance(self.source_path, Path):
+            raise TypeError("Demucs acknowledged source workspace path is invalid.")
+
+    @property
+    def preflight(self) -> DemucsAcknowledgedLeasePreflight:
+        """Return the existing durable-safe handoff without exposing a local path."""
+
+        return DemucsAcknowledgedLeasePreflight(lease=self.lease, source=self.source)
+
+
+def _acknowledged_lease_or_raise(receive_result: DemucsConsumeOneResult) -> DemucsTaskLease:
+    """Extract the one lease that may start storage/media work after broker ack."""
+
+    if not isinstance(receive_result, DemucsConsumeOneResult):
+        raise TypeError("receive_result must be DemucsConsumeOneResult.")
+    if receive_result.outcome is not DemucsConsumeOneOutcome.ACKNOWLEDGED_LEASE:
+        raise DemucsAcknowledgedLeasePreflightError(
+            "Demucs source preflight requires an acknowledged task lease."
+        )
+
+    # The result dataclass enforces this pairing at construction. Retaining the
+    # guard protects this boundary if unsafe integration code or a test double
+    # bypasses normal construction and loses the token after an acknowledgement.
+    lease = receive_result.lease
+    if lease is None:
+        raise DemucsAcknowledgedLeasePreflightError(
+            "Demucs source preflight requires an acknowledged task lease."
+        )
+    return lease
+
+
+@contextmanager
+def opened_acknowledged_demucs_source_workspace(
+    receive_result: DemucsConsumeOneResult,
+    client: DemucsSourcePreflightClient,
+    *,
+    work_directory: Path,
+    ffprobe_runner: DemucsFFprobeRunner | None = None,
+) -> Iterator[DemucsAcknowledgedLeaseSourceWorkspace]:
+    """Yield one verified local source only after its task lease was acknowledged.
+
+    This is the future model handoff. It reuses the narrow source workspace
+    boundary, but adds the non-negotiable manual-ack guard: idle, duplicate,
+    stale, and malformed delivery outcomes cannot call MinIO, start FFprobe,
+    or obtain a local media path. The scope ends before any later loop can
+    receive another broker message, ensuring one worker owns at most one local
+    source file under its existing ``prefetch=1`` policy.
+    """
+
+    lease = _acknowledged_lease_or_raise(receive_result)
+    with opened_validated_demucs_source_workspace(
+        client,
+        lease=lease,
+        work_directory=work_directory,
+        ffprobe_runner=ffprobe_runner,
+    ) as workspace:
+        # Keep this narrow structural check at the boundary so an unsafe future
+        # replacement context manager cannot fabricate a lease/path pairing.
+        if not isinstance(workspace, OpenedValidatedDemucsSourceWorkspace):
+            raise TypeError("Demucs source workspace is invalid.")
+        yield DemucsAcknowledgedLeaseSourceWorkspace(
+            lease=lease,
+            source=workspace.validated_source,
+            source_path=workspace.source_path,
+        )
+
+
 def preflight_acknowledged_demucs_lease(
     receive_result: DemucsConsumeOneResult,
     client: DemucsSourcePreflightClient,
@@ -73,19 +165,7 @@ def preflight_acknowledged_demucs_lease(
     retryable dependency faults without losing their meaning.
     """
 
-    if receive_result.outcome is not DemucsConsumeOneOutcome.ACKNOWLEDGED_LEASE:
-        raise DemucsAcknowledgedLeasePreflightError(
-            "Demucs source preflight requires an acknowledged task lease."
-        )
-
-    # The result dataclass enforces this pairing at construction. Retaining the
-    # defensive guard protects this boundary if an unsafe object is supplied by
-    # future integration code or a test double bypasses normal construction.
-    lease = receive_result.lease
-    if lease is None:
-        raise DemucsAcknowledgedLeasePreflightError(
-            "Demucs source preflight requires an acknowledged task lease."
-        )
+    lease = _acknowledged_lease_or_raise(receive_result)
 
     source = validate_claimed_demucs_source(
         client,

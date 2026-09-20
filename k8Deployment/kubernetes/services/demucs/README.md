@@ -272,6 +272,16 @@ returns. It preserves the individual exception categories for the future
 token-guarded result adapter; it does not transition PostgreSQL state or make a
 RabbitMQ acknowledgement decision.
 
+The companion `opened_validated_demucs_source_workspace()` context manager
+performs the same three checks but yields the resulting generic scratch path
+only while its `with` block is active. The source body and random scratch child
+are removed after every normal or exceptional exit, so a later Demucs command
+can reuse FFprobe's exact verified bytes without persisting a path or making a
+second MinIO download. `opened_acknowledged_demucs_source_workspace()` adds the
+manual-ack lease gate: only an `ACKNOWLEDGED_LEASE` result can obtain that
+temporary file capability. Its `preflight` property exposes only durable-safe
+evidence to the existing guarded `leased → running` database transition.
+
 [`minio_client.py`](app/minio_client.py) supplies the eventual real client for
 that preflight composition. It validates that a Pod has only internal `.svc`
 MinIO routing, the fixed uploads bucket/region, path-style addressing, and its
@@ -378,6 +388,16 @@ ownership-loss, rollback, and outage ordering. It does not receive another
 broker delivery, renew ownership, run the model, write artifacts, build an
 image, create a Deployment, or change the cluster.
 
+[`running_source_workspace.py`](app/running_source_workspace.py) joins that
+guarded transaction to the already-open temporary source workspace without
+widening either boundary. It yields a model-eligible path only after the
+transaction committed a `running` result with the same lease and source
+evidence; a committed ownership loss yields `None`, so the caller must leave
+the source context without starting CPU/GPU work. The file remains local only
+for the enclosing context and is not stored in PostgreSQL. This source-only
+handoff does not yet build a Demucs command, invoke the model, renew a lease,
+write a stem, or process another RabbitMQ delivery.
+
 [`demucs_command.py`](app/demucs_command.py) now fixes the next local process
 boundary's CPU-only argument vector without starting a child process. It keeps
 the cloud model choices (`htdemucs` for two/four stems and `htdemucs_6s` for
@@ -402,6 +422,247 @@ it does not trust any stem or upload it. Four fake-runner tests prove approval,
 tamper rejection, failure propagation, and deadline validation without running
 Demucs/Torch. No model command was executed, and this adds no image, Deployment,
 or cluster change.
+
+[`executed_separation_workspace.py`](app/executed_separation_workspace.py) now
+composes the committed `running` source workspace with that exact CPU command
+and bounded runner. It creates one new random, empty `demucs-output-` directory
+under validated Pod scratch, derives the stem mode solely from the committed
+lease, and yields a zero-exit command/output pairing only while both source and
+output contexts remain open. The next task must validate that output before any
+MinIO call; a zero exit is not a completed task and no stem is inspected,
+hashed, uploaded, or written to PostgreSQL here. Four fake-runner tests prove
+the four-stem and six-stem fixed model choices, source-cleanup gate, failure
+propagation, and output cleanup without starting Demucs/Torch. This remains a
+source-only change: it does not rebuild an image, deploy a worker, or change
+the cluster.
+
+[`validated_stem_inventory_workspace.py`](app/validated_stem_inventory_workspace.py)
+now nests the existing strict local stem validator inside that still-open
+execution workspace. It yields evidence only when the zero-exit output tree has
+exactly the current mode's expected non-empty regular WAV files, and it keeps
+the exact command object identity paired with those private paths. Missing,
+extra, empty, or unsafe entries stop before a hashing or MinIO boundary; the
+outer execution scope removes the output on every exit path. Four fake-runner
+tests prove complete inventory, incomplete-output rejection, outer cleanup, and
+substituted-command rejection. It performs no hash, upload, PostgreSQL update,
+lease renewal, RabbitMQ action, image rebuild, Deployment, or cluster change.
+
+[`hashed_stem_inventory_workspace.py`](app/hashed_stem_inventory_workspace.py)
+now nests the existing streaming SHA-256 boundary inside the validated-inventory
+scope. It revalidates every exact WAV artifact before reading it, preserves the
+same command and per-stem name/path/byte-count pairing, and yields only current
+digest evidence while the outer temporary output directory exists. A changed,
+missing, or unsafe artifact cannot reach a future object-plan/upload boundary;
+the outer execution scope cleans the whole tree after any outcome. Four
+fake-runner tests prove complete digest evidence, post-inventory change
+rejection, cleanup, and cloned-command rejection. It makes no MinIO request,
+PostgreSQL update, lease decision, RabbitMQ action, image rebuild, Deployment,
+or cluster change.
+
+[`stem_output_plan_workspace.py`](app/stem_output_plan_workspace.py) now nests
+the deterministic private object planner inside that hashed workspace. It
+derives only stable `stems/{job_id}/{stem_name}.wav` plans, retains each exact
+current local path/byte-count/digest alongside the committed lease, and checks
+the fixed bucket, type, key, and complete provenance metadata before yielding.
+A later uploader must still stream and rehash the same temporary file; no
+MinIO request occurs merely by making a plan. Four fake-runner tests prove the
+complete stable plan set, post-hash mutation rejection, outer cleanup, and a
+substituted planner result. This adds no upload, PostgreSQL update, lease
+action, RabbitMQ action, image rebuild, Deployment, or cluster change.
+
+[`planned_stem_upload.py`](app/planned_stem_upload.py) now invokes the existing
+restricted streaming/hash MinIO adapter for exactly one plan instance from that
+open workspace. It forbids cloned or arbitrary plans, requires the returned
+receipt to match the selected bucket/key/length/SHA-256 evidence, and leaves
+the lower adapter to rehash before and during the actual private `PutObject`.
+Three fake-client tests prove one selected upload, clone/byte-change rejection,
+and receipt matching; a fourth proves an arbitrary workspace cannot select a
+storage coordinate. It does not aggregate all stems, write PostgreSQL, renew or
+finish a lease, publish/acknowledge RabbitMQ work, rebuild an image, deploy a
+worker, or change the cluster.
+
+[`complete_stem_upload.py`](app/complete_stem_upload.py) now calls that
+one-stem handoff sequentially for every fixed plan, returning the existing
+receipt-only `PublishedDemucsStemSet` type only after every upload succeeds in
+deterministic stem order. If an upload fails, later writes stop and earlier
+private retry-overwritable objects remain unexposed; no complete receipt set or
+PostgreSQL update is made. Three fake-client tests prove complete ordered
+receipts, a later transport failure that stops the sequence, and arbitrary
+workspace rejection. It does not run Demucs, plan objects, write PostgreSQL,
+renew/finish a lease, publish/acknowledge RabbitMQ work, rebuild an image,
+deploy a worker, or change the cluster.
+
+[`complete_stem_upload_commit.py`](app/complete_stem_upload_commit.py) now
+joins that complete receipt set to the existing token-guarded PostgreSQL
+completion transaction. It verifies transaction and outbox-ID-factory
+capabilities before MinIO writes, uploads the full fixed set with no database
+transaction open, then calls the existing completion path that atomically marks
+the task/Job complete and inserts downstream outbox rows. A committed no-row
+lease loss returns `None`, so it exposes no durable success or downstream
+publish action. Three mocked-boundary tests prove upload-before-transaction
+ordering, ownership loss, and no uploads when the database capability is
+missing. It does not directly publish or acknowledge RabbitMQ, rebuild an
+image, deploy a worker, or change the cluster.
+
+[`task_runtime_once.py`](app/task_runtime_once.py) now nests the completed
+boundaries into one single-task attempt for an already acknowledged AMQP result:
+source verification, committed running transition, CPU process, exact local
+stem evidence, private uploads, and guarded completion. It validates the
+narrow source/artifact/database/outbox-ID capabilities before source or model
+work, holds no PostgreSQL transaction across storage or CPU work, and unwinds
+all temporary directories on every exit path. A start or completion lease loss
+returns `None`; exceptions remain for a later supervisor to classify. Three
+mocked-boundary tests prove exact nesting/unwinding, no-model ownership loss,
+and the database-capability gate. It receives no new AMQP message, loops or
+retries nothing, directly publishes/acknowledges no RabbitMQ action, rebuilds
+no image, and changes no Deployment or cluster resource.
+
+[`source_failure_classification.py`](app/source_failure_classification.py) now
+defines the narrow pre-model exception vocabulary needed by the next durable
+result layer. Immutable HeadObject metadata/source-limit, FFprobe media-limit,
+and HeadObject/GetObject consistency mismatches map to finite terminal codes;
+only the already-redacted HeadObject/GetObject availability wrappers map to a
+single retry code. MinIO protocol, FFprobe process/protocol, model, artifact,
+database, and unknown failures intentionally remain unclassified. The module
+does not write PostgreSQL yet: a following task must consume its result with a
+lease-token-guarded `leased -> retry_scheduled` or `leased -> failed` update,
+and atomically fail the authoritative Job for every terminal result, including
+the third transient failure. Five pure tests prove the exact mapping without a
+worker loop, image, Deployment, or cluster side effect.
+
+[`pre_model_failure_transition.py`](app/pre_model_failure_transition.py) now
+owns that pure, parameterized PostgreSQL decision. It locks the retained
+`source_uploaded` Job and requires every current task coordinate, attempt,
+lease UUID, and PostgreSQL-clock expiry. A first/second known MinIO outage
+clears the active lease and sets `retry_scheduled` at a database-clock time 30
+seconds later; a permanent source rejection, or third outage, atomically marks
+the task and Job `failed`, increments the Job revision, and stores only the
+reviewed category. A no-row outcome is normal lease/retention/state loss, not
+a permission to invent another result. The adapter opens no connection or
+transaction and makes no broker, model, image, Deployment, or cluster change;
+the next small task is the short commit/rollback wrapper around it. Five fake
+cursor tests prove the two atomic paths, bounded exhaustion, race, and
+unclassified-error rejection.
+
+[`pre_model_failure_transition_commit.py`](app/pre_model_failure_transition_commit.py)
+now supplies the missing short transaction scope. It obtains one restricted
+`write_cursor()`, calls the guarded retry/terminal decision exactly once, and
+does not return its evidence until normal context exit has committed. A no-row
+race commits normally as ownership loss; a database or protocol exception
+escapes so the context rolls back. It adds no exception catch, retry sleep,
+recovery scan, RabbitMQ action, model work, image rebuild, Deployment, or
+cluster change. Four in-memory tests prove commit, normal no-row handling,
+rollback, and the early database-capability guard. The next small task can
+connect classified source exceptions from the one-task runtime to this committed
+decision.
+
+[`pre_model_failure_runtime.py`](app/pre_model_failure_runtime.py) now makes
+that connection without widening the worker into a supervisor. It wraps one
+already-acknowledged one-task attempt, preserves successful completion and
+normal ownership loss, and catches only the reviewed source-preflight failure
+wrappers. A committed terminal/retry result becomes an explicit safe outcome;
+a no-row transition race becomes ownership loss. Model, output-upload,
+database, source-protocol, and unknown errors remain their original exceptions
+and receive no source-failure SQL. It neither receives/acknowledges RabbitMQ,
+renews/recover tasks, sleeps, rebuilds an image, changes a Deployment, nor
+alters KEDA. Five mocked-boundary tests prove success, terminal source failure,
+retry/race outcomes, unclassified model failure propagation, and normal lease
+loss. The next small task is to define the separate policy for failures after
+the task has entered `running`.
+
+[`running_failure_classification.py`](app/running_failure_classification.py)
+now defines that after-model policy without changing a task row. A Demucs
+process start/timeout/nonzero failure, temporary invalid output tree, local
+post-model artifact-integrity problem, or private MinIO stem-write outage maps
+to one finite retry category. These categories are safe to retry because a
+fresh worker uses the same validated source and deterministic private stem
+keys; attempt three will use the explicitly paired terminal exhaustion code.
+Image/command/output-plan contracts, database/completion faults, and unknown
+errors remain unclassified, so an operator-visible defect cannot silently
+become a browser Job failure. Four pure tests prove all retry mappings, the
+fail-closed exclusions, and complete retry-to-exhaustion coverage. The next
+small task is a token-guarded `running -> retry_scheduled/failed` database
+transition that consumes this vocabulary.
+
+[`running_failure_transition.py`](app/running_failure_transition.py) now owns
+that pure PostgreSQL decision. Its SQL locks the retained `source_uploaded`
+Job and requires the complete task coordinate, current `running` state, exact
+attempt, lease UUID, and unexpired PostgreSQL lease. Attempts one/two clear the
+lease and become `retry_scheduled` after 30 database-clock seconds. On attempt
+three, the paired exhaustion code atomically marks both the task and Job
+`failed` while retaining `started_at` as truthful evidence that Demucs began.
+Private partial stem objects stay inaccessible and are retry-overwritable at
+their stable keys. Four fake-cursor tests prove retry scheduling, terminal
+task/Job atomicity, ownership loss, and unclassified-category rejection.
+
+[`running_failure_transition_commit.py`](app/running_failure_transition_commit.py)
+now supplies that short commit/rollback scope. It opens one restricted
+`write_cursor()`, calls the running retry/exhaustion decision exactly once, and
+returns evidence only after normal exit commits. A no-row ownership/state race
+commits normally as a stop signal; database/SQL/protocol errors escape and roll
+back. It adds no exception classifier, retry sleep, recovery scan, lease
+renewal, AMQP/MinIO/model operation, image/Deployment/KEDA change. Four tests
+prove normal commit, no-row commit, exception rollback, and capability guard.
+
+[`running_failure_runtime.py`](app/running_failure_runtime.py) now makes that
+connection without turning a single attempt into a supervisor. It wraps the
+pre-model handoff, passes its success/ownership/source-failure outcomes through
+unchanged, and catches only later exceptions that the fail-closed running
+classifier recognizes. A reviewed model/output/private-artifact failure uses
+the same acknowledged lease in the committed `running` transition; a no-row
+race becomes ownership loss, while database, source-protocol, image-contract,
+completion, and unknown errors preserve their original exception. The shared
+compact outcome retains the concrete pre-model *or* running transition instead
+of flattening their different state predicates. Six mocked-boundary tests prove
+pass-through, retry, terminal exhaustion, ownership loss, and fail-closed
+propagation. It does not receive/acknowledge AMQP, loop/sleep/recover, itself
+schedule renewal, rebuild an image, change a Deployment, or alter KEDA. Its
+nested execution workspace owns short renewal checkpoints while the model runs.
+
+[`receive_execute_once.py`](app/receive_execute_once.py) now supplies the
+first bounded supervisor building block: one manual-ack RabbitMQ receive and,
+only for an acknowledged current lease, one call to the completed one-attempt
+policy. Idle, duplicate/stale, and malformed-DLQ outcomes return compact
+non-execution evidence and cannot reach MinIO, FFprobe, or Demucs. The channel
+does not cross into processing, so the post-ack task path cannot make another
+broker action. Receive and unclassified runtime errors remain exceptions for a
+later reconnect/backoff policy. Four mocked-boundary tests prove exact
+dependency forwarding, the no-work gate, failure propagation, and result
+pairing. It adds no loop, sleep, recovery scan, signal handling, client
+lifecycle, image/Deployment change, or KEDA action; its nested one-attempt
+runtime owns short renewal checkpoints. The next small task is reconstructing
+strict execution evidence for a due/expired recovered Demucs task.
+
+[`running_lease_renewal.py`](app/running_lease_renewal.py) now supplies that
+one-shot renewal boundary. It accepts only a committed `DemucsRunningSource`,
+uses its exact task/token in the existing short PostgreSQL renewal transaction,
+and returns either an identical running/source coordinate with only its expiry
+refreshed or an explicit ownership-loss stop signal. A database/protocol error
+still escapes; it is not misreported as a renewal or lease loss. Five unit
+tests prove expiry-only replacement, no-row loss, input guards, error
+propagation, and result pairing. This adapter intentionally starts no timer or
+thread and cannot stop a child process by itself; the execution workspace uses
+it at the later cancellation-safe process checkpoints.
+
+[`demucs_process.py`](app/demucs_process.py) now provides that cancellation-
+safe process layer as the separate `run_demucs_separation_with_lease_renewal()`
+entrypoint. It requires a runner that owns the real child process group; a
+plain synchronous runner is rejected instead of being abandoned in an
+uncancellable Python thread. The production subprocess runner waits only until
+the next one-minute-or-faster renewal tick, timeout, or child exit. A renewal
+checkpoint result of `False`, a checkpoint exception, or a process timeout
+terminates the entire child group before the caller receives the corresponding
+signal. This process boundary still knows no database, task, or RabbitMQ fact:
+[`executed_separation_workspace.py`](app/executed_separation_workspace.py) now
+wires the committed running-lease checkpoint into it. Each renewal runs in its
+own short transaction while the child waits; a refreshed lease is carried to
+later upload/completion guards, while a stopped lost-lease child becomes normal
+task ownership loss without entering retry/terminal SQL. The caller cannot use
+a plain runner when renewal is active. Three integration tests cover the
+renewal handoff, downstream refreshed evidence, child-stop loss, and the
+one-attempt ownership mapping. The next small task is reconstructing strict
+execution evidence for a due/expired recovered Demucs task, which has no new
+RabbitMQ delivery to parse.
 
 [`demucs_artifacts.py`](app/demucs_artifacts.py) now performs the next strict
 local-output check before an upload layer may exist. It requires exactly

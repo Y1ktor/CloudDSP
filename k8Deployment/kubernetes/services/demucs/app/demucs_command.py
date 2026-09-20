@@ -70,8 +70,15 @@ def _model_arguments(stem_mode: object) -> tuple[str, tuple[str, ...]]:
     raise DemucsCommandContractError("Demucs stem mode is invalid.")
 
 
-def _resolved_worker_directory(directory: object) -> Path:
-    """Require one existing non-symlink directory allocated as Pod scratch."""
+def resolved_demucs_work_directory(directory: object) -> Path:
+    """Return one existing non-symlink directory allocated as Pod scratch.
+
+    Command construction uses this before it inspects source/output paths.  The
+    running-separation workspace also calls it *before* it creates a private
+    temporary output directory, so a symlinked or host-derived directory can
+    never receive even a short-lived model artifact.  The returned path is the
+    canonical scratch root used in every later ``relative_to`` ownership check.
+    """
 
     if not isinstance(directory, Path):
         raise DemucsCommandPathError("Demucs worker directory is invalid.")
@@ -103,7 +110,7 @@ def _worker_owned_source_and_output(
 
     if not isinstance(source_path, Path) or not isinstance(output_directory, Path):
         raise DemucsCommandPathError("Demucs local paths are invalid.")
-    resolved_work_directory = _resolved_worker_directory(work_directory)
+    resolved_work_directory = resolved_demucs_work_directory(work_directory)
     try:
         if source_path.is_symlink() or output_directory.is_symlink():
             raise DemucsCommandPathError("Demucs local paths are invalid.")
@@ -158,7 +165,7 @@ def build_demucs_separation_command(
     """
 
     model_name, mode_arguments = _model_arguments(stem_mode)
-    validated_work_directory = _resolved_worker_directory(work_directory)
+    validated_work_directory = resolved_demucs_work_directory(work_directory)
     validated_source_path, validated_output_directory = _worker_owned_source_and_output(
         source_path=source_path,
         output_directory=output_directory,

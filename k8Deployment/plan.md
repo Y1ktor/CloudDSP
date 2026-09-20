@@ -2078,6 +2078,280 @@ mistake a zero exit for verified artifacts. Four fake-runner tests cover the
 execution boundary without invoking Demucs. No image, Deployment, or live
 cluster process changes in this task.
 
+The new
+[`executed Demucs separation workspace`](kubernetes/services/demucs/app/executed_separation_workspace.py)
+joins the committed `running` source workspace to the fixed command and bounded
+process runner. It first validates the Pod scratch root, creates a new private
+random output directory beside—not inside—the generic temporary source, derives
+the model solely from the committed task lease, and yields the zero-exit output
+coordinate only while both nested contexts remain open. Any source cleanup,
+unsafe scratch root, or process failure prevents a usable result and removes
+the output. A zero exit has no durable success meaning and performs no artifact
+inventory, hashing, MinIO operation, PostgreSQL mutation, renewal, RabbitMQ
+action, image rebuild, Deployment change, or cluster change. Four fake-runner
+tests cover the fixed model choices, closed-source gate, failure propagation,
+and cleanup; the next small task is to validate the exact stem inventory inside
+this output scope.
+
+That inventory handoff now exists in
+[`validated_stem_inventory_workspace.py`](kubernetes/services/demucs/app/validated_stem_inventory_workspace.py).
+It invokes the existing exact local WAV validator only while the executed
+output scope remains open and preserves the *same command object* beside the
+returned stem/path/byte-count evidence. An incomplete, extra, empty, symlinked,
+or substituted output cannot cross this boundary, and the outer workspace
+removes its temporary output after normal return or an exception. This source-
+only handoff has no hashing, MinIO, PostgreSQL, lease, RabbitMQ, image,
+Deployment, or cluster behavior. Four fake-runner tests cover the completed
+four-stem inventory, incomplete-output rejection, cleanup, and a cloned-command
+substitution attempt; the next small task is SHA-256 hashing of this exact
+in-scope inventory.
+
+That hashing handoff now exists in
+[`hashed_stem_inventory_workspace.py`](kubernetes/services/demucs/app/hashed_stem_inventory_workspace.py).
+It invokes the existing streaming SHA-256 boundary only inside the validated
+inventory and executed-output scopes, then requires the same command instance
+and every original stem name/path/byte-count to accompany the resulting digest.
+The hash adapter independently revalidates current local files, so a mutation
+after inventory cannot receive evidence for a future object plan. No MinIO,
+PostgreSQL, lease, RabbitMQ, image, Deployment, or cluster action occurs; the
+outer workspace removes all local output on normal or exceptional exit. Four
+fake-runner tests cover successful four-stem hashes, post-inventory mutation,
+cleanup, and a cloned-command substitution attempt. The next small task is to
+build deterministic private MinIO object plans from this exact hashed evidence.
+
+That private-plan handoff now exists in
+[`stem_output_plan_workspace.py`](kubernetes/services/demucs/app/stem_output_plan_workspace.py).
+It calls the existing planner while the hash/output scopes remain open and
+preserves the full one-to-one relationship between the running lease, hashed
+artifact, deterministic private object key, fixed content type, byte count, and
+immutable provenance metadata. A post-hash byte substitution fails the
+planner's repeated proof before any plan is yielded; a plan is still not an
+object transfer. Four fake-runner tests cover complete stable plans, mutation
+rejection, cleanup, and a substituted planner result. This source-only step has
+no MinIO client/transfer, PostgreSQL, lease, RabbitMQ, image, Deployment, or
+cluster action. The next small task is a one-stem restricted MinIO upload inside
+this scope, with independent streaming hash verification.
+
+That one-stem upload handoff now exists in
+[`planned_stem_upload.py`](kubernetes/services/demucs/app/planned_stem_upload.py).
+It accepts only the identity-preserved plan instance from the open private-plan
+workspace, delegates one `PutObject` to the existing restricted streaming/hash
+adapter, and accepts only a matching bucket/key/length/SHA-256 receipt. The
+adapter independently verifies the current local bytes before and while the
+client reads them, so neither a stale clone nor a same-size byte substitution
+can become an upload success. Four fake-client tests cover that exact selected
+write, plan/byte rejection, receipt validation, and arbitrary-workspace guard.
+This step does not aggregate all stems, update PostgreSQL, make a task terminal,
+renew a lease, publish/acknowledge RabbitMQ work, rebuild an image, deploy a
+worker, or change the cluster. The next small task is sequentially uploading
+every fixed plan and returning a complete in-memory receipt set—still before
+any durable result transaction.
+
+That complete-upload handoff now exists in
+[`complete_stem_upload.py`](kubernetes/services/demucs/app/complete_stem_upload.py).
+It loops over only the fixed plan tuple in deterministic order, reuses the
+one-plan restricted upload/receipt guard for each item, and returns the existing
+receipt-only `PublishedDemucsStemSet` type only if every object upload succeeds.
+After an upload failure, it stops later writes; already-written artifacts stay
+private under their stable retry-overwritable keys and there is no complete set
+for a PostgreSQL completion call. Three fake-client tests prove the ordered full
+set, a later transport failure, and arbitrary-workspace rejection. This changes
+no PostgreSQL row, task lease, RabbitMQ state, image, Deployment, or cluster.
+The next small task is to pass this complete receipt set into the existing
+token-guarded PostgreSQL completion transaction.
+
+That upload-to-completion composition now exists in
+[`complete_stem_upload_commit.py`](kubernetes/services/demucs/app/complete_stem_upload_commit.py).
+It validates the required PostgreSQL transaction and outbox-ID factory before
+any private upload, runs the fixed complete upload sequence with no database
+lock open, then passes only its full receipt set to the existing guarded
+task/Job/outbox transaction. A committed no-row lease loss returns `None`, so
+no terminal success or downstream broker action escapes; database and storage
+failures propagate to a future retry policy. Three mocked-boundary tests prove
+the upload-before-commit order, ownership loss, and database-capability gate.
+It does not publish/acknowledge RabbitMQ directly, rebuild an image, deploy a
+worker, or change the cluster. The next small task is an outer one-task runtime
+composition that nests source workspace, process, validation, hashing, plans,
+uploads, and this guarded completion path without receiving a new AMQP message.
+
+That outer single-task composition now exists in
+[`task_runtime_once.py`](kubernetes/services/demucs/app/task_runtime_once.py).
+Given only an already acknowledged receive result, it nests the exact source
+preflight, committed `running` transition, bounded CPU execution, local stem
+proofs, private upload sequence, and existing token-guarded completion
+transaction. It validates source-read, artifact-write, database, and outbox-ID
+capabilities before any source/model work; PostgreSQL contexts remain confined
+to their short start/completion calls and every scratch context unwinds on
+success, loss, or failure. A running or completion ownership loss returns
+`None`; all other exceptions remain for a future retry/recovery supervisor.
+Three mocked-boundary tests prove the complete nesting order, early ownership
+loss, and database gate. It does not receive a new AMQP delivery, loop, sleep,
+retry, directly publish/acknowledge RabbitMQ, rebuild an image, deploy a worker,
+or change the cluster. The next small task is to map one-task exception
+categories into the existing retry/terminal-failure decision without creating
+the long-running supervisor yet.
+
+That review now starts with the pure
+[`Demucs pre-model source-failure classifier`](kubernetes/services/demucs/app/source_failure_classification.py).
+It maps only source-boundary exceptions that occur before the guarded
+``leased -> running`` transition: permanent HeadObject and FFprobe media
+categories, plus a HeadObject/GetObject consistency mismatch, receive finite
+terminal codes; the two redacted MinIO availability wrappers receive the one
+storage-retry code. Protocol/process/model/output/database/unknown failures
+remain unclassified and therefore cannot accidentally enter durable task state.
+The classifier has no SQL, broker, retry loop, or Kubernetes operation. The
+next small task is its consumer: a lease-token-guarded PostgreSQL adapter that
+commits one of those outcomes (and fails the Job atomically for every terminal
+Demucs result, including final retry exhaustion).
+
+That pure
+[`Demucs pre-model failure-transition adapter`](kubernetes/services/demucs/app/pre_model_failure_transition.py)
+now performs the one guarded SQL decision. It locks the still-retained
+`source_uploaded` Job and binds the full source-task identity, exact attempt,
+lease UUID, and PostgreSQL expiry before it changes state. A known MinIO
+outage on attempts one/two is made durable as `retry_scheduled` at a
+PostgreSQL-clock time 30 seconds later. An immutable source mismatch, or the
+third such outage, atomically marks both `processing_tasks` and `jobs` failed,
+increments the Job revision, and stores the one finite category in each
+allowed error field. A no-row result is normal ownership/job-state loss. This
+pure cursor adapter opens no connection/transaction and performs no broker,
+model, worker-loop, image, Deployment, or Kubernetes action. Five fake-cursor
+tests cover retry, atomic task/Job failure, exhaustion, a no-row race, and the
+unclassified-category guard. The next small task is a short transaction
+composition that exposes this result only after PostgreSQL commits.
+
+That transaction composition now exists in
+[`pre_model_failure_transition_commit.py`](kubernetes/services/demucs/app/pre_model_failure_transition_commit.py).
+It opens exactly one restricted ``write_cursor()`` scope around the pure
+failure-transition adapter and returns its retry/terminal/no-row result only
+after normal exit commits. A malformed SQL result or database outage escapes
+through the context, which rolls back rather than exposing an uncertain task
+outcome. It catches no source/runtime exception, does not sleep/recover/renew,
+and performs no broker, model, image, Deployment, or Kubernetes action. Four
+in-memory tests prove the normal commit, ownership-loss commit, exceptional
+rollback, and missing-capability guard. The next small task is a narrow
+runtime handoff that catches only classified source-preflight exceptions and
+uses this committed decision.
+
+That narrow handoff now exists in
+[`pre_model_failure_runtime.py`](kubernetes/services/demucs/app/pre_model_failure_runtime.py).
+It wraps one already-acknowledged one-task attempt and preserves its existing
+success/ownership-loss results. Only the finite source-preflight classifier
+categories are caught: the current acknowledged lease feeds the committed
+retry/terminal transition, which then becomes an explicit runtime outcome; a
+no-row transition becomes normal ownership loss. Model/artifact/database,
+source-protocol, and unknown exceptions still propagate unchanged, so this
+pre-model policy cannot misclassify work after the `running` transition. It
+does not receive/acknowledge AMQP, retry/sleep/recover/renew, or change an
+image, Deployment, KEDA policy, or Kubernetes resource. Five mocked-boundary
+tests prove normal success, terminal source failure, retry/race handling,
+unclassified model-error propagation, and normal ownership loss. The next
+small task is a separately reviewed policy for failures after Demucs begins
+running.
+
+That policy now starts with the pure
+[`Demucs running-failure classifier`](kubernetes/services/demucs/app/running_failure_classification.py).
+It recognizes only reviewed after-model disruptions: process start/timeout/
+nonzero failure, transient invalid output, local artifact-integrity evidence
+loss, or private MinIO stem-write unavailability. Each receives one finite
+retry code and an explicit paired third-attempt exhaustion code. This is safe
+because a new lease reruns the verified source against deterministic private
+stem keys; a partial prior upload remains private and can be overwritten, not
+published as a second result. Image/command/plan contracts, database/completion
+errors, and unknown exceptions remain unclassified for operator-visible
+handling. The classifier has no SQL or runtime catch. Four tests prove the
+mapping/exclusions and complete exhaustion mapping. The next small task is a
+token-guarded `running -> retry_scheduled/failed` PostgreSQL transition using
+these reviewed categories.
+
+That pure
+[`Demucs running-failure transition`](kubernetes/services/demucs/app/running_failure_transition.py)
+now commits the one guarded SQL decision. It locks the still-retained
+`source_uploaded` Job and checks the full source-task coordinate, `running`
+state, exact attempt, lease UUID, and database-clock expiry. Attempts one/two
+clear the active lease and schedule PostgreSQL recovery after 30 seconds. The
+third matching failure uses the category's explicit exhaustion mapping to
+atomically mark the task and Job `failed`, increment the Job revision, and
+retain `started_at` as truthful model-start evidence. Private partial stems are
+still inaccessible and retry-overwritable at deterministic keys. Four fake
+cursor tests prove the retry, terminal task/Job result, no-row ownership loss,
+and unclassified guard. This adapter opens no transaction or external client.
+
+[`Demucs running-failure commit wrapper`](kubernetes/services/demucs/app/running_failure_transition_commit.py)
+now provides that narrow durable boundary: one restricted `write_cursor()`
+calls the pure decision exactly once, then exposes retry/terminal evidence only
+after normal commit. A guarded no-row ownership/state race commits normally as
+a stop signal; database, SQL, or protocol errors escape through the context and
+roll back. It deliberately adds no exception classification, retry sleep,
+recovery scan, lease renewal, AMQP/MinIO/model operation, image/Deployment, or
+KEDA update. Its four fake tests prove normal commit, no-row commit, exception
+rollback, and the capability guard.
+
+[`Demucs running-failure runtime handoff`](kubernetes/services/demucs/app/running_failure_runtime.py)
+now composes the completed source-policy handoff with the completed running
+policy, still for exactly one acknowledged task attempt. Inner success,
+ownership loss, and source-policy retry/terminal evidence pass through without
+being relabeled. Only a later exception the fail-closed running classifier
+recognizes reaches the committed `running` retry/exhaustion transition with the
+same acknowledged lease. Its no-row race becomes ownership loss; database,
+completion, source-protocol, image-contract, and unknown errors retain their
+original exception rather than becoming a browser-visible result. The shared
+worker-facing result retains the concrete pre-model or running transition so
+their distinct lease/state predicates and error vocabularies are not flattened.
+Six mocked-boundary tests cover pass-through, retry, exhaustion, ownership loss,
+and unclassified propagation. This adds no AMQP receive/ack, loop, sleep,
+recovery, image rebuild, Deployment, live-cluster, or KEDA action; its nested
+execution workspace owns short renewal checkpoints while the model runs.
+
+The first small supervisor building block is now
+[`Demucs receive-and-execute once`](kubernetes/services/demucs/app/receive_execute_once.py).
+It receives at most one manual-ack RabbitMQ delivery and invokes the completed
+one-attempt policy only when the existing transport boundary returned an
+acknowledged current lease. Idle, duplicate/stale, and malformed-DLQ results
+become compact non-execution outcomes and cannot touch MinIO, FFprobe, or
+Demucs; the RabbitMQ channel never crosses into the post-ack task path. A
+receive or unclassified runtime exception stays an exception for a later
+reconnect/backoff policy. Four mocked-boundary tests prove exact forwarding,
+the no-work gate, propagation, and result pairing. This adds no loop, wait,
+recovery scan, signal handling, connection lifecycle, image, Deployment,
+live-cluster, or KEDA behavior; its nested one-attempt runtime owns short
+renewal checkpoints. The next small task is reconstructing strict execution
+evidence for a due/expired recovered Demucs task.
+
+That renewal boundary now exists in
+[`running_lease_renewal.py`](kubernetes/services/demucs/app/running_lease_renewal.py).
+It requires a committed `DemucsRunningSource`, forwards only its exact task ID
+and lease token to the existing short PostgreSQL renewal transaction, and
+returns either matching immutable running/source evidence with a refreshed
+expiry or an explicit ownership-loss stop signal. An outage or malformed
+database result still raises rather than being disguised as a renewed/expired
+lease. Five unit tests cover expiry-only replacement, no-row loss, capability
+guards, exception propagation, and result pairing. It deliberately does not
+start a timer/thread or stop a model process; the execution workspace now uses
+it at the later cancellation-safe process checkpoints.
+
+That process layer now exists in the separate renewal-aware entrypoint in
+[`demucs_process.py`](kubernetes/services/demucs/app/demucs_process.py). It
+requires a runner that owns the actual child process group; a plain synchronous
+runner is rejected rather than being placed in an uncancellable Python thread.
+The production runner waits only to the next one-minute-or-faster checkpoint,
+the model deadline, or child exit. A `False` checkpoint, checkpoint exception,
+or timeout terminates the full child process group *before* its stop/error
+signal leaves the runner. The layer deliberately knows no PostgreSQL task,
+lease token, MinIO, or RabbitMQ detail.
+
+[`executed_separation_workspace.py`](kubernetes/services/demucs/app/executed_separation_workspace.py)
+now provides that narrow task-specific wiring. It calls the committed renewal
+checkpoint only while the owned model child is running, carries refreshed
+immutable lease evidence into later artifact/completion guards, and converts a
+runner-stopped lost lease into normal one-attempt ownership loss before the
+running-failure retry/terminal policy can see it. The renewal path rejects a
+plain runner, so a stale child cannot be left alive in a Python thread. Three
+integration tests cover the checkpoint handoff, refreshed downstream evidence,
+stopped ownership loss, and the one-attempt outcome mapping. The next small
+task is reconstructing strict execution evidence for a due/expired recovered
+Demucs task, which has no new RabbitMQ delivery to parse.
+
 The new [`Demucs artifact inventory validator`](kubernetes/services/demucs/app/demucs_artifacts.py)
 is the output-side counterpart to the fixed command. Before any MinIO uploader
 can receive local files, it requires the exact mode-specific non-empty WAV
