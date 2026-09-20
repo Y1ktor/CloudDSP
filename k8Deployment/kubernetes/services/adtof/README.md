@@ -324,10 +324,16 @@ MinIO, and RabbitMQ identities. It will be CPU-only for the local Apple-silicon
 profile; ADTOF must not request CUDA or claim that the Mac cluster validates
 NVIDIA throughput.
 
-KEDA is intentionally outside this contract. First we need an observed ADTOF
-image size, CPU/memory envelope, task timeout, and retry behaviour. Those facts
-will determine a safe queue-depth target, maximum parallel Pods, cooldown, and
-local-machine resource cap instead of applying a generic scaling number.
+The first reviewed KEDA policy now lives in
+[`adtof-scaledobject.yaml`](adtof-scaledobject.yaml). It uses the measured
+CPU-only image envelope, prefetch-one flow control, ten-minute task timeout,
+and two-agent local topology to scale the long-running ADTOF Deployment from
+zero to at most two Pods. One ready-or-unacknowledged request targets one Pod;
+KEDA polls the private RabbitMQ management API every fifteen seconds and waits
+three idle minutes before requesting scale-to-zero. Its generated HPA owns only
+the Deployment's replica count, never RabbitMQ delivery, a PostgreSQL lease,
+or output persistence. The manifest remains unapplied until the dedicated
+KEDA apply-and-observe task.
 
 ## PostgreSQL runtime identity
 

@@ -362,6 +362,39 @@ images:
     localDockerSize: "63.06 MiB"
     pushedAt: "2026-09-12"
 
+  basic-pitch-keda-burst-smoke-client:
+    # This finite client creates exactly three fixed, durable Basic Pitch
+    # requests, then observes their normal dispatcher/KEDA/worker path. It is
+    # not a Basic Pitch worker, queue consumer, Kubernetes client, HTTP server,
+    # or general-purpose database/object-store client. A future one-shot Job
+    # must use the immutable digest below; the readable tag is provenance only.
+    repository: clouddsp-registry.localhost:5001/basic-pitch-keda-burst-smoke-client
+    sourceTag: "0.1.0-three-request-keda-burst"
+    # This digest was verified with `docker pull` against the local registry
+    # after the reviewed Linux/ARM64 build and push. It identifies the exact
+    # image bytes a local k3d node will pull, independent of a later tag move.
+    digest: sha256:49d4bae35dcb36930c6a76e886819c4cf9cbea4eca0e3548658cc9d1e317a659
+    immutableReference: clouddsp-registry.localhost:5001/basic-pitch-keda-burst-smoke-client@sha256:49d4bae35dcb36930c6a76e886819c4cf9cbea4eca0e3548658cc9d1e317a659
+    supportedPlatforms:
+      - linux/arm64/v8
+    builtFrom:
+      # The source is Kubernetes-local, deliberately separate from the
+      # preserved cloud deployment. Runtime Secrets, fixed test evidence, and
+      # cluster data are provided only when the future Job starts, never during
+      # Docker build or in this published image.
+      sourceRevision: local-kubernetes-working-tree
+      sourceDirectory: kubernetes/tests/basic-pitch-keda-burst-smoke/client
+      dockerfile: kubernetes/tests/basic-pitch-keda-burst-smoke/client/Dockerfile
+      requirementsLock: kubernetes/tests/basic-pitch-keda-burst-smoke/client/requirements.lock
+      clientTestDirectory: kubernetes/tests/basic-pitch-keda-burst-smoke/client
+      runtimeImageLock: images.api-python-runtime
+      sourceLock: buildSources.basic-pitch-keda-burst-smoke-client
+    # Docker reports uncompressed local layer bytes. This is intentionally
+    # different from the tiny registry manifest document reported on push.
+    localDockerSizeBytes: 66136836
+    localDockerSize: "63.07 MiB"
+    pushedAt: "2026-09-20"
+
   adtof-worker-smoke-client:
     # This finite Job image verifies the real durable ADTOF path through the
     # deployed generic dispatcher and CPU worker. It is neither a processing
@@ -457,6 +490,52 @@ images:
       - linux/amd64
     upstream: https://hub.docker.com/_/nginx
     resolvedAt: "2026-09-04"
+
+  keda-operator:
+    # KEDA's leader-elected control-plane controller reconciles future
+    # ScaledObjects and creates the standard Kubernetes HPAs behind them. This
+    # is the ARM64 child image actually resolved by the local k3d node for the
+    # pinned 2.20.2 Helm chart; resolve a separate AMD64 child for a later
+    # native Linux profile rather than assuming this digest is multi-platform.
+    repository: ghcr.io/kedacore/keda
+    sourceTag: "2.20.2"
+    resolvedVersion: "2.20.2"
+    digest: sha256:fe74c7b8849586a67ad2201bcb89e7f5ac221ff90399ecaa8fd28427f1ef11e6
+    immutableReference: ghcr.io/kedacore/keda@sha256:fe74c7b8849586a67ad2201bcb89e7f5ac221ff90399ecaa8fd28427f1ef11e6
+    supportedPlatforms:
+      - linux/arm64/v8
+    upstream: https://github.com/kedacore/keda/releases/tag/v2.20.2
+    resolvedAt: "2026-09-16"
+
+  keda-metrics-api-server:
+    # This component serves Kubernetes's external.metrics.k8s.io API for KEDA
+    # triggers. It is not the installed K3s metrics-server and it never
+    # receives browser traffic. The digest records the local ARM64 child that
+    # K3s resolved from the same reviewed KEDA chart release.
+    repository: ghcr.io/kedacore/keda-metrics-apiserver
+    sourceTag: "2.20.2"
+    resolvedVersion: "2.20.2"
+    digest: sha256:27286536a8a775aeeee37a7e343f8ecebb27ebf680ee1181a4f99e82eefb253b
+    immutableReference: ghcr.io/kedacore/keda-metrics-apiserver@sha256:27286536a8a775aeeee37a7e343f8ecebb27ebf680ee1181a4f99e82eefb253b
+    supportedPlatforms:
+      - linux/arm64/v8
+    upstream: https://github.com/kedacore/keda/releases/tag/v2.20.2
+    resolvedAt: "2026-09-16"
+
+  keda-admission-webhooks:
+    # KEDA's admission webhook validates and defaults its custom resources.
+    # This is an in-cluster HTTPS endpoint used by the Kubernetes API server,
+    # not an externally exposed application API. The recorded digest is the
+    # exact ARM64 child the local cluster pulled for KEDA 2.20.2.
+    repository: ghcr.io/kedacore/keda-admission-webhooks
+    sourceTag: "2.20.2"
+    resolvedVersion: "2.20.2"
+    digest: sha256:41f74102aba7959c6e8d08b433ab8a5fd6cae7c5646c78f7fe3de40a52df3439
+    immutableReference: ghcr.io/kedacore/keda-admission-webhooks@sha256:41f74102aba7959c6e8d08b433ab8a5fd6cae7c5646c78f7fe3de40a52df3439
+    supportedPlatforms:
+      - linux/arm64/v8
+    upstream: https://github.com/kedacore/keda/releases/tag/v2.20.2
+    resolvedAt: "2026-09-16"
 
   aws-cli:
     # AWS publishes this official AWS CLI v2 image in Amazon ECR Public.  The
@@ -1101,6 +1180,36 @@ buildSources:
         upstream: https://www.psycopg.org/psycopg3/docs/basic/install.html
     clientTests: kubernetes/tests/basic-pitch-worker-smoke/client/test_basic_pitch_worker_smoke.py
     resolvedAt: "2026-09-12"
+
+  basic-pitch-keda-burst-smoke-client:
+    # This one-shot client is intentionally limited to three literal Basic
+    # Pitch coordinates. It has two restricted service identities: one invokes
+    # three PostgreSQL SECURITY DEFINER functions and one reads/writes only the
+    # six fixed MinIO objects. It has no AMQP, Keycloak, Kubernetes, GPU, ML,
+    # browser, cloud, or direct application-table authority.
+    baseImageLock: images.api-python-runtime
+    sourceDirectory: kubernetes/tests/basic-pitch-keda-burst-smoke/client
+    dockerfile: kubernetes/tests/basic-pitch-keda-burst-smoke/client/Dockerfile
+    requirementsLock: kubernetes/tests/basic-pitch-keda-burst-smoke/client/requirements.lock
+    intendedRepository: clouddsp-registry.localhost:5001/basic-pitch-keda-burst-smoke-client
+    publishedImageLock: images.basic-pitch-keda-burst-smoke-client
+    targetPlatform: linux/arm64
+    directPythonPackages:
+      - name: boto3
+        version: "1.43.89"
+        # Boto3 uses explicit credentials with the private in-cluster MinIO
+        # S3 Service. It cannot discover ambient AWS credentials or list a
+        # bucket because the adapter and MinIO policy both forbid that scope.
+        upstream: https://pypi.org/project/boto3/1.43.89/
+      - name: psycopg
+        version: "3.2.13"
+        installationExtra: binary
+        binaryPackage: psycopg-binary
+        # The ARM64 binary wheel includes libpq, so the final slim image needs
+        # no compiler or mutable operating-system PostgreSQL dependency.
+        upstream: https://www.psycopg.org/psycopg3/docs/basic/install.html
+    clientTestDirectory: kubernetes/tests/basic-pitch-keda-burst-smoke/client
+    resolvedAt: "2026-09-20"
 
   adtof-worker-smoke-client:
     # This one-shot verifier owns only its three restricted PostgreSQL

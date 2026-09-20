@@ -57,6 +57,25 @@ This is read-only. It shows the three Kubernetes nodes and the Pods in every
 namespace. The `default` namespace remains empty until a CloudDSP workload is
 deployed; K3s platform Pods such as CoreDNS and Traefik run in `kube-system`.
 
+## Install or reconcile KEDA
+
+```bash
+./k8Deployment/kubernetes/scripts/install-keda.sh
+```
+
+This is the versioned, non-interactive Helm entry point for the KEDA event
+autoscaler. It reads the pinned official chart release and local values from
+[`../helm/keda/`](../helm/keda/), targets only the
+`k3d-clouddsp-local` context, and waits for KEDA's operator, metrics API
+server, admission webhook, and custom resource definitions to become ready.
+The three KEDA controller Pods run inside the `keda` namespace; Helm itself is
+only the short-lived Mac command that submits their manifests.
+
+The script creates or reconciles the KEDA platform dependency only. It does
+not create a `ScaledObject`, resize a processing worker, read a RabbitMQ
+credential, or enqueue audio work. Those three independent worker policies
+remain later, separately reviewed tasks.
+
 ## Verify the local registry
 
 Apply the namespace manifest first, then run the end-to-end registry smoke

@@ -1,0 +1,44 @@
+# This immutable ConfigMap is the complete MinIO permission boundary for the
+# future Basic Pitch KEDA burst-smoke client. It contains authority only, never
+# an access key or secret key. A new versioned ConfigMap/policy is required for
+# any future scope change; this v001 object cannot be edited in place.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clouddsp-basic-pitch-keda-burst-smoke-objects-policy-v001
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: basic-pitch-keda-burst-smoke
+    app.kubernetes.io/component: object-storage-policy
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: six-fixed-key-basic-pitch-keda-burst-object-access
+immutable: true
+data:
+  # `HeadObject` is authorized by s3:GetObject. Deliberately omit ListBucket,
+  # presigning, bucket administration, wildcard resources, and normal user
+  # prefixes: the smoke client needs only these three input/output pairs.
+  basic-pitch-keda-burst-smoke-objects-policy.json: |
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Sid": "ReadWriteDeleteOnlyThreeFixedBurstInputOutputPairs",
+          "Effect": "Allow",
+          "Action": [
+            "s3:GetObject",
+            "s3:PutObject",
+            "s3:DeleteObject"
+          ],
+          "Resource": [
+            "arn:aws:s3:::clouddsp-uploads/stems/2a1e8097-7da6-4d06-8b27-c006b02e0d91/vocals.wav",
+            "arn:aws:s3:::clouddsp-uploads/midi/2a1e8097-7da6-4d06-8b27-c006b02e0d91/vocals.mid",
+            "arn:aws:s3:::clouddsp-uploads/stems/8e27f4ad-6c19-4e3f-9b56-fa287429c0a2/bass.wav",
+            "arn:aws:s3:::clouddsp-uploads/midi/8e27f4ad-6c19-4e3f-9b56-fa287429c0a2/bass.mid",
+            "arn:aws:s3:::clouddsp-uploads/stems/96ba2e39-e035-4fe8-a50a-b1e6db208ac3/other.wav",
+            "arn:aws:s3:::clouddsp-uploads/midi/96ba2e39-e035-4fe8-a50a-b1e6db208ac3/other.mid"
+          ]
+        }
+      ]
+    }

@@ -1,0 +1,107 @@
+# This ScaledObject delegates the *number of ADTOF worker Pods* to KEDA while
+# the ADTOF Deployment remains the long-lived owner of the Pod template,
+# rollout strategy, image, resource limits, identities, and SIGTERM behavior.
+# It is not a Kubernetes Job and it never hands raw work to Kubernetes: the
+# durable RabbitMQ queue retains work, and each worker still claims/commits
+# PostgreSQL task leases before its manual AMQP acknowledgement.
+#
+# KEDA creates and manages one ordinary Kubernetes HPA for this exact
+# Deployment. The HPA changes the Deployment `/scale` subresource; it does not
+# bypass Deployment rollouts or run a separate ADTOF container image.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: clouddsp-adtof-rabbitmq-scaler
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: adtof
+    app.kubernetes.io/instance: clouddsp-adtof
+    app.kubernetes.io/component: queue-autoscaler
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: queue-depth-autoscale-private-adtof-worker
+spec:
+  # This name must identify the Deployment controller, not an individual Pod,
+  # ReplicaSet, Service, or RabbitMQ queue. KEDA/HPA adjust only this target's
+  # standard apps/v1 `scale` subresource.
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: clouddsp-adtof
+
+  # KEDA checks an idle Deployment's trigger at this bounded cadence. Fifteen
+  # seconds keeps the local learning workflow responsive without polling the
+  # RabbitMQ management API every second from a laptop control-plane Pod.
+  pollingInterval: 15
+  # Once a queue is empty, wait three minutes before KEDA requests zero Pods.
+  # This avoids tearing down an expensive CPU model runtime between nearby
+  # drum stems while still demonstrating scale-to-zero for a truly idle stage.
+  cooldownPeriod: 180
+  # No worker Pod is needed while RabbitMQ reports no ADTOF work. The Deployment
+  # controller still exists at zero replicas and KEDA can recreate a Pod when
+  # the durable queue becomes active; no HTTP listener or Kubernetes Job is
+  # involved in that transition.
+  minReplicaCount: 0
+  # Each ADTOF Pod requests one CPU and 2 GiB, with a 2-CPU/4-GiB limit. Two
+  # replicas provide a useful scale-out demonstration without allowing this
+  # CPU-only stage to consume the small local cluster during a backlog.
+  maxReplicaCount: 2
+
+  advanced:
+    # Removing this ScaledObject in a later explicit rollback restores the
+    # Deployment's pre-KEDA desired count (one) rather than unexpectedly
+    # leaving the worker at its last dynamically chosen count, including zero.
+    restoreToOriginalReplicaCount: true
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          # Queue work is durable, so no extra stabilization delay is needed
+          # before starting capacity. The one-Pod step remains intentional: it
+          # lets the second CPU worker be added only after another observation.
+          stabilizationWindowSeconds: 0
+          policies:
+            - type: Pods
+              value: 1
+              periodSeconds: 30
+        scaleDown:
+          # Preserve capacity across several management observations. KEDA's
+          # cooldown then performs the final scale from one idle Pod to zero.
+          stabilizationWindowSeconds: 180
+          policies:
+            - type: Pods
+              value: 1
+              periodSeconds: 60
+
+  triggers:
+    - type: rabbitmq
+      metadata:
+        # The dedicated ClusterIP management Service has no host port or
+        # Ingress. The paired broker NetworkPolicy permits this port only from
+        # KEDA's operator and finite bootstrap Jobs, not ordinary app Pods.
+        host: http://clouddsp-rabbitmq-management.clouddsp-data.svc:15672
+        protocol: http
+        # The monitoring identity has no AMQP read/write/configure regexes. It
+        # uses RabbitMQ's management API to observe this vhost and queue only.
+        vhostName: /clouddsp
+        queueName: clouddsp.adtof.requests
+        mode: QueueLength
+        # With worker prefetch fixed at one, a queue depth target of one means
+        # one ready-or-unacknowledged ADTOF task requests roughly one worker.
+        # HPA's ordinary average-value calculation and maxReplicaCount cap the
+        # resulting count at two for this local profile.
+        value: "1"
+        # A zero backlog is inactive and permits KEDA's scale-to-zero path.
+        activationValue: "0"
+        # Count the one message each active worker may hold unacknowledged. If
+        # those were excluded, a long CPU inference could look idle and invite
+        # premature scale-down while the task is still legitimately running.
+        excludeUnacknowledged: "false"
+        # Bound one management API observation instead of allowing an impaired
+        # broker endpoint to leave the scaler waiting indefinitely.
+        timeout: "5000"
+      authenticationRef:
+        # This namespaced binding passes only KEDA's dedicated monitoring
+        # username/password. It never mounts a worker, MinIO, PostgreSQL, or
+        # RabbitMQ administrator Secret into the ADTOF Deployment.
+        name: clouddsp-rabbitmq-scaler-authentication

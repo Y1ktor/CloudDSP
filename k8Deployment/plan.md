@@ -77,7 +77,7 @@ configuration separate.
 | Job state | Durable records, UTC quotas, revisions, and outbox | PostgreSQL |
 | Artifacts | Private source, stems, MIDI, and tempo files | MinIO with presigned browser access |
 | Work queue | Durable stage work, retry, DLQ, and status fanout | RabbitMQ quorum queues |
-| Worker scaling | One worker Job per queued unit of work | KEDA `ScaledJob`s |
+| Worker scaling | Long-running stage consumers, each scaled from its own queue | KEDA `ScaledObject` + Kubernetes HPA |
 | GPU scheduling | Demucs resource isolation | Native Linux k3s GPU profile only |
 
 Use locally owned CloudDSP images for all app services and workers. The
@@ -104,14 +104,15 @@ Browser ── OIDC ──> Keycloak
                                │
                      RabbitMQ demucs.requested
                                │
-                    KEDA Demucs Job (GPU profile)
+             KEDA-scaled Demucs Deployment (GPU profile)
                                │
              MinIO stems + PostgreSQL state/outbox commit
                     ┌──────────┴──────────┐
                     │                     │
            Basic Pitch queue          ADTOF queue
                     │                     │
-             KEDA CPU Job         KEDA CPU Job
+      KEDA-scaled Basic Pitch     KEDA-scaled ADTOF
+          CPU Deployment            CPU Deployment
                     └──────────┬──────────┘
                                │
                    MIDI + durable state/outbox
@@ -142,8 +143,10 @@ Browser ── OIDC ──> Keycloak
 5. After its artifact and PostgreSQL commit succeed, Demucs writes one outbox
    event per actual stem: drums route to ADTOF and pitched stems route to Basic
    Pitch.
-6. KEDA creates independently retryable worker Jobs. Each persists MIDI and
-   terminal state before acknowledging its RabbitMQ message.
+6. KEDA independently scales each long-running worker Deployment from its
+   primary RabbitMQ queue. Each consumer persists MIDI and terminal state
+   before manually acknowledging its message; the broker retry/DLQ topology,
+   rather than a new Kubernetes Job per delivery, governs redelivery.
 7. A linked-media request first runs yt-dlp. Its normalized WAV enters the
    same ordinary upload-intake path; it never creates a second Demucs trigger.
 
@@ -2653,6 +2656,47 @@ or development servers as production-like runtime containers.
 
 - KEDA scales each worker stage independently from queue backlog. Cap Demucs
   replicas at actual GPU capacity and set `prefetch=1`.
+- The local KEDA Helm release is pinned and watches only `clouddsp-app`. Its
+  RabbitMQ queue-depth scaler uses the private management HTTP API with a
+  dedicated read-only `monitoring` account. That account has empty AMQP
+  configure/write/read regexes: it can observe metrics but cannot consume,
+  acknowledge, publish, or alter topology. The monitoring tag exposes
+  broker-wide operational metadata, so the identity remains separate from
+  every worker and its credential is stored only in ignored local Secrets. The
+  namespaced `clouddsp-rabbitmq-scaler-authentication` TriggerAuthentication
+  maps only that username/password into a future scaler; each ScaledObject
+  retains its own visible queue, HTTP endpoint, and replica policy.
+- The management endpoint is the private
+  `clouddsp-rabbitmq-management.clouddsp-data.svc:15672` ClusterIP Service.
+  Its coupled broker ingress NetworkPolicy makes the selected RabbitMQ Pod
+  ingress-isolated: port 15672 permits only the KEDA operator and finite,
+  labelled RabbitMQ bootstrap Jobs; AMQP 5672 permits only reviewed pipeline
+  components, MinIO, and labelled smoke Jobs. ClusterIP prevents host and
+  Ingress exposure, while NetworkPolicy limits in-cluster sources. An
+  authenticated cluster administrator can still use explicit `kubectl
+  port-forward`; that administrative API path is intentionally not an
+  application-network route. A later live test must prove both KEDA access
+  and rejection from an unauthorized Pod before we rely on this boundary.
+- The applied ADTOF RabbitMQ `ScaledObject` observes only
+  `clouddsp.adtof.requests` through the private management ClusterIP and its
+  read-only observer TriggerAuthentication. Its live controlled smoke proved
+  the intended queue-driven `0 → 1` activation, durable worker completion, and
+  post-idle `1 → 0` cooldown scale-down. The applied equivalent Basic Pitch
+  `ScaledObject` observes only `clouddsp.basic-pitch.requests`; neither scaler
+  consumes AMQP messages or receives a worker/admin credential. Each
+  long-running Deployment retains worker identity, security settings, rollout,
+  and durable acknowledgement behavior while KEDA's generated HPA owns only
+  replicas, from zero to a local cap of three. A one-message target matches
+  `prefetch=1` and counts unacknowledged work so active CPU inference is not
+  mistaken for idleness. Basic Pitch uses five-second scale-from-zero polling,
+  a one-minute cooldown/stabilization window, and up-to-three-Pod
+  15-second scale-up steps: the observed local image-pull-inclusive container
+  start is about seven seconds, so this favors fast short-stem bursts while
+  still returning to zero when idle. The reviewed Basic Pitch burst run then
+  confirmed the full local `0 → 3 → 0` lifecycle through the ordinary durable
+  dispatcher/worker path. This validates only the current local CPU profile;
+  a different node capacity or future GPU profile requires a separate policy
+  review and observation.
 - Give CPU workers independent CPU, memory, ephemeral-storage, deadline, and
   retry limits. Use HPA for API, realtime, and dispatcher Deployments.
 - Apply `ResourceQuota`, `LimitRange`, `PriorityClass`, PodDisruptionBudgets,

@@ -1,0 +1,258 @@
+# This one-shot administrator Job creates or rotates RabbitMQ's dedicated KEDA
+# queue-observer identity. Its network path is intentionally narrow:
+#
+#   bootstrap Job -> RabbitMQ headless Service management port -> broker Pod
+#   KEDA operator -> RabbitMQ ClusterIP management port -> queue metrics only
+#
+# KEDA scales the long-running worker Deployments from queue depth. It must be
+# able to observe a queue without becoming another consumer: an AMQP `read`
+# permission would permit message consumption and acknowledgement. Instead,
+# the account has RabbitMQ's `monitoring` tag plus empty resource regexes. That
+# gives read-only management-API metric access but no configure/write/read
+# action on queues, exchanges, bindings, or deliveries.
+#
+# The monitoring tag can reveal broker-wide operational metadata. For that
+# reason the identity is separate from every worker and contains no admin,
+# topology, publish, or consumer permission. It is used only by a later
+# namespaced KEDA TriggerAuthentication and never mounted into an application
+# Pod.
+#
+# Prerequisites applied separately:
+#   1. `clouddsp-rabbitmq-credentials` in clouddsp-data;
+#   2. a temporary ignored
+#      `clouddsp-keda-rabbitmq-scaler-bootstrap-credentials` Secret in
+#      clouddsp-data; and
+#   3. the reviewed KEDA Helm release. The Job does not require a ScaledObject
+#      because it only provisions the broker account.
+#
+# This Job creates no queue, exchange, worker Deployment, HPA, TriggerAuth,
+# MinIO object, PostgreSQL task, or RabbitMQ message. Delete a completed Job
+# before an intentional password rotation or permissions repair; applying an
+# unchanged completed Job does not make Kubernetes execute it again.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rabbitmq-keda-scaler-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: rabbitmq-keda-scaler-bootstrap
+    app.kubernetes.io/component: message-identity-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: read-only-rabbitmq-queue-observation
+spec:
+  # Retain safe usernames/vhosts/permission regexes long enough to inspect the
+  # bootstrap result. The TTL controller then removes the administrator-bearing
+  # Pod; it never deletes the broker user or either namespace's Secret.
+  ttlSecondsAfterFinished: 600
+  # A credential/tag/permission problem needs explicit inspection. Automatic
+  # retries would repeatedly call the broker administrator API and obscure the
+  # first useful failure evidence.
+  backoffLimit: 0
+  # Bound image start, management readiness, and the tiny provisioning calls
+  # on a laptop. A ready local RabbitMQ broker completes in seconds.
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rabbitmq-keda-scaler-bootstrap
+        app.kubernetes.io/component: message-identity-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # The Pod calls RabbitMQ's private management API but never Kubernetes,
+      # so omitting the default ServiceAccount token reduces its credentials.
+      automountServiceAccountToken: false
+      securityContext:
+        # The pinned Docker Official RabbitMQ image includes rabbitmqadmin and
+        # its unprivileged rabbitmq account at UID/GID 999.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      # Ordered init containers make the privileged process auditable: wait for
+      # the broker, converge the identity, then prove the restricted account
+      # can perform its one intended read-only management action.
+      initContainers:
+        - name: wait-for-rabbitmq-management-api
+          image: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+          imagePullPolicy: IfNotPresent
+          env: &rabbitmqAdminEnvironment
+            # Ordinal DNS deliberately targets the local StatefulSet Pod's
+            # management listener. KEDA itself will later use the stable
+            # ClusterIP Service instead of this pod-specific hostname.
+            - name: RABBITMQADMIN_TARGET_HOST
+              value: clouddsp-rabbitmq-0.clouddsp-rabbitmq-headless.clouddsp-data.svc.cluster.local
+            - name: RABBITMQADMIN_TARGET_PORT
+              value: "15672"
+            - name: RABBITMQADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_USER
+            - name: RABBITMQADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_PASS
+            - name: RABBITMQADMIN_NON_INTERACTIVE_MODE
+              value: "true"
+            # rabbitmqadmin can write optional local state below HOME. This
+            # tiny emptyDir is disposable CLI scratch, not RabbitMQ storage.
+            - name: HOME
+              value: /work
+          resources: &rabbitmqAdminResources
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext: &rabbitmqAdminSecurityContext
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts: &rabbitmqAdminVolumeMounts
+            - name: rabbitmqadmin-work
+              mountPath: /work
+          command:
+            - sh
+            - -ec
+            - |
+              # An authenticated vhost listing proves the management endpoint
+              # and administrator Secret are ready before provisioning starts.
+              attempt=1
+              while [ "$attempt" -le 24 ]; do
+                if rabbitmqadmin --quiet vhosts list >/dev/null 2>&1; then
+                  exit 0
+                fi
+                sleep 5
+                attempt=$((attempt + 1))
+              done
+              echo "RabbitMQ management API did not become ready before bootstrap timeout." >&2
+              exit 1
+
+        - name: create-or-rotate-keda-scaler-observer
+          image: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: RABBITMQADMIN_TARGET_HOST
+              value: clouddsp-rabbitmq-0.clouddsp-rabbitmq-headless.clouddsp-data.svc.cluster.local
+            - name: RABBITMQADMIN_TARGET_PORT
+              value: "15672"
+            - name: RABBITMQADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_USER
+            - name: RABBITMQADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_PASS
+            - name: RABBITMQADMIN_NON_INTERACTIVE_MODE
+              value: "true"
+            - name: HOME
+              value: /work
+            # Only this temporary bootstrap Secret has the observer password
+            # in clouddsp-data. KEDA will later read the same pair solely from
+            # the separate app-namespace runtime Secret.
+            - name: RABBITMQ_KEDA_SCALER_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keda-rabbitmq-scaler-bootstrap-credentials
+                  key: RABBITMQ_KEDA_SCALER_USERNAME
+            - name: RABBITMQ_KEDA_SCALER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keda-rabbitmq-scaler-bootstrap-credentials
+                  key: RABBITMQ_KEDA_SCALER_PASSWORD
+          resources: *rabbitmqAdminResources
+          securityContext: *rabbitmqAdminSecurityContext
+          volumeMounts: *rabbitmqAdminVolumeMounts
+          command:
+            - sh
+            - -ec
+            - |
+              # `users declare` is intentionally idempotent: a later explicit
+              # rotation converges the password while retaining this one user.
+              # The monitoring tag is read-only management-API access, not an
+              # AMQP configure/write/read permission or RabbitMQ admin role.
+              rabbitmqadmin users declare \
+                --name "$RABBITMQ_KEDA_SCALER_USERNAME" \
+                --password "$RABBITMQ_KEDA_SCALER_PASSWORD" \
+                --tags monitoring
+
+              # Empty regexes match no RabbitMQ resources in /clouddsp. This
+              # denies topology changes, publishing, consuming, acknowledgments
+              # and message inspection despite the account's monitoring tag.
+              rabbitmqadmin permissions declare \
+                --vhost /clouddsp \
+                --username "$RABBITMQ_KEDA_SCALER_USERNAME" \
+                --configure '^$' \
+                --write '^$' \
+                --read '^$'
+
+        - name: verify-keda-scaler-observer
+          image: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+          imagePullPolicy: IfNotPresent
+          env:
+            # Preserve the target host/port but switch away from the
+            # administrator account. This validates the actual monitoring
+            # identity without printing its password or a queue body.
+            - name: RABBITMQADMIN_TARGET_HOST
+              value: clouddsp-rabbitmq-0.clouddsp-rabbitmq-headless.clouddsp-data.svc.cluster.local
+            - name: RABBITMQADMIN_TARGET_PORT
+              value: "15672"
+            - name: RABBITMQADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keda-rabbitmq-scaler-bootstrap-credentials
+                  key: RABBITMQ_KEDA_SCALER_USERNAME
+            - name: RABBITMQADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keda-rabbitmq-scaler-bootstrap-credentials
+                  key: RABBITMQ_KEDA_SCALER_PASSWORD
+            - name: RABBITMQADMIN_NON_INTERACTIVE_MODE
+              value: "true"
+            - name: HOME
+              value: /work
+          resources: *rabbitmqAdminResources
+          securityContext: *rabbitmqAdminSecurityContext
+          volumeMounts: *rabbitmqAdminVolumeMounts
+          command:
+            - sh
+            - -ec
+            - |
+              # Management listing is KEDA's intended capability: it obtains
+              # queue metrics without consuming a delivery. Discard the queue
+              # rows so neither message counts nor broker metadata fill logs.
+              rabbitmqadmin --quiet queues list --vhost /clouddsp >/dev/null
+
+      containers:
+        - name: completion-marker
+          image: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+          imagePullPolicy: IfNotPresent
+          resources: *rabbitmqAdminResources
+          securityContext: *rabbitmqAdminSecurityContext
+          # Every privileged action occurs in the ordered init chain. This
+          # ordinary container records the Job's success only after that chain
+          # passes and receives no Secret or network configuration itself.
+          command:
+            - rabbitmqadmin
+          args:
+            - --version
+      volumes:
+        - name: rabbitmqadmin-work
+          emptyDir:
+            # Queue data is durable on RabbitMQ's StatefulSet PVC. One MiB is
+            # enough for this CLI's temporary HOME and vanishes with the Pod.
+            sizeLimit: 1Mi

@@ -1,0 +1,166 @@
+# These two short-lived Jobs prove the NetworkPolicy's management-port decision
+# without authenticating to RabbitMQ or making a management API request:
+#
+#   allowed bootstrap-labelled Pod -> TCP 15672 -> succeeds
+#   ordinary application-labelled Pod -> TCP 15672 -> denied
+#
+# The purpose-built, digest-pinned Python image is already recorded as
+# `images.rabbitmq-amqp-smoke-client` in `../../images.lock.yaml`. Overriding
+# its normal AMQP entrypoint with tiny standard-library socket probes avoids
+# adding another image or granting either test any RabbitMQ credential.
+#
+# The two Pods intentionally have different namespaces and labels because a
+# NetworkPolicy evaluates the source Pod's actual labels plus namespace. These
+# checks validate the bootstrap exception and the ordinary-app denial, while a
+# later ScaledObject reconciliation proves KEDA itself can use the same port.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rabbitmq-management-allowed-smoke
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: rabbitmq-management-allowed-smoke
+    # This exact label is one reviewed 15672 exception in the broker policy.
+    app.kubernetes.io/component: message-identity-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: verify-rabbitmq-management-policy-allowed-path
+spec:
+  # Preserve completion logs briefly; delete this completed fixed-name Job
+  # before an intentional rerun because applying a completed Job is not rerun.
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 0
+  # A permitted TCP handshake normally completes immediately. A small deadline
+  # turns a missing Service endpoint or policy regression into visible evidence.
+  activeDeadlineSeconds: 45
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rabbitmq-management-allowed-smoke
+        app.kubernetes.io/component: message-identity-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # The probe calls one ClusterIP only; it has no Kubernetes API role.
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: permitted-tcp-probe
+          # Copy only this immutable ARM64 local-registry reference from the
+          # existing image lock. A mutable tag could change the test client.
+          image: clouddsp-registry.localhost:5001/rabbitmq-amqp-smoke-client@sha256:4f4564fca1c8080688396e9b7f1457def92e720c1826083189eccff38629c4d2
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - -c
+          args:
+            - |
+              # A TCP handshake proves only network reachability. It does not
+              # send an HTTP request, inspect metrics, or require credentials.
+              import socket
+
+              host = "clouddsp-rabbitmq-management.clouddsp-data.svc"
+              port = 15672
+              with socket.create_connection((host, port), timeout=5):
+                  print("Allowed management TCP probe connected successfully.")
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+
+---
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rabbitmq-management-denied-smoke
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: rabbitmq-management-denied-smoke
+    # This intentionally does not match an AMQP client, KEDA, or bootstrap
+    # selector. It models an ordinary untrusted CloudDSP application Pod.
+    app.kubernetes.io/component: network-policy-probe
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: verify-rabbitmq-management-policy-denied-path
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 0
+  # Network-policy drops commonly time out rather than return a quick refusal.
+  # This deadline safely bounds the expected denial path on the local cluster.
+  activeDeadlineSeconds: 45
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rabbitmq-management-denied-smoke
+        app.kubernetes.io/component: network-policy-probe
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: denied-tcp-probe
+          image: clouddsp-registry.localhost:5001/rabbitmq-amqp-smoke-client@sha256:4f4564fca1c8080688396e9b7f1457def92e720c1826083189eccff38629c4d2
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - -c
+          args:
+            - |
+              # Success here is a failed connection. Keep the expected error
+              # category terse, and never send credentials or an HTTP request.
+              import socket
+
+              host = "clouddsp-rabbitmq-management.clouddsp-data.svc"
+              port = 15672
+              try:
+                  with socket.create_connection((host, port), timeout=8):
+                      raise SystemExit(
+                          "Policy failure: ordinary application Pod reached management TCP port."
+                      )
+              except (ConnectionRefusedError, OSError, TimeoutError) as error:
+                  print(
+                      "Denied management TCP probe was blocked as expected "
+                      f"({type(error).__name__})."
+                  )
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL

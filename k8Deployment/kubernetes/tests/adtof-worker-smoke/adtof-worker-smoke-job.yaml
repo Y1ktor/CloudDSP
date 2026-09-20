@@ -2,7 +2,8 @@
 # AMQP delivery or simulating a dispatcher/worker result:
 #
 #   controlled private drums WAV -> fixed PostgreSQL prepare function -> generic
-#   dispatcher -> deployed ADTOF worker -> private MIDI + tempo + task success
+#   dispatcher -> RabbitMQ ADTOF queue -> KEDA-scaled ADTOF worker -> private
+#   MIDI + tempo + task success
 #
 # The client has no RabbitMQ credential and no direct application-table access.
 # Its two app-namespace Secrets independently restrict it to three fixed
@@ -13,11 +14,15 @@
 # Prerequisites (all intentionally separate from this manifest):
 #   1. The fixed-scope PostgreSQL bootstrap Job completed successfully.
 #   2. The exact-key MinIO policy/bootstrap Job completed successfully.
-#   3. The generic dispatcher and ADTOF worker Deployments are healthy.
+#   3. The generic dispatcher is healthy, and the ADTOF Deployment controller
+#      plus its RabbitMQ ScaledObject are Ready. The worker Pod count may be
+#      zero: this Job's durable request is deliberately able to activate KEDA.
 #   4. No previous failed run retains this test's fixed database rows/objects.
 #
-# This source is deliberately unapplied. A later explicit task will provide
-# apply, log, inspection, and human-approved failed-run cleanup commands.
+# This source is deliberately unapplied. It is both the end-to-end ADTOF smoke
+# driver and the controlled KEDA activation stimulus; a later explicit task
+# applies it, observes `0 -> 1` worker activation, then reads its durable result
+# before any human-approved failed-run cleanup.
 apiVersion: batch/v1
 kind: Job
 metadata:

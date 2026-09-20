@@ -24,10 +24,13 @@ metadata:
     clouddsp.io/environment: local
     clouddsp.io/purpose: private-drums-to-midi-processing
 spec:
-  # One replica makes the first CPU rollout observable. RabbitMQ prefetch one
-  # and PostgreSQL's `(job_id, adtof, drums)` lease make later intentional
-  # scale-out safe; KEDA remains a separate task after resource measurements.
-  replicas: 1
+  # Do not declare `replicas` here. After the companion KEDA ScaledObject is
+  # applied, its generated HPA owns this Deployment's `/scale` subresource and
+  # can set the worker Pod count from zero to the reviewed local maximum.
+  # Omitting this field prevents a later ordinary `kubectl apply` of this
+  # Deployment from continually fighting KEDA by restoring a handwritten `1`.
+  # Before the ScaledObject exists, Kubernetes' normal Deployment default is
+  # still one replica, preserving an independently usable worker manifest.
   # Retain two prior digest-pinned ReplicaSets for a small local rollback
   # window without accumulating obsolete local controller history.
   revisionHistoryLimit: 2

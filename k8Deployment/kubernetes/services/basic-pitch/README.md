@@ -616,8 +616,9 @@ below consumes that immutable reference without applying it.
 
 [`basic-pitch-deployment.yaml`](basic-pitch-deployment.yaml) is the prepared
 internal-only worker controller. It uses the locked CPU-only image digest, one
-replica, one-message RabbitMQ prefetch, private PostgreSQL/MinIO/RabbitMQ
-Service DNS, and only the three existing app-namespace runtime Secrets. The
+replica before a scaler is installed, one-message RabbitMQ prefetch, private
+PostgreSQL/MinIO/RabbitMQ Service DNS, and only the three existing
+app-namespace runtime Secrets. The
 Pod uses no ServiceAccount token, no Service or Ingress, no CUDA resource, and
 no administrator/bootstrap Secret. Its root filesystem is read-only; bounded
 `emptyDir` volumes at `/worker-scratch`, `/tmp`, and the worker HOME contain
@@ -630,6 +631,33 @@ The manifest is intentionally **not applied by this task**. Before applying it
 in the next task, confirm that the existing app-namespace database, MinIO, and
 RabbitMQ runtime Secrets are present and that their matching least-privilege
 bootstrap Jobs have completed.
+
+## KEDA queue-scaling policy
+
+[`basic-pitch-scaledobject.yaml`](basic-pitch-scaledobject.yaml) is the
+prepared KEDA policy for this worker. It leaves the long-running Deployment
+responsible for the worker process and Pod security, while KEDA's generated HPA
+owns only the Deployment replica count. The policy observes the private
+`clouddsp.basic-pitch.requests` queue through RabbitMQ's private management
+ClusterIP using the dedicated read-only monitoring identity—not the Basic
+Pitch AMQP consumer credential.
+
+The policy has a five-second scale-from-zero polling interval, a one-message
+target that matches the worker's `prefetch=1`, a zero-to-three replica range,
+and a one-minute idle cooldown. Its HPA may add up to three Pods per
+15-second control interval, so a five-stem Demucs burst does not wait through
+several 30-second one-Pod increments. Unacknowledged work is counted, so a CPU
+inference already held by a worker cannot look like an empty queue and be
+scaled down prematurely. The Deployment omits a handwritten `replicas` field
+once this policy exists so ordinary future `kubectl apply` operations do not
+fight the generated HPA.
+
+The reviewed local run applied this policy and its three-request burst Job on
+2026-09-20. It confirmed the full `0 → 3 → 0` lifecycle: three valid durable
+requests reached the configured three-Pod ceiling, completed through the normal
+worker path, then returned to zero after the idle cooldown. Future policy
+changes still require an explicit apply-and-observe task; this source never
+applies itself.
 
 Run the isolated contract tests from the repository root:
 

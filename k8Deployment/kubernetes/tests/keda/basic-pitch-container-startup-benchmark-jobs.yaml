@@ -1,0 +1,174 @@
+# These two one-shot Jobs measure Kubernetes *container instantiation* for the
+# exact immutable Basic Pitch image. They deliberately do not start the Basic
+# Pitch worker entrypoint: doing so would connect with a real consumer identity
+# and could take a durable production queue message. Instead, each Pod sleeps
+# after its container starts, leaving Kubernetes timestamps available for a
+# precise, no-work comparison.
+#
+# The k3d local cluster has two agent nodes. At this benchmark's creation time,
+# the reviewed Basic Pitch digest is cached on agent-0 but absent from agent-1.
+# Pinning each Job to one named node distinguishes a cached start from the
+# image-pull-inclusive start. These hostnames are intentionally local-profile
+# test coordinates, not portable production scheduling rules.
+#
+# This benchmark proves only: API admission, scheduling, image availability,
+# container creation, and process start. It does *not* prove TensorFlow model
+# initialization or RabbitMQ consumer readiness; those require a later
+# instrumented worker-readiness benchmark.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: basic-pitch-startup-cached-benchmark
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: basic-pitch-startup-benchmark
+    app.kubernetes.io/component: cached-container-instantiation-test
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: basic-pitch-cached-image-startup-measurement
+spec:
+  # Keep the completed Pod long enough to retrieve its status timestamps, then
+  # let the TTL controller remove it. This never deletes the cached image.
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 0
+  # A cached image should start quickly; this still leaves room for an
+  # intentionally busy local scheduler without allowing a stuck test forever.
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: basic-pitch-startup-benchmark
+        app.kubernetes.io/component: cached-container-instantiation-test
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # This fixed hostname is a k3d-local test coordinate. agent-0 already
+      # holds the image digest, so `IfNotPresent` avoids an image pull.
+      nodeSelector:
+        kubernetes.io/hostname: k3d-clouddsp-local-agent-0
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10004
+        runAsGroup: 10004
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: basic-pitch-container-startup-probe
+          # This exact digest must match the deployed Basic Pitch worker. A
+          # changing tag would invalidate both timing and cache conclusions.
+          image: clouddsp-registry.localhost:5001/basic-pitch@sha256:c0455e52c2e484900b16ef3289e264591d23efc4cfca9533d6f0ac29fc79e4ca
+          imagePullPolicy: IfNotPresent
+          # Override the worker's ENTRYPOINT. The benchmark needs only a
+          # running process to expose `containerStatuses[].startedAt`; it must
+          # not receive RabbitMQ/PostgreSQL/MinIO environment or Secrets.
+          command: ["python", "-c"]
+          args:
+            - |
+              import datetime
+              import time
+
+              print(f"container_started_at={datetime.datetime.now(datetime.UTC).isoformat()}")
+              time.sleep(60)
+          env:
+            # Avoid harmless Python bytecode/cache writes in a deliberately
+            # read-only benchmark filesystem.
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          resources:
+            # The image is not importing TensorFlow or processing media here.
+            # Small explicit resources prevent this timing probe from claiming
+            # a worker-sized CPU/memory reservation while still schedulable.
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: basic-pitch-startup-image-pull-benchmark
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: basic-pitch-startup-benchmark
+    app.kubernetes.io/component: uncached-container-instantiation-test
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: basic-pitch-image-pull-startup-measurement
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 0
+  # The local registry image is 520 MB, so an uncached pull gets a bounded but
+  # realistic two-minute allowance. A timeout is useful evidence rather than a
+  # silent indefinitely Pending benchmark.
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: basic-pitch-startup-benchmark
+        app.kubernetes.io/component: uncached-container-instantiation-test
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # agent-1 was checked immediately before this test and does not have the
+      # fixed image digest. This turns `IfNotPresent` into a measured local
+      # registry pull rather than assuming a generic network throughput.
+      nodeSelector:
+        kubernetes.io/hostname: k3d-clouddsp-local-agent-1
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10004
+        runAsGroup: 10004
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: basic-pitch-container-startup-probe
+          image: clouddsp-registry.localhost:5001/basic-pitch@sha256:c0455e52c2e484900b16ef3289e264591d23efc4cfca9533d6f0ac29fc79e4ca
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-c"]
+          args:
+            - |
+              import datetime
+              import time
+
+              print(f"container_started_at={datetime.datetime.now(datetime.UTC).isoformat()}")
+              time.sleep(60)
+          env:
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL

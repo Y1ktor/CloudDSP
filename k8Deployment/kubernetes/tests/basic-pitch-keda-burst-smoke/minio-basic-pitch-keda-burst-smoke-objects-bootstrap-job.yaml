@@ -1,0 +1,214 @@
+# This one-shot administrator Job creates/rotates one restricted MinIO user
+# and attaches the immutable six-key burst-smoke policy. Its only network path
+# is this Pod -> private MinIO Service. It does not create a bucket/object,
+# connect to PostgreSQL/RabbitMQ/Kubernetes, run Basic Pitch, or scale a Pod.
+#
+# Apply the immutable ConfigMap and the two ignored local Secret copies before
+# this Job. A completed fixed-name Job is not rerun by another apply; delete
+# exactly this Job only for an intentional credential rotation/policy repair.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-basic-pitch-keda-burst-smoke-objects-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: minio-basic-pitch-keda-burst-smoke-objects-bootstrap
+    app.kubernetes.io/component: object-storage-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: six-fixed-key-basic-pitch-keda-burst-object-provisioning
+spec:
+  # Retain non-sensitive completion output for inspection. TTL removes only
+  # this root-credential-bearing Pod, never the created MinIO user or Secrets.
+  ttlSecondsAfterFinished: 600
+  # Repeating administrator calls can hide a partial provisioning failure, so
+  # retain the first result for deliberate diagnosis rather than retrying.
+  backoffLimit: 0
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: minio-basic-pitch-keda-burst-smoke-objects-bootstrap
+        app.kubernetes.io/component: object-storage-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        # The pinned mc image supports this non-root account. fsGroup permits
+        # its ordered containers to share only a tiny temporary alias directory.
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: configure-private-minio-root-alias
+          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+            # Root credentials appear only as environment values in this
+            # short-lived admin Job, never in source or command output.
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_PASSWORD
+          resources: &mcResources
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext: &mcSecurityContext
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts: &mcConfigVolumeMount
+            - name: mc-config
+              mountPath: /mc-config
+          args:
+            - alias
+            - set
+            - minio-admin
+            - http://clouddsp-minio:9000
+            - $(MINIO_ROOT_USER)
+            - $(MINIO_ROOT_PASSWORD)
+
+        - name: wait-for-private-minio-service
+          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+          resources: *mcResources
+          securityContext: *mcSecurityContext
+          volumeMounts: *mcConfigVolumeMount
+          # The Job deadline bounds an unavailable Service or invalid root
+          # alias; no open-ended readiness loop hides a failed dependency.
+          args: ["ready", "minio-admin"]
+
+        - name: create-or-rotate-six-key-burst-identity
+          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+            # This temporary namespace-local copy must match the future app
+            # client Secret exactly. It grants no authority by itself.
+            - name: BASIC_PITCH_KEDA_BURST_SMOKE_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-keda-burst-smoke-minio-bootstrap-credentials
+                  key: BASIC_PITCH_KEDA_BURST_SMOKE_S3_ACCESS_KEY
+            - name: BASIC_PITCH_KEDA_BURST_SMOKE_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-keda-burst-smoke-minio-bootstrap-credentials
+                  key: BASIC_PITCH_KEDA_BURST_SMOKE_S3_SECRET_KEY
+          # `mc admin policy create` parses the six-key JSON and can briefly
+          # allocate more than a simple alias/readiness command. The initial
+          # 128 MiB cap was observed OOM-killing this exact init container
+          # after user creation but before policy attachment. Give only this
+          # provisioning step a bounded 512 MiB limit; all other admin steps
+          # keep the smaller shared resource profile above.
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 512Mi
+              ephemeral-storage: 32Mi
+          securityContext: *mcSecurityContext
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+            - name: burst-smoke-policy
+              mountPath: /policy
+              readOnly: true
+          command: ["sh", "-ec"]
+          args:
+            - |
+              # Import the reviewed immutable policy before attaching it. A
+              # prior interrupted bootstrap may already have created its name
+              # but not reached attachment, so converge it with `update` if
+              # `create` reports that the versioned name already exists. Any
+              # other create failure still reaches `update` and remains a
+              # visible nonzero failure if MinIO is unavailable.
+              if ! mc admin policy create \
+                minio-admin \
+                clouddsp-basic-pitch-keda-burst-smoke-objects-v001 \
+                /policy/basic-pitch-keda-burst-smoke-objects-policy.json; then
+                mc admin policy update \
+                  minio-admin \
+                  clouddsp-basic-pitch-keda-burst-smoke-objects-v001 \
+                  /policy/basic-pitch-keda-burst-smoke-objects-policy.json
+              fi
+
+              # User add is the reviewed idempotent rotation operation: an
+              # explicit later rerun converges this one restricted secret pair.
+              mc admin user add \
+                minio-admin \
+                "$BASIC_PITCH_KEDA_BURST_SMOKE_S3_ACCESS_KEY" \
+                "$BASIC_PITCH_KEDA_BURST_SMOKE_S3_SECRET_KEY"
+
+              mc admin policy attach \
+                minio-admin \
+                clouddsp-basic-pitch-keda-burst-smoke-objects-v001 \
+                --user="$BASIC_PITCH_KEDA_BURST_SMOKE_S3_ACCESS_KEY"
+
+              # This safe report shows the user/policy association only; mc
+              # never prints the secret key in this command's normal output.
+              mc admin user info \
+                minio-admin \
+                "$BASIC_PITCH_KEDA_BURST_SMOKE_S3_ACCESS_KEY"
+
+        - name: remove-root-alias-before-completion
+          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+          resources: *mcResources
+          securityContext: *mcSecurityContext
+          volumeMounts: *mcConfigVolumeMount
+          # The emptyDir vanishes with the Pod, but removing this alias first
+          # ensures the regular completion container never sees root state.
+          args: ["alias", "remove", "minio-admin"]
+      containers:
+        - name: completion-marker
+          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          resources: *mcResources
+          securityContext: *mcSecurityContext
+          args: ["--version"]
+      volumes:
+        - name: mc-config
+          emptyDir:
+            # mc alias state is only small temporary credential material—not
+            # object data—and must remain bounded even in an admin bootstrap.
+            sizeLimit: 1Mi
+        - name: burst-smoke-policy
+          configMap:
+            name: clouddsp-basic-pitch-keda-burst-smoke-objects-policy-v001
+            defaultMode: 0444
+            items:
+              - key: basic-pitch-keda-burst-smoke-objects-policy.json
+                path: basic-pitch-keda-burst-smoke-objects-policy.json

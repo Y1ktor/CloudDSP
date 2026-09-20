@@ -23,11 +23,13 @@ metadata:
     clouddsp.io/environment: local
     clouddsp.io/purpose: private-stem-to-midi-processing
 spec:
-  # One replica keeps this first CPU-worker rollout easy to inspect. The worker
-  # has `prefetch=1`, and PostgreSQL task leases make a future deliberate scale
-  # out safe; KEDA-based queue scaling remains a separate task once metrics and
-  # laptop capacity limits have been established.
-  replicas: 1
+  # Do not declare `replicas` here. Once the companion KEDA ScaledObject is
+  # applied, its generated HPA owns this Deployment's `/scale` subresource and
+  # moves the worker count between zero and the reviewed local maximum.
+  # Omitting this field prevents a later ordinary `kubectl apply` of this
+  # Deployment from continuously fighting KEDA by restoring a handwritten `1`.
+  # Before the ScaledObject exists, Kubernetes' normal Deployment default is
+  # still one replica, so this manifest remains independently usable.
   # Retain two digest-pinned rollback points without accumulating old
   # ReplicaSets indefinitely in the local teaching cluster.
   revisionHistoryLimit: 2

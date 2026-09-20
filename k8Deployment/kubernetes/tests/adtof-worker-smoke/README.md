@@ -7,8 +7,11 @@ a Kubernetes Job, Secret, PostgreSQL row, RabbitMQ message, MinIO object,
 image, or ADTOF model invocation.
 
 The deployed `clouddsp-adtof` worker is already the system under test. The
-later smoke client will use the existing generic dispatcher and worker rather
-than publishing directly to RabbitMQ or simulating a worker result.
+smoke client uses the existing generic dispatcher and worker rather than
+publishing directly to RabbitMQ or simulating a worker result. With the ADTOF
+KEDA ScaledObject applied, the same durable event is also the controlled
+activation stimulus: the worker Deployment may be at zero replicas before the
+test creates its request, and KEDA must create capacity from the real queue.
 
 ```text
 controlled private drums WAV
@@ -20,7 +23,8 @@ test-specific PostgreSQL prepare function creates Job + outbox event
 generic dispatcher publishes adtof.requested
         |
         v
-deployed ADTOF worker claims, verifies, downloads, transcribes, and writes
+KEDA activates deployed ADTOF worker, which claims, verifies, downloads,
+transcribes, and writes
         |
         v
 PostgreSQL task success + private MIDI + private tempo JSON
@@ -227,6 +231,24 @@ The MIDI must be a complete bounded Standard MIDI container; the tempo object
 must be complete bounded JSON using the worker's cloud-compatible candidate
 schema. It intentionally does not assert notes, BPM, or confidence as a model
 quality benchmark.
+
+## KEDA activation use
+
+This existing fixed-coordinate Job is the activation driver for the first
+ADTOF KEDA observation. It deliberately has no RabbitMQ credential and does
+not read Kubernetes resources: its limited PostgreSQL `prepare()` function
+creates the one durable outbox event, the generic dispatcher publishes that
+event, and KEDA observes the real `clouddsp.adtof.requests` backlog through
+RabbitMQ's private management API. This keeps the test from forging a queue
+message or granting its client authority to scale a Deployment.
+
+Before an explicit activation run, confirm that the ADTOF ScaledObject is
+`Ready`, its target Deployment is at `0/0`, the generic dispatcher is Ready,
+and no prior fixed smoke evidence remains. While the Job is in its bounded
+observation phase, inspect the generated HPA and ADTOF Pod count outside the
+Job. A later focused observation task owns the exact commands and success
+criteria for `0 -> 1`; this fixture Job still owns the eventual worker output
+verification and successful-only cleanup.
 
 This adapter is read-only: it cannot list a bucket, write an output, delete an
 object, call PostgreSQL, publish RabbitMQ work, invoke ADTOF, build an image,

@@ -1,0 +1,27 @@
+# This is a Helm release lock for the local KEDA platform dependency. It is
+# intentionally not a Kubernetes object: Helm reads the chart version below,
+# while Kubernetes receives only the resources rendered by that chart.
+#
+# Keeping the repository URL and chart version together prevents an otherwise
+# innocent `helm upgrade` from choosing a newer KEDA release just because it
+# was published after this local profile was reviewed.
+lockFormatVersion: 1
+chart:
+  repositoryName: kedacore
+  repositoryURL: https://kedacore.github.io/charts
+  name: keda
+  version: "2.20.2"
+  releaseName: keda
+  namespace: keda
+  upstreamRelease: https://github.com/kedacore/charts/releases/tag/v2.20.2
+  resolvedAt: "2026-09-16"
+
+# KEDA 2.20.2's Helm chart normally forms `repository:tag` references. The
+# local ARM64 image *child* digests observed after Kubernetes pulled those
+# tags are recorded under `images` in ../../images.lock.yaml. The installer
+# pins the chart and the explicit tags; review those digest records whenever
+# this chart version changes.
+imageLockKeys:
+  - images.keda-operator
+  - images.keda-metrics-api-server
+  - images.keda-admission-webhooks

@@ -5,9 +5,10 @@
 # data directory incorporate that hostname, so this stable identity is part of
 # keeping a restarted broker attached to its own persistent data.
 #
-# This is not the ordinary AMQP client endpoint.  A later regular ClusterIP
-# Service will provide a stable broker address for CloudDSP services and will
-# expose only the AMQP listener on port 5672.
+# This is not the ordinary AMQP client endpoint.  The regular AMQP ClusterIP
+# provides a stable broker address for CloudDSP services and exposes only port
+# 5672.  The separately named management ClusterIP exists solely for KEDA's
+# queue metrics; neither endpoint is browser-facing.
 apiVersion: v1
 kind: Service
 metadata:

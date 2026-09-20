@@ -1,0 +1,110 @@
+# This ScaledObject delegates the *number of Basic Pitch worker Pods* to KEDA.
+# The Basic Pitch Deployment remains the owner of the Pod template, immutable
+# image, least-privilege identities, resource limits, rollout behavior, and
+# SIGTERM handling. This is not a Kubernetes Job: RabbitMQ retains durable
+# work, while each worker claims and completes its PostgreSQL task lease before
+# manually acknowledging its AMQP delivery.
+#
+# KEDA creates one ordinary Kubernetes HPA for this exact Deployment. That HPA
+# writes only the Deployment `/scale` subresource; it neither bypasses the
+# Deployment controller nor runs a second kind of Basic Pitch worker.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: clouddsp-basic-pitch-rabbitmq-scaler
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: basic-pitch
+    app.kubernetes.io/instance: clouddsp-basic-pitch
+    app.kubernetes.io/component: queue-autoscaler
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: queue-depth-autoscale-private-midi-worker
+spec:
+  # This is the controller whose standard apps/v1 `scale` subresource KEDA/HPA
+  # manages. It must not be an individual Pod, a ReplicaSet, a Service, or a
+  # RabbitMQ queue.
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: clouddsp-basic-pitch
+
+  # A new Basic Pitch backlog is usually a short burst of stems from one
+  # Demucs result. Five-second polling limits scale-from-zero detection delay
+  # without continuously querying RabbitMQ from the local control plane.
+  pollingInterval: 5
+  # The local 520 MB image starts from the colocated registry in about seven
+  # seconds when uncached, so retaining an idle TensorFlow process for three
+  # minutes is unnecessary. One minute absorbs nearby stems but returns the
+  # CPU/memory reservation to the cluster promptly after a short burst.
+  cooldownPeriod: 60
+  # When no durable Basic Pitch request is present, no worker Pod is needed.
+  # The Deployment itself remains present at zero so KEDA can recreate a Pod
+  # when the queue becomes active.
+  minReplicaCount: 0
+  # Each Pod requests one CPU and 2 GiB memory. Three replicas let a five-stem
+  # burst process three stems concurrently while leaving the remaining durable
+  # messages queued. Kubernetes still schedules only where requested capacity
+  # exists; this is a ceiling, not a promise that all three Pods fit.
+  maxReplicaCount: 3
+
+  advanced:
+    # If an explicit future rollback removes this ScaledObject, restore the
+    # Deployment's pre-KEDA desired count rather than leave the worker at a
+    # dynamic value such as zero.
+    restoreToOriginalReplicaCount: true
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          # A five-stem Demucs burst should not wait through several 30-second
+          # one-Pod increments. The HPA may add up to three Pods per 15-second
+          # control interval, bounded above by maxReplicaCount and real node
+          # capacity. RabbitMQ retains excess work if a Pod is Pending.
+          stabilizationWindowSeconds: 0
+          policies:
+            - type: Pods
+              value: 3
+              periodSeconds: 15
+        scaleDown:
+          # A short stabilization window avoids reacting to a momentary empty
+          # metric while a nearby message is being published. KEDA's one-minute
+          # cooldown performs the final scale from an inactive Pod to zero.
+          stabilizationWindowSeconds: 60
+          policies:
+            - type: Pods
+              value: 3
+              periodSeconds: 60
+
+  triggers:
+    - type: rabbitmq
+      metadata:
+        # KEDA observes the broker through the private ClusterIP management
+        # Service. It has no host port or Ingress, and the broker NetworkPolicy
+        # permits this listener only from KEDA and reviewed bootstrap Jobs.
+        host: http://clouddsp-rabbitmq-management.clouddsp-data.svc:15672
+        protocol: http
+        # The dedicated monitoring identity can inspect management metrics but
+        # has no AMQP configure/write/read permissions. It cannot consume or
+        # acknowledge this queue.
+        vhostName: /clouddsp
+        queueName: clouddsp.basic-pitch.requests
+        mode: QueueLength
+        # Workers use prefetch one, so a target queue depth of one represents
+        # approximately one ready or unacknowledged task per worker. The HPA
+        # respects maxReplicaCount when deriving its desired replica count.
+        value: "1"
+        # A zero backlog is inactive and enables KEDA's scale-to-zero path.
+        activationValue: "0"
+        # An active Pod may hold one unacknowledged task during CPU inference.
+        # Count it so the worker is not treated as idle before its durable
+        # completion and manual acknowledgement finish.
+        excludeUnacknowledged: "false"
+        # Do not let a temporarily impaired management endpoint make one
+        # polling attempt wait forever.
+        timeout: "5000"
+      authenticationRef:
+        # This namespaced TriggerAuthentication exposes only KEDA's dedicated
+        # monitoring credential. Basic Pitch's database, MinIO, RabbitMQ
+        # consumer, and administrator credentials are never supplied to KEDA.
+        name: clouddsp-rabbitmq-scaler-authentication

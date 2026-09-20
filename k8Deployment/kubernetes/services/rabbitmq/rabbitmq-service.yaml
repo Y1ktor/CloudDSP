@@ -4,7 +4,9 @@
 # `clouddsp-rabbitmq.clouddsp-data.svc.cluster.local:5672`.
 #
 # It deliberately exposes only AMQP.  The management UI stays reachable only
-# through a temporary administrator port-forward, while the Erlang discovery
+# through a temporary administrator port-forward; the separately named private
+# `clouddsp-rabbitmq-management` ClusterIP exists only for KEDA's management
+# metrics and is paired with an endpoint-level NetworkPolicy.  Erlang discovery
 # and distribution ports remain part of the headless peer-identity Service.
 apiVersion: v1
 kind: Service

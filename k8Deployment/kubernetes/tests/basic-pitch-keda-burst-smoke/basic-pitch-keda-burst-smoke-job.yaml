@@ -1,0 +1,148 @@
+# This finite Job drives three fixed, ordinary Basic Pitch requests through the
+# deployed PostgreSQL -> generic dispatcher -> RabbitMQ -> KEDA -> worker path:
+#
+#   three controlled private WAVs -> three durable outbox events -> three
+#   deployed Basic Pitch worker completions -> three verified private MIDIs
+#
+# It intentionally has neither a RabbitMQ credential nor a Kubernetes API
+# token. Consequently, it cannot publish/consume a delivery, inspect/alter a
+# queue, force replicas, inspect an HPA, create another Pod, or execute an ML
+# model. The existing dispatcher, KEDA controller, and worker Deployment own
+# those responsibilities. This client only uses its two narrow runtime
+# identities: three fixed PostgreSQL functions and six fixed MinIO object keys.
+#
+# Prerequisites are deliberately external to this manifest:
+#   1. The dedicated PostgreSQL and MinIO bootstrap Jobs completed successfully.
+#   2. The generic dispatcher, Basic Pitch worker, RabbitMQ, MinIO, and KEDA
+#      are healthy.
+#   3. No failed earlier burst retains these fixed durable rows or objects.
+#
+# This source file is never applied automatically. The reviewed local run
+# explicitly applied it after starting ScaledObject/HPA observation and proved
+# the intended 0 -> 3 -> 0 scaling behavior. A future deliberate rerun still
+# requires the same observation and exact fixed-name Job cleanup discipline.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # A fixed name makes logs and cleanup commands unambiguous. Kubernetes does
+  # not rerun a completed Job on `kubectl apply`, so a reviewed old run must be
+  # deleted by its exact name before a deliberate future rerun.
+  name: basic-pitch-keda-burst-smoke
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: basic-pitch-keda-burst-smoke
+    app.kubernetes.io/component: integration-test
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: three-request-basic-pitch-keda-scale-to-three-verification
+spec:
+  # Preserve completed Job/Pod logs long enough to correlate them with the
+  # KEDA/HPA observation, then let the TTL controller remove this finite Pod.
+  ttlSecondsAfterFinished: 900
+  # A failure can leave deliberate durable evidence for diagnosis. Retrying the
+  # Pod automatically could collide with that evidence, so require review.
+  backoffLimit: 0
+  # The client waits at most 300 seconds for all three normal worker tasks.
+  # The outer deadline allows startup and graceful shutdown time but prevents a
+  # stuck smoke Pod from retaining credentials indefinitely.
+  activeDeadlineSeconds: 420
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: basic-pitch-keda-burst-smoke
+        app.kubernetes.io/component: integration-test
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      # A Job records the client exit result. It is never a long-running worker
+      # and does not need restart-on-failure behavior inside the same Pod.
+      restartPolicy: Never
+      terminationGracePeriodSeconds: 10
+      # The client uses explicit Service DNS names and does not need Kubernetes
+      # service environment variables or an API credential.
+      enableServiceLinks: false
+      automountServiceAccountToken: false
+      securityContext:
+        # These IDs match the non-root account built into the immutable image.
+        # Repeating them protects against a future accidental root-capable
+        # image replacement even though this Pod mounts no writable volume.
+        runAsNonRoot: true
+        runAsUser: 10007
+        runAsGroup: 10007
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: basic-pitch-keda-burst-smoke-client
+          # This is `images.basic-pitch-keda-burst-smoke-client` in the shared
+          # catalog. The tag is omitted intentionally: only these reviewed
+          # ARM64 registry bytes may execute the three-request sequence.
+          image: clouddsp-registry.localhost:5001/basic-pitch-keda-burst-smoke-client@sha256:49d4bae35dcb36930c6a76e886819c4cf9cbea4eca0e3548658cc9d1e317a659
+          imagePullPolicy: IfNotPresent
+          env:
+            # Use private in-cluster Services, never a Mac port-forward,
+            # browser-facing Ingress, public hostname, or caller-selected URL.
+            - name: BASIC_PITCH_KEDA_BURST_SMOKE_DB_HOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: BASIC_PITCH_KEDA_BURST_SMOKE_DB_PORT
+              value: "5432"
+            - name: BASIC_PITCH_KEDA_BURST_SMOKE_MINIO_ENDPOINT_URL
+              value: http://clouddsp-minio.clouddsp-data.svc:9000
+            # The dedicated database role can execute only the fixed
+            # prepare/observe/cleanup functions. It has no direct table,
+            # sequence, DDL, or ordinary-job authority.
+            - name: BASIC_PITCH_KEDA_BURST_SMOKE_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-keda-burst-smoke-database-credentials
+                  key: BASIC_PITCH_KEDA_BURST_SMOKE_DB_NAME
+            - name: BASIC_PITCH_KEDA_BURST_SMOKE_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-keda-burst-smoke-database-credentials
+                  key: BASIC_PITCH_KEDA_BURST_SMOKE_DB_USERNAME
+            - name: BASIC_PITCH_KEDA_BURST_SMOKE_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-keda-burst-smoke-database-credentials
+                  key: BASIC_PITCH_KEDA_BURST_SMOKE_DB_PASSWORD
+            # This separate MinIO user permits Head/Get/Put/Delete only for
+            # the three fixed WAV keys and three fixed MIDI keys. It cannot
+            # list a bucket, access a normal user object, presign, or administer
+            # MinIO.
+            - name: BASIC_PITCH_KEDA_BURST_SMOKE_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-keda-burst-smoke-minio-credentials
+                  key: BASIC_PITCH_KEDA_BURST_SMOKE_S3_ACCESS_KEY
+            - name: BASIC_PITCH_KEDA_BURST_SMOKE_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-keda-burst-smoke-minio-credentials
+                  key: BASIC_PITCH_KEDA_BURST_SMOKE_S3_SECRET_KEY
+            # Static MinIO credentials are supplied above. Disabling the cloud
+            # metadata fallback prevents Boto3 from probing an AWS endpoint.
+            - name: AWS_EC2_METADATA_DISABLED
+              value: "true"
+          resources:
+            # The Pod constructs three small WAVs, streams three small MIDI
+            # files, and polls PostgreSQL. It does not execute TensorFlow or a
+            # model, leaving CPU/memory capacity available for the actual
+            # autoscaled Basic Pitch worker Pods.
+            requests:
+              cpu: 50m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+              ephemeral-storage: 96Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            # The image has no runtime cache, artifact, lockfile, or local
+            # output contract. The client streams evidence in memory, so root
+            # filesystem writes would be unnecessary and are disallowed.
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL

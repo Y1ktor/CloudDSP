@@ -1,0 +1,462 @@
+# This administrator-only Job establishes the database boundary for the future
+# three-request Basic Pitch KEDA burst smoke:
+#
+# restricted burst client -> fixed SECURITY DEFINER functions -> PostgreSQL
+# generic dispatcher -> RabbitMQ -> KEDA-scaled Basic Pitch workers
+#
+# It does not upload media, publish/consume RabbitMQ, create a smoke Job/event,
+# start a worker, or call the Kubernetes API. Its sole durable effect is a
+# separate login plus three fixed-coordinate database functions. Apply the two
+# ignored local Secret copies first. Delete this fixed-name Job only for an
+# intentional role/password/function repair; reapplying a completed Job does
+# not execute it again.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: basic-pitch-keda-burst-smoke-database-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: basic-pitch-keda-burst-smoke-database-bootstrap
+    app.kubernetes.io/component: database-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: three-fixed-job-basic-pitch-keda-burst-database-provisioning
+spec:
+  # The TTL removes the short-lived Pod that mounted the PostgreSQL admin
+  # Secret. It never deletes the restricted role/functions or runtime Secret.
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 0
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: basic-pitch-keda-burst-smoke-database-bootstrap
+        app.kubernetes.io/component: database-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        # The pinned official PostgreSQL image supplies psql and this
+        # unprivileged account. Database authorization—not Linux root—supplies
+        # the deliberately short-lived administration authority.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgresql-bootstrap-client
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PGHOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: PGPORT
+              value: "5432"
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+            # The administrator Secret is available only in this data-namespace
+            # Pod. Neither the eventual burst client nor a worker receives it.
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_PASSWORD
+            # The temporary duplicate holds only the new restricted login.
+            - name: BASIC_PITCH_KEDA_BURST_SMOKE_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-keda-burst-smoke-database-bootstrap-credentials
+                  key: BASIC_PITCH_KEDA_BURST_SMOKE_DB_NAME
+            - name: BASIC_PITCH_KEDA_BURST_SMOKE_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-keda-burst-smoke-database-bootstrap-credentials
+                  key: BASIC_PITCH_KEDA_BURST_SMOKE_DB_USERNAME
+            - name: BASIC_PITCH_KEDA_BURST_SMOKE_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-basic-pitch-keda-burst-smoke-database-bootstrap-credentials
+                  key: BASIC_PITCH_KEDA_BURST_SMOKE_DB_PASSWORD
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -ec
+            - |
+              # `ON_ERROR_STOP` turns a failed privilege/function statement
+              # into one inspectable nonzero Job result. The quoted heredoc
+              # prevents shell substitution in the PostgreSQL program.
+              printf 'Provisioning fixed-scope Basic Pitch KEDA burst access through Service %s:%s\n' "$PGHOST" "$PGPORT"
+
+              PGDATABASE="$BASIC_PITCH_KEDA_BURST_SMOKE_DB_NAME" \
+                psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                  --set=burst_db_name="$BASIC_PITCH_KEDA_BURST_SMOKE_DB_NAME" \
+                  --set=burst_db_username="$BASIC_PITCH_KEDA_BURST_SMOKE_DB_USERNAME" \
+                  --set=burst_db_password="$BASIC_PITCH_KEDA_BURST_SMOKE_DB_PASSWORD" <<'SQL'
+              -- Zero-row probes verify only the schema shape. No existing Job,
+              -- owner, event payload, object coordinate, or Secret is output.
+              SELECT job_id, status, source_uploaded, stem_mode, stems, expires_at
+              FROM public.jobs LIMIT 0;
+              SELECT event_id, job_id, stage, stem_name, event_type, payload,
+                     publication_status, published_at
+              FROM public.outbox_events LIMIT 0;
+              SELECT task_id, job_id, stage, stem_name, request_event_id,
+                     status, attempt_count, lease_token, lease_expires_at, completed_at
+              FROM public.processing_tasks LIMIT 0;
+
+              -- Named dollar tags avoid command-layer reduction of anonymous
+              -- `$$`, which PostgreSQL would otherwise treat as invalid SQL.
+              DO $bootstrap$
+              BEGIN
+                IF NOT EXISTS (
+                  SELECT 1 FROM public.schema_migrations
+                  WHERE migration_id = 'v004_downstream_outbox_events'
+                ) THEN
+                  RAISE EXCEPTION 'Required v004 downstream outbox migration is missing.';
+                END IF;
+                IF NOT EXISTS (
+                  SELECT 1 FROM public.schema_migrations
+                  WHERE migration_id = 'v005_basic_pitch_processing_tasks'
+                ) THEN
+                  RAISE EXCEPTION 'Required v005 Basic Pitch task migration is missing.';
+                END IF;
+              END;
+              $bootstrap$;
+
+              -- Create once and converge on a deliberate rerun. psql's
+              -- identifier/literal forms prevent a Secret value from changing
+              -- the SQL statement structure.
+              SELECT format(
+                'CREATE ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT PASSWORD %L',
+                :'burst_db_username', :'burst_db_password'
+              )
+              WHERE NOT EXISTS (
+                SELECT 1 FROM pg_roles WHERE rolname = :'burst_db_username'
+              )
+              \gexec
+
+              ALTER ROLE :"burst_db_username"
+                LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT
+                PASSWORD :'burst_db_password';
+
+              -- A reused role must not retain membership that lets it enter
+              -- unrelated authority through SET ROLE.
+              SELECT format(
+                $membership_sql$
+                  DO $membership$
+                  BEGIN
+                    IF EXISTS (
+                      SELECT 1
+                      FROM pg_auth_members AS membership
+                      JOIN pg_roles AS member_role ON member_role.oid = membership.member
+                      WHERE member_role.rolname = %L
+                    ) THEN
+                      RAISE EXCEPTION 'Burst smoke database role must not belong to another PostgreSQL role.';
+                    END IF;
+                  END;
+                  $membership$;
+                $membership_sql$,
+                :'burst_db_username'
+              )
+              \gexec
+
+              -- Remove all ambient/direct data authority before granting only
+              -- connection, schema name resolution, and function execution.
+              REVOKE ALL PRIVILEGES ON DATABASE :"burst_db_name" FROM :"burst_db_username";
+              GRANT CONNECT ON DATABASE :"burst_db_name" TO :"burst_db_username";
+              REVOKE ALL PRIVILEGES ON SCHEMA public FROM :"burst_db_username";
+              GRANT USAGE ON SCHEMA public TO :"burst_db_username";
+              REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM :"burst_db_username";
+              REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM :"burst_db_username";
+              REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM :"burst_db_username";
+
+              -- This function accepts only byte/hash evidence for the three
+              -- fixed coordinates; callers cannot select a Job ID, owner,
+              -- object key, RabbitMQ route, or schema field. All inserts share
+              -- this transaction, so a crash cannot leave a partial burst.
+              CREATE OR REPLACE FUNCTION public.clouddsp_basic_pitch_keda_burst_smoke_prepare(
+                p_vocals_size_bytes BIGINT, p_vocals_sha256 TEXT,
+                p_bass_size_bytes BIGINT, p_bass_sha256 TEXT,
+                p_other_size_bytes BIGINT, p_other_sha256 TEXT
+              )
+              RETURNS TABLE (request_label TEXT, smoke_job_id UUID, smoke_event_id UUID)
+              LANGUAGE plpgsql
+              SECURITY DEFINER
+              SET search_path = pg_catalog, public
+              AS $burst_prepare$
+              DECLARE
+                v_vocals_job_id CONSTANT UUID := '2a1e8097-7da6-4d06-8b27-c006b02e0d91';
+                v_bass_job_id CONSTANT UUID := '8e27f4ad-6c19-4e3f-9b56-fa287429c0a2';
+                v_other_job_id CONSTANT UUID := '96ba2e39-e035-4fe8-a50a-b1e6db208ac3';
+                v_vocals_event_id CONSTANT UUID := '32e10a72-b5e7-4f11-8dfe-b922ec7ebbd9';
+                v_bass_event_id CONSTANT UUID := 'c4b23de8-4a63-47e3-a96e-155abfd38c36';
+                v_other_event_id CONSTANT UUID := '47ae0c63-e1b1-4663-b47a-8efaa8f37bc7';
+              BEGIN
+                -- SQL comparisons involving NULL yield NULL, not FALSE.
+                -- Check NULL explicitly so a malformed caller cannot pass a
+                -- missing hash/size through this narrow durable boundary.
+                IF p_vocals_size_bytes IS NULL
+                   OR p_vocals_size_bytes NOT BETWEEN 1 AND 2097152
+                   OR p_bass_size_bytes IS NULL
+                   OR p_bass_size_bytes NOT BETWEEN 1 AND 2097152
+                   OR p_other_size_bytes IS NULL
+                   OR p_other_size_bytes NOT BETWEEN 1 AND 2097152
+                   OR p_vocals_sha256 IS NULL
+                   OR p_vocals_sha256 !~ '^[0-9a-f]{64}$'
+                   OR p_bass_sha256 IS NULL
+                   OR p_bass_sha256 !~ '^[0-9a-f]{64}$'
+                   OR p_other_sha256 IS NULL
+                   OR p_other_sha256 !~ '^[0-9a-f]{64}$' THEN
+                  RAISE EXCEPTION 'Basic Pitch KEDA burst input evidence is invalid.';
+                END IF;
+
+                PERFORM pg_advisory_xact_lock(842930519);
+                -- A retained row/event/task is failure evidence. Never replace
+                -- it in place; an explicit scoped cleanup is required first.
+                IF EXISTS (
+                  SELECT 1 FROM public.jobs
+                  WHERE job_id IN (v_vocals_job_id, v_bass_job_id, v_other_job_id)
+                ) OR EXISTS (
+                  SELECT 1 FROM public.outbox_events
+                  WHERE event_id IN (v_vocals_event_id, v_bass_event_id, v_other_event_id)
+                ) OR EXISTS (
+                  SELECT 1 FROM public.processing_tasks
+                  WHERE job_id IN (v_vocals_job_id, v_bass_job_id, v_other_job_id)
+                    AND stage = 'basic-pitch'
+                ) THEN
+                  RAISE EXCEPTION 'Basic Pitch KEDA burst smoke coordinates are not clean.';
+                END IF;
+
+                INSERT INTO public.jobs (
+                  job_id, owner_sub, source_type, input_bucket, input_object_key,
+                  source_filename, source_content_type, source_size_bytes,
+                  source_uploaded, stem_mode, status, stems, expires_at
+                ) VALUES
+                  (
+                    v_vocals_job_id, 'clouddsp-basic-pitch-keda-burst-smoke', 'direct_upload',
+                    'clouddsp-uploads', 'uploads/2a1e8097-7da6-4d06-8b27-c006b02e0d91/burst-vocals.wav',
+                    'burst-vocals.wav', 'audio/wav', p_vocals_size_bytes, TRUE, '4-stems', 'midi_processing',
+                    jsonb_build_object('vocals', jsonb_build_object(
+                      'status', 'ready', 's3_key', 'stems/2a1e8097-7da6-4d06-8b27-c006b02e0d91/vocals.wav',
+                      'bucket', 'clouddsp-uploads', 'content_type', 'audio/wav',
+                      'size_bytes', p_vocals_size_bytes, 'sha256', p_vocals_sha256
+                    )), CURRENT_TIMESTAMP + INTERVAL '10 minutes'
+                  ),
+                  (
+                    v_bass_job_id, 'clouddsp-basic-pitch-keda-burst-smoke', 'direct_upload',
+                    'clouddsp-uploads', 'uploads/8e27f4ad-6c19-4e3f-9b56-fa287429c0a2/burst-bass.wav',
+                    'burst-bass.wav', 'audio/wav', p_bass_size_bytes, TRUE, '4-stems', 'midi_processing',
+                    jsonb_build_object('bass', jsonb_build_object(
+                      'status', 'ready', 's3_key', 'stems/8e27f4ad-6c19-4e3f-9b56-fa287429c0a2/bass.wav',
+                      'bucket', 'clouddsp-uploads', 'content_type', 'audio/wav',
+                      'size_bytes', p_bass_size_bytes, 'sha256', p_bass_sha256
+                    )), CURRENT_TIMESTAMP + INTERVAL '10 minutes'
+                  ),
+                  (
+                    v_other_job_id, 'clouddsp-basic-pitch-keda-burst-smoke', 'direct_upload',
+                    'clouddsp-uploads', 'uploads/96ba2e39-e035-4fe8-a50a-b1e6db208ac3/burst-other.wav',
+                    'burst-other.wav', 'audio/wav', p_other_size_bytes, TRUE, '4-stems', 'midi_processing',
+                    jsonb_build_object('other', jsonb_build_object(
+                      'status', 'ready', 's3_key', 'stems/96ba2e39-e035-4fe8-a50a-b1e6db208ac3/other.wav',
+                      'bucket', 'clouddsp-uploads', 'content_type', 'audio/wav',
+                      'size_bytes', p_other_size_bytes, 'sha256', p_other_sha256
+                    )), CURRENT_TIMESTAMP + INTERVAL '10 minutes'
+                  );
+
+                -- The three canonical version-1 bodies match the normal
+                -- dispatcher/worker contract and commit with their Jobs.
+                INSERT INTO public.outbox_events (
+                  event_id, job_id, stage, stem_name, event_type, payload
+                ) VALUES
+                  (
+                    v_vocals_event_id, v_vocals_job_id, 'basic-pitch', 'vocals', 'basic-pitch.requested',
+                    jsonb_build_object('schema_version', 1, 'job_id', v_vocals_job_id::text, 'stem_name', 'vocals',
+                      'stem', jsonb_build_object('bucket', 'clouddsp-uploads',
+                        'object_key', 'stems/2a1e8097-7da6-4d06-8b27-c006b02e0d91/vocals.wav',
+                        'content_type', 'audio/wav', 'size_bytes', p_vocals_size_bytes, 'sha256', p_vocals_sha256))
+                  ),
+                  (
+                    v_bass_event_id, v_bass_job_id, 'basic-pitch', 'bass', 'basic-pitch.requested',
+                    jsonb_build_object('schema_version', 1, 'job_id', v_bass_job_id::text, 'stem_name', 'bass',
+                      'stem', jsonb_build_object('bucket', 'clouddsp-uploads',
+                        'object_key', 'stems/8e27f4ad-6c19-4e3f-9b56-fa287429c0a2/bass.wav',
+                        'content_type', 'audio/wav', 'size_bytes', p_bass_size_bytes, 'sha256', p_bass_sha256))
+                  ),
+                  (
+                    v_other_event_id, v_other_job_id, 'basic-pitch', 'other', 'basic-pitch.requested',
+                    jsonb_build_object('schema_version', 1, 'job_id', v_other_job_id::text, 'stem_name', 'other',
+                      'stem', jsonb_build_object('bucket', 'clouddsp-uploads',
+                        'object_key', 'stems/96ba2e39-e035-4fe8-a50a-b1e6db208ac3/other.wav',
+                        'content_type', 'audio/wav', 'size_bytes', p_other_size_bytes, 'sha256', p_other_sha256))
+                  );
+
+                RETURN QUERY
+                  SELECT 'vocals'::TEXT, v_vocals_job_id, v_vocals_event_id
+                  UNION ALL SELECT 'bass'::TEXT, v_bass_job_id, v_bass_event_id
+                  UNION ALL SELECT 'other'::TEXT, v_other_job_id, v_other_event_id;
+              END;
+              $burst_prepare$;
+
+              -- Observe only the three fixed Job/event/task projections. It
+              -- deliberately omits owner, input/artifact JSON, raw payload,
+              -- lease token, error text, and every unrelated database row.
+              CREATE OR REPLACE FUNCTION public.clouddsp_basic_pitch_keda_burst_smoke_observe()
+              RETURNS TABLE (
+                request_label TEXT, publication_status TEXT, published_at TIMESTAMPTZ,
+                task_id UUID, task_status TEXT, task_attempt_count INTEGER,
+                task_lease_is_clear BOOLEAN, task_completed_at TIMESTAMPTZ, job_status TEXT
+              )
+              LANGUAGE sql
+              SECURITY DEFINER
+              SET search_path = pg_catalog, public
+              AS $burst_observe$
+                SELECT
+                  coordinate.request_label,
+                  event.publication_status,
+                  event.published_at,
+                  task.task_id,
+                  task.status,
+                  task.attempt_count,
+                  (task.task_id IS NOT NULL AND task.lease_token IS NULL AND task.lease_expires_at IS NULL),
+                  task.completed_at,
+                  job.status
+                FROM (
+                  VALUES
+                    ('vocals'::TEXT, '2a1e8097-7da6-4d06-8b27-c006b02e0d91'::uuid, '32e10a72-b5e7-4f11-8dfe-b922ec7ebbd9'::uuid),
+                    ('bass'::TEXT, '8e27f4ad-6c19-4e3f-9b56-fa287429c0a2'::uuid, 'c4b23de8-4a63-47e3-a96e-155abfd38c36'::uuid),
+                    ('other'::TEXT, '96ba2e39-e035-4fe8-a50a-b1e6db208ac3'::uuid, '47ae0c63-e1b1-4663-b47a-8efaa8f37bc7'::uuid)
+                ) AS coordinate(request_label, job_id, event_id)
+                JOIN public.jobs AS job
+                  ON job.job_id = coordinate.job_id
+                 AND job.owner_sub = 'clouddsp-basic-pitch-keda-burst-smoke'
+                JOIN public.outbox_events AS event
+                  ON event.event_id = coordinate.event_id
+                 AND event.job_id = job.job_id
+                 AND event.stage = 'basic-pitch'
+                 AND event.stem_name = coordinate.request_label
+                 AND event.event_type = 'basic-pitch.requested'
+                LEFT JOIN public.processing_tasks AS task
+                  ON task.job_id = job.job_id
+                 AND task.stage = 'basic-pitch'
+                 AND task.stem_name = coordinate.request_label
+                ORDER BY coordinate.request_label;
+              $burst_observe$;
+
+              -- Cleanup cannot partially erase a failed burst. It locks the
+              -- three Jobs, proves every event was published and every task
+              -- succeeded on its first attempt, then deletes all three rows.
+              CREATE OR REPLACE FUNCTION public.clouddsp_basic_pitch_keda_burst_smoke_cleanup()
+              RETURNS BOOLEAN
+              LANGUAGE plpgsql
+              SECURITY DEFINER
+              SET search_path = pg_catalog, public
+              AS $burst_cleanup$
+              DECLARE
+                v_completed_count INTEGER;
+                v_deleted_count INTEGER;
+              BEGIN
+                PERFORM 1
+                FROM public.jobs
+                WHERE job_id IN (
+                  '2a1e8097-7da6-4d06-8b27-c006b02e0d91'::uuid,
+                  '8e27f4ad-6c19-4e3f-9b56-fa287429c0a2'::uuid,
+                  '96ba2e39-e035-4fe8-a50a-b1e6db208ac3'::uuid
+                )
+                FOR UPDATE;
+
+                SELECT COUNT(*) INTO v_completed_count
+                FROM (
+                  VALUES
+                    ('vocals'::TEXT, '2a1e8097-7da6-4d06-8b27-c006b02e0d91'::uuid, '32e10a72-b5e7-4f11-8dfe-b922ec7ebbd9'::uuid),
+                    ('bass'::TEXT, '8e27f4ad-6c19-4e3f-9b56-fa287429c0a2'::uuid, 'c4b23de8-4a63-47e3-a96e-155abfd38c36'::uuid),
+                    ('other'::TEXT, '96ba2e39-e035-4fe8-a50a-b1e6db208ac3'::uuid, '47ae0c63-e1b1-4663-b47a-8efaa8f37bc7'::uuid)
+                ) AS coordinate(stem_name, job_id, event_id)
+                JOIN public.jobs AS job
+                  ON job.job_id = coordinate.job_id
+                 AND job.owner_sub = 'clouddsp-basic-pitch-keda-burst-smoke'
+                 AND job.status = 'midi_processing'
+                JOIN public.outbox_events AS event
+                  ON event.event_id = coordinate.event_id
+                 AND event.job_id = job.job_id
+                 AND event.stage = 'basic-pitch'
+                 AND event.stem_name = coordinate.stem_name
+                 AND event.event_type = 'basic-pitch.requested'
+                 AND event.publication_status = 'published'
+                JOIN public.processing_tasks AS task
+                  ON task.job_id = job.job_id
+                 AND task.stage = 'basic-pitch'
+                 AND task.stem_name = coordinate.stem_name
+                 AND task.status = 'succeeded'
+                 AND task.attempt_count = 1
+                 AND task.lease_token IS NULL
+                 AND task.lease_expires_at IS NULL
+                 AND task.completed_at IS NOT NULL;
+
+                IF v_completed_count <> 3 THEN
+                  RETURN FALSE;
+                END IF;
+
+                DELETE FROM public.jobs
+                WHERE job_id IN (
+                  '2a1e8097-7da6-4d06-8b27-c006b02e0d91'::uuid,
+                  '8e27f4ad-6c19-4e3f-9b56-fa287429c0a2'::uuid,
+                  '96ba2e39-e035-4fe8-a50a-b1e6db208ac3'::uuid
+                )
+                  AND owner_sub = 'clouddsp-basic-pitch-keda-burst-smoke';
+                GET DIAGNOSTICS v_deleted_count = ROW_COUNT;
+                RETURN v_deleted_count = 3;
+              END;
+              $burst_cleanup$;
+
+              -- Functions default to PUBLIC execution. Revoke that implicit
+              -- privilege every rerun and grant only this restricted login.
+              REVOKE ALL ON FUNCTION public.clouddsp_basic_pitch_keda_burst_smoke_prepare(BIGINT, TEXT, BIGINT, TEXT, BIGINT, TEXT) FROM PUBLIC;
+              REVOKE ALL ON FUNCTION public.clouddsp_basic_pitch_keda_burst_smoke_observe() FROM PUBLIC;
+              REVOKE ALL ON FUNCTION public.clouddsp_basic_pitch_keda_burst_smoke_cleanup() FROM PUBLIC;
+              GRANT EXECUTE ON FUNCTION public.clouddsp_basic_pitch_keda_burst_smoke_prepare(BIGINT, TEXT, BIGINT, TEXT, BIGINT, TEXT) TO :"burst_db_username";
+              GRANT EXECUTE ON FUNCTION public.clouddsp_basic_pitch_keda_burst_smoke_observe() TO :"burst_db_username";
+              GRANT EXECUTE ON FUNCTION public.clouddsp_basic_pitch_keda_burst_smoke_cleanup() TO :"burst_db_username";
+              SQL
+
+              # Reconnect as the restricted role and emit only capability
+              # booleans, never durable Job/object rows or Secret values.
+              PGDATABASE="$BASIC_PITCH_KEDA_BURST_SMOKE_DB_NAME" \
+              PGUSER="$BASIC_PITCH_KEDA_BURST_SMOKE_DB_USERNAME" \
+              PGPASSWORD="$BASIC_PITCH_KEDA_BURST_SMOKE_DB_PASSWORD" \
+                psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 <<'SQL'
+              SELECT
+                current_database() AS database,
+                current_user AS role,
+                has_table_privilege(current_user, 'public.jobs', 'SELECT') AS can_select_jobs,
+                has_table_privilege(current_user, 'public.jobs', 'INSERT') AS can_insert_jobs,
+                has_table_privilege(current_user, 'public.jobs', 'DELETE') AS can_delete_jobs,
+                has_table_privilege(current_user, 'public.outbox_events', 'SELECT') AS can_select_outbox,
+                has_table_privilege(current_user, 'public.outbox_events', 'INSERT') AS can_insert_outbox,
+                has_table_privilege(current_user, 'public.processing_tasks', 'SELECT') AS can_select_tasks,
+                has_function_privilege(current_user, 'public.clouddsp_basic_pitch_keda_burst_smoke_prepare(bigint,text,bigint,text,bigint,text)', 'EXECUTE') AS can_prepare_burst,
+                has_function_privilege(current_user, 'public.clouddsp_basic_pitch_keda_burst_smoke_observe()', 'EXECUTE') AS can_observe_burst,
+                has_function_privilege(current_user, 'public.clouddsp_basic_pitch_keda_burst_smoke_cleanup()', 'EXECUTE') AS can_cleanup_burst;
+              SQL
+              printf 'Fixed-scope Basic Pitch KEDA burst PostgreSQL bootstrap passed\n'
