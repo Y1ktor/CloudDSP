@@ -168,6 +168,51 @@ def _validate_properties(*, properties: object, expected_job_id: str) -> str:
     return event_id
 
 
+def validate_demucs_requested_message(value: object) -> DemucsRequestedMessage:
+    """Return one canonical Demucs request only when its coordinates are safe.
+
+    The ordinary AMQP parser and the later recovery reader use this same
+    field-level rule.  Their *transport* evidence is different—AMQP metadata
+    for a new delivery versus an immutable published outbox record for a
+    recovered lease—but neither path may weaken the private source-coordinate
+    contract before MinIO is contacted.  This function deliberately does not
+    authorize work, read PostgreSQL, or make any network request.
+    """
+
+    if not isinstance(value, DemucsRequestedMessage):
+        raise _fail()
+    event_id = _canonical_lowercase_uuid(value.event_id)
+    job_id = _canonical_lowercase_uuid(value.job_id)
+    source_bucket = _safe_nonempty_text(value.source_bucket)
+    source_object_key = _safe_nonempty_text(value.source_object_key)
+    if source_bucket != LOCAL_UPLOADS_BUCKET:
+        raise _fail()
+
+    # A direct upload is one filename directly beneath the canonical job
+    # prefix.  This keeps a recovered task from being pointed at another
+    # job's input, a nested attacker-controlled key, or a generated stem.
+    expected_prefix = f"uploads/{job_id}/"
+    source_filename = source_object_key.removeprefix(expected_prefix)
+    if (
+        not source_object_key.startswith(expected_prefix)
+        or not source_filename
+        or "/" in source_filename
+    ):
+        raise _fail()
+    if not isinstance(value.stem_mode, str) or value.stem_mode not in SUPPORTED_STEM_MODES:
+        raise _fail()
+
+    # Return a new immutable value after canonical UUID validation instead of
+    # returning a hand-built input object that a caller could have forged.
+    return DemucsRequestedMessage(
+        event_id=event_id,
+        job_id=job_id,
+        source_bucket=source_bucket,
+        source_object_key=source_object_key,
+        stem_mode=value.stem_mode,
+    )
+
+
 def parse_demucs_requested_delivery(
     *,
     delivery_exchange: object,
@@ -201,31 +246,13 @@ def parse_demucs_requested_delivery(
     source = payload["source"]
     if not isinstance(source, Mapping) or set(source) != {"bucket", "object_key"}:
         raise _fail()
-    source_bucket = _safe_nonempty_text(source["bucket"])
-    source_object_key = _safe_nonempty_text(source["object_key"])
-    if source_bucket != LOCAL_UPLOADS_BUCKET:
-        raise _fail()
-
-    # Direct uploads place exactly one filename below their job prefix. This
-    # blocks nested, empty, other-job, and artifact paths before MinIO is used.
-    expected_prefix = f"uploads/{job_id}/"
-    source_filename = source_object_key.removeprefix(expected_prefix)
-    if (
-        not source_object_key.startswith(expected_prefix)
-        or not source_filename
-        or "/" in source_filename
-    ):
-        raise _fail()
-
-    stem_mode = payload["stem_mode"]
-    if not isinstance(stem_mode, str) or stem_mode not in SUPPORTED_STEM_MODES:
-        raise _fail()
-
     event_id = _validate_properties(properties=properties, expected_job_id=job_id)
-    return DemucsRequestedMessage(
-        event_id=event_id,
-        job_id=job_id,
-        source_bucket=source_bucket,
-        source_object_key=source_object_key,
-        stem_mode=stem_mode,
+    return validate_demucs_requested_message(
+        DemucsRequestedMessage(
+            event_id=event_id,
+            job_id=job_id,
+            source_bucket=source["bucket"],
+            source_object_key=source["object_key"],
+            stem_mode=payload["stem_mode"],
+        )
     )

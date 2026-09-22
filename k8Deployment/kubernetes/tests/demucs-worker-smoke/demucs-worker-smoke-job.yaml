@@ -1,0 +1,130 @@
+# This finite Job verifies the real durable Demucs stage without impersonating
+# the dispatcher or a worker:
+#
+#   controlled private WAV -> restricted PostgreSQL prepare -> dispatcher
+#       -> deployed Demucs -> stems + durable completion/outbox evidence
+#
+# Its client has no RabbitMQ, Kubernetes API, model, browser, Keycloak, or
+# administrator credential. The two mounted identities can access only fixed
+# PostgreSQL functions and five literal private MinIO keys.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Kubernetes does not rerun a completed fixed-name Job on reapply. Delete
+  # only this Job before a deliberate next run, after reviewing prior logs.
+  name: demucs-worker-smoke
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: demucs-worker-smoke
+    app.kubernetes.io/component: integration-test
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: durable-demucs-worker-stage-verification
+spec:
+  # Keep safe milestones/failures briefly, then remove the completed Pod that
+  # mounted test credentials. TTL does not remove the separately applied Secret.
+  ttlSecondsAfterFinished: 600
+  # A retry would collide with evidence retained after a durable `prepare`.
+  # One failure must be inspected before an explicit cleanup/rerun decision.
+  backoffLimit: 0
+  # The client waits at most ten minutes across Demucs and the downstream-safe
+  # cleanup barrier. Extra time lets Kubernetes schedule/terminate the Pod
+  # rather than letting a stuck process retain credentials indefinitely.
+  activeDeadlineSeconds: 840
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: demucs-worker-smoke
+        app.kubernetes.io/component: integration-test
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      terminationGracePeriodSeconds: 10
+      # The client speaks only to ClusterIP Services and needs no API discovery,
+      # projected ServiceAccount token, or automatic Service link variables.
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      nodeSelector:
+        # The hash-locked Psycopg binary wheel and image were built for the
+        # Apple-Silicon K3d worker nodes, never an implicit amd64 emulation.
+        kubernetes.io/arch: arm64
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10003
+        runAsGroup: 10003
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: demucs-worker-smoke-client
+          # Copied from images.demucs-worker-smoke-client in images.lock.yaml.
+          # The readable build tag is intentionally absent: this exact OCI
+          # digest is the only reviewed byte sequence that can run the smoke.
+          image: clouddsp-registry.localhost:5001/demucs-worker-smoke-client@sha256:da6ff550d60acdb84949cf8e26c47d30ca3f434bb7e1cc5121034cc2e95cb743
+          imagePullPolicy: IfNotPresent
+          env:
+            # Both endpoints are private Kubernetes Service DNS. The client
+            # itself rejects browser-facing *.localhost or host-forward routes.
+            - name: DEMUCS_WORKER_SMOKE_DB_HOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: DEMUCS_WORKER_SMOKE_DB_PORT
+              value: "5432"
+            - name: DEMUCS_WORKER_SMOKE_MINIO_ENDPOINT_URL
+              value: http://clouddsp-minio.clouddsp-data.svc:9000
+            - name: DEMUCS_WORKER_SMOKE_TIMEOUT_SECONDS
+              value: "600"
+            # The role can execute only fixed prepare/observe/cleanup functions.
+            # It cannot directly read/modify another application's tables.
+            - name: DEMUCS_WORKER_SMOKE_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-demucs-worker-smoke-database-credentials
+                  key: DEMUCS_WORKER_SMOKE_DB_NAME
+            - name: DEMUCS_WORKER_SMOKE_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-demucs-worker-smoke-database-credentials
+                  key: DEMUCS_WORKER_SMOKE_DB_USERNAME
+            - name: DEMUCS_WORKER_SMOKE_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-demucs-worker-smoke-database-credentials
+                  key: DEMUCS_WORKER_SMOKE_DB_PASSWORD
+            # The separate S3 identity can operate only on source/stem/cleanup
+            # paths encoded in its fixed MinIO policy. It has no ListBucket,
+            # presign, root, or normal CloudDSP user-object authority.
+            - name: DEMUCS_WORKER_SMOKE_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-demucs-worker-smoke-minio-credentials
+                  key: DEMUCS_WORKER_SMOKE_S3_ACCESS_KEY
+            - name: DEMUCS_WORKER_SMOKE_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-demucs-worker-smoke-minio-credentials
+                  key: DEMUCS_WORKER_SMOKE_S3_SECRET_KEY
+            # Explicit MinIO credentials are supplied above. Disable Boto3's
+            # ambient cloud metadata fallback so this Pod never probes AWS.
+            - name: AWS_EC2_METADATA_DISABLED
+              value: "true"
+          resources:
+            # This process creates a sub-megabyte WAV and streams one stem at a
+            # time for verification. It never runs Demucs/Basic Pitch itself;
+            # tight limits leave inference capacity to the deployed workers.
+            requests:
+              cpu: 50m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+              ephemeral-storage: 96Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            # The client keeps objects and credentials in process memory. A
+            # read-only root stops SDK/cache drift from becoming retained data.
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL

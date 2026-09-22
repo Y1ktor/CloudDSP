@@ -1,0 +1,316 @@
+# This administrator-only Job removes evidence from the one diagnosed failed
+# Demucs worker smoke run. It is intentionally *not* a general cleanup tool:
+# every MinIO key, PostgreSQL UUID, owner marker, event identity, and eligible
+# state is a literal below. It has no RabbitMQ connection, prefix listing,
+# Kubernetes API token, browser route, or parameter that could widen its scope.
+#
+# The inspected Demucs request queue and its DLQ were already empty. Therefore
+# this Job does not purge either queue: an unconditional queue purge could erase
+# another legitimate job. Its ordered cleanup is limited to durable test data:
+#
+#   1. atomically remove only the one inspected retry-scheduled failed task and
+#      its fixed source_uploaded Job/event, preventing a worker-recovery race;
+#   2. remove the five fixed smoke object keys (idempotent S3 deletes).
+#
+# The durable operation comes first. A worker can otherwise reclaim a
+# retry-scheduled task between an object delete and the old no-task guard,
+# leaving it to process a source that the cleanup had already removed. The
+# guarded PostgreSQL deletion either wins before a new lease exists or refuses
+# without changing data. If a later object delete is unavailable, the next run
+# recognizes the already-removed exact database coordinates and retries only
+# the literal object cleanup.
+#
+# Apply this only after reviewing the failed smoke evidence and deciding to run
+# these exact fixed coordinates again. The fixed Job name makes this privileged
+# manual action visible; delete a completed cleanup Job before any intentional
+# second execution.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: demucs-worker-smoke-failed-run-cleanup
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: demucs-worker-smoke-failed-run-cleanup
+    app.kubernetes.io/component: manual-test-cleanup
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: exact-coordinate-demucs-smoke-evidence-cleanup
+spec:
+  # Retain the one-time proof briefly for `kubectl logs`, then remove Pods that
+  # mounted administrator credentials. The durable smoke evidence is gone only
+  # after both ordered init containers completed successfully.
+  ttlSecondsAfterFinished: 600
+  # A partial administrative cleanup must stay visible. Automatic retries could
+  # hide its first failure or make an operator mistake it for a clean rerun.
+  backoffLimit: 0
+  # Five S3 deletes and one indexed database delete are tiny local operations.
+  # A finite deadline limits how long administrator credentials can be mounted
+  # when a private Service or dependency is unavailable.
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: demucs-worker-smoke-failed-run-cleanup
+        app.kubernetes.io/component: manual-test-cleanup
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        # Each container overrides this default only when its pinned upstream
+        # image requires a different non-root UID/GID.
+        seccompProfile:
+          type: RuntimeDefault
+      # Init containers serialize the cross-store cleanup. The database guard
+      # first removes the inactive retry task so no worker can reclaim it while
+      # the following object cleanup is underway.
+      initContainers:
+        - name: delete-only-diagnosed-failed-retry
+          # The pinned Docker Official PostgreSQL image supplies `psql`; this
+          # administration step needs no local port-forward or package install.
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PGHOST
+              value: clouddsp-postgresql
+            - name: PGPORT
+              value: "5432"
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+            - name: PGDATABASE
+              value: clouddsp_job_api
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -ec
+            - |
+              # This guard accepts only the inspected inactive first-attempt
+              # failure: its fixed Job/owner/event/source coordinates and one
+              # `retry_scheduled` task with no lease and the safe model-failure
+              # category. If recovery already leased it, no task is deleted and
+              # the Job fails before any object cleanup begins. Deleting the
+              # exact task first prevents it from being reclaimed while MinIO
+              # objects are removed. The one permitted Job delete cascades only
+              # its matching fixed outbox event.
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 <<'SQL'
+              DO $demucs_smoke_cleanup$
+              DECLARE
+                deleted_task_count INTEGER;
+                deleted_job_count INTEGER;
+              BEGIN
+                WITH deleted_task AS (
+                  DELETE FROM public.processing_tasks AS task
+                  WHERE task.job_id = '12139966-5891-4d53-a817-f3ce1f264c61'::uuid
+                    AND task.stage = 'demucs'
+                    AND task.stem_name = ''
+                    AND task.request_event_id = 'e20cf942-ef7b-478e-89c4-f4795ed801ec'::uuid
+                    AND task.input_bucket = 'clouddsp-uploads'
+                    AND task.input_object_key = 'uploads/12139966-5891-4d53-a817-f3ce1f264c61/demucs-worker-smoke.wav'
+                    AND task.stem_mode = '2-stems'
+                    AND task.status = 'retry_scheduled'
+                    AND task.attempt_count = 1
+                    AND task.lease_token IS NULL
+                    AND task.lease_expires_at IS NULL
+                    AND task.completed_at IS NULL
+                    AND task.last_error_code = 'demucs_process_failed'
+                  RETURNING task.task_id
+                )
+                SELECT COUNT(*) INTO deleted_task_count FROM deleted_task;
+
+                IF deleted_task_count = 0 THEN
+                  -- This exact all-absent shape is an idempotent retry after a
+                  -- prior run committed the durable deletion but could not
+                  -- reach MinIO. Any partial or active state remains a refusal.
+                  IF EXISTS (
+                    SELECT 1 FROM public.jobs
+                    WHERE job_id = '12139966-5891-4d53-a817-f3ce1f264c61'::uuid
+                  ) OR EXISTS (
+                    SELECT 1 FROM public.processing_tasks
+                    WHERE job_id = '12139966-5891-4d53-a817-f3ce1f264c61'::uuid
+                  ) OR EXISTS (
+                    SELECT 1 FROM public.outbox_events
+                    WHERE event_id = 'e20cf942-ef7b-478e-89c4-f4795ed801ec'::uuid
+                  ) THEN
+                    RAISE EXCEPTION 'Refused: failed Demucs smoke retry is no longer inactive.';
+                  END IF;
+                  RAISE NOTICE 'Exact diagnosed Demucs smoke database coordinates were already absent.';
+                  RETURN;
+                END IF;
+
+                IF deleted_task_count <> 1 THEN
+                  RAISE EXCEPTION 'Refused: expected one diagnosed Demucs smoke retry task.';
+                END IF;
+
+                WITH deleted_job AS (
+                  DELETE FROM public.jobs AS job
+                  WHERE job.job_id = '12139966-5891-4d53-a817-f3ce1f264c61'::uuid
+                    AND job.owner_sub = 'clouddsp-demucs-worker-smoke'
+                    AND job.status = 'source_uploaded'
+                    AND EXISTS (
+                      SELECT 1
+                      FROM public.outbox_events AS event
+                      WHERE event.event_id = 'e20cf942-ef7b-478e-89c4-f4795ed801ec'::uuid
+                        AND event.job_id = job.job_id
+                        AND event.stage = 'demucs'
+                        AND event.stem_name = ''
+                        AND event.event_type = 'demucs.requested'
+                        AND event.publication_status = 'published'
+                    )
+                    AND NOT EXISTS (
+                      SELECT 1
+                      FROM public.processing_tasks AS task
+                      WHERE task.job_id = job.job_id
+                    )
+                    AND NOT EXISTS (
+                      SELECT 1
+                      FROM public.outbox_events AS other_event
+                      WHERE other_event.job_id = job.job_id
+                        AND other_event.event_id <> 'e20cf942-ef7b-478e-89c4-f4795ed801ec'::uuid
+                    )
+                  RETURNING job.job_id
+                )
+                SELECT COUNT(*) INTO deleted_job_count FROM deleted_job;
+
+                IF deleted_job_count <> 1 THEN
+                  RAISE EXCEPTION 'Refused: expected one diagnosed Demucs smoke Job after retry-task cleanup.';
+                END IF;
+              END;
+              $demucs_smoke_cleanup$;
+              SQL
+              printf 'Exact diagnosed Demucs smoke retry task and database cleanup passed\n'
+
+        - name: delete-only-fixed-smoke-objects
+          # Reuse the existing digest-pinned Demucs smoke-client runtime. Its
+          # already hash-locked Boto3 dependency performs S3 DeleteObject,
+          # which is idempotent when a diagnosed run stopped before producing
+          # one or more of these literal output keys.
+          image: clouddsp-registry.localhost:5001/demucs-worker-smoke-client@sha256:da6ff550d60acdb84949cf8e26c47d30ca3f434bb7e1cc5121034cc2e95cb743
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_PASSWORD
+            - name: MINIO_INTERNAL_ENDPOINT
+              value: http://clouddsp-minio:9000
+            # Explicit values above are the only credentials Boto3 receives.
+            # Prevent the temporary administration Pod from probing cloud
+            # metadata in the event a future base image adds such a provider.
+            - name: AWS_EC2_METADATA_DISABLED
+              value: "true"
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            runAsUser: 10003
+            runAsGroup: 10003
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - python
+            - -c
+            - |
+              # S3 DeleteObject has no wildcard/prefix behavior: each call
+              # affects exactly its supplied bucket/key. It also succeeds when
+              # a particular output was never created, while an authentication
+              # or network failure still raises after the durable cleanup; a
+              # rerun then performs only these same literal object deletes.
+              import os
+
+              import boto3
+              from botocore.config import Config
+
+              client = boto3.client(
+                  "s3",
+                  endpoint_url=os.environ["MINIO_INTERNAL_ENDPOINT"],
+                  aws_access_key_id=os.environ["MINIO_ROOT_USER"],
+                  aws_secret_access_key=os.environ["MINIO_ROOT_PASSWORD"],
+                  region_name="us-east-1",
+                  config=Config(s3={"addressing_style": "path"}),
+              )
+              for object_key in (
+                  "uploads/12139966-5891-4d53-a817-f3ce1f264c61/demucs-worker-smoke.wav",
+                  "stems/12139966-5891-4d53-a817-f3ce1f264c61/vocals.wav",
+                  "stems/12139966-5891-4d53-a817-f3ce1f264c61/no_vocals.wav",
+                  "midi/12139966-5891-4d53-a817-f3ce1f264c61/vocals.mid",
+                  "midi/12139966-5891-4d53-a817-f3ce1f264c61/no_vocals.mid",
+              ):
+                  client.delete_object(Bucket="clouddsp-uploads", Key=object_key)
+              print("Exact diagnosed Demucs smoke MinIO cleanup passed")
+      containers:
+        - name: completion-marker
+          # A no-credential final container makes Job success mean both ordered
+          # destructive init steps completed and their credentials are gone.
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -ec
+            - |
+              printf 'Exact diagnosed Demucs smoke object and database cleanup passed\n'

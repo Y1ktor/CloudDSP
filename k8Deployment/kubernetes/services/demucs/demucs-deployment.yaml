@@ -1,0 +1,248 @@
+# This Deployment defines the long-lived, internal Demucs audio-separation
+# worker. It consumes one durable `demucs.requested` RabbitMQ delivery at a
+# time, proves task ownership through PostgreSQL, reads one private source from
+# MinIO, writes the private stem set, and atomically records downstream outbox
+# work. PostgreSQL remains authoritative for recovery and duplicate safety.
+#
+# There is deliberately no Service or Ingress. This worker has no inbound HTTP
+# or gRPC endpoint: it initiates only private connections to PostgreSQL, MinIO,
+# and RabbitMQ. A browser-facing route would add attack surface without helping
+# the queue-driven processing workflow.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clouddsp-demucs
+  namespace: clouddsp-app
+  labels:
+    # These standard labels identify this controller without selecting the
+    # dispatcher, Basic Pitch, ADTOF, API, or browser-facing workloads.
+    app.kubernetes.io/name: demucs
+    app.kubernetes.io/instance: clouddsp-demucs
+    app.kubernetes.io/component: audio-separation-worker
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: private-source-to-stems-processing
+spec:
+  # Do not declare `replicas` here. Kubernetes defaults an unscaled Deployment
+  # to one replica, which makes this manifest usable before a Demucs KEDA
+  # ScaledObject exists. Omitting the field also prevents a later ordinary
+  # manifest apply from continually fighting KEDA's HPA over `/scale`.
+  revisionHistoryLimit: 2
+  # This is a controller rollout-progress bound, not the twelve-minute Demucs
+  # inference deadline. It allows the 480 MiB local-registry image to pull and
+  # initialize without allowing a stuck rollout to wait indefinitely.
+  progressDeadlineSeconds: 900
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # Do not temporarily run two CPU-heavy separation workers while updating
+      # this one-replica local controller. RabbitMQ and PostgreSQL retain work
+      # safely while the old worker receives SIGTERM and the new Pod starts.
+      maxUnavailable: 1
+      maxSurge: 0
+  selector:
+    # Deployment selectors are immutable. These labels must exactly equal the
+    # Pod labels below and must never select another processing stage.
+    matchLabels:
+      app.kubernetes.io/name: demucs
+      app.kubernetes.io/instance: clouddsp-demucs
+      app.kubernetes.io/component: audio-separation-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: demucs
+        app.kubernetes.io/instance: clouddsp-demucs
+        # RabbitMQ's existing ingress NetworkPolicy admits this one component
+        # label to AMQP port 5672. It does not grant broker permissions; the
+        # separate restricted RabbitMQ user still controls those actions.
+        app.kubernetes.io/component: audio-separation-worker
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      # The worker never uses the Kubernetes API. Removing the automatically
+      # mounted namespace token prevents an unnecessary credential from being
+      # available to a process that needs only its three service identities.
+      automountServiceAccountToken: false
+      # Every private dependency address appears explicitly below. Suppressing
+      # legacy injected `*_SERVICE_HOST` variables prevents hidden routing
+      # configuration from obscuring this worker's reviewed contracts.
+      enableServiceLinks: false
+      # The CPU Demucs child has a 12-minute maximum runtime. The extra minute
+      # lets its process group stop/finish and lets the AMQP session close after
+      # SIGTERM before Kubernetes uses SIGKILL; a forced stop remains durable-
+      # safe because a PostgreSQL lease and RabbitMQ delivery can recover work.
+      terminationGracePeriodSeconds: 780
+      # The published image contains Linux/ARM64-native hash-locked packages.
+      # Prevent scheduling to a future AMD64 node that cannot run those exact
+      # local CPU wheels. This is not a CUDA or Apple-GPU scheduling request.
+      nodeSelector:
+        kubernetes.io/arch: arm64
+      securityContext:
+        # The image creates this exact unprivileged account. Repeating it here
+        # prevents a replacement image from silently acquiring root privileges.
+        runAsNonRoot: true
+        runAsUser: 10003
+        runAsGroup: 10003
+        # Kubernetes prepares each emptyDir for this group before container
+        # start, allowing the non-root worker to use only its three mounts.
+        fsGroup: 10003
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: demucs
+          # Copied exactly from images.demucs.immutableReference in
+          # ../../images.lock.yaml. A readable tag can move; this OCI digest
+          # fixes the reviewed worker code, CPU libraries, FFmpeg, and models.
+          # `images.lock.yaml` records the matching readable build tag and
+          # provenance. The digest here—not that mutable tag—ensures every
+          # replacement Pod uses the reviewed absolute CPU-launcher fix.
+          image: clouddsp-registry.localhost:5001/demucs@sha256:43b4c352a3c4bf077fe685a0904d368f5cb89c2f40a25b1b2a006045b2ec231c
+          # A digest cannot change. K3s may reuse cached bytes or pull the
+          # exact same image from this cluster's dedicated local registry.
+          imagePullPolicy: IfNotPresent
+          # Deliberately no `ports` list or Service accompanies this container.
+          # Demucs listens on no inbound HTTP/gRPC/TCP port; it creates brief
+          # outbound AMQP TCP connections to the private RabbitMQ ClusterIP at
+          # port 5672 and outbound PostgreSQL/MinIO connections below. Declaring
+          # `containerPort: 5672` would falsely describe RabbitMQ as a listener
+          # inside this Pod and would not configure outbound networking.
+          env:
+            # These fixed, non-secret values name only private ClusterIP
+            # Services. Each settings adapter checks them again before opening
+            # a connection, so a manifest typo cannot redirect a least-
+            # privilege credential to a host port or browser-facing endpoint.
+            - name: DEMUCS_DB_HOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: DEMUCS_DB_PORT
+              value: "5432"
+            - name: DEMUCS_DB_CONNECT_TIMEOUT_SECONDS
+              value: "3"
+            - name: DEMUCS_S3_INTERNAL_ENDPOINT
+              value: http://clouddsp-minio.clouddsp-data.svc:9000
+            - name: DEMUCS_S3_UPLOADS_BUCKET
+              value: clouddsp-uploads
+            - name: DEMUCS_S3_REGION
+              value: us-east-1
+            # One internal MinIO Service exposes approved bucket paths. This
+            # worker never uses a browser hostname, host port, or virtual-host
+            # bucket DNS name.
+            - name: DEMUCS_S3_ADDRESSING_STYLE
+              value: path
+            - name: DEMUCS_AMQP_HOST
+              value: clouddsp-rabbitmq.clouddsp-data.svc
+            - name: DEMUCS_AMQP_PORT
+              # This is the broker's Service port, not a Demucs container port.
+              # RabbitMQ's NetworkPolicy admits this labeled Pod to TCP 5672.
+              value: "5672"
+            - name: DEMUCS_AMQP_VHOST
+              value: /clouddsp
+            - name: DEMUCS_AMQP_QUEUE
+              value: clouddsp.demucs.requests
+            - name: DEMUCS_AMQP_CONNECT_TIMEOUT_SECONDS
+              value: "5"
+            - name: DEMUCS_AMQP_HEARTBEAT_SECONDS
+              value: "30"
+            # Transient third-party files must use an explicit bounded mount;
+            # the image root, application, and baked model weights stay read-
+            # only. Input and output media use `/worker-scratch` separately.
+            - name: TMPDIR
+              value: /tmp
+            # Each Secret is namespace-local and contains only one restricted
+            # runtime identity. This Pod never receives any PostgreSQL, MinIO,
+            # or RabbitMQ administrator/bootstrap Secret.
+            - name: DEMUCS_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-demucs-database-credentials
+                  key: DEMUCS_DB_NAME
+            - name: DEMUCS_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-demucs-database-credentials
+                  key: DEMUCS_DB_USERNAME
+            - name: DEMUCS_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-demucs-database-credentials
+                  key: DEMUCS_DB_PASSWORD
+            - name: DEMUCS_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-demucs-minio-credentials
+                  key: DEMUCS_S3_ACCESS_KEY
+            - name: DEMUCS_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-demucs-minio-credentials
+                  key: DEMUCS_S3_SECRET_KEY
+            - name: RABBITMQ_DEMUCS_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-demucs-rabbitmq-credentials
+                  key: RABBITMQ_DEMUCS_USERNAME
+            - name: RABBITMQ_DEMUCS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-demucs-rabbitmq-credentials
+                  key: RABBITMQ_DEMUCS_PASSWORD
+          resources:
+            # Demucs is the heaviest local CPU stage. One requested CPU avoids
+            # oversubscribing the small cluster, while two CPU cores let one
+            # scheduled worker use available local compute. These are ordinary
+            # CPU limits; Apple Silicon k3d exposes no NVIDIA CUDA resource.
+            requests:
+              cpu: "1"
+              memory: 2Gi
+              # Bounded media scratch totals 2.1875 GiB. Three GiB reserves
+              # scheduler headroom for those volumes, logs, and runtime files.
+              ephemeral-storage: 3Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+              ephemeral-storage: 3Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            # Only the three explicitly mounted emptyDirs are writable. The
+            # worker image, source, dependencies, and model bundle stay fixed.
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: worker-scratch
+              # The bootstrap entrypoint requires this exact path. It holds one
+              # authorized source plus private transient Demucs output; nothing
+              # here is authoritative or survives Pod replacement.
+              mountPath: /worker-scratch
+            - name: runtime-tmp
+              # Native/Python temporary files cannot make the image root
+              # writable or persist beyond this Pod lifecycle.
+              mountPath: /tmp
+            - name: runtime-home
+              # Library cache/config data is disposable and isolated from media
+              # scratch and durable PostgreSQL/MinIO state.
+              mountPath: /home/clouddsp-demucs
+          # No readiness or liveness probe belongs in this first manifest. The
+          # worker exposes no listener, and an `exec` probe that merely finds a
+          # Python process would falsely call it healthy during broker/database/
+          # storage failure. Truthful worker metrics/probes are a later task.
+      volumes:
+        - name: worker-scratch
+          emptyDir:
+            # Disk-backed, not `medium: Memory`: a 500-second source can
+            # expand substantially and six float-WAV stems may exceed one GiB.
+            # Two GiB bounds that private transient footprint without placing
+            # it in container memory or pretending it is durable storage.
+            sizeLimit: 2Gi
+        - name: runtime-tmp
+          emptyDir:
+            # Small dependency-only temporary files, included in ephemeral-
+            # storage accounting above. This is not a media cache or a PV.
+            sizeLimit: 128Mi
+        - name: runtime-home
+          emptyDir:
+            # HOME has no durable task authority and is intentionally discarded
+            # on restart, unlike PostgreSQL task state and MinIO artifacts.
+            sizeLimit: 64Mi

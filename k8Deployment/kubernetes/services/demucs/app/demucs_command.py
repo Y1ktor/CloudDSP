@@ -19,10 +19,22 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-# The Dockerfile copies this exact executable into the non-root runtime image.
-# An absolute path avoids a future Deployment PATH setting selecting a different
-# binary than the reviewed Demucs 4.0.1 artifact.
-DEMUCS_EXECUTABLE = "/usr/local/bin/demucs"
+# The child must enter Demucs through this reviewed Python module rather than
+# the package's ``demucs`` console script.  On the Linux/ARM64 virtual CPU used
+# by Docker Desktop and k3d on this Mac, the default Torch oneDNN/MKLDNN model
+# path can terminate with SIGILL during real Demucs inference.  The launcher
+# disables only that backend *before* it imports ``demucs.separate``.  Keeping
+# an absolute Python path prevents a future Deployment ``PATH`` setting from
+# selecting a different interpreter or bypassing the local CPU safeguard.
+#
+# The process runner deliberately changes its child working directory to a
+# freshly allocated output directory. A ``python -m app.demucs_cpu_cli`` child
+# would then search that empty directory rather than `/app` and fail before
+# loading Demucs. Give Python the reviewed absolute script path instead, so the
+# launcher works from the isolated output directory without adding a broad
+# ``PYTHONPATH`` environment setting to the worker Pod.
+DEMUCS_PYTHON_EXECUTABLE = "/usr/local/bin/python"
+DEMUCS_CPU_CLI_SCRIPT = "/app/app/demucs_cpu_cli.py"
 DEMUCS_DEVICE = "cpu"
 DEMUCS_MODEL_REPOSITORY = "/opt/clouddsp/demucs-models"
 DEMUCS_SOURCE_FILENAME = "source.media"
@@ -172,7 +184,8 @@ def build_demucs_separation_command(
         work_directory=validated_work_directory,
     )
     command = (
-        DEMUCS_EXECUTABLE,
+        DEMUCS_PYTHON_EXECUTABLE,
+        DEMUCS_CPU_CLI_SCRIPT,
         "--device",
         DEMUCS_DEVICE,
         "--repo",

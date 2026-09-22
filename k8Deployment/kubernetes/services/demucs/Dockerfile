@@ -198,12 +198,64 @@ PY
 
 COPY app ./app
 COPY tests ./tests
+# The structural tests read the source recipe and the Deployment contract only.
+# Keep both copies in this throwaway validation stage so a future build catches
+# a changed PID-1, user, scratch-volume, or outbound-port boundary before an
+# image is exported; neither file enters the final runtime stage.
+COPY Dockerfile ./Dockerfile
+COPY demucs-deployment.yaml ./demucs-deployment.yaml
 
 # Unit tests exercise the pure adapters without a running cluster. The media
 # command/import checks prove the pinned media and ML runtimes are present.
 RUN PYTHONPATH=/app python -m unittest discover --start-directory tests --verbose
 RUN ffprobe -version
 RUN python -c "import demucs, torch, torchaudio; print(f'demucs={demucs.__version__} torch={torch.__version__} torchaudio={torchaudio.__version__}')"
+
+# A successful import is not enough: the local k3d Linux/ARM64 CPU previously
+# reached an illegal instruction only during actual model inference. Generate a
+# deterministic two-second WAV, change to the same private output working
+# directory used by the process adapter, run the same absolute launcher and
+# arguments, and require both two-stem artifacts. This proves both the MKLDNN
+# safeguard and the launcher's package-resolution boundary before model
+# execution. The throwaway directory is removed in the same immutable build
+# layer, so no test audio or output survives into the runtime image.
+RUN python - <<'PY'
+from __future__ import annotations
+
+import math
+import struct
+import wave
+from pathlib import Path
+
+
+source = Path("/tmp/demucs-local-arm64-cpu-smoke/source.media")
+source.parent.mkdir(parents=True, exist_ok=True)
+# The production subprocess runner intentionally gives the child a freshly
+# allocated output directory as its working directory. Create the matching
+# empty directory here before the next validation instruction reproduces that
+# boundary with `cd`; it is still removed with all other test artifacts.
+(source.parent / "output").mkdir()
+with wave.open(str(source), "wb") as output:
+    output.setnchannels(1)
+    output.setsampwidth(2)
+    output.setframerate(8_000)
+    samples = (
+        int(12_000 * math.sin(2 * math.pi * 440 * index / 8_000))
+        for index in range(16_000)
+    )
+    output.writeframes(b"".join(struct.pack("<h", sample) for sample in samples))
+PY
+RUN cd /tmp/demucs-local-arm64-cpu-smoke/output \
+    && /usr/local/bin/python /app/app/demucs_cpu_cli.py \
+        --device cpu \
+        --repo /opt/clouddsp/demucs-models \
+        --name htdemucs \
+        --out /tmp/demucs-local-arm64-cpu-smoke/output \
+        --two-stems vocals \
+        /tmp/demucs-local-arm64-cpu-smoke/source.media \
+    && test -s /tmp/demucs-local-arm64-cpu-smoke/output/htdemucs/source/vocals.wav \
+    && test -s /tmp/demucs-local-arm64-cpu-smoke/output/htdemucs/source/no_vocals.wav \
+    && rm -rf /tmp/demucs-local-arm64-cpu-smoke
 
 
 # The final image receives only runtime libraries, validated model files,
@@ -217,10 +269,17 @@ RUN groupadd --system --gid 10003 clouddsp-demucs \
         --shell /usr/sbin/nologin clouddsp-demucs
 
 COPY --from=validation /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
-COPY --from=validation /usr/local/bin/demucs /usr/local/bin/demucs
 COPY --from=validation --chown=root:root /opt/clouddsp/demucs-models /opt/clouddsp/demucs-models
 COPY --from=validation --chown=clouddsp-demucs:clouddsp-demucs /app/app ./app
 
-# A later small task adds the AMQP consumer loop. Until then this image has no
-# ENTRYPOINT: a Deployment cannot accidentally start an unfinished worker.
+# The worker needs no root privileges: it makes only private outbound Service
+# connections and the future Pod will supply a bounded writable ``emptyDir`` at
+# `/worker-scratch`. Do not create that directory here. Creating it in the
+# image would mask a missing Pod volume mount and let temporary source/stem
+# media fall back to the container filesystem.
 USER clouddsp-demucs
+
+# Exec form makes Python PID 1 rather than a child of a shell. Kubernetes can
+# therefore deliver SIGTERM directly to the reviewed worker wrapper, whose
+# scoped shutdown handler stops new cycles and allows AMQP cleanup to run.
+ENTRYPOINT ["python", "-m", "app.worker_main"]

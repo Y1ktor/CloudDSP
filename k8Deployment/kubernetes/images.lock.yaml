@@ -239,28 +239,29 @@ images:
     pushedAt: "2026-09-09"
 
   demucs:
-    # This first Demucs image is deliberately a local Linux/ARM64 CPU artifact.
-    # It validates worker dependencies and contains verified model weights, but
-    # it has no AMQP consumer entrypoint or Deployment yet. A future workload
-    # must copy this digest—not the readable provenance tag—into `image:`.
+    # This is the reviewed local Linux/ARM64 CPU worker image. It runs the
+    # complete private Demucs worker wrapper. The deployed workload must copy
+    # this digest—not the readable provenance tag—into `image:`.
     repository: clouddsp-registry.localhost:5001/demucs
-    sourceTag: "0.1.0-local-cpu"
-    digest: sha256:9ff16a5a62ff0dfe615956cf606ab04231be7292ed50691193c0fb676299d165
-    immutableReference: clouddsp-registry.localhost:5001/demucs@sha256:9ff16a5a62ff0dfe615956cf606ab04231be7292ed50691193c0fb676299d165
+    # This readable local-registry tag is build provenance only. The immutable
+    # OCI index digest below is the only safe future workload reference.
+    # This local ARM64 CPU revision preserves the recovery query repair and
+    # the narrow MKLDNN safeguard. The process adapter starts each child in a
+    # fresh output directory, so this revision invokes the reviewed launcher
+    # by absolute script path rather than relying on that directory to expose
+    # the image's `/app` package. This catalog edit prepares a rollout; it
+    # does not change a live Pod itself.
+    sourceTag: "0.1.5-local-arm64-launcher-cwd-fix"
+    digest: sha256:43b4c352a3c4bf077fe685a0904d368f5cb89c2f40a25b1b2a006045b2ec231c
+    immutableReference: clouddsp-registry.localhost:5001/demucs@sha256:43b4c352a3c4bf077fe685a0904d368f5cb89c2f40a25b1b2a006045b2ec231c
     supportedPlatforms:
       - linux/arm64/v8
     builtFrom:
       # The source was Kubernetes-local and uncommitted at build time. This
-      # digest identifies the prior 49-test image snapshot; it deliberately
-      # predates the later source-only Psycopg factory, first-claim composition,
-      # task-maintenance composition, delivery-claim bridge, manual-ack adapter,
-      # acknowledged-lease preflight handoff, leased-to-running SQL guard and
-      # transaction composition, Demucs command/process/artifact-inventory/hash/
-      # output-object/upload/full-stem-set/task-completion boundaries, AMQP
-      # connection factory, AMQP channel helper, and the transactional
-      # post-Demucs Basic Pitch/ADTOF outbox boundary. Rebuild before any
-      # Deployment can use that new code rather than treating this tag/digest
-      # as a live view of the mutable working tree.
+      # digest identifies the source revision that includes the restricted
+      # database/MinIO/AMQP worker lifecycle, recovery-first supervisor, scoped
+      # SIGTERM/SIGINT behavior, and PID-1 wrapper. It does not include cloud
+      # code, a Kubernetes client, a workload manifest, or runtime Secrets.
       sourceRevision: local-kubernetes-working-tree
       sourceDirectory: kubernetes/services/demucs/app
       dockerfile: kubernetes/services/demucs/Dockerfile
@@ -269,13 +270,31 @@ images:
       unitTestDirectory: kubernetes/services/demucs/tests
       runtimeImageLock: images.api-python-runtime
       sourceLock: buildSources.demucs
+      workerEntrypoint:
+        - python
+        - -m
+        - app.worker_main
+      # The validation stage exercised the complete current worker source,
+      # including the Dockerfile structural checks, before this digest was
+      # pushed. These compact facts make the catalog evidence inspectable
+      # without pretending that a Kubernetes workload was run.
+      # A normal RabbitMQ turn opens a private prefetch-one session and closes
+      # it before the next recovery/idle turn. A stale channel cannot make a
+      # living Pod appear ready while no longer able to poll for work.
+      amqpSessionPolicy: one-session-per-normal-poll
+      # Unlike an import check, this fixed two-stem run proves the exact
+      # local-ARM64 backend setting allows a real model forward pass.
+      localArm64CpuInferenceCheck: two-stem-hybrid-model
+      validatedWorkerTestCount: 309
+      verifiedFFprobe: true
+      runtimeImportCheck: true
       verifiedModelArtifactCount: 4
     # Docker reports uncompressed layer bytes. The larger size compared with
     # other workers is expected: it includes CPU Torch, FFmpeg, and 132.7 MiB
     # of separately checksum-verified Demucs descriptors/weight files.
-    localDockerSizeBytes: 502790832
-    localDockerSize: "479.50 MiB"
-    pushedAt: "2026-09-09"
+    localDockerSizeBytes: 503076960
+    localDockerSize: "479.77 MiB"
+    pushedAt: "2026-09-22"
 
   dispatcher-smoke-client:
     # This disposable image creates exactly one normal authenticated upload,
@@ -361,6 +380,33 @@ images:
     localDockerSizeBytes: 66125383
     localDockerSize: "63.06 MiB"
     pushedAt: "2026-09-12"
+
+  demucs-worker-smoke-client:
+    # This finite Job image validates the real durable Demucs stage through the
+    # deployed generic dispatcher and worker. It is not a worker, a broker
+    # client, a Kubernetes client, an administrator tool, or a general-purpose
+    # PostgreSQL/MinIO client. Workload manifests use only this digest.
+    repository: clouddsp-registry.localhost:5001/demucs-worker-smoke-client
+    sourceTag: "0.1.0-durable-demucs-stage"
+    digest: sha256:da6ff550d60acdb84949cf8e26c47d30ca3f434bb7e1cc5121034cc2e95cb743
+    immutableReference: clouddsp-registry.localhost:5001/demucs-worker-smoke-client@sha256:da6ff550d60acdb84949cf8e26c47d30ca3f434bb7e1cc5121034cc2e95cb743
+    supportedPlatforms:
+      - linux/arm64/v8
+    builtFrom:
+      # Runtime Secrets, private fixed test coordinates, and cluster data were
+      # never Docker inputs. The digest identifies only reviewed client bytes.
+      sourceRevision: local-kubernetes-working-tree
+      sourceDirectory: kubernetes/tests/demucs-worker-smoke/client
+      dockerfile: kubernetes/tests/demucs-worker-smoke/client/Dockerfile
+      requirementsLock: kubernetes/tests/demucs-worker-smoke/client/requirements.lock
+      clientTests: kubernetes/tests/demucs-worker-smoke/client/test_demucs_worker_smoke.py
+      runtimeImageLock: images.api-python-runtime
+      sourceLock: buildSources.demucs-worker-smoke-client
+    # Docker reports uncompressed layers; this intentionally differs from the
+    # small registry manifest document printed by `docker push`.
+    localDockerSizeBytes: 66125995
+    localDockerSize: "63.06 MiB"
+    pushedAt: "2026-09-21"
 
   basic-pitch-keda-burst-smoke-client:
     # This finite client creates exactly three fixed, durable Basic Pitch
@@ -921,6 +967,15 @@ buildSources:
     publishedImageLock: images.basic-pitch
     targetPlatform: linux/arm64
     devicePolicy: cpu
+    localArm64CpuInferencePolicy:
+      # The local Linux/ARM64 image uses this child-only safety policy because
+      # Docker Desktop/k3d reproduced SIGILL in the default MKLDNN model path.
+      # It is not a generic Torch or future NVIDIA-GPU production policy.
+      # The subprocess runs from an isolated output directory, not `/app`.
+      # An absolute script preserves the narrow launcher/import boundary
+      # without exporting a broad PYTHONPATH into the worker Pod.
+      launcherScript: /app/app/demucs_cpu_cli.py
+      mkldnnEnabled: false
     pythonVersion: "3.11"
     # This exec-form command is part of the immutable image contract. Python
     # becomes PID 1 rather than a shell, so Kubernetes SIGTERM reaches the
@@ -1046,10 +1101,10 @@ buildSources:
     resolvedAt: "2026-09-14"
 
   demucs:
-    # This source lock defines the first local CPU image only. It has no CUDA,
-    # Apple-MPS assumption, Kubernetes client, browser listener, or runtime
-    # secrets baked in. The later consumer will receive its three restricted
-    # service credentials solely from Kubernetes Secrets at Pod start.
+    # This source lock defines the reviewed local CPU worker image. It has no
+    # CUDA, Apple-MPS assumption, Kubernetes client, browser listener, or
+    # runtime secrets baked in. Its private credentials arrive only from
+    # Kubernetes Secrets when a separate future Deployment starts it.
     baseImageLock: images.api-python-runtime
     sourceDirectory: kubernetes/services/demucs/app
     dockerfile: kubernetes/services/demucs/Dockerfile
@@ -1059,6 +1114,12 @@ buildSources:
     publishedImageLock: images.demucs
     targetPlatform: linux/arm64
     devicePolicy: cpu
+    workerEntrypoint:
+      # Exec-form Docker ENTRYPOINT runs this wrapper as PID 1, so Kubernetes
+      # SIGTERM reaches the scoped graceful-shutdown bridge directly.
+      - python
+      - -m
+      - app.worker_main
     directPythonPackages:
       - name: demucs
         version: "4.0.1"
@@ -1089,7 +1150,7 @@ buildSources:
         # request queue; topology configuration remains a bootstrap concern.
         upstream: https://pypi.org/project/pika/1.4.4/
     unitTestDirectory: kubernetes/services/demucs/tests
-    resolvedAt: "2026-09-09"
+    resolvedAt: "2026-09-21"
 
   dispatcher-smoke-client:
     # This source lock describes one disposable integration-test image. It
@@ -1180,6 +1241,32 @@ buildSources:
         upstream: https://www.psycopg.org/psycopg3/docs/basic/install.html
     clientTests: kubernetes/tests/basic-pitch-worker-smoke/client/test_basic_pitch_worker_smoke.py
     resolvedAt: "2026-09-12"
+
+  demucs-worker-smoke-client:
+    # This restricted one-shot client creates only one fixed durable Demucs
+    # request, then observes the actual dispatcher/worker through PostgreSQL
+    # and exact-key MinIO evidence. It deliberately has no AMQP, Kubernetes,
+    # Keycloak, model, browser, cloud, or direct-table capability.
+    baseImageLock: images.api-python-runtime
+    sourceDirectory: kubernetes/tests/demucs-worker-smoke/client
+    dockerfile: kubernetes/tests/demucs-worker-smoke/client/Dockerfile
+    requirementsLock: kubernetes/tests/demucs-worker-smoke/client/requirements.lock
+    intendedRepository: clouddsp-registry.localhost:5001/demucs-worker-smoke-client
+    publishedImageLock: images.demucs-worker-smoke-client
+    targetPlatform: linux/arm64
+    directPythonPackages:
+      - name: boto3
+        version: "1.43.89"
+        # Uses only explicit credentials against the private MinIO Service.
+        upstream: https://pypi.org/project/boto3/1.43.89/
+      - name: psycopg
+        version: "3.2.13"
+        installationExtra: binary
+        binaryPackage: psycopg-binary
+        # Calls only three fixed SECURITY DEFINER smoke functions.
+        upstream: https://www.psycopg.org/psycopg3/docs/basic/install.html
+    clientTests: kubernetes/tests/demucs-worker-smoke/client/test_demucs_worker_smoke.py
+    resolvedAt: "2026-09-21"
 
   basic-pitch-keda-burst-smoke-client:
     # This one-shot client is intentionally limited to three literal Basic

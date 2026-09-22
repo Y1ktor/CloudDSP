@@ -321,12 +321,20 @@ digest as if it contained this code.
 
 [`task_maintenance.py`](app/task_maintenance.py) provides the matching bounded
 transaction wrapper for the existing recovery and renewal decisions. Recovery
-commits either one due task's new lease or a normal idle result; renewal commits
-one matching token's new expiry or a durable `None` signal that ownership was
-lost. A future runtime must stop work on that `None`, and neither function can
-hold a PostgreSQL lock while it waits, touches MinIO, runs a model, or makes a
-broker decision. Five recording-context tests cover the normal recovery/renewal
-paths, malformed-row rollback, and the database-outage ordering. This remains
+claims one due/expired task and reconstructs its matching published request on
+the same cursor, then commits only the resulting `DemucsRecoveredTask` pair or
+a normal idle scan. Before a later scan tries reclaimable work, terminalization
+atomically records one expired third attempt as `failed` on both the Demucs
+task and its still-retained `source_uploaded` Job using the bounded
+`demucs_lease_expired_attempts_exhausted` code—Demucs is job-wide, unlike a
+single downstream stem stage. If the post-claim evidence read loses ownership,
+a private sentinel rolls back the fresh lease before returning `None`; no bare
+lease can be committed for future MinIO/model work. Renewal still commits one
+matching token's new expiry or a durable `None` loss signal. Neither function
+holds a PostgreSQL lock while it waits, touches MinIO, runs a model, or makes a
+broker decision. Eleven recording-context tests cover terminalization, idle/
+pair commits, rollback on lost or invalid evidence, malformed-row rollback,
+renewal, outage ordering, and direct mixed-pair rejection. This remains
 source-only; the pinned image predates both transaction-composition modules.
 
 [`delivery_claim.py`](app/delivery_claim.py) now joins the strict request parser
@@ -630,8 +638,413 @@ later reconnect/backoff policy. Four mocked-boundary tests prove exact
 dependency forwarding, the no-work gate, failure propagation, and result
 pairing. It adds no loop, sleep, recovery scan, signal handling, client
 lifecycle, image/Deployment change, or KEDA action; its nested one-attempt
-runtime owns short renewal checkpoints. The next small task is reconstructing
-strict execution evidence for a due/expired recovered Demucs task.
+runtime owns short renewal checkpoints.
+
+[`recovery_request.py`](app/recovery_request.py) now reconstructs the strict
+request evidence that a due retry or expired active task no longer has in an
+AMQP delivery. Immediately after PostgreSQL grants a fresh attempt-two/three
+lease, its caller can read only the matching *published* immutable
+`demucs.requested` outbox record in that same short transaction. The SQL
+rebinds the full task/job/event/source/mode/attempt/token coordinate and checks
+the PostgreSQL lease clock. The reader then requires the exact version-1 JSON
+payload before reconstructing the ordinary `DemucsRequestedMessage` using the
+same source-coordinate validator as a new AMQP delivery. A missing pair is
+normal ownership loss; malformed evidence raises so the fresh lease rolls back
+instead of authorizing MinIO or Demucs. Four fake-cursor tests cover successful
+reconstruction, stale ownership, first-attempt rejection before any query, and
+row/payload/publication mismatches. This read-only boundary does not claim or
+start work, commit a transaction, acknowledge/publish RabbitMQ, contact MinIO,
+run Demucs, loop, alter a Deployment, or change KEDA.
+
+[`task_maintenance.py`](app/task_maintenance.py) now composes that evidence
+read with its due/expired lease claim in the one short transaction required for
+safe recovery. It returns a `DemucsRecoveredTask` only after normal commit; if
+the fresh lease has no current evidence, a private sentinel forces rollback and
+the caller receives normal no-safe-work instead. The frozen pair also rejects
+first attempts, mixed coordinates, and unsafe direct construction. It neither
+starts the model nor changes the normal pre-model guards.
+
+[`recovered_task_execution.py`](app/recovered_task_execution.py) now provides
+the recovery-execution gate. It accepts only the committed pair, then feeds its
+lease into the established one-task pre-model/running-failure policy through a
+data-only compatibility result. That result has no AMQP channel, delivery tag,
+body, properties, or acknowledgement method; constructing it cannot contact
+RabbitMQ, and the recovery pair remains the authorization. The reused path
+still revalidates private source evidence, guards `leased -> running`, renews
+while the model runs, and returns its existing success/loss/retry/terminal
+outcomes. Three mocked tests prove correct lease forwarding, forged-input
+rejection before the runtime, and unchanged downstream error propagation. The
+next small task was terminalizing an expired third-attempt task, which recovery
+must not grant a fourth lease.
+
+[`task_lease.py`](app/task_lease.py) and
+[`task_maintenance.py`](app/task_maintenance.py) now provide that terminal
+path. PostgreSQL uses `FOR UPDATE SKIP LOCKED` to select one active
+attempt-three Demucs lease whose database-clock expiry has passed, locks its
+still-processable Job, and atomically fails both records. It clears the token
+and expiry, sets completion time, increments Job revision, and writes only the
+fixed expiry-exhaustion code. A no-row result is normal: another scanner may
+own it, or Job retention/deletion/later state may have made it ineligible. Two
+pure SQL tests and three transaction tests prove success, no work, forged
+return rejection, and rollback behavior. The next small task is a single
+bounded recovery iteration that terminalizes first, then claims and executes
+at most one reclaimable recovered task; it will not yet be a loop.
+
+The terminalization result intentionally exposes `task_id` and `job_id` as
+canonical text to the Python adapter. Its Job-update CTE must cast that returned
+task `job_id` back to PostgreSQL `UUID` before comparing it to `jobs.job_id`.
+Without the explicit cast, PostgreSQL rejects an idle terminalization scan at
+planning time (`uuid = text`); because recovery precedes every normal AMQP
+poll, a healthy worker would then back off forever without attaching to queued
+work. The returned task-side fixed error code is also sufficient evidence, so
+the query deliberately does not return `jobs.error_message` or require this
+worker to read broader Job error history. This compatibility repair preserves
+the same transaction, state guards, and least-privilege grants; it only makes
+the existing UUID relationship unambiguous to PostgreSQL.
+
+[`recovery_execute_once.py`](app/recovery_execute_once.py) now provides that
+bounded iteration. It terminalizes first; only when no final attempt changed
+state does it claim one committed recovery pair and send it through the
+recovered-task execution gate. Its three outcomes—`idle`, `terminalized`, and
+`executed`—retain exactly their matching compact durable evidence, so a later
+supervisor cannot mistake task/Job finalization for model work. Recovery or
+runtime errors propagate unchanged instead of being disguised as idle. It has
+no AMQP channel/action, loop, sleep, backoff, signal handler, client lifecycle,
+or Kubernetes action. Five mocked tests prove idle, execution, terminalization
+priority, error propagation, and result evidence pairing. The next small task
+is a pure recovery-cadence policy that decides how often this bounded step runs
+alongside normal broker receives, without starting a loop.
+
+[`recovery_cadence.py`](app/recovery_cadence.py) now provides that pure local
+policy. A new Pod starts with recovery, then strictly alternates one recovery
+scan and one normal manual-ack receive/optional-execution iteration. This
+limits an expired task's wait to at most one normal task even when the broker
+never becomes idle; duplicate and malformed delivery outcomes cannot starve
+recovery either. Its frozen state is deliberately not durable task state, so a
+restart safely begins with recovery again while PostgreSQL and RabbitMQ retain
+the authoritative facts. Four unit tests prove the initial scan, strict
+alternation, no normal-outcome bypass, and forged/out-of-order guards. It has
+no loop, wait, connection, storage, model, Deployment, KEDA, or Kubernetes
+action. The next small task is a one-cycle composition that performs exactly
+the action selected by this cadence and returns the advanced state.
+
+[`worker_cycle.py`](app/worker_cycle.py) now supplies that one-cycle
+composition. It accepts the shared channel only for the normal branch; a
+recovery-selected cycle explicitly never passes it onward because durable
+recovery has no AMQP delivery to acknowledge, reject, or publish. It forwards
+the same typed source, artifact, FFprobe, Demucs, upload, retry, and event-ID
+dependencies to the selected existing bounded composition, advances cadence
+only after a valid result, and returns mutually exclusive normal/recovery
+evidence with its only valid next state. Errors leave state unadvanced and
+propagate for a later supervisor policy. Four mocked tests prove branch
+isolation, dependency forwarding, error/forgery handling, and result pairing.
+It is still not a loop, wait, connection lifecycle, backoff, Deployment, KEDA,
+or Kubernetes action. The next small task is a pure supervisor decision policy
+that maps compact cycle outcomes to explicit future wait/retry/exit actions.
+
+[`supervisor_backoff.py`](app/supervisor_backoff.py) now provides that pure
+decision policy. Only an empty *normal* broker iteration yields the fixed
+one-second idle wait; every recovery result is immediate progress because its
+following cadence turn is the normal broker receive. Its reserved availability
+failure event creates a capped in-memory exponential backoff of 1, 2, 4, 8,
+16, then 30 seconds (with bounded injected jitter), while a static
+configuration event chooses a visible exit instead of an infinite retry. The
+policy neither catches nor classifies exceptions, sleeps, reconnects, mutates
+tasks, or accesses any infrastructure. Eight unit tests prove outcome mapping,
+backoff bounds/jitter, healthy-state reset, fatal exit, and invalid-input
+guards. The next small task is a narrow supervisor-failure classifier that
+allows only reviewed Demucs configuration and dependency-availability errors
+to choose the two reserved failure events.
+
+[`supervisor_failure_classification.py`](app/supervisor_failure_classification.py)
+now provides that narrow authority. Invalid AMQP/PostgreSQL/MinIO settings and
+missing FFprobe or Demucs executables are fatal configuration faults. Only the
+safe availability wrappers emitted by bounded RabbitMQ, PostgreSQL, and MinIO
+adapters receive generic process backoff. Source/protocol/integrity errors,
+FFprobe/model faults, and unknown exceptions return `None`, preserving their
+existing durable task policy or operator-visible handling. Four unit tests
+prove the fatal, retryable, fail-closed, and non-exception boundaries. The
+next small task is a one-step supervisor composition that combines this
+classifier, the worker cycle, and the pure decision policy without waiting or
+starting a loop.
+
+[`supervisor_step.py`](app/supervisor_step.py) now provides that composition.
+It runs exactly one cadence-selected cycle, converts only its matching compact
+branch result into an idle/progress event, and asks the policy for the next
+action/state. A recognized retryable or fatal error carries no fake cycle
+evidence and preserves the previously selected cadence action, so an outage
+cannot skip recovery. Unclassified exceptions escape unchanged, and process
+control signals are not caught. Five mocked tests cover recovery/normal idle,
+retry/fatal preservation, and unclassified propagation. It neither waits,
+loops, reconnects, manages a channel, nor changes Kubernetes. The next small
+task is a shutdown-aware action adapter that applies one existing decision
+through an injected waiter.
+
+[`supervisor_action.py`](app/supervisor_action.py) now applies that one
+decision. `check_immediately` continues without waiting; idle/backoff invokes
+the injected shutdown waiter once with the exact policy delay; and fatal
+configuration returns an explicit exit fact without waiting. A strict boolean
+waiter result prevents truthiness from accidentally stopping or resuming a
+worker. Five unit tests prove each control path and malformed-waiter rejection.
+This adapter installs no signal handler, sleeps nowhere directly, reconnects
+no service, and starts no loop. The next small task is a one-step runner that
+joins the supervisor step and this action result without creating persistence.
+
+[`supervisor_once.py`](app/supervisor_once.py) now supplies that runner. It
+executes one supervisor step, applies exactly that returned decision through
+the action adapter, and preserves the step's exact next local state. The
+result rejects mismatched action/state evidence and propagates step/action
+failures instead of manufacturing `continue`. Four mocked tests prove
+forwarding, shutdown/continue results, failure propagation, and pair guards.
+It remains non-persistent and creates no loop, signal handler, service
+lifecycle, image, Deployment, or Kubernetes action. The next small task is a
+focused shutdown-event adapter that owns SIGTERM/SIGINT registration for the
+future injected waiter.
+
+[`shutdown_event.py`](app/shutdown_event.py) now provides that scoped bridge.
+On the main thread it maps SIGTERM and SIGINT to one `threading.Event`, exposes
+the existing `wait_for_shutdown()` protocol, validates the 30-second maximum
+policy delay, and restores all prior signal handlers even after body or partial
+installation failures. Its asynchronous handler only sets the Event. Five
+tests prove finite/idempotent waits, both signals, restoration, partial-failure
+cleanup, and main-thread enforcement. It has no worker loop, broker/database/
+storage client lifecycle, model cleanup, image, Deployment, or Kubernetes API
+action. The next small task is the intentional shutdown-aware supervisor loop
+that repeatedly invokes the one-step runner until it returns shutdown or fatal
+control evidence.
+
+[`supervisor_loop.py`](app/supervisor_loop.py) now provides that persistent
+control loop. It repeats only after `continue`, stops on shutdown/fatal control
+evidence, and checks the shared shutdown Event with zero delay before every
+new cycle—so SIGTERM during inference cannot permit another broker receive or
+recovery scan. It accepts already-created dependencies and creates, reconnects,
+inspects, or closes none of them. Five mocked tests prove pre-cycle shutdown,
+continue behavior, post-continue signal observation, fatal stopping, and error
+propagation. The next small task is a closeable AMQP-session adapter that opens
+the existing restricted connection/channel setup and closes it around this loop.
+
+[`amqp_session.py`](app/amqp_session.py) now supplies that lifecycle scope. It
+creates one restricted private connection, obtains one channel, applies only
+prefetch-one/passive-queue verification, yields the prepared channel, then
+closes channel before connection on setup, body, or normal cleanup paths. A
+normal cleanup failure becomes the existing redacted channel-unavailable
+category without hiding caller errors. As a required prerequisite, direct
+`DemucsAMQPSettings` construction is now revalidated before broker I/O, so it
+cannot redirect the restricted identity to another host, queue, or account.
+Six unit tests cover settings revalidation, setup/body cleanup, cleanup
+redaction, and connection failure. The next small task is a worker bootstrap
+entrypoint that composes restricted database/MinIO construction, signal scope,
+this AMQP session, and the supervisor loop.
+
+[`worker_entrypoint.py`](app/worker_entrypoint.py) now provides that one
+process-boundary composition. It creates the restricted PostgreSQL adapter and
+the one private MinIO client before opening RabbitMQ, verifies that Kubernetes
+mounted a real non-symlink `/worker-scratch` directory, narrows that S3 client
+to the source-read and artifact-write protocols, then scopes SIGTERM/SIGINT
+and the prepared AMQP session around the persistent supervisor. A clean
+termination returns status `0`; an explicitly classified fatal configuration
+outcome returns `78`. Unexpected operational failures deliberately propagate
+after channel-then-connection cleanup so durable PostgreSQL/RabbitMQ recovery
+remains visible to Kubernetes. Four fully mocked tests prove dependency
+ordering, signal/session lifetime nesting, status mapping, and no silent
+scratch-directory fallback. It creates no image, Deployment, Kubernetes
+resource, or network listener. The next small task is a thin executable worker
+wrapper that owns controlled diagnostics and turns reviewed bootstrap
+configuration failures into the same visible configuration exit status.
+
+[`worker_main.py`](app/worker_main.py) now provides that final executable
+boundary. It calls the bootstrap entrypoint and returns the entrypoint's normal
+status unchanged. Before the supervisor starts, malformed mounted RabbitMQ,
+PostgreSQL, or MinIO configuration—or a missing/unsafe scratch mount—produces
+only `demucs worker has invalid or incomplete configuration.` on stderr and
+returns `78`; its original detail never enters ordinary Pod logs. Workload,
+availability, and unknown failures deliberately propagate after the
+entrypoint's AMQP cleanup so Kubernetes can observe the failed process and
+durable state can recover work. Three mocked tests prove normal status
+forwarding, detail-free configuration failure, and unreviewed-error
+propagation. This task does not modify the image, start a container, or create
+a Kubernetes resource. The next small task is to update the source-only
+Demucs Dockerfile so its non-root runtime starts this module directly as PID 1
+while still leaving `/worker-scratch` for the future bounded `emptyDir` mount.
+
+[`Dockerfile`](Dockerfile) now records that source-only runtime contract. Its
+final stage retains the dedicated `clouddsp-demucs` non-root account and uses
+the exec-form `ENTRYPOINT ["python", "-m", "app.worker_main"]`, so Kubernetes
+delivers SIGTERM directly to the reviewed shutdown path rather than to a shell.
+It deliberately does not create `/worker-scratch`; the later Deployment must
+mount a bounded writable `emptyDir` there or the bootstrap entrypoint fails
+safely. Two structural tests prove the non-root exec entrypoint and the absent
+scratch-directory fallback. The existing published Demucs image predates this
+source change, so it must be rebuilt, tested, and pushed under a new immutable
+digest before any future Deployment can use this worker revision. This task did
+not build, push, or deploy an image. The next small task is that local ARM64
+image build and inspection only; a registry push and workload manifest remain
+separate decisions.
+
+That reviewed source has now built locally for Linux/ARM64 as the deliberately
+non-deployable tag `clouddsp-demucs:0.1.1-worker-entrypoint-local-only`.
+Docker's uncompressed size is `503,066,464` bytes (`479.76 MiB`). Its
+validation stage ran all 296 Demucs tests, `ffprobe -version`, and the pinned
+Demucs/Torch/Torchaudio import check. An offline runtime inspection confirmed
+the exact exec entrypoint, UID `10003`, and an absent `/worker-scratch`; the
+default wrapper run, without any mounted configuration, emitted only its safe
+configuration diagnostic and exited `78`. The tag has not been pushed, no
+image-lock digest has changed, and no Kubernetes resource was created. The
+next small task is registry push and digest inspection only; updating the image
+catalog and creating a worker Deployment remain separate tasks.
+
+The same verified ARM64 bytes are now present in the local k3d registry as
+`clouddsp-registry.localhost:5001/demucs:0.1.1-worker-entrypoint-local-only`.
+The registry's HTTP manifest response confirmed this immutable OCI index:
+
+```text
+clouddsp-registry.localhost:5001/demucs@sha256:f8335a7a78108b74283d9d1d9fc46f82225d9dbe089b8fc961284c44da7f7db0
+```
+
+This push does not make the tag a workload reference: `images.demucs` still
+records the older worker-less image and remains deliberately unchanged. No
+Deployment was created. The next small task is to review and update that image
+catalog record with this verified immutable reference; a Demucs Deployment is
+still a separate task.
+
+[`images.demucs`](../../images.lock.yaml) now records the reviewed
+`0.1.1-worker-entrypoint-local-only` build, its `503,066,464`-byte local size,
+the Linux/ARM64 CPU profile, and the exact immutable OCI index reference above.
+It also records `python -m app.worker_main` as the source image's PID-1
+contract. A future manifest must use only that immutable reference, never the
+readable tag. This catalog update creates no workload and does not imply that a
+worker Pod is running. The next small task is a prepared Demucs Deployment
+manifest; applying it remains a separate, explicit action.
+
+[`demucs-deployment.yaml`](demucs-deployment.yaml) was prepared separately and
+is now applied as the one-replica local controller. Kubernetes defaults the
+intentionally omitted `spec.replicas` field to one; keeping it omitted also
+means a later KEDA `ScaledObject` can own the Deployment scale subresource
+without an ordinary manifest continually overwriting KEDA's choice. The
+Deployment selects only Linux/ARM64 nodes and uses the reviewed `images.demucs`
+immutable CPU digest, not a mutable tag, CUDA request, or Apple-GPU claim. It
+runs the image's dedicated UID/GID `10003` account with a read-only root
+filesystem, dropped capabilities, `RuntimeDefault` seccomp, no service-account
+token, and no legacy Service-link environment variables.
+
+The worker deliberately creates no Service or Ingress because it accepts no
+inbound application traffic. Its only three dependency routes are the private
+PostgreSQL, MinIO, and RabbitMQ ClusterIP DNS names. The three mounted Secrets
+are the already-prepared, restricted runtime identities; administrator and
+bootstrap credentials are absent. A 780-second termination grace period gives
+the 720-second bounded Demucs child enough time to react to SIGTERM and close
+its AMQP session before Kubernetes must force it down. All permitted writes are
+bounded disposable `emptyDir` volumes: `2Gi` for one source/stem workspace,
+`128Mi` for `/tmp`, and `64Mi` for a nonpersistent HOME. The `3Gi`
+ephemeral-storage request/limit accounts for those volumes and runtime
+headroom; PostgreSQL and MinIO remain the only durable task/artifact stores.
+The first controller's `1` CPU request, `2` CPU limit, `2Gi` memory request,
+and `4Gi` memory limit are an intentionally conservative local CPU profile.
+
+Four source-only structural tests lock this private, non-root, bounded
+manifest shape. They do not inspect a live cluster or Secret. The prerequisite
+runtime Secrets and live PostgreSQL/RabbitMQ authorities were separately
+preflighted before application; the completed bootstrap Jobs had already been
+removed by their intentional TTLs.
+
+The initial applied `0.1.1` worker remained process-healthy but had no durable
+idle AMQP socket, despite the exact restricted in-Pod AMQP connection, passive
+queue check, and empty `basic_get` all succeeding. This proved the required
+outbound route—private RabbitMQ Service DNS on TCP `5672`—and the credentials,
+queue, and policy were correct; it was not an inbound-port problem. Demucs
+does **not** declare a `containerPort` or Kubernetes Service because it listens
+on no port. `containerPort: 5672` would incorrectly say that RabbitMQ runs
+inside the worker and would not enable outbound networking.
+
+[`session_supervisor.py`](app/session_supervisor.py) now avoids the stale-idle
+session condition: a PostgreSQL-only recovery turn opens no broker socket, and
+each normal `basic_get` turn opens a newly authenticated, prefetch-one,
+passively verified AMQP session, then closes it after that one bounded cycle.
+A reviewed AMQP open/close fault becomes interruptible local reconnect backoff
+with unchanged normal cadence; it never becomes an acknowledgement, requeue,
+or durable task mutation. The rebuilt Linux/ARM64 runtime is
+`0.1.2-short-lived-amqp-sessions-local-only`, pinned in
+[`images.demucs`](../../images.lock.yaml) to
+`sha256:3c721bcad886969ecf2a31b70af1a92a7d2c7058c49abceae97faea0d5c88dd9`.
+Its validation stage passed 304 tests plus FFprobe and locked ML-runtime
+imports; the 479.77 MiB image was registry-confirmed and rolled out as one
+ready, zero-restart local Pod. An absent AMQP socket between normal polls is
+now intentional, not a readiness signal.
+
+### Prepared recovery-query repair (not rolled out)
+
+The first Demucs-stage smoke exposed a separate recovery-path issue, not an
+AMQP attachment failure. A RabbitMQ `list_consumers` result of zero is normal
+between polls because this worker intentionally uses a short-lived
+`basic_get` session. Before it can reach that poll, however, every cadence runs
+the expired-third-attempt terminalization scan. That SQL returned
+`failed_task.job_id` as text for the Python result adapter, then compared it
+directly with the UUID `jobs.job_id`; PostgreSQL rejects `uuid = text` while
+planning the statement even when there is no expired task. The repair makes
+that boundary explicit with `failed_task.job_id::uuid`. It also stops returning
+`jobs.error_message`, which the restricted Demucs database role does not need
+and is not permitted to select. The fixed image is
+`0.1.3-recovery-uuid-join-fix-local-only`, pinned to
+`sha256:99e24301c4c2f37547de7fd8a7773d7e0eae6cfb5f4222db9e00ae1294cae73a`.
+Its Docker validation stage passed all 304 tests, FFprobe, and the pinned ML
+imports; the targeted live SQL check planned and executed with no eligible
+task. The Deployment has now rolled out this immutable reference to one ready,
+zero-restart local Pod. The failed test's fixed object keys, Job, and dependent
+outbox event were then removed through a reviewed exact-coordinate cleanup
+Job; the Demucs request queue and DLQ were independently verified empty. The
+same smoke test is therefore ready to repeat from its documented clean state.
+
+### Prepared local ARM64 CPU Demucs repair (not rolled out)
+
+The repeated smoke moved past the repaired recovery SQL and reached real model
+execution. Its durable task then entered `retry_scheduled` with the safe
+`demucs_process_failed` category because the fixed Demucs child ended with
+exit code 132 (`SIGILL`). The fault was isolated inside the local Linux/ARM64
+Torch model backend: it happened with a fixed local WAV and the baked model
+files, before any stem upload or downstream outbox change. It was not caused
+by RabbitMQ delivery, PostgreSQL state, MinIO, or the smoke client's upload.
+
+The local-only fix is intentionally narrow. The command builder now starts
+`/usr/local/bin/python -m app.demucs_cpu_cli` instead of the generic `demucs`
+console script. That launcher sets and verifies
+`torch.backends.mkldnn.enabled = False` **before** importing
+`demucs.separate`, then delegates the same fixed arguments to Demucs. A
+separate child process is created for every task, so this process-wide Torch
+setting cannot leak into the PID-1 worker supervisor or another Pod. It is not
+a CUDA/NVIDIA or cloud policy and must not be copied into a future GPU image.
+
+The new Docker validation deliberately runs more than imports: it generates a
+two-second WAV and executes `htdemucs --two-stems vocals` through the launcher,
+requiring both `vocals.wav` and `no_vocals.wav`. The rebuilt local ARM64 image
+passed all 309 tests, FFprobe, pinned Demucs/Torch/Torchaudio imports, and that
+real inference check. Its immutable reference is
+`clouddsp-registry.localhost:5001/demucs@sha256:d0ebd533f66eb2c8097646477a6ba1439349add297bfde578e4a865f08c9186b`
+(479.77 MiB). `images.lock.yaml` and the Deployment source are updated to that
+digest but no Deployment has been applied or rolled out by this repair task.
+
+### Prepared launcher working-directory repair (not rolled out)
+
+The deployed `0.1.4` image correctly avoids the local ARM64 MKLDNN `SIGILL`,
+but the next live smoke exposed a distinct startup boundary. The process
+runner deliberately calls every model child with its private output directory
+as `cwd`. Therefore `python -m app.demucs_cpu_cli` searches that empty
+directory for `app` instead of the image's `/app` working tree and ends before
+it can load Demucs. That safe but opaque child failure was recorded as
+`demucs_process_failed`; it was not a model, audio, MinIO, RabbitMQ, or memory
+failure. A direct command from `/app` could succeed, which is why the former
+image validation did not detect it.
+
+`0.1.5-local-arm64-launcher-cwd-fix` changes only the reviewed child command
+to `/usr/local/bin/python /app/app/demucs_cpu_cli.py`. It preserves the exact
+MKLDNN setting and fixed Demucs arguments, but the absolute script remains
+resolvable when the process runner isolates the child in its output directory.
+The Docker validation now explicitly changes into that empty output directory
+before running the real two-second, two-stem inference. All 309 source tests,
+FFprobe, locked runtime imports, and that exact-context inference passed. The
+new immutable image is
+`clouddsp-registry.localhost:5001/demucs@sha256:43b4c352a3c4bf077fe685a0904d368f5cb89c2f40a25b1b2a006045b2ec231c`
+(479.77 MiB). The image lock and Deployment source are updated, but the live
+Deployment remains on the earlier digest until an explicit rollout.
 
 [`running_lease_renewal.py`](app/running_lease_renewal.py) now supplies that
 one-shot renewal boundary. It accepts only a committed `DemucsRunningSource`,
@@ -660,9 +1073,9 @@ later upload/completion guards, while a stopped lost-lease child becomes normal
 task ownership loss without entering retry/terminal SQL. The caller cannot use
 a plain runner when renewal is active. Three integration tests cover the
 renewal handoff, downstream refreshed evidence, child-stop loss, and the
-one-attempt ownership mapping. The next small task is reconstructing strict
-execution evidence for a due/expired recovered Demucs task, which has no new
-RabbitMQ delivery to parse.
+one-attempt ownership mapping. The next small task is atomically composing
+recovery claim and reconstructed evidence before the ordinary pre-model runtime
+receives the committed pair.
 
 [`demucs_artifacts.py`](app/demucs_artifacts.py) now performs the next strict
 local-output check before an upload layer may exist. It requires exactly
@@ -841,6 +1254,17 @@ any identity until their individual bootstrap Jobs are deliberately applied:
 The worker requires no Kubernetes API permission and never creates another Pod
 or Job. Kubernetes schedules/restarts/scales the worker process; durable stage
 handoff remains PostgreSQL and RabbitMQ's responsibility.
+
+## Prepared Demucs worker stage smoke
+
+`kubernetes/tests/demucs-worker-smoke/` contains an unapplied, end-to-end
+stage test for this deployed worker.  It uses a fixed two-second source WAV,
+the ordinary PostgreSQL outbox and generic dispatcher path, then proves that
+the worker completed its canonical task and produced two privately readable,
+hash-matched WAV stems.  The smoke client has no AMQP credential, so it cannot
+fake either dispatch or consumption.  See that directory's `README.md` for
+the reviewed bootstrap, apply, inspection, and evidence-preserving cleanup
+procedure.
 
 ## Prepared PostgreSQL identity
 

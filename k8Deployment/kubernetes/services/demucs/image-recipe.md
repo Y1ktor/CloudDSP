@@ -1,9 +1,10 @@
 # Local CPU Demucs image recipe, version 1
 
-This is the build decision for the first **local CPU** Demucs worker image.
-The accompanying [`Dockerfile`](Dockerfile) has now been built and pushed to
-the local registry. It remains neither a Kubernetes workload nor a running
-worker: the AMQP consumer entrypoint and Deployment are later small tasks.
+This is the build decision for the local CPU Demucs worker image. The source
+[`Dockerfile`](Dockerfile) starts the reviewed AMQP worker wrapper, and the
+verified Linux/ARM64 output is now published in the local registry and recorded
+under `images.demucs`. It remains neither a Kubernetes workload nor a running
+worker: the Deployment is a separate later task.
 
 ## Why this is a different image from the cloud worker
 
@@ -67,16 +68,19 @@ The Dockerfile uses two functional stages from the same immutable Python base:
 2. **Runtime stage:** copy only validated site packages, the checked worker
    source, FFmpeg runtime files, and separately verified model artifacts. It
    runs as the dedicated non-root user, exposes no HTTP port, contains no
-   secret, and accepts its PostgreSQL/RabbitMQ/MinIO configuration only through
-   Kubernetes Secrets at Pod start.
+   secret, accepts PostgreSQL/RabbitMQ/MinIO configuration only through
+   Kubernetes Secrets at Pod start, and uses exec-form `python -m
+   app.worker_main` as PID 1.
 
-The first local output has been built specifically for `linux/arm64`, pushed
-to the k3d local registry, and pinned as
-`images.demucs` in [`../../images.lock.yaml`](../../images.lock.yaml). Its
-registry-confirmed digest is `sha256:9ff16a5a62ff0dfe615956cf606ab04231be7292ed50691193c0fb676299d165`;
-the 479.50 MiB local image is not a CUDA image. An AMD64 CPU build or CUDA GPU
-build is a later, separately locked artifact; neither is implied by the ARM64
-digest.
+The current local output is built specifically for `linux/arm64`, pushed to the
+k3d local registry, and pinned as `images.demucs` in
+[`../../images.lock.yaml`](../../images.lock.yaml). Its registry-confirmed OCI
+index digest is
+`sha256:f8335a7a78108b74283d9d1d9fc46f82225d9dbe089b8fc961284c44da7f7db0`;
+the 479.76 MiB local image is not a CUDA image. The earlier 479.50 MiB image
+and its `9ff16a5…` digest predate the worker entrypoint and are superseded in
+the catalog. An AMD64 CPU build or CUDA GPU build is a later, separately locked
+artifact; neither is implied by the ARM64 digest.
 
 ## Follow-on tasks
 
@@ -87,14 +91,87 @@ digest.
    artifacts and complete SHA-256 checksums.
 3. Completed: [`Dockerfile`](Dockerfile) follows this recipe, including
    hash-locked dependencies, model-artifact verification, unit tests, FFprobe,
-   and a final non-root image without a runtime entrypoint.
-4. Completed: the ARM64 image was built, network-isolated/read-only verified,
-   pushed to the k3d registry, and locked as `images.demucs` at 479.50 MiB.
-5. Implement the long-running Demucs AMQP consumer entrypoint separately. It
-   must use the existing parser, task lease, private MinIO, and FFprobe
-   boundaries before it runs the model.
-6. Define the worker Deployment separately; it will not be created by the
-   image work.
+   a final non-root image, and exec-form `python -m app.worker_main` as PID 1.
+   It deliberately leaves `/worker-scratch` absent for the future bounded Pod
+   `emptyDir` rather than falling back to the image filesystem.
+4. Completed: the earlier ARM64 image was built, network-isolated/read-only
+   verified, and pushed to the k3d registry at 479.50 MiB. It predates the
+   reviewed worker entrypoint and is superseded in `images.demucs` by the
+   current image below.
+5. Completed: this reviewed source built locally for Linux/ARM64 as
+   `clouddsp-demucs:0.1.1-worker-entrypoint-local-only`. Its validation stage
+   passed all 296 worker tests, FFprobe, and exact Demucs/Torch/Torchaudio
+   imports. The `503,066,464`-byte (`479.76 MiB`) runtime has the reviewed
+   exec entrypoint, runs as UID `10003`, and leaves `/worker-scratch` absent;
+   an offline default run without mounted configuration emitted only the safe
+   wrapper diagnostic and exited `78`.
+6. Completed: the exact local tag is pushed to the k3d registry as
+   `clouddsp-registry.localhost:5001/demucs:0.1.1-worker-entrypoint-local-only`.
+   Its registry-confirmed immutable OCI index reference is
+   `clouddsp-registry.localhost:5001/demucs@sha256:f8335a7a78108b74283d9d1d9fc46f82225d9dbe089b8fc961284c44da7f7db0`.
+   This push did not modify `images.lock.yaml` or create a workload.
+7. Completed: `images.demucs` records that verified immutable image reference,
+   its local size, CPU/ARM64 profile, and the exec-form worker entrypoint.
+8. Completed: [`demucs-deployment.yaml`](demucs-deployment.yaml) prepares the
+   first private, queue-driven worker controller. It uses only the immutable
+   `images.demucs` digest, runs as UID/GID `10003` on ARM64 CPU nodes, mounts
+   bounded disposable scratch volumes, has no Service/Ingress or Kubernetes
+   API token, and receives only its three restricted runtime Secrets. Its
+   intentionally omitted `replicas` field defaults to one only after an
+   explicit apply and avoids a later conflict with KEDA's scale ownership.
+9. Completed: the database/MinIO/RabbitMQ runtime Secret and identity preflight
+   passed, then the Deployment was applied as its one normal local replica.
+10. Completed: `0.1.2-short-lived-amqp-sessions-local-only` fixes the idle AMQP
+    lifecycle by creating a new restricted session for each normal `basic_get`
+    cycle and no AMQP session for PostgreSQL-only recovery. Its registry-
+    confirmed immutable reference is
+    `clouddsp-registry.localhost:5001/demucs@sha256:3c721bcad886969ecf2a31b70af1a92a7d2c7058c49abceae97faea0d5c88dd9`.
+    The 479.77 MiB ARM64 runtime passed all 304 tests, FFprobe, and pinned ML
+    imports before one ready, zero-restart rollout. RabbitMQ TCP `5672` remains
+    an explicit outbound Service endpoint, so the worker intentionally has no
+    `containerPort`, Service, or Ingress.
+11. Completed: `0.1.3-recovery-uuid-join-fix-local-only` repairs
+    the recovery-first expired-third-attempt terminalization scan. The prior
+    query compared the text form returned for Python with the UUID `jobs`
+    primary key, so PostgreSQL rejected `uuid = text` during planning before a
+    normal AMQP poll could begin. The repair uses an explicit UUID cast and no
+    longer returns `jobs.error_message`, preserving the Demucs role's narrow
+    column-level read authority. The Linux/ARM64 CPU image passed all 304
+    tests, FFprobe, and pinned runtime imports, and was pushed as
+    `clouddsp-registry.localhost:5001/demucs@sha256:99e24301c4c2f37547de7fd8a7773d7e0eae6cfb5f4222db9e00ae1294cae73a`
+    at 479.77 MiB. `images.demucs` and the Deployment are pinned to it, and a
+    one-ready, zero-restart rollout completed. The failed smoke run's exact
+    object/Job/outbox evidence was then removed through the separately
+    reviewed cleanup Job; the next smoke run remains an explicit action.
+12. Prepared: `0.1.4-local-arm64-mkldnn-sigill-fix` addresses the next
+    deployed-smoke finding. The actual fixed Demucs CPU command reached a
+    Linux/ARM64 Torch model kernel that ended with exit code 132 (`SIGILL`)
+    under the local Docker Desktop/k3d virtual CPU. This was not a broker,
+    database, MinIO, source-upload, model-weight, or task-lease failure: a
+    direct repeat of the same input wrote both expected stems once
+    `torch.backends.mkldnn.enabled` was set to `False` before importing
+    `demucs.separate`. The worker now starts its fixed child through
+    `python -m app.demucs_cpu_cli`, which applies and reads back that one
+    child-process-only setting before it loads Demucs. A future NVIDIA/GPU
+    image must keep a separately validated backend policy rather than copying
+    this local CPU workaround. The image validation stage now generates a
+    two-second WAV and proves a real `htdemucs --two-stems vocals` run writes
+    `vocals.wav` and `no_vocals.wav`. All 309 source tests, FFprobe, locked ML
+    imports, and that inference check passed. The resulting 479.77 MiB image
+    is pinned for a separate rollout as
+    `clouddsp-registry.localhost:5001/demucs@sha256:d0ebd533f66eb2c8097646477a6ba1439349add297bfde578e4a865f08c9186b`.
+13. Prepared: `0.1.5-local-arm64-launcher-cwd-fix` corrects a separate
+    runtime-startup defect discovered by the subsequent live smoke. The
+    process adapter intentionally invokes each model child with its fresh
+    output directory as `cwd`; therefore the earlier module invocation could
+    not resolve the image's `/app` package. This revision invokes the same
+    reviewed launcher as `/usr/local/bin/python /app/app/demucs_cpu_cli.py`,
+    preserving the child-only MKLDNN safeguard without a Pod-wide
+    `PYTHONPATH`. Docker now changes into the same output-directory context
+    before its real two-second two-stem inference. All 309 source tests,
+    FFprobe, locked ML imports, and that exact-context inference passed. The
+    resulting 479.77 MiB image is pinned for an explicit future rollout as
+    `clouddsp-registry.localhost:5001/demucs@sha256:43b4c352a3c4bf077fe685a0904d368f5cb89c2f40a25b1b2a006045b2ec231c`.
 
 ## Primary references
 

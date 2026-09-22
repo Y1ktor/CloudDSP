@@ -28,6 +28,7 @@ from app.amqp_manual_ack import DEMUCS_REQUEST_QUEUE
 DEFAULT_DEMUCS_AMQP_HOST = "clouddsp-rabbitmq.clouddsp-data.svc"
 DEFAULT_DEMUCS_AMQP_PORT = 5672
 DEMUCS_AMQP_VHOST = "/clouddsp"
+LOCAL_DEMUCS_RABBITMQ_USERNAME = "clouddsp-demucs"
 DEFAULT_CONNECT_TIMEOUT_SECONDS = 5
 DEFAULT_HEARTBEAT_SECONDS = 30
 
@@ -106,11 +107,11 @@ class DemucsAMQPSettings:
             raise DemucsAMQPConfigurationError("Demucs AMQP topology does not match the reviewed request queue.")
 
         username = _required_environment_text("RABBITMQ_DEMUCS_USERNAME")
-        if username != "clouddsp-demucs":
+        if username != LOCAL_DEMUCS_RABBITMQ_USERNAME:
             raise DemucsAMQPConfigurationError(
                 "RABBITMQ_DEMUCS_USERNAME must match the restricted Demucs consumer."
             )
-        return cls(
+        settings = cls(
             host=host,
             port=port,
             username=username,
@@ -133,6 +134,58 @@ class DemucsAMQPSettings:
                 maximum=300,
             ),
         )
+        # Reuse the direct-construction guard so mounted settings and test or
+        # future entrypoint-built settings have exactly the same authority.
+        return validate_demucs_amqp_settings(settings)
+
+
+def validate_demucs_amqp_settings(value: object) -> DemucsAMQPSettings:
+    """Revalidate direct settings construction before any broker I/O.
+
+    Frozen dataclasses may be built deliberately in tests and future entry
+    points. Repeating every fixed identity/endpoint/topology rule prevents a
+    caller from bypassing ``from_environment()`` and redirecting the restricted
+    credentials to a management port, foreign queue, or administrator account.
+    """
+
+    if not isinstance(value, DemucsAMQPSettings):
+        raise TypeError("settings must be DemucsAMQPSettings.")
+    if (
+        value.host != DEFAULT_DEMUCS_AMQP_HOST
+        or value.port != DEFAULT_DEMUCS_AMQP_PORT
+        or value.virtual_host != DEMUCS_AMQP_VHOST
+        or value.queue_name != DEMUCS_REQUEST_QUEUE
+        or value.username != LOCAL_DEMUCS_RABBITMQ_USERNAME
+        or not isinstance(value.password, str)
+        or not value.password
+        or any(ord(character) < 0x20 or 0xD800 <= ord(character) <= 0xDFFF for character in value.password)
+    ):
+        raise DemucsAMQPConfigurationError("Demucs AMQP settings are outside the local contract.")
+
+    # Exact types reject Python booleans before they act as integers. The
+    # parser keeps direct construction bound to the environment's time limits.
+    if type(value.connect_timeout_seconds) is not int or type(value.heartbeat_seconds) is not int:
+        raise DemucsAMQPConfigurationError("Demucs AMQP timing is invalid.")
+    connect_timeout_seconds = _bounded_positive_integer(
+        name="DEMUCS_AMQP_CONNECT_TIMEOUT_SECONDS",
+        value=str(value.connect_timeout_seconds),
+        maximum=30,
+    )
+    heartbeat_seconds = _bounded_positive_integer(
+        name="DEMUCS_AMQP_HEARTBEAT_SECONDS",
+        value=str(value.heartbeat_seconds),
+        maximum=300,
+    )
+    return DemucsAMQPSettings(
+        host=value.host,
+        port=value.port,
+        username=value.username,
+        password=value.password,
+        virtual_host=value.virtual_host,
+        queue_name=value.queue_name,
+        connect_timeout_seconds=connect_timeout_seconds,
+        heartbeat_seconds=heartbeat_seconds,
+    )
 
 
 def _load_pika() -> Any:
@@ -153,21 +206,20 @@ def open_demucs_rabbitmq_connection(settings: DemucsAMQPSettings) -> Any:
     prefetch, reconnect timing, and every `basic_*` operation.
     """
 
-    if not isinstance(settings, DemucsAMQPSettings):
-        raise TypeError("settings must be DemucsAMQPSettings.")
+    approved = validate_demucs_amqp_settings(settings)
     pika = _load_pika()
     parameters = pika.ConnectionParameters(
-        host=settings.host,
-        port=settings.port,
-        virtual_host=settings.virtual_host,
-        credentials=pika.PlainCredentials(settings.username, settings.password),
+        host=approved.host,
+        port=approved.port,
+        virtual_host=approved.virtual_host,
+        credentials=pika.PlainCredentials(approved.username, approved.password),
         # A few short retries absorb local Service endpoint propagation without
         # hiding a broken Secret/broker behind an unbounded connection loop.
         connection_attempts=3,
         retry_delay=1,
-        socket_timeout=settings.connect_timeout_seconds,
-        blocked_connection_timeout=settings.connect_timeout_seconds * 2,
-        heartbeat=settings.heartbeat_seconds,
+        socket_timeout=approved.connect_timeout_seconds,
+        blocked_connection_timeout=approved.connect_timeout_seconds * 2,
+        heartbeat=approved.heartbeat_seconds,
     )
     try:
         return pika.BlockingConnection(parameters)

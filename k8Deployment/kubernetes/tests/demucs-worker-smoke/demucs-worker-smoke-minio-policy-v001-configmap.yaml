@@ -1,0 +1,40 @@
+# This immutable ConfigMap holds only an S3-compatible authorization document;
+# it contains no MinIO access or secret key. A changed scope must create a new
+# policy/configmap version and deliberately rotate the restricted identity.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clouddsp-demucs-worker-smoke-objects-policy-v001
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: demucs-worker-smoke
+    app.kubernetes.io/component: object-storage-policy
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: fixed-key-demucs-worker-smoke-object-access
+immutable: true
+data:
+  demucs-worker-smoke-objects-policy.json: |
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Sid": "WriteOnlyTheControlledDemucsSource",
+          "Effect": "Allow",
+          "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+          "Resource": "arn:aws:s3:::clouddsp-uploads/uploads/12139966-5891-4d53-a817-f3ce1f264c61/demucs-worker-smoke.wav"
+        },
+        {
+          "Sid": "ReadDeleteOnlyProducedDemucsAndCleanupArtifacts",
+          "Effect": "Allow",
+          "Action": ["s3:GetObject", "s3:DeleteObject"],
+          "Resource": [
+            "arn:aws:s3:::clouddsp-uploads/stems/12139966-5891-4d53-a817-f3ce1f264c61/vocals.wav",
+            "arn:aws:s3:::clouddsp-uploads/stems/12139966-5891-4d53-a817-f3ce1f264c61/no_vocals.wav",
+            "arn:aws:s3:::clouddsp-uploads/midi/12139966-5891-4d53-a817-f3ce1f264c61/vocals.mid",
+            "arn:aws:s3:::clouddsp-uploads/midi/12139966-5891-4d53-a817-f3ce1f264c61/no_vocals.mid"
+          ]
+        }
+      ]
+    }

@@ -12,9 +12,10 @@ import unittest
 from pathlib import Path
 
 from app.demucs_command import (
+    DEMUCS_CPU_CLI_SCRIPT,
     DEMUCS_DEVICE,
-    DEMUCS_EXECUTABLE,
     DEMUCS_MODEL_REPOSITORY,
+    DEMUCS_PYTHON_EXECUTABLE,
     DemucsCommandContractError,
     DemucsCommandPathError,
     build_demucs_separation_command,
@@ -55,7 +56,8 @@ class DemucsCommandTests(unittest.TestCase):
                     self.assertEqual(
                         result.command,
                         (
-                            DEMUCS_EXECUTABLE,
+                            DEMUCS_PYTHON_EXECUTABLE,
+                            DEMUCS_CPU_CLI_SCRIPT,
                             "--device",
                             DEMUCS_DEVICE,
                             "--repo",

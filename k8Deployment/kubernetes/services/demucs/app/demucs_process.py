@@ -55,7 +55,7 @@ class DemucsProcessContractError(DemucsProcessError):
 
 
 class DemucsProcessUnavailable(DemucsProcessError):
-    """The reviewed image did not provide the fixed Demucs executable."""
+    """The reviewed image did not provide the fixed Demucs child launcher."""
 
 
 class DemucsProcessTimedOut(DemucsProcessError):

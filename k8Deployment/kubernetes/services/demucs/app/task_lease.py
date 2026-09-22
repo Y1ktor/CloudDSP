@@ -43,6 +43,13 @@ MAX_DEMUCS_STEMS_DOCUMENT_BYTES = 16 * 1024
 MAX_DEMUCS_DOWNSTREAM_OUTBOX_EVENTS = 6
 MAX_DEMUCS_DOWNSTREAM_OUTBOX_DOCUMENT_BYTES = 16 * 1024
 
+# A Pod can disappear after starting a third attempt, leaving no Python
+# exception to classify. PostgreSQL's recovery scan records this distinct,
+# bounded fact instead of pretending that a model/storage failure occurred or
+# issuing a prohibited fourth lease. The same safe code is written to the
+# terminal Demucs task and its still-processable authoritative Job.
+DEMUCS_EXHAUSTED_LEASE_ERROR_CODE = "demucs_lease_expired_attempts_exhausted"
+
 # These mappings are the durable routing decision made when Demucs has
 # completed—not a RabbitMQ route or a worker implementation.  Drums go only
 # to ADTOF, while every non-drum output can be pitch-analysed by Basic Pitch.
@@ -140,6 +147,24 @@ class DemucsTaskCompletion:
     completed_at: datetime
     job_revision: int
     outbox_event_count: int
+
+
+@dataclass(frozen=True)
+class DemucsExpiredLeaseTerminalization:
+    """Evidence that PostgreSQL terminalized one expired final Demucs attempt.
+
+    The third owner either died or ran beyond its renewal window. This result
+    proves the task and its Job moved together to their terminal states in one
+    committed statement. It excludes model output, source/object coordinates,
+    lease tokens, credentials, and raw driver diagnostics.
+    """
+
+    task_id: str
+    job_id: str
+    attempt_count: int
+    completed_at: datetime
+    job_revision: int
+    error_code: str
 
 
 @dataclass(frozen=True)
@@ -321,6 +346,105 @@ CLAIM_NEXT_RECOVERABLE_DEMUCS_TASK_SQL = """
       task.attempt_count,
       task.lease_token::text AS lease_token,
       task.lease_expires_at
+"""
+
+
+# A third active lease cannot be recovered because the contract permits only
+# three real attempts. First lock one expiry candidate with SKIP LOCKED, then
+# lock its still-retained source-uploaded Job and change both records in one
+# statement. The Job update depends on the returned task row, so a constraint,
+# privilege, deletion, retention, or state race cannot expose a browser-visible
+# failed Job while the Demucs task still advertises an active owner.
+#
+# PostgreSQL's clock is the only expiry authority. Clearing both lease fields
+# prevents the dead Pod from satisfying any later renewal/completion predicate;
+# setting completed_at satisfies the terminal task-state constraint. A Job that
+# is already terminal, expired, or no longer source_uploaded produces no row:
+# it is not safe for this worker to overwrite later Job history merely because
+# an old task still exists.
+FINALIZE_NEXT_EXPIRED_EXHAUSTED_DEMUCS_TASK_SQL = """
+    WITH candidate AS (
+      SELECT task_id, job_id
+      FROM public.processing_tasks
+      WHERE stage = 'demucs'
+        AND stem_name = ''
+        AND attempt_count = 3
+        AND status IN ('leased', 'running')
+        AND lease_expires_at <= CURRENT_TIMESTAMP
+      ORDER BY lease_expires_at ASC, created_at ASC, task_id ASC
+      FOR UPDATE SKIP LOCKED
+      LIMIT 1
+    ),
+    locked_job AS MATERIALIZED (
+      SELECT job.job_id
+      FROM public.jobs AS job
+      JOIN candidate ON candidate.job_id = job.job_id
+      WHERE job.source_uploaded = TRUE
+        AND job.status = 'source_uploaded'
+        AND job.expires_at > CURRENT_TIMESTAMP
+      FOR UPDATE OF job
+    ),
+    failed_task AS (
+      UPDATE public.processing_tasks AS task
+      SET
+        status = 'failed',
+        available_at = CURRENT_TIMESTAMP,
+        lease_token = NULL,
+        lease_expires_at = NULL,
+        completed_at = CURRENT_TIMESTAMP,
+        last_error_code = 'demucs_lease_expired_attempts_exhausted'
+      FROM candidate, locked_job
+      WHERE task.task_id = candidate.task_id
+        AND task.job_id = locked_job.job_id
+        AND task.stage = 'demucs'
+        AND task.stem_name = ''
+        AND task.attempt_count = 3
+        AND task.status IN ('leased', 'running')
+        AND task.lease_expires_at <= CURRENT_TIMESTAMP
+      RETURNING
+        task.task_id::text AS task_id,
+        task.job_id::text AS job_id,
+        task.attempt_count,
+        task.completed_at,
+        task.last_error_code
+    ),
+    failed_job AS (
+      UPDATE public.jobs AS job
+      SET
+        status = 'failed',
+        revision = job.revision + 1,
+        error_message = 'demucs_lease_expired_attempts_exhausted'
+      FROM locked_job, failed_task
+      WHERE job.job_id = locked_job.job_id
+        -- `failed_task` intentionally returns text so the outer Python
+        -- adapter receives canonical UUID strings rather than driver-specific
+        -- UUID objects.  The `jobs` primary key remains UUID inside this CTE,
+        -- however, so cast the returned task value back before comparing it.
+        -- Without this explicit boundary cast PostgreSQL rejects the entire
+        -- recovery-first terminalization query during planning (`uuid = text`)
+        -- even when no expired third-attempt task exists.  That would keep a
+        -- living worker in recovery backoff and prevent its next AMQP poll.
+        AND job.job_id = failed_task.job_id::uuid
+      RETURNING
+        job.job_id::text AS job_id,
+        job.revision,
+        -- The fixed terminal error is already proven by `failed_task`.
+        -- Do not return `jobs.error_message`: that column can contain broader
+        -- operator-facing history, and returning it would require widening
+        -- this worker's deliberate column-level SELECT authority merely for a
+        -- value the durable result adapter does not need.
+        job.status
+    )
+    SELECT
+      failed_task.task_id,
+      failed_task.job_id,
+      failed_task.attempt_count,
+      failed_task.completed_at,
+      failed_task.last_error_code,
+      failed_job.revision AS job_revision,
+      failed_job.status AS job_status
+    FROM failed_task
+    JOIN failed_job ON failed_job.job_id = failed_task.job_id
 """
 
 
@@ -661,6 +785,43 @@ def _row_lease(row: Mapping[str, object]) -> DemucsTaskLease:
     )
 
 
+def _row_expired_lease_terminalization(
+    row: Mapping[str, object],
+) -> DemucsExpiredLeaseTerminalization:
+    """Validate the exact task/Job proof returned by final-expiry SQL.
+
+    The query literals constrain the stage, terminal states, and error code,
+    but its driver result is still untrusted application input. Revalidating
+    every returned field prevents an altered query or cursor adapter from
+    reporting unrelated Job progress as a safe expired-lease finalization.
+    """
+
+    task_id = _canonical_uuid(_row_text(row, "task_id"))
+    job_id = _canonical_uuid(_row_text(row, "job_id"))
+    attempt_count = row.get("attempt_count")
+    completed_at = row.get("completed_at")
+    job_revision = row.get("job_revision")
+    if (
+        type(attempt_count) is not int
+        or attempt_count != MAX_DEMUCS_TASK_ATTEMPTS
+        or row.get("last_error_code") != DEMUCS_EXHAUSTED_LEASE_ERROR_CODE
+        or not isinstance(completed_at, datetime)
+        or completed_at.tzinfo is None
+        or type(job_revision) is not int
+        or job_revision < 1
+        or row.get("job_status") != "failed"
+    ):
+        raise DemucsTaskLeaseProtocolError("Demucs task database state is invalid.")
+    return DemucsExpiredLeaseTerminalization(
+        task_id=task_id,
+        job_id=job_id,
+        attempt_count=attempt_count,
+        completed_at=completed_at,
+        job_revision=job_revision,
+        error_code=DEMUCS_EXHAUSTED_LEASE_ERROR_CODE,
+    )
+
+
 def _existing_task_result(row: Mapping[str, object], *, message: DemucsRequestedMessage) -> DemucsTaskClaimResult:
     """Classify a pre-existing canonical task without mutating duplicate state."""
 
@@ -822,6 +983,32 @@ def claim_next_recoverable_demucs_task(
     if claimed_lease.lease_token != lease_token:
         raise DemucsTaskLeaseProtocolError("Demucs task database state is invalid.")
     return claimed_lease
+
+
+def finalize_next_expired_exhausted_demucs_task(
+    cursor: DatabaseCursor,
+) -> DemucsExpiredLeaseTerminalization | None:
+    """Atomically fail one retained Job and its expired third Demucs attempt.
+
+    Call this pure one-row decision in its own short transaction before trying
+    to recover first/second attempts. ``None`` is normal no-progress: no final
+    active expired candidate was visible, another scanner owns it, its Job was
+    deleted/expired/advanced, or another state transition already won. The
+    caller must not infer a new lease or start a model from that result.
+
+    This adapter does not open/commit a transaction, contact MinIO/RabbitMQ,
+    run Demucs, delete partial stems, sleep, or call Kubernetes. It records the
+    durable task/Job terminal outcome that prevents a stranded final lease from
+    being mistaken for reclaimable work.
+    """
+
+    if not callable(getattr(cursor, "execute", None)) or not callable(getattr(cursor, "fetchone", None)):
+        raise TypeError("cursor must provide execute and fetchone.")
+    cursor.execute(FINALIZE_NEXT_EXPIRED_EXHAUSTED_DEMUCS_TASK_SQL, ())
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    return _row_expired_lease_terminalization(_mapping_or_error(row))
 
 
 def renew_demucs_task_lease(

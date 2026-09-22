@@ -245,6 +245,37 @@ that digest into `images.lock.yaml` before any future Job manifest refers to a
 new rebuild. It does not create a Job, synthetic event, RabbitMQ message,
 object, or other cluster workload.
 
+## Build the Demucs worker stage smoke-client image
+
+```bash
+./k8Deployment/kubernetes/scripts/build-demucs-worker-smoke-client-image.sh
+```
+
+This validates the narrow Python client, builds the ARM64 image, pushes it to
+the local registry, prints the immutable digest, and verifies that the pushed
+digest resolves from the registry.  It deliberately does **not** apply any
+Kubernetes resource or create test data.  After a reviewed rebuild, copy the
+printed digest and measured image size into `images.lock.yaml`, then update
+the smoke Job image reference before applying the test manifests.
+
+## Build the Demucs worker image
+
+```bash
+./k8Deployment/kubernetes/scripts/build-demucs-image.sh
+```
+
+This validates the entire Linux/ARM64 Demucs worker source and its locked model
+artifacts inside the Docker validation stage, then runs a real fixed two-stem
+inference through the local ARM64 CPU launcher before pushing the resulting
+image to the dedicated local registry. The launcher disables Torch MKLDNN
+before Demucs imports because the default local model path reproduced a SIGILL;
+the check requires both generated stem files, so a successful import alone is
+not treated as proof. The script prints the immutable digest and local layer
+size. It creates or updates an OCI image only: it does not apply a Deployment,
+Secret, Job, Service, database migration, MinIO object, or RabbitMQ message.
+After a reviewed build, record the reported digest in `images.lock.yaml` and
+copy the same immutable reference into `services/demucs/demucs-deployment.yaml`.
+
 ## Build the Basic Pitch worker image
 
 ```bash

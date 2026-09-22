@@ -1,0 +1,214 @@
+# This administrator-only Job creates the exact-key MinIO identity for the
+# future Demucs smoke client. It never uploads media, creates a Job, touches
+# PostgreSQL/RabbitMQ, invokes Demucs, or receives Kubernetes API authority.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-demucs-worker-smoke-objects-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: minio-demucs-worker-smoke-objects-bootstrap
+    app.kubernetes.io/component: object-storage-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: fixed-key-demucs-worker-smoke-object-provisioning
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 0
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: minio-demucs-worker-smoke-objects-bootstrap
+        app.kubernetes.io/component: object-storage-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        # The MinIO client image supports this non-root identity. fsGroup lets
+        # ordered init containers share only their tiny temporary alias state.
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: configure-minio-root-alias
+          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_PASSWORD
+          resources:
+            requests: {cpu: 25m, memory: 64Mi, ephemeral-storage: 16Mi}
+            limits: {cpu: 250m, memory: 128Mi, ephemeral-storage: 32Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          # Root values remain Kubernetes-resolved environment variables, never
+          # source literals or diagnostic output.
+          # Quote the URL because YAML flow-style scalars treat its colon as
+          # syntax. Kubernetes still expands the two Secret-backed variables.
+          args: [alias, set, minio-admin, "http://clouddsp-minio:9000", "$(MINIO_ROOT_USER)", "$(MINIO_ROOT_PASSWORD)"]
+
+        - name: wait-for-private-minio-service
+          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env: [{name: MC_CONFIG_DIR, value: /mc-config}]
+          resources:
+            requests: {cpu: 25m, memory: 64Mi, ephemeral-storage: 16Mi}
+            limits: {cpu: 250m, memory: 128Mi, ephemeral-storage: 32Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          args: [ready, minio-admin]
+
+        - name: create-or-update-fixed-smoke-policy
+          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env: [{name: MC_CONFIG_DIR, value: /mc-config}]
+          resources:
+            requests: {cpu: 25m, memory: 64Mi, ephemeral-storage: 16Mi}
+            limits: {cpu: 250m, memory: 128Mi, ephemeral-storage: 32Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: mc-config, mountPath: /mc-config}
+            - {name: fixed-smoke-policy, mountPath: /policy, readOnly: true}
+          # The immutable ConfigMap is the only policy source. There is no
+          # shell or arbitrary policy path available to this Pod.
+          args: [admin, policy, create, minio-admin, clouddsp-demucs-worker-smoke-objects-v001, /policy/demucs-worker-smoke-objects-policy.json]
+
+        - name: create-or-rotate-fixed-smoke-user
+          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - {name: MC_CONFIG_DIR, value: /mc-config}
+            - name: DEMUCS_WORKER_SMOKE_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-demucs-worker-smoke-minio-bootstrap-credentials
+                  key: DEMUCS_WORKER_SMOKE_S3_ACCESS_KEY
+            - name: DEMUCS_WORKER_SMOKE_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-demucs-worker-smoke-minio-bootstrap-credentials
+                  key: DEMUCS_WORKER_SMOKE_S3_SECRET_KEY
+          resources:
+            requests: {cpu: 25m, memory: 64Mi, ephemeral-storage: 16Mi}
+            limits: {cpu: 250m, memory: 128Mi, ephemeral-storage: 32Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: mc-config, mountPath: /mc-config}
+          args: [admin, user, add, minio-admin, $(DEMUCS_WORKER_SMOKE_S3_ACCESS_KEY), $(DEMUCS_WORKER_SMOKE_S3_SECRET_KEY)]
+
+        - name: attach-fixed-smoke-policy
+          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - {name: MC_CONFIG_DIR, value: /mc-config}
+            - name: DEMUCS_WORKER_SMOKE_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-demucs-worker-smoke-minio-bootstrap-credentials
+                  key: DEMUCS_WORKER_SMOKE_S3_ACCESS_KEY
+          resources:
+            requests: {cpu: 50m, memory: 128Mi, ephemeral-storage: 16Mi}
+            limits: {cpu: 250m, memory: 256Mi, ephemeral-storage: 32Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: mc-config, mountPath: /mc-config}
+          args: [admin, policy, attach, minio-admin, clouddsp-demucs-worker-smoke-objects-v001, --user=$(DEMUCS_WORKER_SMOKE_S3_ACCESS_KEY)]
+
+        - name: verify-fixed-smoke-user-policy
+          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - {name: MC_CONFIG_DIR, value: /mc-config}
+            - name: DEMUCS_WORKER_SMOKE_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-demucs-worker-smoke-minio-bootstrap-credentials
+                  key: DEMUCS_WORKER_SMOKE_S3_ACCESS_KEY
+          resources:
+            requests: {cpu: 50m, memory: 128Mi, ephemeral-storage: 16Mi}
+            limits: {cpu: 250m, memory: 256Mi, ephemeral-storage: 32Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: mc-config, mountPath: /mc-config}
+          # This prints only the user/policy association, never its secret key.
+          args: [admin, user, info, minio-admin, $(DEMUCS_WORKER_SMOKE_S3_ACCESS_KEY)]
+
+        - name: remove-root-alias-from-temporary-config
+          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env: [{name: MC_CONFIG_DIR, value: /mc-config}]
+          resources:
+            requests: {cpu: 25m, memory: 64Mi, ephemeral-storage: 16Mi}
+            limits: {cpu: 250m, memory: 128Mi, ephemeral-storage: 32Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: mc-config, mountPath: /mc-config}
+          # Remove the only root-key alias before the non-privileged completion
+          # container starts. The bounded emptyDir then dies with the Pod.
+          args: [alias, remove, minio-admin]
+      containers:
+        - name: completion-marker
+          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests: {cpu: 25m, memory: 64Mi, ephemeral-storage: 16Mi}
+            limits: {cpu: 250m, memory: 128Mi, ephemeral-storage: 32Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          args: [--version]
+      volumes:
+        - name: mc-config
+          emptyDir:
+            # The alias file contains temporary credential material, not media.
+            sizeLimit: 1Mi
+        - name: fixed-smoke-policy
+          configMap:
+            name: clouddsp-demucs-worker-smoke-objects-policy-v001
+            defaultMode: 0444
+            items:
+              - key: demucs-worker-smoke-objects-policy.json
+                path: demucs-worker-smoke-objects-policy.json

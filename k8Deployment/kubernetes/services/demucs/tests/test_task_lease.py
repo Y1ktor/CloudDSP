@@ -17,12 +17,15 @@ from app.task_lease import (
     CLAIM_NEXT_RECOVERABLE_DEMUCS_TASK_SQL,
     COMPLETE_RUNNING_DEMUCS_TASK_SQL,
     DEFAULT_DEMUCS_LEASE_SECONDS,
+    DEMUCS_EXHAUSTED_LEASE_ERROR_CODE,
+    FINALIZE_NEXT_EXPIRED_EXHAUSTED_DEMUCS_TASK_SQL,
     INSERT_FIRST_DEMUCS_TASK_LEASE_SQL,
     LOCK_EXISTING_DEMUCS_TASK_SQL,
     MAX_DEMUCS_TASK_ATTEMPTS,
     RENEW_DEMUCS_TASK_LEASE_SQL,
     START_LEASED_DEMUCS_TASK_SQL,
     DemucsStaleRequestReason,
+    DemucsExpiredLeaseTerminalization,
     DemucsTaskClaimDisposition,
     DemucsTaskClaimInconsistency,
     DemucsTaskLease,
@@ -30,6 +33,7 @@ from app.task_lease import (
     claim_demucs_task_for_delivery,
     claim_next_recoverable_demucs_task,
     complete_running_demucs_task,
+    finalize_next_expired_exhausted_demucs_task,
     renew_demucs_task_lease,
     start_leased_demucs_task,
 )
@@ -125,6 +129,22 @@ def lease() -> DemucsTaskLease:
         lease_token=LEASE_TOKEN,
         lease_expires_at=LEASE_EXPIRY,
     )
+
+
+def expired_terminalization_row(**overrides: object) -> dict[str, object]:
+    """Return the compact atomic task/Job result of final-expiry SQL."""
+
+    row: dict[str, object] = {
+        "task_id": TASK_ID,
+        "job_id": JOB_ID,
+        "attempt_count": 3,
+        "completed_at": datetime(2026, 9, 21, 12, 30, tzinfo=UTC),
+        "last_error_code": DEMUCS_EXHAUSTED_LEASE_ERROR_CODE,
+        "job_revision": 8,
+        "job_status": "failed",
+    }
+    row.update(overrides)
+    return row
 
 
 def downstream_events_document() -> str:
@@ -331,6 +351,67 @@ class RecoveryAndRenewalTests(unittest.TestCase):
 
         stale_cursor = FakeCursor([None])
         self.assertIsNone(renew_demucs_task_lease(stale_cursor, task_id=TASK_ID, lease_token=LEASE_TOKEN))
+
+
+class ExpiredLeaseTerminalizationTests(unittest.TestCase):
+    """Prove a third expired active lease becomes one atomic Demucs/Job failure."""
+
+    def test_terminalizes_one_expired_final_attempt_with_job_state(self) -> None:
+        """The locked candidate, task, and Job must report one matching result."""
+
+        cursor = FakeCursor([expired_terminalization_row()])
+
+        terminalization = finalize_next_expired_exhausted_demucs_task(cursor)
+
+        self.assertEqual(
+            terminalization,
+            DemucsExpiredLeaseTerminalization(
+                task_id=TASK_ID,
+                job_id=JOB_ID,
+                attempt_count=MAX_DEMUCS_TASK_ATTEMPTS,
+                completed_at=datetime(2026, 9, 21, 12, 30, tzinfo=UTC),
+                job_revision=8,
+                error_code=DEMUCS_EXHAUSTED_LEASE_ERROR_CODE,
+            ),
+        )
+        self.assertEqual(cursor.calls, [(FINALIZE_NEXT_EXPIRED_EXHAUSTED_DEMUCS_TASK_SQL, ())])
+        self.assertIn("attempt_count = 3", FINALIZE_NEXT_EXPIRED_EXHAUSTED_DEMUCS_TASK_SQL)
+        self.assertIn("status IN ('leased', 'running')", FINALIZE_NEXT_EXPIRED_EXHAUSTED_DEMUCS_TASK_SQL)
+        self.assertIn("lease_expires_at <= CURRENT_TIMESTAMP", FINALIZE_NEXT_EXPIRED_EXHAUSTED_DEMUCS_TASK_SQL)
+        self.assertIn("FOR UPDATE SKIP LOCKED", FINALIZE_NEXT_EXPIRED_EXHAUSTED_DEMUCS_TASK_SQL)
+        self.assertIn("UPDATE public.jobs AS job", FINALIZE_NEXT_EXPIRED_EXHAUSTED_DEMUCS_TASK_SQL)
+        # The preceding `failed_task` CTE exposes its UUID as canonical text
+        # for the Python adapter. PostgreSQL does not implicitly compare that
+        # text to the UUID jobs primary key, so this cast is required even for
+        # an idle recovery scan. Its regression guard prevents a seemingly
+        # harmless formatting edit from blocking all later AMQP polling.
+        self.assertIn(
+            "AND job.job_id = failed_task.job_id::uuid",
+            FINALIZE_NEXT_EXPIRED_EXHAUSTED_DEMUCS_TASK_SQL,
+        )
+        # The fixed task-side error code is sufficient terminal evidence. The
+        # worker must not gain SELECT access to arbitrary Job error history
+        # merely to return a redundant literal written by this same statement.
+        self.assertNotIn("job.error_message", FINALIZE_NEXT_EXPIRED_EXHAUSTED_DEMUCS_TASK_SQL)
+        self.assertIn("status = 'failed'", FINALIZE_NEXT_EXPIRED_EXHAUSTED_DEMUCS_TASK_SQL)
+        self.assertIn("lease_token = NULL", FINALIZE_NEXT_EXPIRED_EXHAUSTED_DEMUCS_TASK_SQL)
+        self.assertIn("lease_expires_at = NULL", FINALIZE_NEXT_EXPIRED_EXHAUSTED_DEMUCS_TASK_SQL)
+        self.assertIn(DEMUCS_EXHAUSTED_LEASE_ERROR_CODE, FINALIZE_NEXT_EXPIRED_EXHAUSTED_DEMUCS_TASK_SQL)
+
+    def test_idle_or_forged_result_cannot_invent_terminal_progress(self) -> None:
+        """No candidate is normal idle; every returned proof remains strict."""
+
+        self.assertIsNone(finalize_next_expired_exhausted_demucs_task(FakeCursor([None])))
+
+        for row in (
+            expired_terminalization_row(attempt_count=2),
+            expired_terminalization_row(last_error_code="demucs_process_failure_retry_exhausted"),
+            expired_terminalization_row(job_status="source_uploaded"),
+            expired_terminalization_row(completed_at=datetime(2026, 9, 21, 12, 30)),
+        ):
+            with self.subTest(row=row):
+                with self.assertRaises(DemucsTaskLeaseProtocolError):
+                    finalize_next_expired_exhausted_demucs_task(FakeCursor([row]))
 
 
 class TaskStartTests(unittest.TestCase):

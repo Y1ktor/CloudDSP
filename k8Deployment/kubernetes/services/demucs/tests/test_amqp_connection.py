@@ -19,6 +19,7 @@ from app.amqp_connection import (
     DemucsAMQPConnectionUnavailable,
     DemucsAMQPSettings,
     open_demucs_rabbitmq_connection,
+    validate_demucs_amqp_settings,
 )
 from app.amqp_manual_ack import DEMUCS_REQUEST_QUEUE
 
@@ -113,6 +114,28 @@ class DemucsAMQPSettingsTests(unittest.TestCase):
                 with self.assertRaises(DemucsAMQPConfigurationError):
                     self.settings_from(overrides)
 
+    def test_direct_settings_construction_cannot_widen_restricted_authority(self) -> None:
+        """The factory rejects a hand-built foreign host/queue/account before I/O."""
+
+        for widened in (
+            DemucsAMQPSettings(
+                host="rabbitmq.localhost",
+                port=5672,
+                username="clouddsp-demucs",
+                password="not-a-real-password",
+            ),
+            DemucsAMQPSettings(
+                host=DEFAULT_DEMUCS_AMQP_HOST,
+                port=5672,
+                username="clouddsp-demucs",
+                password="not-a-real-password",
+                queue_name="clouddsp.source-intake",
+            ),
+        ):
+            with self.subTest(widened=widened.host, queue=widened.queue_name):
+                with self.assertRaises(DemucsAMQPConfigurationError):
+                    validate_demucs_amqp_settings(widened)
+
 
 class DemucsAMQPConnectionTests(unittest.TestCase):
     """Prove Pika receives only bounded private connection parameters."""
@@ -150,6 +173,21 @@ class DemucsAMQPConnectionTests(unittest.TestCase):
 
         self.assertEqual(str(raised.exception), "RabbitMQ Demucs connection is unavailable.")
         self.assertNotIn("private broker diagnostic", str(raised.exception))
+
+    @patch("app.amqp_connection._load_pika")
+    def test_direct_widened_settings_are_rejected_before_loading_pika(self, load_pika) -> None:
+        """A test/entrypoint cannot send restricted credentials to another queue host."""
+
+        with self.assertRaises(DemucsAMQPConfigurationError):
+            open_demucs_rabbitmq_connection(
+                DemucsAMQPSettings(
+                    host="rabbitmq.localhost",
+                    port=5672,
+                    username="clouddsp-demucs",
+                    password="not-a-real-password",
+                )
+            )
+        load_pika.assert_not_called()
 
 
 if __name__ == "__main__":
