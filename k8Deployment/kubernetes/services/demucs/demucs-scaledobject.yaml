@@ -1,0 +1,102 @@
+# This ScaledObject delegates only the Demucs Deployment's replica count to
+# KEDA. The Deployment still owns the worker image, security context, resource
+# requests, Secrets, SIGTERM handling, and rollout strategy. KEDA creates a
+# standard HorizontalPodAutoscaler (HPA) which changes the Deployment's
+# `/scale` subresource; it does not create Kubernetes Jobs or consume a
+# RabbitMQ delivery itself.
+#
+# PostgreSQL task leases and manual AMQP acknowledgement remain the durable
+# processing boundary. If KEDA scales the Deployment to zero, RabbitMQ retains
+# pending messages. When one worker returns, it claims work through the same
+# idempotent task protocol used by a non-autoscaled worker.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  # A separate object per worker stage keeps queue names, capacity ceilings,
+  # and scale behavior reviewable. It must never select Basic Pitch or ADTOF.
+  name: clouddsp-demucs-rabbitmq-scaler
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: demucs
+    app.kubernetes.io/instance: clouddsp-demucs
+    app.kubernetes.io/component: queue-autoscaler
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: queue-depth-autoscale-private-audio-separation-worker
+spec:
+  # KEDA/HPA changes replicas on this normal Deployment controller only. A Pod
+  # or ReplicaSet would be the wrong target because a Deployment owns their
+  # lifecycle and its standard `scale` subresource is the autoscaling API.
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: clouddsp-demucs
+
+  # A 15-second observation cadence keeps local scale-from-zero responsive
+  # without continuously polling RabbitMQ's management API from the laptop.
+  pollingInterval: 15
+  # Demucs has a roughly 480 MiB image and CPU model runtime. Keeping one idle
+  # worker warm for five minutes avoids repeated image/model startup around
+  # nearby uploads, yet permits a truly idle local cluster to return to zero.
+  cooldownPeriod: 300
+  # RabbitMQ retains durable work while no source-separation Pod is needed.
+  # KEDA can recreate the Deployment's Pod when the exact queue becomes active.
+  minReplicaCount: 0
+  # One local Demucs Pod requests 1 CPU and 2 GiB (up to 2 CPU/4 GiB). Cap this
+  # CPU-only Apple-Silicon profile at one Pod: another heavy model can starve
+  # PostgreSQL, RabbitMQ, and later MIDI workers. Backlog remains safe in the
+  # quorum queue; a GPU-node profile may review a different ceiling separately.
+  maxReplicaCount: 1
+
+  advanced:
+    # Removing this resource in an explicit rollback restores the Deployment's
+    # original desired count (one), rather than leaving it at a dynamic zero.
+    restoreToOriginalReplicaCount: true
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          # The one-Pod local ceiling already prevents a burst from starting
+          # multiple costly models. No extra scale-up stabilization is needed.
+          stabilizationWindowSeconds: 0
+          policies:
+            - type: Pods
+              value: 1
+              periodSeconds: 15
+        scaleDown:
+          # Preserve the worker across a few metric observations. KEDA's
+          # cooldown performs the eventual one-to-zero transition after the
+          # queue is inactive; this HPA window avoids a short false dip first.
+          stabilizationWindowSeconds: 300
+          policies:
+            - type: Pods
+              value: 1
+              periodSeconds: 60
+
+  triggers:
+    - type: rabbitmq
+      metadata:
+        # KEDA observes queue depth through the private management ClusterIP.
+        # This is not the AMQP service, a Mac host port, or an Ingress route.
+        host: http://clouddsp-rabbitmq-management.clouddsp-data.svc:15672
+        protocol: http
+        vhostName: /clouddsp
+        # Observe only the already bootstrapped source-separation queue. KEDA
+        # cannot consume, acknowledge, declare, bind, or publish messages.
+        queueName: clouddsp.demucs.requests
+        mode: QueueLength
+        # The worker has AMQP prefetch one. One ready or unacknowledged request
+        # therefore represents approximately one worker's active capacity.
+        value: "1"
+        # Zero means inactive, enabling KEDA's scale-to-zero behavior.
+        activationValue: "0"
+        # Count the one unacknowledged delivery that an active worker may hold
+        # during long CPU inference, preventing it from looking idle too early.
+        excludeUnacknowledged: "false"
+        # Bound a temporarily impaired private management API observation.
+        timeout: "5000"
+      authenticationRef:
+        # Reuse the existing namespaced TriggerAuthentication. It supplies
+        # only RabbitMQ's read-only monitoring identity to KEDA, never a
+        # Demucs worker, PostgreSQL, MinIO, or RabbitMQ administrator Secret.
+        name: clouddsp-rabbitmq-scaler-authentication

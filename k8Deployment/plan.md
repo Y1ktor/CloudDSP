@@ -3272,6 +3272,23 @@ scaling the worker down, rather than manual database/object deletion. This
 completed correctness gate makes a Demucs KEDA `ScaledObject` the next
 capacity-focused milestone.
 
+The prepared
+[`Demucs KEDA ScaledObject`](kubernetes/services/demucs/demucs-scaledobject.yaml)
+now reuses the applied private RabbitMQ management ClusterIP, NetworkPolicy,
+and read-only observer TriggerAuthentication used by Basic Pitch and ADTOF. It
+observes only `clouddsp.demucs.requests`, has a one-message target that counts
+unacknowledged work, polls every 15 seconds, and uses a five-minute cooldown.
+The local Apple-Silicon CPU cap is deliberately `0 → 1`: Demucs requests
+1 CPU/2 GiB (up to 2 CPU/4 GiB), so preserving queued work is safer than
+starting competing model Pods on the development cluster. This source and its
+structural test were then applied and observed through the ordinary restricted
+Demucs smoke route. One durable request activated KEDA and scaled `0 → 1`; the
+fresh worker completed the 86-second source-to-stems smoke successfully, and
+the inactive queue returned the Deployment from `1 → 0` after the configured
+five-minute cooldown. This validates the conservative local CPU policy only;
+future threshold, resource, GPU-node, or capacity changes require a separate
+review and controlled observation.
+
 ## Authentication and browser rules
 
 - Keycloak owns password hashing, registration, confirmation, resets, and MFA

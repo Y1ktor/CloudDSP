@@ -1266,6 +1266,37 @@ fake either dispatch or consumption.  See that directory's `README.md` for
 the reviewed bootstrap, apply, inspection, and evidence-preserving cleanup
 procedure.
 
+## Prepared KEDA queue-scaling policy
+
+[`demucs-scaledobject.yaml`](demucs-scaledobject.yaml) is the prepared KEDA
+policy for the local CPU Demucs worker. The long-running Deployment remains the
+owner of the Pod template, digest-pinned image, least-privilege identities,
+resource limits, rollout behavior, and SIGTERM handling. KEDA's generated HPA
+owns only its standard `/scale` subresource; it is not a second consumer and
+never creates a Kubernetes Job.
+
+KEDA observes only `clouddsp.demucs.requests` through RabbitMQ's private
+management ClusterIP on port 15672. It reuses the existing namespaced
+`clouddsp-rabbitmq-scaler-authentication`, which supplies a read-only
+monitoring identity—not the Demucs AMQP consumer, PostgreSQL, MinIO, or broker
+administrator credential. The existing broker NetworkPolicy permits that
+management port from KEDA while keeping it off the Mac host and outside Traefik.
+
+This local policy uses a 15-second polling interval, one-message target,
+`minReplicaCount: 0`, `maxReplicaCount: 1`, and a five-minute cooldown. The
+cap is deliberate: one CPU-only Demucs Pod already requests 1 CPU/2 GiB and
+can use 2 CPU/4 GiB, so a second local model could crowd out PostgreSQL,
+RabbitMQ, and MIDI workers. RabbitMQ retains backlog safely. A future NVIDIA
+GPU node profile may define a separate capacity policy after measuring GPU
+memory and node capacity. The reviewed local run applied this policy and used
+the ordinary restricted Demucs smoke route as its one-request backlog. KEDA
+observed that request, scaled the Deployment from `0 → 1`, and the fresh Pod
+completed the full source-to-stems route. The smoke finished successfully in
+86 seconds and self-cleaned its evidence. Once the queue became inactive, the
+same ScaledObject returned Demucs from `1 → 0` after the configured five-minute
+cooldown. Future threshold, resource, node, or GPU-profile changes still need
+their own explicit apply-and-observe task.
+
 ## Prepared PostgreSQL identity
 
 The prepared
