@@ -38,6 +38,20 @@ from app.planned_stem_upload import DemucsPlannedStemUploader
 from app.preflight_task_start import DemucsTaskStartDatabase
 
 
+def _report_safe_phase(phase: str) -> None:
+    """Emit one operational phase marker without workload or secret material.
+
+    A durable task can remain recoverable after an incomplete worker attempt,
+    so a Pod being healthy does not prove where that attempt stopped. These
+    markers make the narrowly ordered runtime observable through `kubectl
+    logs` while deliberately omitting task IDs, lease tokens, source/object
+    paths, user identity, filenames, MinIO responses, and child diagnostics.
+    They are not task state: PostgreSQL remains the only durable authority.
+    """
+
+    print(f"demucs worker phase={phase}", flush=True)
+
+
 def _runtime_dependencies_or_raise(
     *,
     source_client: object,
@@ -105,12 +119,15 @@ def execute_acknowledged_demucs_task_once(
         work_directory=work_directory,
         ffprobe_runner=ffprobe_runner,
     ) as acknowledged_workspace:
+        _report_safe_phase("source_preflight_complete")
         with opened_running_demucs_source_workspace(
             database=database,
             workspace=acknowledged_workspace,
         ) as running_workspace:
             if running_workspace is None:
+                _report_safe_phase("running_lease_not_acquired")
                 return None
+            _report_safe_phase("running_lease_acquired")
             with opened_executed_demucs_separation_workspace(
                 running_workspace,
                 work_directory=work_directory,
@@ -122,19 +139,29 @@ def execute_acknowledged_demucs_task_once(
                 # held across source, CPU, or artifact work.
                 renewal_database=database,
             ) as executed_workspace:
+                _report_safe_phase("model_complete")
                 with opened_validated_demucs_stem_inventory_workspace(
                     executed_workspace,
                 ) as validated_workspace:
+                    _report_safe_phase("stem_inventory_validated")
                     with opened_hashed_demucs_stem_inventory_workspace(
                         validated_workspace,
                     ) as hashed_workspace:
+                        _report_safe_phase("stem_hashes_verified")
                         with opened_demucs_stem_output_plan_workspace(
                             hashed_workspace,
                         ) as plan_workspace:
-                            return upload_and_commit_demucs_stem_set(
+                            _report_safe_phase("stem_upload_plan_ready")
+                            completion = upload_and_commit_demucs_stem_set(
                                 workspace=plan_workspace,
                                 client=artifact_client,
                                 database=database,
                                 uploader=uploader,
                                 event_id_factory=event_id_factory,
                             )
+                            _report_safe_phase(
+                                "completion_committed"
+                                if completion is not None
+                                else "completion_ownership_lost"
+                            )
+                            return completion

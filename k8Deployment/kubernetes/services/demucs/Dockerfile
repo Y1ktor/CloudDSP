@@ -199,11 +199,13 @@ PY
 COPY app ./app
 COPY tests ./tests
 # The structural tests read the source recipe and the Deployment contract only.
-# Keep both copies in this throwaway validation stage so a future build catches
-# a changed PID-1, user, scratch-volume, or outbound-port boundary before an
-# image is exported; neither file enters the final runtime stage.
+# Keep the deployment and recovery-verifier bootstrap manifests in this
+# throwaway validation stage. Their structural tests catch a changed PID-1,
+# user, scratch-volume, outbound-port, or least-privilege database boundary
+# before an image is exported; neither manifest enters the final runtime stage.
 COPY Dockerfile ./Dockerfile
 COPY demucs-deployment.yaml ./demucs-deployment.yaml
+COPY demucs-recovery-verifier-bootstrap-job.yaml ./demucs-recovery-verifier-bootstrap-job.yaml
 
 # Unit tests exercise the pure adapters without a running cluster. The media
 # command/import checks prove the pinned media and ML runtimes are present.

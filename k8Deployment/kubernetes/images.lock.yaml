@@ -245,15 +245,18 @@ images:
     repository: clouddsp-registry.localhost:5001/demucs
     # This readable local-registry tag is build provenance only. The immutable
     # OCI index digest below is the only safe future workload reference.
-    # This local ARM64 CPU revision preserves the recovery query repair and
-    # the narrow MKLDNN safeguard. The process adapter starts each child in a
-    # fresh output directory, so this revision invokes the reviewed launcher
-    # by absolute script path rather than relying on that directory to expose
-    # the image's `/app` package. This catalog edit prepares a rollout; it
-    # does not change a live Pod itself.
-    sourceTag: "0.1.5-local-arm64-launcher-cwd-fix"
-    digest: sha256:43b4c352a3c4bf077fe685a0904d368f5cb89c2f40a25b1b2a006045b2ec231c
-    immutableReference: clouddsp-registry.localhost:5001/demucs@sha256:43b4c352a3c4bf077fe685a0904d368f5cb89c2f40a25b1b2a006045b2ec231c
+    # This local ARM64 CPU revision preserves the MKLDNN safeguard and
+    # launcher working-directory repair. It also moves recovery's immutable
+    # outbox-payload validation behind a PostgreSQL security-definer boolean,
+    # so the restricted worker can reclaim a valid task without receiving
+    # general payload-read authority. It also fixes the guarded completion
+    # CTE's explicit text-to-UUID comparison, so a successful stem upload can
+    # commit the Job, task, and downstream outbox records atomically instead
+    # of entering a retry loop. The phase-only logs remain safe because they
+    # contain no job, object, user, or credential values.
+    sourceTag: "0.1.8-completion-uuid-join"
+    digest: sha256:e6cab988fa3786d66dcfd7f608dfa6479582a4acd3bfb9b47f948d637cf6fd59
+    immutableReference: clouddsp-registry.localhost:5001/demucs@sha256:e6cab988fa3786d66dcfd7f608dfa6479582a4acd3bfb9b47f948d637cf6fd59
     supportedPlatforms:
       - linux/arm64/v8
     builtFrom:

@@ -1255,10 +1255,10 @@ The worker requires no Kubernetes API permission and never creates another Pod
 or Job. Kubernetes schedules/restarts/scales the worker process; durable stage
 handoff remains PostgreSQL and RabbitMQ's responsibility.
 
-## Prepared Demucs worker stage smoke
+## Validated Demucs worker stage smoke
 
-`kubernetes/tests/demucs-worker-smoke/` contains an unapplied, end-to-end
-stage test for this deployed worker.  It uses a fixed two-second source WAV,
+`kubernetes/tests/demucs-worker-smoke/` contains the end-to-end stage test for
+this deployed worker. It uses a fixed two-second source WAV,
 the ordinary PostgreSQL outbox and generic dispatcher path, then proves that
 the worker completed its canonical task and produced two privately readable,
 hash-matched WAV stems.  The smoke client has no AMQP credential, so it cannot
@@ -1291,6 +1291,43 @@ read owner identity or outbox payload, or update dispatcher-owned publication
 state. PostgreSQL grants control columns, not which rows may change; the
 adapter must still use the contract's `job_id`, revision, status, and
 lease-token predicates on every write. The MinIO identity remains separate.
+
+### Recovery payload-verification repair
+
+An expired task must rebuild its original `demucs.requested` authorization
+without asking RabbitMQ to redeliver the message. The worker therefore needs
+to prove the immutable outbox payload still exactly matches the new lease.
+Granting `SELECT` on `outbox_events.payload` would solve that mechanically but
+would let the Demucs role inspect payloads for unrelated stages and jobs.
+
+[`demucs-recovery-verifier-bootstrap-job.yaml`](demucs-recovery-verifier-bootstrap-job.yaml)
+installs an idempotent PostgreSQL `SECURITY DEFINER` function instead. It
+accepts the complete current lease coordinate, verifies the matching published
+v1 JSON payload inside PostgreSQL, and returns only `true` or `false`. Public
+function execution is revoked; only `clouddsp-demucs` receives `EXECUTE`.
+The worker keeps raw payload reads denied. The baseline
+[`demucs-database-bootstrap Job`](demucs-database-bootstrap-job.yaml) creates
+the same verifier for a fresh cluster, while the dedicated repair Job lets an
+already-running local cluster add it without recreating the database role or
+mounting the temporary Demucs credential Secret.
+
+The local PostgreSQL repair Job has been applied successfully: its safe
+bootstrap log reports `can_verify_own_recovery_event = t` and
+`can_read_outbox_payload = f`, without printing passwords, payloads, or object
+keys. A later end-to-end smoke run exposed one separate completion defect: the
+task CTE returns `job_id` as text for the Python contract, while the next CTE
+compared that text directly with PostgreSQL's UUID column. PostgreSQL correctly
+rejected `uuid = text`, so the worker safely retried after CPU work rather than
+committing a partial result.
+
+The current local Linux/ARM64 worker image,
+`0.1.8-completion-uuid-join`, explicitly casts that CTE value back to UUID in
+the guarded completion transaction. It is pinned as
+`clouddsp-registry.localhost:5001/demucs@sha256:e6cab988fa3786d66dcfd7f608dfa6479582a4acd3bfb9b47f948d637cf6fd59`.
+Docker validation passed all 312 unit/structural tests, FFprobe, locked ML
+imports, and a real two-stem CPU inference. The deployed one-replica worker
+then passed the complete restricted smoke route in 81 seconds, including the
+atomic Job/task/downstream-outbox commit and its downstream cleanup barrier.
 
 The prepared RabbitMQ templates and
 [`RabbitMQ consumer bootstrap Job`](../rabbitmq/rabbitmq-demucs-consumer-bootstrap-job.yaml)

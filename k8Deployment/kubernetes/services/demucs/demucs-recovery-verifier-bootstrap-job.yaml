@@ -1,0 +1,211 @@
+# This one-shot compatibility Job repairs the recovery verifier on an existing
+# local cluster. It is separate from `demucs-database-bootstrap` because that
+# original fixed-name Job may already have completed and been removed by its
+# TTL controller. It needs only the PostgreSQL administrator Secret: the
+# repair grants no password and does not need to rotate the runtime identity.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: demucs-recovery-verifier-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: demucs-recovery-verifier-bootstrap
+    app.kubernetes.io/component: database-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: least-privilege-demucs-recovery-repair
+spec:
+  # Keep the safe, boolean-only privilege report available for inspection, then
+  # remove the Pod that temporarily mounted the database administrator Secret.
+  ttlSecondsAfterFinished: 600
+  # A database repair should stop at its first error rather than retry DDL with
+  # administrator authority and hide the original useful diagnostic.
+  backoffLimit: 0
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: demucs-recovery-verifier-bootstrap
+        app.kubernetes.io/component: database-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # The Job talks only to PostgreSQL through its internal ClusterIP Service;
+      # it must not receive a Kubernetes API token or cluster permissions.
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgresql-bootstrap-client
+          # Reuse the digest-pinned Docker Official PostgreSQL image. Its psql
+          # client avoids an unreviewed helper image or runtime package install.
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PGHOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: PGPORT
+              value: "5432"
+            - name: PGDATABASE
+              value: clouddsp_job_api
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+            # This is the existing local PostgreSQL administrator credential.
+            # The Demucs runtime Deployment never mounts this Secret.
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_PASSWORD
+          resources:
+            # The Job executes only a short preflight, function definition, and
+            # grant—never audio processing or a long database migration.
+            requests:
+              cpu: 10m
+              memory: 32Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -ec
+            - |
+              # `ON_ERROR_STOP` makes a missing prerequisite or failed grant
+              # visible as a failed Job instead of a partially applied repair.
+              printf 'Installing the Demucs recovery verifier through PostgreSQL Service %s:%s\n' "$PGHOST" "$PGPORT"
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 <<'SQL'
+              -- The function relies on the durable task/outbox schema and the
+              -- existing restricted runtime role. These zero-row checks reveal
+              -- schema problems without selecting any user or payload data.
+              SELECT task_id, job_id, request_event_id, input_bucket,
+                     input_object_key, stem_mode, status, attempt_count,
+                     lease_token, lease_expires_at
+              FROM public.processing_tasks
+              LIMIT 0;
+              SELECT event_id, job_id, stage, stem_name, event_type,
+                     publication_status, payload
+              FROM public.outbox_events
+              LIMIT 0;
+              -- Use a named PostgreSQL dollar quote. Kubernetes collapses
+              -- the anonymous-dollar escape sequence in command arguments to
+              -- one `$`, which would turn an anonymous DO block into
+              -- invalid SQL before the shell invokes psql.
+              DO $required_demucs_role$
+              BEGIN
+                IF NOT EXISTS (
+                  SELECT 1 FROM pg_roles WHERE rolname = 'clouddsp-demucs'
+                ) THEN
+                  RAISE EXCEPTION 'Required restricted Demucs role is missing.';
+                END IF;
+              END;
+              $required_demucs_role$;
+
+              -- Keep the private JSONB comparison inside PostgreSQL's table
+              -- owner context. The caller receives only `true` or `false`,
+              -- never an outbox payload or an object coordinate it did not
+              -- already hold in its leased processing task. It also proves
+              -- that the parent Job remains retained: an expired browser Job
+              -- must never be recovered into fresh CPU/MinIO work.
+              CREATE OR REPLACE FUNCTION public.clouddsp_demucs_recovery_event_matches(
+                expected_task_id uuid,
+                expected_job_id uuid,
+                expected_event_id uuid,
+                expected_input_bucket text,
+                expected_input_object_key text,
+                expected_stem_mode text,
+                expected_attempt_count integer,
+                expected_lease_token uuid
+              )
+              RETURNS boolean
+              LANGUAGE sql
+              STABLE
+              SECURITY DEFINER
+              SET search_path = pg_catalog, public
+              AS $function$
+                SELECT EXISTS (
+                  SELECT 1
+                  FROM public.processing_tasks AS task
+                  JOIN public.outbox_events AS event
+                    ON event.event_id = task.request_event_id
+                    AND event.job_id = task.job_id
+                    AND event.stage = task.stage
+                    AND event.stem_name = task.stem_name
+                  JOIN public.jobs AS job
+                    ON job.job_id = task.job_id
+                  WHERE task.task_id = expected_task_id
+                    AND task.job_id = expected_job_id
+                    AND task.stage = 'demucs'
+                    AND task.stem_name = ''
+                    AND task.request_event_id = expected_event_id
+                    AND task.input_bucket = expected_input_bucket
+                    AND task.input_object_key = expected_input_object_key
+                    AND task.stem_mode = expected_stem_mode
+                    AND task.status = 'leased'
+                    AND task.attempt_count = expected_attempt_count
+                    AND task.lease_token = expected_lease_token
+                    AND task.lease_expires_at > CURRENT_TIMESTAMP
+                    AND event.event_type = 'demucs.requested'
+                    AND event.publication_status = 'published'
+                    -- A recovery lease must not revive work whose
+                    -- browser-visible Job expired while an earlier owner was
+                    -- unavailable. Completion enforces this same boundary.
+                    AND job.source_uploaded = TRUE
+                    AND job.stem_mode = task.stem_mode
+                    AND job.status = 'source_uploaded'
+                    AND job.expires_at > CURRENT_TIMESTAMP
+                    AND event.payload = jsonb_build_object(
+                      'schema_version', 1,
+                      'job_id', task.job_id::text,
+                      'source', jsonb_build_object(
+                        'bucket', task.input_bucket,
+                        'object_key', task.input_object_key
+                      ),
+                      'stem_mode', task.stem_mode
+                    )
+                );
+              $function$;
+
+              -- Public execution is removed before the role-specific grant,
+              -- so no other database login gains payload-verification access.
+              REVOKE ALL ON FUNCTION public.clouddsp_demucs_recovery_event_matches(
+                uuid, uuid, uuid, text, text, text, integer, uuid
+              ) FROM PUBLIC;
+              GRANT EXECUTE ON FUNCTION public.clouddsp_demucs_recovery_event_matches(
+                uuid, uuid, uuid, text, text, text, integer, uuid
+              ) TO "clouddsp-demucs";
+
+              -- Report only access-control facts. A successful report keeps
+              -- raw payload reads denied while enabling exactly the verifier.
+              SELECT
+                has_function_privilege(
+                  'clouddsp-demucs',
+                  'public.clouddsp_demucs_recovery_event_matches(uuid,uuid,uuid,text,text,text,integer,uuid)'::regprocedure,
+                  'EXECUTE'
+                ) AS can_verify_own_recovery_event,
+                has_column_privilege(
+                  'clouddsp-demucs',
+                  'public.outbox_events',
+                  'payload',
+                  'SELECT'
+                ) AS can_read_outbox_payload;
+              SQL
+              printf 'Demucs recovery verifier bootstrap passed\n'

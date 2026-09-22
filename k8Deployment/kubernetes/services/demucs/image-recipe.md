@@ -172,6 +172,17 @@ artifact; neither is implied by the ARM64 digest.
     FFprobe, locked ML imports, and that exact-context inference passed. The
     resulting 479.77 MiB image is pinned for an explicit future rollout as
     `clouddsp-registry.localhost:5001/demucs@sha256:43b4c352a3c4bf077fe685a0904d368f5cb89c2f40a25b1b2a006045b2ec231c`.
+14. Prepared: `0.1.6-local-recovery-verifier-fix` replaces the worker's direct
+    recovery read of `outbox_events.payload` with a PostgreSQL
+    security-definer boolean verifier. The restricted Demucs database role
+    remains unable to read arbitrary payloads, but can safely reconstruct a
+    task only after PostgreSQL proves that its fresh recovery lease and the
+    immutable published v1 request match. The Docker validation stage now
+    includes the compatibility bootstrap manifest and its least-privilege
+    structural test. All 311 source tests, FFprobe, locked runtime imports,
+    and real two-stem inference passed. The resulting 479.77 MiB image is
+    pinned for an explicit future rollout as
+    `clouddsp-registry.localhost:5001/demucs@sha256:0732ea521f20fe5b64136c1bfdcba867cae909979e082b8c5a267adc56256254`.
 
 ## Primary references
 

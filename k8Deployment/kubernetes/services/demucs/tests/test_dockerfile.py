@@ -42,7 +42,12 @@ class DemucsDockerfileTests(unittest.TestCase):
 
         dockerfile = self.dockerfile()
         self.assertIn("COPY demucs-deployment.yaml ./demucs-deployment.yaml", dockerfile)
-        self.assertIn("neither file enters the final runtime stage.", dockerfile)
+        self.assertIn(
+            "COPY demucs-recovery-verifier-bootstrap-job.yaml "
+            "./demucs-recovery-verifier-bootstrap-job.yaml",
+            dockerfile,
+        )
+        self.assertIn("neither manifest enters the final runtime stage.", dockerfile)
 
     def test_validation_runs_real_cpu_inference_through_the_reviewed_launcher(self) -> None:
         """Imports alone cannot detect the reproduced ARM64 MKLDNN SIGILL path."""

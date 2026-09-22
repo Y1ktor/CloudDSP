@@ -96,7 +96,10 @@ spec:
               FROM public.outbox_events
               LIMIT 0;
 
-              DO $$
+              -- Kubernetes command processing collapses an anonymous dollar
+              -- escape to one dollar sign. A named PostgreSQL quote keeps
+              -- this prerequisite check intact before the grant is applied.
+              DO $demucs_downstream_prerequisite$
               BEGIN
                 IF NOT EXISTS (
                   SELECT 1
@@ -112,7 +115,7 @@ spec:
                   RAISE EXCEPTION 'Required restricted Demucs role is missing.';
                 END IF;
               END;
-              $$;
+              $demucs_downstream_prerequisite$;
 
               -- The original worker bootstrap already grants SELECT on the
               -- immutable event identity for input-message verification. Add

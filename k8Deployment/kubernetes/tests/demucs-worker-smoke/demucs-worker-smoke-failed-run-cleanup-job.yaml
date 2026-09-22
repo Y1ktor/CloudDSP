@@ -8,17 +8,17 @@
 # this Job does not purge either queue: an unconditional queue purge could erase
 # another legitimate job. Its ordered cleanup is limited to durable test data:
 #
-#   1. atomically remove only the one inspected retry-scheduled failed task and
-#      its fixed source_uploaded Job/event, preventing a worker-recovery race;
+#   1. atomically remove only the one inspected active smoke task and its
+#      fixed source_uploaded Job/event, after the Demucs Deployment is scaled
+#      to zero so no worker can retain or renew its lease;
 #   2. remove the five fixed smoke object keys (idempotent S3 deletes).
 #
-# The durable operation comes first. A worker can otherwise reclaim a
-# retry-scheduled task between an object delete and the old no-task guard,
-# leaving it to process a source that the cleanup had already removed. The
-# guarded PostgreSQL deletion either wins before a new lease exists or refuses
-# without changing data. If a later object delete is unavailable, the next run
-# recognizes the already-removed exact database coordinates and retries only
-# the literal object cleanup.
+# The durable operation comes first. Removing objects before the exact active
+# database coordinate would leave a worker able to observe a source that no
+# longer exists. The guarded PostgreSQL deletion either matches this one
+# stopped-Job/task shape or refuses without changing data. If a later object
+# delete is unavailable, the next run recognizes the already-removed exact
+# database coordinates and retries only the literal object cleanup.
 #
 # Apply this only after reviewing the failed smoke evidence and deciding to run
 # these exact fixed coordinates again. The fixed Job name makes this privileged
@@ -68,10 +68,11 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       # Init containers serialize the cross-store cleanup. The database guard
-      # first removes the inactive retry task so no worker can reclaim it while
-      # the following object cleanup is underway.
+      # first removes the one stopped Job/task coordinate while Demucs is
+      # intentionally scaled to zero, then object cleanup can never race a
+      # live owner of those source or output keys.
       initContainers:
-        - name: delete-only-diagnosed-failed-retry
+        - name: delete-only-diagnosed-stopped-task
           # The pinned Docker Official PostgreSQL image supplies `psql`; this
           # administration step needs no local port-forward or package install.
           image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
@@ -117,43 +118,59 @@ spec:
             - sh
             - -ec
             - |
-              # This guard accepts only the inspected inactive first-attempt
-              # failure: its fixed Job/owner/event/source coordinates and one
-              # `retry_scheduled` task with no lease and the safe model-failure
-              # category. If recovery already leased it, no task is deleted and
-              # the Job fails before any object cleanup begins. Deleting the
-              # exact task first prevents it from being reclaimed while MinIO
-              # objects are removed. The one permitted Job delete cascades only
-              # its matching fixed outbox event.
+              # This is an operator-invoked recovery for one fixed smoke-test
+              # coordinate, never a general cleanup tool. Before applying it,
+              # scale Demucs to zero and delete the failed smoke Job. The SQL
+              # then accepts exactly one unfinished first-stage task plus the
+              # fixed Job/owner/event/source coordinates. It intentionally
+              # does not pin a task UUID or lease token: those are generated
+              # anew on every smoke attempt. A different Job, a downstream
+              # event, a terminal Job state, or a second task makes this Job
+              # fail before its MinIO container can delete any object.
               psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 <<'SQL'
               DO $demucs_smoke_cleanup$
               DECLARE
                 deleted_task_count INTEGER;
                 deleted_job_count INTEGER;
               BEGIN
-                WITH deleted_task AS (
+                WITH locked_stopped_job AS (
+                  SELECT job.job_id
+                  FROM public.jobs AS job
+                  WHERE job.job_id = '12139966-5891-4d53-a817-f3ce1f264c61'::uuid
+                    AND job.owner_sub = 'clouddsp-demucs-worker-smoke'
+                    AND job.status = 'source_uploaded'
+                    AND job.source_uploaded = TRUE
+                    AND job.stem_mode = '2-stems'
+                  FOR UPDATE
+                ),
+                deleted_task AS (
                   DELETE FROM public.processing_tasks AS task
-                  WHERE task.job_id = '12139966-5891-4d53-a817-f3ce1f264c61'::uuid
+                  USING locked_stopped_job AS job
+                  WHERE task.job_id = job.job_id
                     AND task.stage = 'demucs'
                     AND task.stem_name = ''
                     AND task.request_event_id = 'e20cf942-ef7b-478e-89c4-f4795ed801ec'::uuid
                     AND task.input_bucket = 'clouddsp-uploads'
                     AND task.input_object_key = 'uploads/12139966-5891-4d53-a817-f3ce1f264c61/demucs-worker-smoke.wav'
                     AND task.stem_mode = '2-stems'
-                    AND task.status = 'retry_scheduled'
-                    AND task.attempt_count = 1
-                    AND task.lease_token IS NULL
-                    AND task.lease_expires_at IS NULL
+                    AND task.status IN ('leased', 'running')
+                    AND task.attempt_count >= 1
                     AND task.completed_at IS NULL
-                    AND task.last_error_code = 'demucs_process_failed'
+                    AND task.last_error_code IS NULL
+                    AND NOT EXISTS (
+                      SELECT 1
+                      FROM public.processing_tasks AS other_task
+                      WHERE other_task.job_id = task.job_id
+                        AND other_task.task_id <> task.task_id
+                    )
                   RETURNING task.task_id
                 )
                 SELECT COUNT(*) INTO deleted_task_count FROM deleted_task;
 
                 IF deleted_task_count = 0 THEN
-                  -- This exact all-absent shape is an idempotent retry after a
-                  -- prior run committed the durable deletion but could not
-                  -- reach MinIO. Any partial or active state remains a refusal.
+                  -- This all-absent shape is an idempotent retry after a prior
+                  -- run committed the durable deletion but could not reach
+                  -- MinIO. Any partial or active state remains a refusal.
                   IF EXISTS (
                     SELECT 1 FROM public.jobs
                     WHERE job_id = '12139966-5891-4d53-a817-f3ce1f264c61'::uuid
@@ -164,14 +181,14 @@ spec:
                     SELECT 1 FROM public.outbox_events
                     WHERE event_id = 'e20cf942-ef7b-478e-89c4-f4795ed801ec'::uuid
                   ) THEN
-                    RAISE EXCEPTION 'Refused: failed Demucs smoke retry is no longer inactive.';
+                    RAISE EXCEPTION 'Refused: stopped Demucs smoke task no longer has the diagnosed shape.';
                   END IF;
-                  RAISE NOTICE 'Exact diagnosed Demucs smoke database coordinates were already absent.';
+                  RAISE NOTICE 'Exact stopped Demucs smoke database coordinates were already absent.';
                   RETURN;
                 END IF;
 
                 IF deleted_task_count <> 1 THEN
-                  RAISE EXCEPTION 'Refused: expected one diagnosed Demucs smoke retry task.';
+                  RAISE EXCEPTION 'Refused: expected one diagnosed stopped Demucs smoke task.';
                 END IF;
 
                 WITH deleted_job AS (
@@ -205,12 +222,12 @@ spec:
                 SELECT COUNT(*) INTO deleted_job_count FROM deleted_job;
 
                 IF deleted_job_count <> 1 THEN
-                  RAISE EXCEPTION 'Refused: expected one diagnosed Demucs smoke Job after retry-task cleanup.';
+                  RAISE EXCEPTION 'Refused: expected one diagnosed stopped Demucs smoke Job after task cleanup.';
                 END IF;
               END;
               $demucs_smoke_cleanup$;
               SQL
-              printf 'Exact diagnosed Demucs smoke retry task and database cleanup passed\n'
+              printf 'Exact stopped Demucs smoke task and database cleanup passed\n'
 
         - name: delete-only-fixed-smoke-objects
           # Reuse the existing digest-pinned Demucs smoke-client runtime. Its
@@ -284,7 +301,7 @@ spec:
                   "midi/12139966-5891-4d53-a817-f3ce1f264c61/no_vocals.mid",
               ):
                   client.delete_object(Bucket="clouddsp-uploads", Key=object_key)
-              print("Exact diagnosed Demucs smoke MinIO cleanup passed")
+              print("Exact stopped Demucs smoke MinIO cleanup passed")
       containers:
         - name: completion-marker
           # A no-credential final container makes Job success mean both ordered
@@ -313,4 +330,4 @@ spec:
             - sh
             - -ec
             - |
-              printf 'Exact diagnosed Demucs smoke object and database cleanup passed\n'
+              printf 'Exact stopped Demucs smoke object and database cleanup passed\n'

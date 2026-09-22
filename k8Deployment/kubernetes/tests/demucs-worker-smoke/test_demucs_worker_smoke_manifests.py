@@ -129,21 +129,25 @@ class DemucsWorkerSmokeManifestTests(unittest.TestCase):
             "midi/12139966-5891-4d53-a817-f3ce1f264c61/no_vocals.mid",
             "e20cf942-ef7b-478e-89c4-f4795ed801ec",
             "AND job.status = 'source_uploaded'",
-            "AND task.status = 'retry_scheduled'",
-            "AND task.attempt_count = 1",
-            "AND task.last_error_code = 'demucs_process_failed'",
+            "AND task.status IN ('leased', 'running')",
+            "AND task.attempt_count >= 1",
+            "other_task.task_id <> task.task_id",
             "AND NOT EXISTS",
-            "expected one diagnosed Demucs smoke retry task",
+            "expected one diagnosed stopped Demucs smoke task",
         ):
             self.assertIn(required, source)
         self.assertLess(
-            source.index("name: delete-only-diagnosed-failed-retry"),
+            source.index("name: delete-only-diagnosed-stopped-task"),
             source.index("name: delete-only-fixed-smoke-objects"),
         )
         self.assertNotIn("RABBITMQ_", source)
         self.assertNotIn("purge_queue", source)
         self.assertNotIn("mc rm", source)
         self.assertNotIn("serviceAccountName:", source)
+        # Task IDs and lease tokens are generated anew per smoke attempt.
+        # Keeping neither in the recovery source makes this operator Job
+        # reusable while its fixed Job/event/object coordinates stay narrow.
+        self.assertNotIn("lease_token =", source)
 
 
 if __name__ == "__main__":

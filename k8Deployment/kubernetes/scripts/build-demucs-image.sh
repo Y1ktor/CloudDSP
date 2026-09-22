@@ -25,7 +25,9 @@ readonly MODEL_ARTIFACTS_LOCK="${DEMUCS_DIRECTORY}/model-artifacts.lock.yaml"
 # the immutable repository digest printed after `docker push`.
 readonly REGISTRY_HOST="clouddsp-registry.localhost:5001"
 readonly IMAGE_REPOSITORY="${REGISTRY_HOST}/demucs"
-readonly IMAGE_NAME="${IMAGE_REPOSITORY}:0.1.5-local-arm64-launcher-cwd-fix"
+# This readable tag identifies the UUID completion-join repair milestone.
+# Deployments still use the immutable digest printed after `docker push`.
+readonly IMAGE_NAME="${IMAGE_REPOSITORY}:0.1.8-completion-uuid-join"
 readonly TARGET_PLATFORM="linux/arm64"
 
 usage() {

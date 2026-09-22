@@ -546,7 +546,13 @@ COMPLETE_RUNNING_DEMUCS_TASK_SQL = """
         error_message = NULL
       FROM locked_job, completed_task
       WHERE job.job_id = locked_job.job_id
-        AND job.job_id = completed_task.job_id
+        -- `completed_task` returns a canonical text value for the Python
+        -- completion contract. Convert it back to UUID at this SQL boundary
+        -- before comparing it to PostgreSQL's native `jobs.job_id` column.
+        -- Without the cast PostgreSQL rejects a valid finished task with
+        -- `operator does not exist: uuid = text`, leaving the worker to retry
+        -- after it has already done the expensive CPU and MinIO work.
+        AND job.job_id = completed_task.job_id::uuid
       RETURNING
         job.job_id::text AS job_id,
         job.revision

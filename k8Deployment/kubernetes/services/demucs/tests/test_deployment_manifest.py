@@ -14,7 +14,7 @@ import unittest
 DEPLOYMENT_PATH = Path(__file__).resolve().parents[1] / "demucs-deployment.yaml"
 IMMUTABLE_IMAGE = (
     "clouddsp-registry.localhost:5001/demucs@sha256:"
-    "43b4c352a3c4bf077fe685a0904d368f5cb89c2f40a25b1b2a006045b2ec231c"
+    "e6cab988fa3786d66dcfd7f608dfa6479582a4acd3bfb9b47f948d637cf6fd59"
 )
 
 

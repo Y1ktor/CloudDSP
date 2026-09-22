@@ -505,6 +505,10 @@ class TaskCompletionTests(unittest.TestCase):
         self.assertIn("lease_token = %s::uuid", COMPLETE_RUNNING_DEMUCS_TASK_SQL)
         self.assertIn("lease_expires_at > CURRENT_TIMESTAMP", COMPLETE_RUNNING_DEMUCS_TASK_SQL)
         self.assertIn("status = 'midi_processing'", COMPLETE_RUNNING_DEMUCS_TASK_SQL)
+        # The task CTE intentionally returns canonical text for the Python
+        # adapter. PostgreSQL still needs an explicit conversion when the
+        # next CTE compares that value with the native UUID `jobs.job_id`.
+        self.assertIn("job.job_id = completed_task.job_id::uuid", COMPLETE_RUNNING_DEMUCS_TASK_SQL)
         self.assertIn("INSERT INTO public.outbox_events", COMPLETE_RUNNING_DEMUCS_TASK_SQL)
 
     def test_ownership_loss_returns_none_without_inventing_success(self) -> None:

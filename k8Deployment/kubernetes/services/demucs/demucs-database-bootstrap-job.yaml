@@ -331,6 +331,87 @@ spec:
                 event_type,
                 payload
               ) ON TABLE public.outbox_events TO :"demucs_db_username";
+
+              -- Recovery must prove the first, immutable Demucs request is
+              -- still compatible with a newly issued task lease. The runtime
+              -- role intentionally cannot SELECT arbitrary outbox JSON
+              -- payloads, which would expose every stage's private object
+              -- coordinates. This narrowly parameterized security-definer
+              -- function reads that JSON inside PostgreSQL and returns only
+              -- one boolean authorization fact to the restricted worker.
+              --
+              -- Its search path is fixed, so a caller cannot shadow a table
+              -- through session configuration. The complete task coordinate
+              -- prevents approval of another job, stage, attempt, token, or
+              -- expired lease or expired parent Job.
+              CREATE OR REPLACE FUNCTION public.clouddsp_demucs_recovery_event_matches(
+                expected_task_id uuid,
+                expected_job_id uuid,
+                expected_event_id uuid,
+                expected_input_bucket text,
+                expected_input_object_key text,
+                expected_stem_mode text,
+                expected_attempt_count integer,
+                expected_lease_token uuid
+              )
+              RETURNS boolean
+              LANGUAGE sql
+              STABLE
+              SECURITY DEFINER
+              SET search_path = pg_catalog, public
+              AS $function$
+                SELECT EXISTS (
+                  SELECT 1
+                  FROM public.processing_tasks AS task
+                  JOIN public.outbox_events AS event
+                    ON event.event_id = task.request_event_id
+                    AND event.job_id = task.job_id
+                    AND event.stage = task.stage
+                    AND event.stem_name = task.stem_name
+                  JOIN public.jobs AS job
+                    ON job.job_id = task.job_id
+                  WHERE task.task_id = expected_task_id
+                    AND task.job_id = expected_job_id
+                    AND task.stage = 'demucs'
+                    AND task.stem_name = ''
+                    AND task.request_event_id = expected_event_id
+                    AND task.input_bucket = expected_input_bucket
+                    AND task.input_object_key = expected_input_object_key
+                    AND task.stem_mode = expected_stem_mode
+                    AND task.status = 'leased'
+                    AND task.attempt_count = expected_attempt_count
+                    AND task.lease_token = expected_lease_token
+                    AND task.lease_expires_at > CURRENT_TIMESTAMP
+                    AND event.event_type = 'demucs.requested'
+                    AND event.publication_status = 'published'
+                    -- Match normal completion's retention guard. An expired
+                    -- browser Job is not safe recovery evidence even if its
+                    -- old task/event rows are awaiting retention cleanup.
+                    AND job.source_uploaded = TRUE
+                    AND job.stem_mode = task.stem_mode
+                    AND job.status = 'source_uploaded'
+                    AND job.expires_at > CURRENT_TIMESTAMP
+                    AND event.payload = jsonb_build_object(
+                      'schema_version', 1,
+                      'job_id', task.job_id::text,
+                      'source', jsonb_build_object(
+                        'bucket', task.input_bucket,
+                        'object_key', task.input_object_key
+                      ),
+                      'stem_mode', task.stem_mode
+                    )
+                );
+              $function$;
+
+              -- Execution is not public. The runtime gets this one predicate,
+              -- but still cannot read raw payloads, mutate dispatcher state,
+              -- perform DDL, or manage PostgreSQL roles.
+              REVOKE ALL ON FUNCTION public.clouddsp_demucs_recovery_event_matches(
+                uuid, uuid, uuid, text, text, text, integer, uuid
+              ) FROM PUBLIC;
+              GRANT EXECUTE ON FUNCTION public.clouddsp_demucs_recovery_event_matches(
+                uuid, uuid, uuid, text, text, text, integer, uuid
+              ) TO :"demucs_db_username";
               SQL
 
               # Reconnect as the restricted role. These booleans expose only
@@ -353,6 +434,11 @@ spec:
                 has_column_privilege(current_user, 'public.outbox_events', 'publication_status', 'SELECT') AS can_read_outbox_publication_state,
                 has_column_privilege(current_user, 'public.outbox_events', 'payload', 'SELECT') AS can_read_outbox_payload,
                 has_column_privilege(current_user, 'public.outbox_events', 'payload', 'INSERT') AS can_insert_downstream_outbox_payload,
+                has_function_privilege(
+                  current_user,
+                  'public.clouddsp_demucs_recovery_event_matches(uuid,uuid,uuid,text,text,text,integer,uuid)'::regprocedure,
+                  'EXECUTE'
+                ) AS can_verify_own_recovery_event,
                 has_column_privilege(current_user, 'public.outbox_events', 'publication_status', 'UPDATE') AS can_update_outbox_publication_state,
                 has_table_privilege(current_user, 'public.jobs', 'DELETE') AS can_delete_jobs,
                 has_table_privilege(current_user, 'public.outbox_events', 'INSERT') AS can_insert_outbox_events;

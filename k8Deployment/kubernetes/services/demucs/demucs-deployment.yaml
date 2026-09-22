@@ -97,8 +97,8 @@ spec:
           # fixes the reviewed worker code, CPU libraries, FFmpeg, and models.
           # `images.lock.yaml` records the matching readable build tag and
           # provenance. The digest here—not that mutable tag—ensures every
-          # replacement Pod uses the reviewed absolute CPU-launcher fix.
-          image: clouddsp-registry.localhost:5001/demucs@sha256:43b4c352a3c4bf077fe685a0904d368f5cb89c2f40a25b1b2a006045b2ec231c
+          # replacement Pod uses the reviewed completion-UUID repair build.
+          image: clouddsp-registry.localhost:5001/demucs@sha256:e6cab988fa3786d66dcfd7f608dfa6479582a4acd3bfb9b47f948d637cf6fd59
           # A digest cannot change. K3s may reuse cached bytes or pull the
           # exact same image from this cluster's dedicated local registry.
           imagePullPolicy: IfNotPresent

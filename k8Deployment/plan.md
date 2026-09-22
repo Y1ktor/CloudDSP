@@ -140,6 +140,14 @@ Browser ── OIDC ──> Keycloak
    must remain idempotent.
 4. A Demucs worker claims its stage lease, validates source size, metadata,
    duration, and audio stream, then writes stable stem keys to MinIO.
+
+   When a Pod disappears after RabbitMQ acknowledgement, PostgreSQL—not the
+   broker—releases the expired lease for recovery. The restricted Demucs role
+   does not receive general `outbox_events.payload` read access. A reviewed
+   PostgreSQL security-definer verifier instead compares the exact immutable
+   `demucs.requested` payload with the reclaimed lease and returns only a
+   boolean. This preserves recovery while keeping other private event payloads
+   outside the worker's authority.
 5. After its artifact and PostgreSQL commit succeed, Demucs writes one outbox
    event per actual stem: drums route to ADTOF and pitched stems route to Basic
    Pitch.
@@ -3238,10 +3246,10 @@ silently cleaned: its durable fixed evidence is the diagnosis surface for a
 later narrow cleanup task. The Job is still unapplied; explicit user direction
 is required before the resource-creating command is run.
 
-## Prepared Demucs worker stage smoke
+## Validated Demucs worker stage smoke
 
-The repository now has an unapplied stage smoke under
-`kubernetes/tests/demucs-worker-smoke/`.  Its tiny digest-pinned ARM64 client
+The repository now has a validated stage smoke under
+`kubernetes/tests/demucs-worker-smoke/`. Its tiny digest-pinned ARM64 client
 creates one fixed, valid source upload through restricted PostgreSQL and MinIO
 capabilities.  The ordinary generic dispatcher publishes the durable
 `demucs.requested` event and the deployed Demucs worker consumes it; the smoke
@@ -3250,13 +3258,19 @@ Demucs success with two durable downstream events and two private, streamed
 hash-matched WAV stem objects.  It then waits for the two downstream Basic
 Pitch tasks solely to avoid deleting stems while they are in use.
 
-Four ignored local Secret copies and two temporary constrained-identity
-bootstrap Jobs are prepared but have not been applied.  The detailed reviewed
-apply, inspect, and evidence-preserving failure procedure is in the smoke
-directory README.  This checkpoint is the final Demucs correctness gate before
-adding a KEDA `ScaledObject`: scaling a workload that has not passed its
-durable full-route test would amplify a correctness bug rather than prove
-capacity.
+The restricted bootstrap identities and the smoke passed locally. During the
+first full run, Demucs completed its CPU model work and private uploads but
+PostgreSQL rejected the atomic completion CTE because it compared the CTE's
+text `job_id` directly with a UUID column. The repaired
+`0.1.8-completion-uuid-join` image casts that value explicitly, is digest-pinned
+in `images.lock.yaml` and the Deployment, and passed all 312 image tests plus a
+real two-stem CPU inference. Its clean end-to-end smoke run completed in 81
+seconds, proving the Job/task/stem/outbox transition and safe downstream
+cleanup barrier. A failed run retains evidence intentionally; its documented
+operator recovery uses a fixed-coordinate, no-RabbitMQ cleanup Job after
+scaling the worker down, rather than manual database/object deletion. This
+completed correctness gate makes a Demucs KEDA `ScaledObject` the next
+capacity-focused milestone.
 
 ## Authentication and browser rules
 

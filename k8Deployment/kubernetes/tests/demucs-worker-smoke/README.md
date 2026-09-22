@@ -165,24 +165,48 @@ waiting for the two downstream Basic Pitch tasks to finish.  If it fails or
 times out, it preserves its five literal objects and fixed database rows for
 review instead of hiding the evidence.
 
-### Diagnosed failed-run cleanup
+### Failed-run cleanup
 
-The later inspected failure left one `source_uploaded` fixed smoke Job, its
-one published Demucs outbox event, and one inactive first-attempt
-`retry_scheduled` Demucs task with `demucs_process_failed`. The Demucs queue
-and its DLQ were empty, so a queue purge would be both unnecessary and unsafe.
+A failed or timed-out run deliberately preserves its database rows and five
+literal objects for diagnosis. It is not safe to rerun a fixed-coordinate Job
+until that evidence has been reviewed and removed. This requires an explicit
+operator cleanup action, but **not** manually typed database deletion: the
+reviewed
 [`demucs-worker-smoke-failed-run-cleanup-job.yaml`](demucs-worker-smoke-failed-run-cleanup-job.yaml)
-is the reviewed recovery path for exactly this state. Its first init container
-deletes only that task when every fixed event/source/status/attempt/error and
-no-lease guard still matches, then deletes only the fixed Job and its matching
-sole outbox event. This ordering prevents a worker-recovery race while object
-cleanup runs. Its second init container deletes only the five literal object
-keys. If a first run completed the database phase but MinIO was unavailable,
-the all-absent database shape is an idempotent retry for those same literal
-keys only. The Job has no RabbitMQ authority, cannot list an object prefix, and
-cannot delete a normal CloudDSP Job.
+has the only necessary destructive authority.
+
+First scale the long-running worker to zero and remove the failed smoke client,
+so neither can renew or change the task while the recovery Job checks it. Its
+first init container accepts only the reserved owner, Job/event/source keys,
+`source_uploaded` Job state, and one unfinished, error-free `leased` or
+`running` Demucs task with no downstream task/event. A task ID and lease token
+are intentionally *not* hard-coded because each deliberate smoke attempt
+generates new values. The container then deletes that sole task, Job, and
+source event. Any other state causes a refusal before the second init container
+can delete its five literal MinIO keys. It has no RabbitMQ authority, cannot
+list a prefix, and cannot delete a normal CloudDSP Job. Reapplying it after a
+completed cleanup accepts only the all-absent database shape and repeats the
+idempotent literal object deletion.
 
 ```bash
+# Stop the relevant worker and wait until its Pod has exited. Do not use this
+# procedure against a healthy active smoke run.
+kubectl --context k3d-clouddsp-local scale --namespace clouddsp-app \
+  deployment/clouddsp-demucs --replicas=0
+kubectl --context k3d-clouddsp-local wait --namespace clouddsp-app \
+  --for=delete pod --selector app.kubernetes.io/name=demucs --timeout=2m
+
+# Stop and remove only the fixed smoke client. Its database/object evidence
+# remains for the guarded recovery Job below.
+kubectl --context k3d-clouddsp-local delete --ignore-not-found \
+  --namespace clouddsp-app job/demucs-worker-smoke
+kubectl --context k3d-clouddsp-local wait --namespace clouddsp-app \
+  --for=delete pod --selector app.kubernetes.io/name=demucs-worker-smoke --timeout=2m
+
+# A completed fixed-name Job cannot be rerun in place, so recreate only this
+# recovery controller after the prior result has been inspected.
+kubectl --context k3d-clouddsp-local delete --ignore-not-found \
+  --namespace clouddsp-data job/demucs-worker-smoke-failed-run-cleanup
 kubectl --context k3d-clouddsp-local apply \
   --filename k8Deployment/kubernetes/tests/demucs-worker-smoke/demucs-worker-smoke-failed-run-cleanup-job.yaml
 
@@ -191,4 +215,14 @@ kubectl --context k3d-clouddsp-local wait --namespace clouddsp-data \
 
 kubectl --context k3d-clouddsp-local logs --namespace clouddsp-data \
   job/demucs-worker-smoke-failed-run-cleanup --all-containers
+
+# Restore the ordinary one-replica local worker only after cleanup reports
+# success. Apply its digest-pinned manifest before scaling so the Pod uses the
+# intended tested image.
+kubectl --context k3d-clouddsp-local apply \
+  --filename k8Deployment/kubernetes/services/demucs/demucs-deployment.yaml
+kubectl --context k3d-clouddsp-local scale --namespace clouddsp-app \
+  deployment/clouddsp-demucs --replicas=1
+kubectl --context k3d-clouddsp-local rollout status --namespace clouddsp-app \
+  deployment/clouddsp-demucs --timeout=3m
 ```

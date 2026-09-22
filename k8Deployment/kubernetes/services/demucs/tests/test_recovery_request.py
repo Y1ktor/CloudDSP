@@ -42,26 +42,15 @@ def recovery_lease(**overrides: object) -> DemucsTaskLease:
     return DemucsTaskLease(**values)  # type: ignore[arg-type]
 
 
-def published_event_row(**overrides: object) -> dict[str, object]:
-    """Return the immutable published event that first authorized this task."""
+def verified_event_row(**overrides: object) -> dict[str, object]:
+    """Return the boolean exposed by the privileged SQL verifier.
 
-    row: dict[str, object] = {
-        "event_id": EVENT_ID,
-        "job_id": JOB_ID,
-        "stage": "demucs",
-        "stem_name": "",
-        "event_type": "demucs.requested",
-        "publication_status": "published",
-        "payload": {
-            "schema_version": 1,
-            "job_id": JOB_ID,
-            "source": {
-                "bucket": "clouddsp-uploads",
-                "object_key": SOURCE_KEY,
-            },
-            "stem_mode": "4-stems",
-        },
-    }
+    The restricted worker never receives a raw outbox payload during recovery.
+    PostgreSQL validates that private JSON document inside the reviewed
+    security-definer function and returns only this single authorization fact.
+    """
+
+    row: dict[str, object] = {"recovery_event_matches": True}
     row.update(overrides)
     return row
 
@@ -86,7 +75,7 @@ class RecoveryRequestTests(unittest.TestCase):
     def test_current_recovery_lease_rebuilds_the_normal_strict_request(self) -> None:
         """The output is suitable for the ordinary source-preflight path."""
 
-        cursor = FakeCursor(published_event_row())
+        cursor = FakeCursor(verified_event_row())
 
         message = read_current_demucs_recovery_request(cursor, lease=recovery_lease())
 
@@ -115,8 +104,10 @@ class RecoveryRequestTests(unittest.TestCase):
                 )
             ],
         )
-        self.assertIn("JOIN public.outbox_events", READ_CURRENT_DEMUCS_RECOVERY_REQUEST_SQL)
-        self.assertIn("task.lease_expires_at > CURRENT_TIMESTAMP", READ_CURRENT_DEMUCS_RECOVERY_REQUEST_SQL)
+        self.assertIn("clouddsp_demucs_recovery_event_matches", READ_CURRENT_DEMUCS_RECOVERY_REQUEST_SQL)
+        self.assertIn("%s::integer", READ_CURRENT_DEMUCS_RECOVERY_REQUEST_SQL)
+        self.assertNotIn("payload", READ_CURRENT_DEMUCS_RECOVERY_REQUEST_SQL)
+        self.assertNotIn("public.outbox_events", READ_CURRENT_DEMUCS_RECOVERY_REQUEST_SQL)
         self.assertNotIn("UPDATE public.processing_tasks", READ_CURRENT_DEMUCS_RECOVERY_REQUEST_SQL)
         self.assertNotIn("FOR UPDATE", READ_CURRENT_DEMUCS_RECOVERY_REQUEST_SQL)
 
@@ -142,28 +133,18 @@ class RecoveryRequestTests(unittest.TestCase):
         )
         for lease in invalid_leases:
             with self.subTest(lease=lease):
-                cursor = FakeCursor(published_event_row())
+                cursor = FakeCursor(verified_event_row())
                 with self.assertRaises(DemucsRecoveryRequestProtocolError):
                     read_current_demucs_recovery_request(cursor, lease=lease)
                 self.assertEqual(cursor.calls, [])
 
-    def test_nonmatching_or_malformed_event_cannot_authorize_recovery(self) -> None:
-        """Published state alone cannot bypass exact immutable-event checks."""
+    def test_false_or_malformed_verifier_result_cannot_authorize_recovery(self) -> None:
+        """Only PostgreSQL's exact true result authorizes a recovery attempt."""
 
-        payload = published_event_row()["payload"]
-        assert isinstance(payload, dict)
-        source = payload["source"]
-        assert isinstance(source, dict)
         bad_rows = (
-            published_event_row(event_id=TASK_ID),
-            published_event_row(publication_status="pending"),
-            published_event_row(payload={"schema_version": 1}),
-            published_event_row(
-                payload={
-                    **payload,
-                    "source": {**source, "object_key": f"uploads/{JOB_ID}/other.wav"},
-                }
-            ),
+            verified_event_row(recovery_event_matches=False),
+            verified_event_row(recovery_event_matches=None),
+            {},
         )
         for row in bad_rows:
             with self.subTest(row=row):
