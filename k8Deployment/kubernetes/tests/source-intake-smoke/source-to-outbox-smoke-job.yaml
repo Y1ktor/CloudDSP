@@ -63,7 +63,7 @@ spec:
           # Reuse images.job-api.immutableReference from ../../images.lock.yaml.
           # Its production Uvicorn ENTRYPOINT is replaced below with this
           # disposable client program; no application server starts in this Pod.
-          image: clouddsp-registry.localhost:5001/job-api@sha256:2cc80aeea5ecf4b1c4e1491518c79bc7112b88c0e0dc12bc84c2b21abb1b1f80
+          image: clouddsp-registry.localhost:5001/job-api@sha256:702357368b4b662c496ad3635d96ed448af392582b049fcac676c4119cdc85bb
           imagePullPolicy: IfNotPresent
           env:
             # Every service route is private in-cluster DNS. The Job API's

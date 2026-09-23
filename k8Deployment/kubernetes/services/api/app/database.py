@@ -57,15 +57,15 @@ LIST_RETAINED_JOBS_FOR_OWNER_SQL = """
 
 # Read a single browser workspace snapshot using the same three ownership
 # boundaries as the list query: a canonical job UUID, the Keycloak-verified
-# owner subject, and unexpired retention. The selected fields deliberately
-# omit input_bucket and input_object_key: those durable storage coordinates are
-# internal implementation data, while a later artifact task will generate
-# short-lived URLs from them only after owner verification. Stems and MIDI are
-# currently empty for an upload-pending job but remain in the response shape so
-# the browser can use this route throughout the later processing lifecycle.
+# owner subject, and unexpired retention. The two underscored aliases are
+# private signer inputs, not browser fields. The HTTP serializer removes them
+# after generating fresh owner-authorized URLs for the exact durable keys.
+# Stable keys remain in PostgreSQL; their expiring signatures never do.
 GET_RETAINED_JOB_SNAPSHOT_FOR_OWNER_SQL = """
     SELECT
       job_id::text AS job_id,
+      input_bucket AS _storage_input_bucket,
+      input_object_key AS _storage_input_object_key,
       source_type,
       source_filename,
       source_content_type,

@@ -1,0 +1,67 @@
+# Immutable MinIO policy for the authenticated Job API's browser download
+# links. A fresh owner-checked `/jobs/{id}` snapshot signs one exact source,
+# stem, MIDI, or tempo object; the browser retrieves bytes directly from MinIO.
+#
+# v003 retains every v002 source-upload permission and adds GetObject only for
+# the two deterministic processing-output prefixes. It grants no delete,
+# bucket administration, or list permission over processed artifacts.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clouddsp-job-api-artifact-read-policy-v003
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/component: object-storage-policy
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: owner-bound-private-artifact-downloads
+immutable: true
+data:
+  job-api-artifact-read-policy.json: |
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Sid": "LocateThePrivateUploadsBucket",
+          "Effect": "Allow",
+          "Action": "s3:GetBucketLocation",
+          "Resource": "arn:aws:s3:::clouddsp-uploads"
+        },
+        {
+          "Sid": "DiscoverOnlyTheApplicationUploadsPrefix",
+          "Effect": "Allow",
+          "Action": "s3:ListBucket",
+          "Resource": "arn:aws:s3:::clouddsp-uploads",
+          "Condition": {
+            "StringLike": {
+              "s3:prefix": ["uploads/*"]
+            }
+          }
+        },
+        {
+          "Sid": "ReadAndWriteOnlySourceUploadObjects",
+          "Effect": "Allow",
+          "Action": [
+            "s3:GetObject",
+            "s3:PutObject",
+            "s3:AbortMultipartUpload",
+            "s3:ListMultipartUploadParts"
+          ],
+          "Resource": "arn:aws:s3:::clouddsp-uploads/uploads/*"
+        },
+        {
+          "Sid": "ReadOnlyDemucsStemArtifacts",
+          "Effect": "Allow",
+          "Action": "s3:GetObject",
+          "Resource": "arn:aws:s3:::clouddsp-uploads/stems/*"
+        },
+        {
+          "Sid": "ReadOnlyMidiAndTempoArtifacts",
+          "Effect": "Allow",
+          "Action": "s3:GetObject",
+          "Resource": "arn:aws:s3:::clouddsp-uploads/midi/*"
+        }
+      ]
+    }

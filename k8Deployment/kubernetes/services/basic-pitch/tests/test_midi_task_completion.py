@@ -75,8 +75,8 @@ def stored_midi(**overrides: object) -> VerifiedStoredBasicPitchMidiObject:
 class BasicPitchMidiTaskCompletionTests(unittest.TestCase):
     """Prove stored object evidence can complete only the exact current task lease."""
 
-    def test_current_running_token_marks_only_the_task_succeeded(self) -> None:
-        """The SQL does not alter the overall Job before every MIDI-stage task is done."""
+    def test_current_running_token_persists_artifact_and_completes_only_its_task(self) -> None:
+        """The typed database capability commits output evidence with this stem task."""
 
         completed_at = datetime(2026, 9, 11, 12, 30, tzinfo=UTC)
         cursor = FakeCursor({"task_id": TASK_ID, "job_id": JOB_ID, "completed_at": completed_at})
@@ -100,13 +100,13 @@ class BasicPitchMidiTaskCompletionTests(unittest.TestCase):
                 f"stems/{JOB_ID}/vocals.wav",
                 "4-stems",
                 LEASE_TOKEN,
+                f"midi/{JOB_ID}/vocals.mid",
+                1200,
+                OUTPUT_SHA256,
             ),
         )
-        self.assertIn("status = 'running'", COMPLETE_RUNNING_BASIC_PITCH_TASK_SQL)
-        self.assertIn("status = 'succeeded'", COMPLETE_RUNNING_BASIC_PITCH_TASK_SQL)
-        self.assertIn("lease_token = %s::uuid", COMPLETE_RUNNING_BASIC_PITCH_TASK_SQL)
-        self.assertIn("lease_expires_at > CURRENT_TIMESTAMP", COMPLETE_RUNNING_BASIC_PITCH_TASK_SQL)
-        self.assertNotIn("UPDATE public.jobs", COMPLETE_RUNNING_BASIC_PITCH_TASK_SQL)
+        self.assertIn("clouddsp_complete_basic_pitch_task", COMPLETE_RUNNING_BASIC_PITCH_TASK_SQL)
+        self.assertIn("%s::bigint", COMPLETE_RUNNING_BASIC_PITCH_TASK_SQL)
 
     def test_lost_current_lease_returns_none_without_fabricating_success(self) -> None:
         """Expiry/recovery/deletion is a normal no-row stop signal for a stale worker."""

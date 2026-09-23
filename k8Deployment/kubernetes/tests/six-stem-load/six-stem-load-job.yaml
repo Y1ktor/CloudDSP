@@ -1,0 +1,407 @@
+# This complete coordinated load-test Job remains intentionally suspended
+# until the owner reviews the temporary local Secret copies and explicitly
+# starts a run. Its broker, normal authenticated API client, and independent
+# evidence observer are separate containers with separate credentials and
+# permissions. Do not remove `suspend: true` as part of image review.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: clouddsp-six-stem-load
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: six-stem-load
+    app.kubernetes.io/component: integration-test
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: bounded-three-job-six-stem-end-to-end-load-verification
+    clouddsp.io/status: ready-for-manual-review
+spec:
+  # A suspended Job is admitted as an API object but its controller creates no
+  # Pod. Keep the full test inert until its operator intentionally resumes it.
+  suspend: true
+  # The eventual Job is a single coordinated Pod. Retain finished logs briefly
+  # for diagnosis, then let Kubernetes remove the disposable controller/Pod.
+  ttlSecondsAfterFinished: 900
+  # Automatic retries would create multiple temporary Keycloak users and make
+  # durable evidence ambiguous. A failed future run requires explicit review.
+  backoffLimit: 0
+  # Allow at most ten minutes for a prior KEDA cooldown and 45 minutes for the
+  # work, while reserving time for temporary identity/role cleanup.
+  activeDeadlineSeconds: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: six-stem-load
+        app.kubernetes.io/component: integration-test
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      # A finite Job records terminal container exits. It is never a worker
+      # Deployment and must not restart one failed client inside the same Pod.
+      restartPolicy: Never
+      # The broker catches SIGTERM and uses its `finally` block to revoke the
+      # temporary MinIO, PostgreSQL, and Keycloak identities in sequence. A
+      # longer grace period lets those bounded external cleanup calls finish;
+      # SIGKILL after it expires is still uncatchable.
+      terminationGracePeriodSeconds: 180
+      # Every service is addressed through explicit in-cluster DNS. Only the
+      # observer receives an explicitly projected short-lived Kubernetes API
+      # token; the standard automatic mount stays disabled for the whole Pod.
+      enableServiceLinks: false
+      automountServiceAccountToken: false
+      # This ServiceAccount is bound to a namespaced get-only Role for three
+      # worker Deployments, their generated HPAs, and their KEDA ScaledObjects.
+      # The observer alone mounts the projected token later in this manifest.
+      serviceAccountName: clouddsp-six-stem-load-observer
+      # All three processes use the image's dedicated non-root UID/GID. Shared
+      # credential files stay mode 0600, and observer volumes are never
+      # mounted into the user-equivalent API client container.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10012
+        runAsGroup: 10012
+        fsGroup: 10012
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      # The local k3d profile is ARM64. Pinning the architecture makes a
+      # scheduling mismatch visible instead of attempting to run an ARM64
+      # digest on a future incompatible node silently.
+      nodeSelector:
+        kubernetes.io/arch: arm64
+      initContainers:
+        - name: secure-private-volumes
+          # kubelet mounted these memory-backed emptyDirs as root:10012 with
+          # mode 03777 in the first live run. The broker rejects world-write
+          # directories before creating an identity. An init container runs
+          # alone before all ordinary containers and chmods only the five
+          # fixed, empty mount roots to 0770; it never mounts a Secret or API
+          # token. The three application containers remain non-root.
+          image: clouddsp-registry.localhost:5001/six-stem-load-client@sha256:96b002198c81cf3f9c436a0849e05d2df0336fc647196a7a4d7a83f6a60b9edf
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - /app/private_volume_setup.py
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+              ephemeral-storage: 8Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+          securityContext:
+            # Only this brief setup process owns kubelet's root-owned mount
+            # roots. It drops all capabilities and cannot write image layers;
+            # UID 0 is needed solely for chmod of those five directories.
+            runAsNonRoot: false
+            runAsUser: 0
+            runAsGroup: 10012
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: temporary-load-identity-handoff
+              mountPath: /var/run/clouddsp-six-stem-load
+            - name: temporary-postgresql-observer-handoff
+              mountPath: /var/run/clouddsp-six-stem-postgresql-observer
+            - name: temporary-minio-observer-handoff
+              mountPath: /var/run/clouddsp-six-stem-minio-observer
+            - name: minio-admin-work
+              mountPath: /var/run/clouddsp-six-stem-minio-admin
+            - name: load-test-observer-reports
+              mountPath: /var/run/clouddsp-six-stem-observer-reports
+      containers:
+        - name: keycloak-lifecycle-broker
+          # This is images.six-stem-load-client from images.lock.yaml. Only
+          # the immutable local-registry digest may run the identity lifecycle;
+          # the readable build tag is deliberately omitted.
+          image: clouddsp-registry.localhost:5001/six-stem-load-client@sha256:96b002198c81cf3f9c436a0849e05d2df0336fc647196a7a4d7a83f6a60b9edf
+          imagePullPolicy: IfNotPresent
+          env:
+            # Every address is private in-cluster DNS. The broker never uses
+            # the browser-facing keycloak.localhost issuer or a Mac port.
+            - name: KEYCLOAK_INTERNAL_BASE_URL
+              value: http://clouddsp-keycloak.clouddsp-data.svc:8080
+            - name: KEYCLOAK_ADMIN_REALM
+              value: master
+            - name: CLOUDDSP_REALM
+              value: clouddsp
+            # The disposable public client receives this resource audience so
+            # its direct-grant user token can reach the Job API later. This is
+            # an audience identifier, not a secret or a Kubernetes resource.
+            - name: JOB_API_CLIENT_ID
+              value: clouddsp-job-api
+            # The broker uses this private Service only after the client has
+            # written all three coordinates. It exchanges the temporary user's
+            # own password for a fresh token, verifies `/auth/me`, and reads
+            # exactly those three owner-bound Jobs. It never uses this route
+            # with the Keycloak bootstrap administrator credential.
+            - name: JOB_API_INTERNAL_BASE_URL
+              value: http://clouddsp-job-api.clouddsp-app.svc:80
+            - name: SIX_STEM_LOAD_HANDOFF_DIR
+              value: /var/run/clouddsp-six-stem-load
+            # The generated PostgreSQL observer password is written here only
+            # after exact grants are verified. The evidence observer mounts it
+            # read-only; the API client must not mount it at all.
+            - name: SIX_STEM_LOAD_POSTGRESQL_OBSERVER_HANDOFF_DIR
+              value: /var/run/clouddsp-six-stem-postgresql-observer
+            # The broker reads an intermediate snapshot here and waits for the
+            # evidence observer's final terminal report. The API client cannot
+            # mount this volume or author either report.
+            - name: SIX_STEM_LOAD_OBSERVER_REPORT_DIR
+              value: /var/run/clouddsp-six-stem-observer-reports
+            # Leave cleanup time between the broker's deadline and the Job's
+            # outer activeDeadlineSeconds.
+            - name: SIX_STEM_LOAD_LIFECYCLE_WAIT_SECONDS
+              value: "3450"
+            # This ignored local Secret is intentionally referenced only here.
+            # The future authenticated client receives its limited temporary
+            # username/password from emptyDir, never these administrator keys.
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-six-stem-load-keycloak-bootstrap-credentials
+                  key: KC_BOOTSTRAP_ADMIN_USERNAME
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-six-stem-load-keycloak-bootstrap-credentials
+                  key: KC_BOOTSTRAP_ADMIN_PASSWORD
+            # PostgreSQL's host, port, and database are non-secret, reviewed
+            # local coordinates. The settings reader accepts only this
+            # private Service and database so a Secret or manifest typo cannot
+            # redirect a future administrator-backed bootstrap to another DB.
+            - name: SIX_STEM_POSTGRESQL_ADMIN_HOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: SIX_STEM_POSTGRESQL_ADMIN_PORT
+              value: "5432"
+            - name: SIX_STEM_POSTGRESQL_ADMIN_DATABASE
+              # The API schema and v001-v008 migrations live in this separate
+              # application database, not PostgreSQL's unrelated `clouddsp`
+              # database used by earlier smoke components.
+              value: clouddsp_job_api
+            # This second ignored local Secret is a namespace-local copy of
+            # the existing PostgreSQL bootstrap identity. Only this lifecycle
+            # broker receives the powerful values; the future load client,
+            # durable observer, and KEDA observer have no reference to it.
+            - name: SIX_STEM_POSTGRESQL_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-six-stem-load-postgresql-bootstrap-credentials
+                  key: SIX_STEM_POSTGRESQL_ADMIN_USERNAME
+            - name: SIX_STEM_POSTGRESQL_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-six-stem-load-postgresql-bootstrap-credentials
+                  key: SIX_STEM_POSTGRESQL_ADMIN_PASSWORD
+            # The broker alone receives MinIO root access, and only to create
+            # and revoke a temporary policy whose 42 resources are exact keys.
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-six-stem-load-minio-admin-credentials
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-six-stem-load-minio-admin-credentials
+                  key: MINIO_ROOT_PASSWORD
+            - name: SIX_STEM_LOAD_MINIO_OBSERVER_HANDOFF_DIR
+              value: /var/run/clouddsp-six-stem-minio-observer
+            # mc writes a short-lived alias and policy file to this private
+            # memory-backed work directory, never the image's read-only root.
+            - name: SIX_STEM_LOAD_MINIO_ADMIN_WORK_DIR
+              value: /var/run/clouddsp-six-stem-minio-admin
+          resources:
+            # This lifecycle broker issues bounded Keycloak/DB/MinIO admin
+            # calls and waits on private handoffs; it never processes audio.
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 150m
+              memory: 192Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            # All runtime writes are confined to the explicit tmpfs handoff.
+            # Python bytecode writes are disabled in the image, so the root
+            # filesystem needs no mutable cache/home/tmp location.
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: temporary-load-identity-handoff
+              mountPath: /var/run/clouddsp-six-stem-load
+            - name: temporary-postgresql-observer-handoff
+              mountPath: /var/run/clouddsp-six-stem-postgresql-observer
+            - name: load-test-observer-reports
+              mountPath: /var/run/clouddsp-six-stem-observer-reports
+            - name: temporary-minio-observer-handoff
+              mountPath: /var/run/clouddsp-six-stem-minio-observer
+            - name: minio-admin-work
+              mountPath: /var/run/clouddsp-six-stem-minio-admin
+        - name: authenticated-load-client
+          # Reuse the immutable broker/observer image but explicitly replace
+          # its default broker entrypoint. This process has only the temporary
+          # user handoff and calls the same API and presigned-upload contract
+          # as the browser; it never receives administrator Secret values.
+          image: clouddsp-registry.localhost:5001/six-stem-load-client@sha256:96b002198c81cf3f9c436a0849e05d2df0336fc647196a7a4d7a83f6a60b9edf
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - /app/authenticated_load_client.py
+          env:
+            - name: KEYCLOAK_INTERNAL_BASE_URL
+              value: http://clouddsp-keycloak.clouddsp-data.svc:8080
+            - name: CLOUDDSP_REALM
+              value: clouddsp
+            - name: JOB_API_INTERNAL_BASE_URL
+              value: http://clouddsp-job-api.clouddsp-app.svc:80
+            - name: MINIO_INTERNAL_BASE_URL
+              value: http://clouddsp-minio.clouddsp-data.svc:9000
+            - name: SIX_STEM_LOAD_HANDOFF_DIR
+              value: /var/run/clouddsp-six-stem-load
+          resources:
+            # Three bounded two-second WAV sources are uploaded concurrently.
+            # No source is decoded or processed in this client container.
+            requests:
+              cpu: 50m
+              memory: 128Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            # This is the client's only mount: a short-lived test-user login
+            # and its private coordinate/failure handoff. No admin capability.
+            - name: temporary-load-identity-handoff
+              mountPath: /var/run/clouddsp-six-stem-load
+        - name: six-stem-load-observer
+          # The observer verifies authoritative PostgreSQL status, exact MinIO
+          # artifact bytes/hashes, RabbitMQ queue depths, and KEDA replica
+          # activity/cooldown. It is separate from the traffic-generating client.
+          image: clouddsp-registry.localhost:5001/six-stem-load-client@sha256:96b002198c81cf3f9c436a0849e05d2df0336fc647196a7a4d7a83f6a60b9edf
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - /app/six_stem_load_observer.py
+          env:
+            - name: SIX_STEM_LOAD_POSTGRESQL_OBSERVER_HANDOFF_DIR
+              value: /var/run/clouddsp-six-stem-postgresql-observer
+            - name: SIX_STEM_LOAD_MINIO_OBSERVER_HANDOFF_DIR
+              value: /var/run/clouddsp-six-stem-minio-observer
+            - name: SIX_STEM_LOAD_OBSERVER_REPORT_DIR
+              value: /var/run/clouddsp-six-stem-observer-reports
+            # The existing KEDA monitoring account may read management API
+            # metrics but has no AMQP configure/write/read permission.
+            - name: RABBITMQ_KEDA_SCALER_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keda-rabbitmq-scaler-credentials
+                  key: RABBITMQ_KEDA_SCALER_USERNAME
+            - name: RABBITMQ_KEDA_SCALER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keda-rabbitmq-scaler-credentials
+                  key: RABBITMQ_KEDA_SCALER_PASSWORD
+          resources:
+            # S3 hashes are streamed in bounded chunks; the observer does not
+            # retain all 42 audio/stem/MIDI objects in memory.
+            requests:
+              cpu: 100m
+              memory: 192Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            # The generated, exact-scope logins are broker-written and
+            # observer-read-only. The observer can write evidence reports but
+            # cannot alter the user's identity handoff.
+            - name: temporary-postgresql-observer-handoff
+              mountPath: /var/run/clouddsp-six-stem-postgresql-observer
+              readOnly: true
+            - name: temporary-minio-observer-handoff
+              mountPath: /var/run/clouddsp-six-stem-minio-observer
+              readOnly: true
+            - name: load-test-observer-reports
+              mountPath: /var/run/clouddsp-six-stem-observer-reports
+            # `automountServiceAccountToken` is false at Pod level. Only this
+            # container receives a projected token plus the namespace CA.
+            - name: observer-kubernetes-api-credentials
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
+      volumes:
+        - name: temporary-load-identity-handoff
+          emptyDir:
+            # The handoff contains a temporary user password. Memory-backed
+            # storage prevents it being written to the node's local disk and
+            # its small cap rejects an accidental general-purpose data channel.
+            medium: Memory
+            sizeLimit: 1Mi
+        - name: temporary-postgresql-observer-handoff
+          emptyDir:
+            # The temporary DB password exists in node memory, not host disk.
+            # A single bounded JSON credential document needs well under 1 MiB.
+            medium: Memory
+            sizeLimit: 1Mi
+        - name: temporary-minio-observer-handoff
+          emptyDir:
+            # The broker writes a run-only S3 access key here after policy
+            # verification; only the observer can read it, never the client.
+            medium: Memory
+            sizeLimit: 1Mi
+        - name: minio-admin-work
+          emptyDir:
+            # mc alias configuration and the transient exact-key policy stay
+            # on bounded tmpfs, not in the container image or node disk.
+            medium: Memory
+            sizeLimit: 8Mi
+        - name: load-test-observer-reports
+          emptyDir:
+            # Only the broker and future trusted observer/orchestrator mount
+            # this bounded tmpfs. They must run as the same non-root UID (10012)
+            # so the reports can stay mode 0600. A DB snapshot is intermediate
+            # evidence; a separate terminal report controls broker teardown.
+            # The authenticated client cannot forge either file because this
+            # mount is absent from its container.
+            medium: Memory
+            sizeLimit: 1Mi
+        - name: observer-kubernetes-api-credentials
+          projected:
+            # The ServiceAccount token is short-lived and is projected only
+            # into the observer. The kube-root-ca ConfigMap supports TLS
+            # verification for `kubernetes.default.svc`; no service env vars
+            # or skip-verify TLS mode are used.
+            defaultMode: 0440
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  expirationSeconds: 3600
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - key: ca.crt
+                      path: ca.crt

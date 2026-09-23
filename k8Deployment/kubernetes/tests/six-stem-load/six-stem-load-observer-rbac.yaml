@@ -1,0 +1,88 @@
+# Namespaced, read-only Kubernetes authority for the load-test observer.
+# Worker Deployments, generated HPAs, and KEDA ScaledObjects live in
+# clouddsp-app. The Role does not grant list/watch/patch/scale/create/delete,
+# and resourceNames prevents reads of unrelated workloads in that namespace.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: clouddsp-six-stem-load-observer
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: six-stem-load
+    app.kubernetes.io/component: integration-test
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: read-only-keda-scale-observation
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: clouddsp-six-stem-load-observer
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: six-stem-load
+    app.kubernetes.io/component: integration-test
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: read-only-keda-scale-observation
+rules:
+  # Read replica/ready counts only; the separate deployments/scale subresource
+  # is not granted, so this observer cannot scale a Deployment itself.
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+    resourceNames:
+      - clouddsp-demucs
+      - clouddsp-basic-pitch
+      - clouddsp-adtof
+    verbs:
+      - get
+  # HPAs contain current/desired replica observations managed by KEDA. These
+  # permissions are get-only and cannot alter the scaling calculation.
+  - apiGroups:
+      - autoscaling
+    resources:
+      - horizontalpodautoscalers
+    resourceNames:
+      - keda-hpa-clouddsp-demucs-rabbitmq-scaler
+      - keda-hpa-clouddsp-basic-pitch-rabbitmq-scaler
+      - keda-hpa-clouddsp-adtof-rabbitmq-scaler
+    verbs:
+      - get
+  # Read Active/Ready conditions and min/max replicas from just the three
+  # reviewed KEDA objects; no other custom resource is in scope.
+  - apiGroups:
+      - keda.sh
+    resources:
+      - scaledobjects
+    resourceNames:
+      - clouddsp-demucs-rabbitmq-scaler
+      - clouddsp-basic-pitch-rabbitmq-scaler
+      - clouddsp-adtof-rabbitmq-scaler
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: clouddsp-six-stem-load-observer
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: six-stem-load
+    app.kubernetes.io/component: integration-test
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: read-only-keda-scale-observation
+subjects:
+  - kind: ServiceAccount
+    name: clouddsp-six-stem-load-observer
+    namespace: clouddsp-app
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: clouddsp-six-stem-load-observer

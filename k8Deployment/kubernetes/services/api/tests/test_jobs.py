@@ -14,6 +14,8 @@ from unittest.mock import MagicMock, patch
 from uuid import UUID
 
 from app.authentication import AuthenticatedPrincipal
+from app.object_storage import ObjectStorageSettings
+from app.presigned_download import PresignedDownloadContractError
 from app.database import (
     DatabaseSettings,
     DatabaseUnavailable,
@@ -154,8 +156,8 @@ class RetainedJobDetailDatabaseQueryTests(unittest.TestCase):
         self.assertIn("WHERE job_id = %s::uuid", GET_RETAINED_JOB_SNAPSHOT_FOR_OWNER_SQL)
         self.assertIn("AND owner_sub = %s", GET_RETAINED_JOB_SNAPSHOT_FOR_OWNER_SQL)
         self.assertIn("expires_at > CURRENT_TIMESTAMP", GET_RETAINED_JOB_SNAPSHOT_FOR_OWNER_SQL)
-        self.assertNotIn("input_object_key", GET_RETAINED_JOB_SNAPSHOT_FOR_OWNER_SQL)
-        self.assertNotIn("input_bucket", GET_RETAINED_JOB_SNAPSHOT_FOR_OWNER_SQL)
+        self.assertIn("input_object_key AS _storage_input_object_key", GET_RETAINED_JOB_SNAPSHOT_FOR_OWNER_SQL)
+        self.assertIn("input_bucket AS _storage_input_bucket", GET_RETAINED_JOB_SNAPSHOT_FOR_OWNER_SQL)
         self.assertNotIn("UPDATE", GET_RETAINED_JOB_SNAPSHOT_FOR_OWNER_SQL)
         cursor.execute.assert_called_once_with(
             GET_RETAINED_JOB_SNAPSHOT_FOR_OWNER_SQL,
@@ -327,6 +329,66 @@ class JobDetailRouteTests(unittest.TestCase):
             owner_sub="verified-keycloak-subject",
         )
 
+    def test_route_adds_fresh_urls_only_for_owner_checked_verified_artifacts(self) -> None:
+        """The API removes private keys and hands the browser direct S3 URLs."""
+
+        row = retained_snapshot_row()
+        row.update(
+            {
+                "status": "midi_processing",
+                "source_uploaded": True,
+                "_storage_input_bucket": "clouddsp-uploads",
+                "_storage_input_object_key": f"uploads/{FIXED_JOB_ID}/mix.wav",
+                "stems": {
+                    "vocals": {
+                        "status": "ready",
+                        "s3_key": f"stems/{FIXED_JOB_ID}/vocals.wav",
+                        "bucket": "clouddsp-uploads",
+                    }
+                },
+                "midi": {
+                    "vocals": {
+                        "status": "ready",
+                        "s3_key": f"midi/{FIXED_JOB_ID}/vocals.mid",
+                    },
+                    "drums": {
+                        "status": "ready",
+                        "s3_key": f"midi/{FIXED_JOB_ID}/drums.mid",
+                        "bpm_key": f"midi/{FIXED_JOB_ID}/drums_bpm.json",
+                    },
+                },
+            }
+        )
+        settings = MagicMock(spec=ObjectStorageSettings)
+        settings.uploads_bucket = "clouddsp-uploads"
+        settings.public_endpoint = "http://minio.localhost:8080"
+
+        def signed_url(_settings, *, kind: str, stem_name: str | None = None, **_kwargs) -> str:
+            return f"https://private-test.invalid/{kind}/{stem_name or 'source'}"
+
+        with (
+            patch("app.main.get_retained_job_snapshot_for_owner", return_value=row),
+            patch("app.main.ObjectStorageSettings.from_environment", return_value=settings),
+            patch("app.main.create_presigned_download_url", side_effect=signed_url) as signer,
+        ):
+            response = get_job_detail(UUID(FIXED_JOB_ID), self.principal)
+
+        self.assertEqual(response.status_code, 200)
+        payload = json.loads(response.body)
+        self.assertEqual(payload["original_url"], "https://private-test.invalid/source/source")
+        self.assertEqual(payload["stems"]["vocals"]["url"], "https://private-test.invalid/stem/vocals")
+        self.assertEqual(payload["midi"]["vocals"]["url"], "https://private-test.invalid/midi/vocals")
+        self.assertEqual(payload["midi"]["drums"]["url"], "https://private-test.invalid/midi/drums")
+        self.assertEqual(payload["midi"]["drums"]["bpm_url"], "https://private-test.invalid/tempo/source")
+        self.assertNotIn("_storage_input_bucket", payload)
+        self.assertNotIn("_storage_input_object_key", payload)
+        for artifact_map in (payload["stems"], payload["midi"]):
+            for artifact in artifact_map.values():
+                self.assertNotIn("s3_key", artifact)
+                self.assertNotIn("bpm_key", artifact)
+                self.assertNotIn("bucket", artifact)
+        self.assertEqual(signer.call_count, 5)
+
     def test_missing_or_foreign_job_has_one_non_enumerating_404(self) -> None:
         """A guessed job UUID cannot distinguish absence from another owner."""
 
@@ -342,6 +404,33 @@ class JobDetailRouteTests(unittest.TestCase):
         with patch(
             "app.main.get_retained_job_snapshot_for_owner",
             side_effect=DatabaseUnavailable("private database detail"),
+        ):
+            response = get_job_detail(UUID(FIXED_JOB_ID), self.principal)
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(
+            json.loads(response.body),
+            {"error": "Job details are temporarily unavailable."},
+        )
+
+    def test_invalid_artifact_reference_is_a_generic_retryable_error(self) -> None:
+        """A corrupt durable key never becomes a signed cross-Job download."""
+
+        row = retained_snapshot_row()
+        row.update(
+            {
+                "stems": {
+                    "vocals": {
+                        "status": "ready",
+                        "s3_key": "stems/another-job/vocals.wav",
+                    }
+                }
+            }
+        )
+        with (
+            patch("app.main.get_retained_job_snapshot_for_owner", return_value=row),
+            patch("app.main.ObjectStorageSettings.from_environment", return_value=MagicMock()),
+            patch("app.main.create_presigned_download_url", side_effect=PresignedDownloadContractError("private")),
         ):
             response = get_job_detail(UUID(FIXED_JOB_ID), self.principal)
 

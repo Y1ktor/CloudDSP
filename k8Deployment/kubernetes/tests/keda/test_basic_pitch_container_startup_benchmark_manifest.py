@@ -24,7 +24,7 @@ class BasicPitchContainerStartupBenchmarkManifestTests(unittest.TestCase):
 
         manifest = _MANIFEST.read_text(encoding="utf-8")
 
-        self.assertEqual(manifest.count("basic-pitch@sha256:c0455e52c2e484900b16ef3289e264591d23efc4cfca9533d6f0ac29fc79e4ca"), 2)
+        self.assertEqual(manifest.count("basic-pitch@sha256:30d4e0e36e30eb42e66b59469c01ea65a141b09d45a27c89830b51b757e9ca89"), 2)
         self.assertIn("k3d-clouddsp-local-agent-0", manifest)
         self.assertIn("k3d-clouddsp-local-agent-1", manifest)
         self.assertIn("imagePullPolicy: IfNotPresent", manifest)

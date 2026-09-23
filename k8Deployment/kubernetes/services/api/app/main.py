@@ -36,6 +36,11 @@ from app.database import (
 )
 from app.direct_upload_contract import DirectUploadJobCreatedResponse, DirectUploadJobRequest
 from app.object_storage import ObjectStorageConfigurationError, ObjectStorageSettings
+from app.presigned_download import (
+    PresignedDownloadContractError,
+    PresignedDownloadSigningError,
+    create_presigned_download_url,
+)
 from app.presigned_upload import (
     PresignedUploadContractError,
     PresignedUploadSigningError,
@@ -46,7 +51,7 @@ SERVICE_NAME = "clouddsp-job-api"
 # This value appears only in the non-sensitive health/readiness responses. It
 # must track the immutable local image milestone so `kubectl exec`/port-forward
 # diagnostics can confirm which API code Kubernetes actually rolled out.
-SERVICE_VERSION = "0.0.7-job-detail-snapshot"
+SERVICE_VERSION = "0.0.8-job-artifact-snapshot"
 
 
 # Disable FastAPI's generated schema and interactive documentation until the
@@ -171,18 +176,94 @@ def job_history_unavailable_response() -> JSONResponse:
 
 
 def job_snapshot_response(row: dict[str, object]) -> JSONResponse:
-    """Serialize one already-owner-filtered durable job snapshot.
+    """Render a browser-safe snapshot and fresh URLs from owner-checked keys.
 
-    The database helper selects this small reviewed shape explicitly. Encoding
-    it here handles timestamps and JSONB fields without giving the browser a
-    raw driver row, a MinIO bucket/key, credential, or a stored presigned URL.
-    A later artifact task may add fresh signed URLs to this public snapshot;
-    this read-only task intentionally reports only currently durable state.
+    PostgreSQL returned this row only after matching the verified Keycloak
+    subject and retention window. Private bucket/key aliases are removed from
+    the public JSON. For each present artifact, the signer independently checks
+    its deterministic Job path and emits a fresh expiring URL; no URL is
+    persisted and the API never proxies file bytes.
     """
+
+    public_row = dict(row)
+    input_bucket = public_row.pop("_storage_input_bucket", None)
+    input_object_key = public_row.pop("_storage_input_object_key", None)
+    source_uploaded = public_row.get("source_uploaded") is True
+    job_id = public_row.get("job_id")
+    needs_signer = source_uploaded or any(
+        isinstance(public_row.get(collection), dict)
+        and any(
+            isinstance(artifact, dict)
+            and (artifact.get("s3_key") is not None or artifact.get("bpm_key") is not None)
+            for artifact in public_row[collection].values()
+        )
+        for collection in ("stems", "midi")
+    )
+
+    if needs_signer:
+        if not isinstance(job_id, str):
+            raise PresignedDownloadContractError("snapshot job identifier was invalid.")
+        settings = ObjectStorageSettings.from_environment()
+
+        # Do not sign a predicted source key before upload-intake has verified
+        # MinIO. A yt-dlp failure before upload likewise has no original file.
+        if source_uploaded:
+            if not isinstance(input_bucket, str) or not isinstance(input_object_key, str):
+                raise PresignedDownloadContractError("verified source coordinates were incomplete.")
+            if input_bucket != settings.uploads_bucket:
+                raise PresignedDownloadContractError("source bucket was not the reviewed private bucket.")
+            public_row["original_url"] = create_presigned_download_url(
+                settings,
+                job_id=job_id,
+                object_key=input_object_key,
+                kind="source",
+            )
+
+        for collection_name in ("stems", "midi"):
+            artifact_map = public_row.get(collection_name) or {}
+            if not isinstance(artifact_map, dict):
+                raise PresignedDownloadContractError("artifact map was not an object.")
+            rendered_artifacts: dict[str, dict[str, object]] = {}
+            for stem_name, artifact_value in artifact_map.items():
+                if not isinstance(artifact_value, dict):
+                    raise PresignedDownloadContractError("artifact record was not an object.")
+                rendered = dict(artifact_value)
+                object_key = rendered.pop("s3_key", None)
+                tempo_key = rendered.pop("bpm_key", None)
+                artifact_bucket = rendered.pop("bucket", None)
+                if artifact_bucket is not None and artifact_bucket != settings.uploads_bucket:
+                    raise PresignedDownloadContractError("artifact bucket was not the reviewed private bucket.")
+
+                if object_key is not None:
+                    if not isinstance(object_key, str):
+                        raise PresignedDownloadContractError("artifact key was invalid.")
+                    kind = "stem" if collection_name == "stems" else "midi"
+                    rendered["url"] = create_presigned_download_url(
+                        settings,
+                        job_id=job_id,
+                        object_key=object_key,
+                        kind=kind,
+                        stem_name=stem_name,
+                    )
+                if tempo_key is not None:
+                    if (
+                        not isinstance(tempo_key, str)
+                        or stem_name != "drums"
+                        or collection_name != "midi"
+                    ):
+                        raise PresignedDownloadContractError("tempo artifact key was invalid.")
+                    rendered["bpm_url"] = create_presigned_download_url(
+                        settings,
+                        job_id=job_id,
+                        object_key=tempo_key,
+                        kind="tempo",
+                    )
+                rendered_artifacts[stem_name] = rendered
+            public_row[collection_name] = rendered_artifacts
 
     return JSONResponse(
         status_code=200,
-        content=jsonable_encoder(row),
+        content=jsonable_encoder(public_row),
         headers={"cache-control": "no-store"},
     )
 
@@ -317,10 +398,10 @@ def get_job_detail(
     ``principal.subject`` comes only from Keycloak's validated access token.
     The query binds both values and retention time in PostgreSQL, so neither a
     guessed UUID nor a browser-supplied owner can retrieve another account's
-    row. A missing, expired, or foreign row shares one 404 response; it does
-    not reveal the reason or make a MinIO call. For a new direct upload the
-    result is simply the durable ``upload_pending`` record with empty artifact
-    maps until the later upload-intake pipeline updates it.
+    row. A missing, expired, or foreign row shares one 404 response. The route
+    signs URLs locally only for verified source/artifact keys; it never reads
+    or proxies MinIO bytes. A new upload-pending row therefore needs no signer
+    call until upload-intake confirms the source object.
     """
 
     try:
@@ -333,7 +414,14 @@ def get_job_detail(
 
     if row is None:
         return job_not_found_response()
-    return job_snapshot_response(row)
+    try:
+        return job_snapshot_response(row)
+    except (ObjectStorageConfigurationError, PresignedDownloadContractError, PresignedDownloadSigningError):
+        return job_snapshot_unavailable_response()
+    except Exception:
+        # SDK signing failures may contain endpoint details. Expose only one
+        # retryable response; never serialize a private error or URL signature.
+        return job_snapshot_unavailable_response()
 
 
 @app.post("/jobs", include_in_schema=False)

@@ -26,7 +26,7 @@ readonly REGISTRY_HOST="clouddsp-registry.localhost:5001"
 # deployment input: after push, the script prints a sha256 digest and the image
 # lock records that immutable reference for a later, separately approved
 # rollout task.
-readonly IMAGE_NAME="${REGISTRY_HOST}/job-api:0.0.7-job-detail-snapshot"
+readonly IMAGE_NAME="${REGISTRY_HOST}/job-api:0.0.8-job-artifact-snapshot"
 readonly TARGET_PLATFORM="linux/arm64"
 
 usage() {
@@ -67,9 +67,16 @@ require_prerequisites() {
     "${API_DIRECTORY}/app/authentication.py" \
     "${API_DIRECTORY}/app/direct_upload_contract.py" \
     "${API_DIRECTORY}/app/object_storage.py" \
+    "${API_DIRECTORY}/app/presigned_download.py" \
     "${API_DIRECTORY}/app/presigned_upload.py" \
     "${API_DIRECTORY}/tests/test_authentication.py" \
     "${API_DIRECTORY}/tests/test_jobs.py" \
+    "${API_DIRECTORY}/tests/test_presigned_download.py" \
+    "${API_DIRECTORY}/tests/test_job_finalization_migration.py" \
+    "${API_DIRECTORY}/job-api-schema-migration-v007-job-finalization-configmap.yaml" \
+    "${API_DIRECTORY}/job-api-schema-migration-v007-job-finalization-job.yaml" \
+    "${API_DIRECTORY}/job-api-schema-migration-v008-partial-task-finalization-configmap.yaml" \
+    "${API_DIRECTORY}/job-api-schema-migration-v008-partial-task-finalization-job.yaml" \
     "${API_DIRECTORY}/tests/test_direct_upload_contract.py" \
     "${API_DIRECTORY}/tests/test_job_creation.py" \
     "${API_DIRECTORY}/tests/test_job_creation_route.py" \

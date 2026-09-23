@@ -285,23 +285,32 @@ type, and complete case-normalized provenance metadata to match the immutable
 plan. It returns only stable bucket/key/length/SHA-256 evidence; raw S3
 responses, paths, credentials, and ETags remain out of later task state.
 
-[`app/midi_task_completion.py`](app/midi_task_completion.py) now defines that
-pure completion statement. It validates that stored output evidence names the
-same Job and non-drum stem as the Basic Pitch task lease, then updates only a
-current unexpired `running` task with the same lease token to `succeeded`. It
-clears the active lease fields and records PostgreSQL's completion timestamp;
-`None` is the normal stale-owner result. It deliberately does **not** change
-the Job from `midi_processing`: a later aggregate must wait for every Basic
-Pitch and ADTOF task.
+[`app/midi_task_completion.py`](app/midi_task_completion.py) now calls the
+administrator-owned `clouddsp_complete_basic_pitch_task` function installed by
+the Job API's versioned v007 migration. PostgreSQL rechecks the current,
+unexpired lease, records the verified MIDI key/byte-count/SHA-256 under
+`jobs.midi[stem_name]`, and succeeds that one task in the same transaction.
+The worker receives `EXECUTE` on that typed function, not direct `UPDATE`
+access to the parent Job. `None` remains the normal stale-owner result.
+
+The same migration installs a deferred PostgreSQL aggregate trigger. When a
+Basic Pitch or ADTOF task becomes terminal, the trigger runs at commit and
+locks the parent Job. It checks the mode's exact expected stem/task set, waits
+while any task can still retry or run, and then sets the parent to `completed`
+only if every task succeeded and every deterministic MIDI/tempo output is
+registered. If all child tasks are terminal and one failed—or a durable task or
+output invariant is broken—it sets a bounded safe `failed` state. This keeps
+RabbitMQ as transport and PostgreSQL as the state authority; no extra polling
+Deployment is required.
 
 [`app/midi_task_completion_commit.py`](app/midi_task_completion_commit.py)
 is that completed transaction composition. It opens the existing restricted
 PostgreSQL `write_cursor()` only after all model and MinIO work has finished,
-calls the pure completion statement inside it, and returns a success result
-only after normal context exit commits. A normal stale-owner `None` commits no
+calls the pure completion function inside it, and returns a success result only
+after normal context exit commits. A normal stale-owner `None` commits no
 mutation; any database or evidence exception leaves the scope and rolls back.
-It does not make MinIO/RabbitMQ/model/Kubernetes calls or update the overall
-Job.
+It does not make MinIO/RabbitMQ/model/Kubernetes calls; the deferred database
+trigger owns the overall Job transition.
 
 [`app/basic_pitch_task_execution.py`](app/basic_pitch_task_execution.py) now
 defines the post-claim execution order without becoming an AMQP consumer. A
@@ -611,6 +620,15 @@ Its Docker build reruns the unit/model validation stage; the script itself does
 not call `kubectl`, modify an image lock, or create a workload. The separately
 reviewed image-lock record now captures its output, and the prepared Deployment
 below consumes that immutable reference without applying it.
+
+The current `0.1.1-midi-artifact-registration` CPU image passed all 213 worker
+unit tests plus its TensorFlow/TFLite model checks. Its immutable local-registry
+reference is
+`clouddsp-registry.localhost:5001/basic-pitch@sha256:30d4e0e36e30eb42e66b59469c01ea65a141b09d45a27c89830b51b757e9ca89`
+and its uncompressed Docker size is 520,349,251 bytes (496.24 MiB). This image
+uses the v007 typed completion function to atomically persist each MIDI
+artifact's deterministic key, size, and SHA-256 with task success. The updated
+image and Deployment are prepared but not applied.
 
 ## Prepared Deployment manifest
 

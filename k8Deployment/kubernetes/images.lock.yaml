@@ -58,12 +58,12 @@ images:
     # CUDA image and not evidence of GPU throughput. A readable tag can move;
     # a future Deployment must copy only the immutable reference below.
     repository: clouddsp-registry.localhost:5001/basic-pitch
-    sourceTag: "0.1.0-cpu-worker-runtime"
-    # This rebuilt digest includes the reviewed PostgreSQL claim-lock adapter:
-    # the worker invokes only its restricted SECURITY DEFINER function instead
-    # of requiring direct UPDATE authority on the authoritative jobs table.
-    digest: sha256:c0455e52c2e484900b16ef3289e264591d23efc4cfca9533d6f0ac29fc79e4ca
-    immutableReference: clouddsp-registry.localhost:5001/basic-pitch@sha256:c0455e52c2e484900b16ef3289e264591d23efc4cfca9533d6f0ac29fc79e4ca
+    # This rebuild records verified MIDI output evidence through the new typed
+    # PostgreSQL capability; the worker still has no direct parent-Job UPDATE.
+    # Its 213 unit tests and bundled-model checks passed before the local push.
+    sourceTag: "0.1.1-midi-artifact-registration"
+    digest: sha256:30d4e0e36e30eb42e66b59469c01ea65a141b09d45a27c89830b51b757e9ca89
+    immutableReference: clouddsp-registry.localhost:5001/basic-pitch@sha256:30d4e0e36e30eb42e66b59469c01ea65a141b09d45a27c89830b51b757e9ca89
     supportedPlatforms:
       - linux/arm64/v8
     builtFrom:
@@ -87,9 +87,9 @@ images:
     # Docker reports uncompressed local layer bytes, rather than the small OCI
     # registry-manifest document size. The TensorFlow inference runtime is the
     # expected reason this CPU image is much larger than control-plane clients.
-    localDockerSizeBytes: 520349476
+    localDockerSizeBytes: 520349251
     localDockerSize: "496.24 MiB"
-    pushedAt: "2026-09-13"
+    pushedAt: "2026-09-23"
 
   adtof:
     # This is the current published local ADTOF drum-transcription worker image.
@@ -136,17 +136,16 @@ images:
     pushedAt: "2026-09-16"
 
   job-api:
-    # This is the locally built Job API runtime. Its readable tag names the
-    # current code milestone, but every future Deployment must use only the
-    # immutable digest: a tag can be moved while an OCI digest cannot.
+    # This is the locally built Job API runtime. This revision persists Basic
+    # Pitch outputs, finalizes parent Job status, and returns owner-checked
+    # presigned artifact links. Workloads use the immutable digest, not tag.
     repository: clouddsp-registry.localhost:5001/job-api
-    # This owner-bound detail-snapshot build passed all fifty-one local JWT,
-    # request-contract, database, route-composition, and presigned-POST tests
-    # before push. Workloads use its immutable digest rather than this readable
-    # provenance tag, which a later build may move.
-    sourceTag: "0.0.7-job-detail-snapshot"
-    digest: sha256:2cc80aeea5ecf4b1c4e1491518c79bc7112b88c0e0dc12bc84c2b21abb1b1f80
-    immutableReference: clouddsp-registry.localhost:5001/job-api@sha256:2cc80aeea5ecf4b1c4e1491518c79bc7112b88c0e0dc12bc84c2b21abb1b1f80
+    # The ARM64 build ran the complete 61-test suite, including owner-bound
+    # artifact signing and v007 migration contract coverage, before push. The
+    # registry digest was then pulled back explicitly to verify publication.
+    sourceTag: "0.0.8-job-artifact-snapshot"
+    digest: sha256:702357368b4b662c496ad3635d96ed448af392582b049fcac676c4119cdc85bb
+    immutableReference: clouddsp-registry.localhost:5001/job-api@sha256:702357368b4b662c496ad3635d96ed448af392582b049fcac676c4119cdc85bb
     supportedPlatforms:
       - linux/arm64/v8
     builtFrom:
@@ -163,12 +162,14 @@ images:
       jobCreationTests: kubernetes/services/api/tests/test_job_creation.py
       jobCreationRouteTests: kubernetes/services/api/tests/test_job_creation_route.py
       jobDetailTests: kubernetes/services/api/tests/test_jobs.py
+      presignedDownloadTests: kubernetes/services/api/tests/test_presigned_download.py
+      finalizationMigrationTests: kubernetes/services/api/tests/test_job_finalization_migration.py
       presignedUploadTests: kubernetes/services/api/tests/test_presigned_upload.py
       runtimeImageLock: images.api-python-runtime
       sourceLock: buildSources.api
-    localDockerSizeBytes: 77903372
-    localDockerSize: "74.29 MiB"
-    pushedAt: "2026-09-06"
+    localDockerSizeBytes: 77918581
+    localDockerSize: "74.31 MiB"
+    pushedAt: "2026-09-23"
 
   upload-intake:
     # This is the locally built, outbound-only direct-upload intake worker.
@@ -410,6 +411,83 @@ images:
     localDockerSizeBytes: 66125995
     localDockerSize: "63.06 MiB"
     pushedAt: "2026-09-21"
+
+  six-stem-load-client:
+    # This ARM64 load-test image contains the private-volume init adapter,
+    # disposable identity/observer lifecycle broker, ordinary API/upload
+    # client, and separate PostgreSQL, exact-object MinIO, RabbitMQ-metric,
+    # and read-only KEDA
+    # observer. It is not an audio worker or browser. The broker is the only
+    # container that receives bootstrap-admin credentials; the observer gets
+    # scoped data logins and a get-only projected Kubernetes token.
+    repository: clouddsp-registry.localhost:5001/six-stem-load-client
+    # The current build also targets the Job API's clouddsp_job_api database;
+    # the privileged lifecycle broker must never target the unrelated database.
+    sourceTag: "0.1.19-minio-owned-volume-fix"
+    # This immutable ARM64 registry artifact was built with the offline test
+    # stage, pushed locally, then pulled again by digest to verify publication.
+    digest: sha256:96b002198c81cf3f9c436a0849e05d2df0336fc647196a7a4d7a83f6a60b9edf
+    immutableReference: clouddsp-registry.localhost:5001/six-stem-load-client@sha256:96b002198c81cf3f9c436a0849e05d2df0336fc647196a7a4d7a83f6a60b9edf
+    supportedPlatforms:
+      - linux/arm64/v8
+    builtFrom:
+      # The image contains Kubernetes-local test source only. Bootstrap
+      # Secrets, Keycloak records, runtime handoff data, and application data
+      # were never Docker inputs and cannot appear in these reviewed layers.
+      sourceRevision: local-kubernetes-working-tree
+      sourceDirectory: kubernetes/tests/six-stem-load/client
+      dockerfile: kubernetes/tests/six-stem-load/client/Dockerfile
+      auxiliaryImageLocks:
+        - images.minio-mc
+      lifecycleTests: kubernetes/tests/six-stem-load/client/test_keycloak_identity_lifecycle.py
+      handoffTests: kubernetes/tests/six-stem-load/client/test_lifecycle_handoff.py
+      privateVolumeSetupTests: kubernetes/tests/six-stem-load/client/test_private_volume_setup.py
+      authenticatedIngressTests: kubernetes/tests/six-stem-load/client/test_authenticated_load_client.py
+      ownerBoundVerificationTests: kubernetes/tests/six-stem-load/client/test_owner_bound_job_verifier.py
+      observerCapabilityTests: kubernetes/tests/six-stem-load/client/test_observer_capability_contract.py
+      postgresqlObserverContractTests: kubernetes/tests/six-stem-load/client/test_postgresql_observer_contract.py
+      postgresqlDurableStateObserverTests: kubernetes/tests/six-stem-load/client/test_postgresql_durable_state_observer.py
+      postgresqlAdminBoundaryTests: kubernetes/tests/six-stem-load/client/test_postgresql_admin_boundary.py
+      postgresqlObserverReportTests: kubernetes/tests/six-stem-load/client/test_postgresql_observer_report.py
+      minioObserverBootstrapTests: kubernetes/tests/six-stem-load/client/test_minio_observer_bootstrap.py
+      minioArtifactObserverTests: kubernetes/tests/six-stem-load/client/test_minio_artifact_observer.py
+      rabbitmqQueueObserverTests: kubernetes/tests/six-stem-load/client/test_rabbitmq_queue_observer.py
+      kedaScaleObserverTests: kubernetes/tests/six-stem-load/client/test_keda_scale_observer.py
+      observerStartGateTests: kubernetes/tests/six-stem-load/client/test_observer_start_gate.py
+      aggregateLoadObserverTests: kubernetes/tests/six-stem-load/client/test_six_stem_load_observer.py
+      terminalOutcomeTests: kubernetes/tests/six-stem-load/client/test_load_test_terminal_outcome.py
+      dockerfileTests: kubernetes/tests/six-stem-load/client/test_dockerfile.py
+      runtimeImageLock: images.api-python-runtime
+      sourceLock: buildSources.six-stem-load-client
+      requirementsLock: kubernetes/tests/six-stem-load/client/requirements.lock
+      directPythonPackages:
+        - name: boto3
+          version: "1.43.89"
+          upstream: https://pypi.org/project/boto3/1.43.89/
+        - name: botocore
+          version: "1.43.93"
+          dependency: transitive
+          upstream: https://pypi.org/project/botocore/1.43.93/
+        - name: psycopg
+          version: "3.2.13"
+          installationExtra: binary
+          binaryPackage: psycopg-binary
+          upstream: https://www.psycopg.org/psycopg3/docs/basic/install.html
+        - name: psycopg-binary
+          version: "3.2.13"
+          upstream: https://www.psycopg.org/psycopg3/docs/basic/install.html
+        - name: typing-extensions
+          version: "4.16.0"
+          dependency: transitive
+          upstream: https://pypi.org/project/typing-extensions/4.16.0/
+      runtimeEntrypoint:
+        - python
+        - /app/lifecycle_broker.py
+    # Docker reports uncompressed local layer bytes, not the smaller registry
+    # manifest document printed by `docker push`.
+    localDockerSizeBytes: 78161300
+    localDockerSize: "74.54 MiB"
+    pushedAt: "2026-09-23"
 
   basic-pitch-keda-burst-smoke-client:
     # This finite client creates exactly three fixed, durable Basic Pitch
@@ -1270,6 +1348,58 @@ buildSources:
         upstream: https://www.psycopg.org/psycopg3/docs/basic/install.html
     clientTests: kubernetes/tests/demucs-worker-smoke/client/test_demucs_worker_smoke.py
     resolvedAt: "2026-09-21"
+
+  six-stem-load-client:
+    # Keep both runtime dependency closures explicit and hash-locked. Psycopg's
+    # ARM64 binary wheel provides libpq without a compiler; boto3's transitive
+    # Botocore closure is used only for bounded exact-key MinIO Head/Get calls.
+    baseImageLock: images.api-python-runtime
+    auxiliaryImageLocks:
+      - images.minio-mc
+    sourceDirectory: kubernetes/tests/six-stem-load/client
+    dockerfile: kubernetes/tests/six-stem-load/client/Dockerfile
+    requirementsLock: kubernetes/tests/six-stem-load/client/requirements.lock
+    intendedRepository: clouddsp-registry.localhost:5001/six-stem-load-client
+    publishedImageLock: images.six-stem-load-client
+    targetPlatform: linux/arm64
+    directPythonPackages:
+      - name: boto3
+        version: "1.43.89"
+        upstream: https://pypi.org/project/boto3/1.43.89/
+      - name: botocore
+        version: "1.43.93"
+        dependency: transitive
+        upstream: https://pypi.org/project/botocore/1.43.93/
+      - name: psycopg
+        version: "3.2.13"
+        installationExtra: binary
+        binaryPackage: psycopg-binary
+        upstream: https://www.psycopg.org/psycopg3/docs/basic/install.html
+      - name: psycopg-binary
+        version: "3.2.13"
+        upstream: https://www.psycopg.org/psycopg3/docs/basic/install.html
+      - name: typing-extensions
+        version: "4.16.0"
+        dependency: transitive
+        upstream: https://pypi.org/project/typing-extensions/4.16.0/
+    lifecycleTests: kubernetes/tests/six-stem-load/client/test_keycloak_identity_lifecycle.py
+    handoffTests: kubernetes/tests/six-stem-load/client/test_lifecycle_handoff.py
+    privateVolumeSetupTests: kubernetes/tests/six-stem-load/client/test_private_volume_setup.py
+    authenticatedIngressTests: kubernetes/tests/six-stem-load/client/test_authenticated_load_client.py
+    ownerBoundVerificationTests: kubernetes/tests/six-stem-load/client/test_owner_bound_job_verifier.py
+    observerCapabilityTests: kubernetes/tests/six-stem-load/client/test_observer_capability_contract.py
+    postgresqlObserverContractTests: kubernetes/tests/six-stem-load/client/test_postgresql_observer_contract.py
+    postgresqlDurableStateObserverTests: kubernetes/tests/six-stem-load/client/test_postgresql_durable_state_observer.py
+    postgresqlObserverReportTests: kubernetes/tests/six-stem-load/client/test_postgresql_observer_report.py
+    terminalOutcomeTests: kubernetes/tests/six-stem-load/client/test_load_test_terminal_outcome.py
+    minioObserverBootstrapTests: kubernetes/tests/six-stem-load/client/test_minio_observer_bootstrap.py
+    minioArtifactObserverTests: kubernetes/tests/six-stem-load/client/test_minio_artifact_observer.py
+    rabbitmqQueueObserverTests: kubernetes/tests/six-stem-load/client/test_rabbitmq_queue_observer.py
+    kedaScaleObserverTests: kubernetes/tests/six-stem-load/client/test_keda_scale_observer.py
+    observerStartGateTests: kubernetes/tests/six-stem-load/client/test_observer_start_gate.py
+    aggregateLoadObserverTests: kubernetes/tests/six-stem-load/client/test_six_stem_load_observer.py
+    dockerfileTests: kubernetes/tests/six-stem-load/client/test_dockerfile.py
+    resolvedAt: "2026-09-23"
 
   basic-pitch-keda-burst-smoke-client:
     # This one-shot client is intentionally limited to three literal Basic

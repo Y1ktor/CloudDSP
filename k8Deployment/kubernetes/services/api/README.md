@@ -27,7 +27,7 @@ direct-upload job creation:
 | `GET /auth/me` | A Bearer token is signature/issuer/audience/expiry-validated and its immutable `sub` is returned. | It does not return a user profile, create a job, query PostgreSQL, or expose the token/other claims. |
 | `GET /jobs` | The verified `sub` is bound to one read-only PostgreSQL query for that user's non-expired compact job summaries. | It does not create a job, calculate quota, sign MinIO URLs, publish RabbitMQ work, or run processing. |
 | `POST /jobs` | Validates one direct-upload intent, commits an owner-bound `upload_pending` row, then returns a short-lived constrained MinIO form. | It does not proxy audio bytes, confirm that MinIO received them, publish RabbitMQ work, calculate quota, or run processing. |
-| `GET /jobs/{job_id}` | Returns one non-expired current snapshot only when its UUID and the verified `sub` both match. A new upload exposes its durable `upload_pending` state and empty artifact maps. | It does not reveal whether a 404 is missing, expired, or owned by another user; it does not inspect MinIO, issue artifact URLs, alter status, or publish work. |
+| `GET /jobs/{job_id}` | Returns one non-expired snapshot only when its UUID and verified `sub` both match. Verified source/stem/MIDI objects receive fresh short-lived MinIO download URLs after each key is checked against that Job. | It does not reveal whether a 404 is missing, expired, or owned by another user; it does not fetch or proxy object bytes, alter status, or publish work. |
 
 The digest-pinned [`Dockerfile`](Dockerfile) starts the ASGI application as an
 unprivileged user on container port 8080. Its
@@ -105,10 +105,13 @@ alongside these explicit non-secret settings:
 | `JOB_API_S3_REGION` | `us-east-1` | S3 Signature V4's required region value for local MinIO. |
 | `JOB_API_S3_ADDRESSING_STYLE` | `path` | Ensures URLs use the one Traefik host plus `/clouddsp-uploads/...`, rather than an unconfigured bucket subdomain. |
 
-The `GET /jobs`, `GET /jobs/{job_id}`, and `/readyz` implementations still make no MinIO call, so
-this configuration does not turn MinIO into a readiness dependency. The source
-`POST /jobs` route reads and validates it only when it needs to locally sign an
-upload form; presigning itself makes no MinIO request. The source-level
+The `GET /jobs`, `GET /jobs/{job_id}`, and `/readyz` implementations make no
+MinIO network request, so this configuration does not turn MinIO into a
+readiness dependency. The detail route locally signs fresh download URLs only
+after its owner-filtered PostgreSQL query returns verified object coordinates.
+The source `POST /jobs` route reads and validates the same settings when it
+needs to locally sign an upload form; presigning itself makes no MinIO request.
+The source-level
 [`app/object_storage.py`](app/object_storage.py) parser and its focused unit
 tests validate the Pod's endpoint/credential contract. The separately focused
 [`app/presigned_upload.py`](app/presigned_upload.py) helper now uses pinned
@@ -204,6 +207,55 @@ or audio processing. The completed Job recorded
 `v006_adtof_processing_tasks` in the migration ledger. This schema boundary is
 deliberately separate from all ADTOF worker credentials and workloads.
 
+## Durable outputs and parent Job finalization (migration v007)
+
+[`job-api-schema-migration-v007-job-finalization-configmap.yaml`](job-api-schema-migration-v007-job-finalization-configmap.yaml)
+and its one-shot
+[`migration Job`](job-api-schema-migration-v007-job-finalization-job.yaml)
+install the missing parent-state aggregate. Basic Pitch records its verified
+MIDI object key, byte count, and SHA-256 in `jobs.midi` in the same transaction
+that marks its exact current task lease succeeded. A deferred PostgreSQL
+constraint trigger runs at transaction commit after Basic Pitch or ADTOF
+artifact records and task outcomes are visible. It leaves the parent in
+`midi_processing` while expected tasks remain retryable or active, marks it
+`failed` when a terminal task fails or a durable task/output invariant is
+broken, and marks it `completed` only after every mode-required task and
+artifact is registered. The schema owner performs that parent-state decision;
+worker roles cannot directly select the terminal status. The migration also
+reconciles already-finished legacy tasks/jobs without inventing hashes.
+
+Migration v008
+([`ConfigMap`](job-api-schema-migration-v008-partial-task-finalization-configmap.yaml),
+[`Job`](job-api-schema-migration-v008-partial-task-finalization-job.yaml))
+corrects one asynchronous-registration edge case in the v007 aggregate. The
+dispatcher may publish a Demucs completion event before all expected
+Basic-Pitch/ADTOF task rows have been registered. A completed first task must
+therefore leave the parent in `midi_processing` while the task set is
+incomplete; it is not evidence that the whole job failed. V008 waits for the
+full expected task set, but still marks a parent failed immediately for an
+explicit terminal child failure or malformed/extra task rows. It preserves
+v007 and records its own immutable migration-ledger entry.
+
+`GET /jobs/{job_id}` now uses the verified owner snapshot to generate fresh
+one-hour URLs for the original upload, Demucs stems, Basic Pitch/ADTOF MIDI,
+and ADTOF drum-tempo JSON. It validates each key against the exact Job UUID
+and known output layout, removes raw bucket/key fields from browser JSON, and
+does no S3 request: the browser retrieves bytes directly through the MinIO S3
+Ingress. The immutable
+[`v003 MinIO policy`](../minio/minio-job-api-artifact-read-policy-v003-configmap.yaml)
+preserves the existing uploads scope and adds only `GetObject` on `stems/*`
+and `midi/*`. The short-lived
+[`policy attachment Job`](../minio/minio-job-api-artifact-read-bootstrap-job.yaml)
+attaches it to the existing restricted Job API identity; it grants no delete,
+processed-artifact listing, or MinIO administration capability.
+
+The updated ARM64 Job API image is tagged
+`0.0.8-job-artifact-snapshot`, pinned at
+`clouddsp-registry.localhost:5001/job-api@sha256:702357368b4b662c496ad3635d96ed448af392582b049fcac676c4119cdc85bb`,
+and passed all 61 in-image tests before being pushed and pulled back by digest.
+The Deployment manifest now selects that exact image, but it has not been
+applied in this task.
+
 ## PostgreSQL readiness boundary
 
 [`app/database.py`](app/database.py) centralizes the connection settings read
@@ -294,7 +346,7 @@ must never accept a browser-supplied user ID.
 | `GET /jobs` | None | `jobs` array with `job_id`, source filename, status, stem mode, tempo, timestamps, expiry; may include `quota` | Query PostgreSQL by verified owner, newest first. |
 | `POST /jobs` | `filename`, `content_type`, `size_bytes`, `stem_mode` | `201` with `job_id`, `status: "upload_pending"`, `revision`, `expires_at`, `upload_url`, `upload_fields`, and maximum size; may include `quota` | Validate request, transactionally create the PostgreSQL job/quota record, then issue a constrained MinIO presigned POST for `uploads/{job_id}/...`. |
 | `POST /jobs/link` | `source_url`, `stem_mode` | `202` with `job_id`, `status: "source_ingestion"`, `revision`, `expires_at`; may include `quota` | Validate the reviewed source URL policy, create the job/quota record, then publish/request the yt-dlp stage asynchronously. |
-| `GET /jobs/{job_id}` | None | Owned current snapshot. The initial `upload_pending` version includes durable state, empty `stems`/`midi` maps, and no storage coordinates or URLs. | Bind canonical UUID + verified owner + retention in a read-only PostgreSQL lookup. A later artifact task will add fresh MinIO URLs only for ready, owned objects. |
+| `GET /jobs/{job_id}` | None | Owned current snapshot. A new `upload_pending` job has empty artifact maps and no source URL; verified source/output entries receive freshly signed direct-download URLs without raw object keys. | Bind canonical UUID + verified owner + retention in read-only PostgreSQL, then locally sign only deterministic keys returned for that owner. |
 | `DELETE /jobs/{job_id}` | None | `200` with `job_id` and `deleted_objects` | Allow only the owner to delete terminal jobs; remove MinIO input/stem/MIDI objects and the PostgreSQL record. |
 
 The valid initial stem modes are `2-stems`, `4-stems`, and `6-stems`. The

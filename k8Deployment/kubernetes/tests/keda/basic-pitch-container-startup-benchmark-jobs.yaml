@@ -60,7 +60,7 @@ spec:
         - name: basic-pitch-container-startup-probe
           # This exact digest must match the deployed Basic Pitch worker. A
           # changing tag would invalidate both timing and cache conclusions.
-          image: clouddsp-registry.localhost:5001/basic-pitch@sha256:c0455e52c2e484900b16ef3289e264591d23efc4cfca9533d6f0ac29fc79e4ca
+          image: clouddsp-registry.localhost:5001/basic-pitch@sha256:30d4e0e36e30eb42e66b59469c01ea65a141b09d45a27c89830b51b757e9ca89
           imagePullPolicy: IfNotPresent
           # Override the worker's ENTRYPOINT. The benchmark needs only a
           # running process to expose `containerStatuses[].startedAt`; it must
@@ -142,7 +142,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: basic-pitch-container-startup-probe
-          image: clouddsp-registry.localhost:5001/basic-pitch@sha256:c0455e52c2e484900b16ef3289e264591d23efc4cfca9533d6f0ac29fc79e4ca
+          image: clouddsp-registry.localhost:5001/basic-pitch@sha256:30d4e0e36e30eb42e66b59469c01ea65a141b09d45a27c89830b51b757e9ca89
           imagePullPolicy: IfNotPresent
           command: ["python", "-c"]
           args:

@@ -101,12 +101,16 @@ owner, source, retention timestamp, stem map, or overall status. A duplicate
 message that finds an already-active, retry-scheduled, or succeeded task is an
 idempotency outcome, not permission to execute a second transcription.
 
-The future completion transaction must require the current, unexpired lease
-token before it changes `running` to `succeeded`, clears the lease, writes the
-drum entry in `jobs.midi`, increments the Job revision, and records the durable
-tempo candidate. It leaves `jobs.status` as `midi_processing`: a later
-aggregate must wait for every Basic Pitch and ADTOF task before it may mark the
-whole Job `completed` or terminally `failed`.
+The completion transaction requires the current, unexpired lease token before
+it changes `running` to `succeeded`, clears the lease, writes the drum entry in
+`jobs.midi`, increments the Job revision, and records the durable tempo
+candidate. The Job API's v007 migration installs a deferred PostgreSQL
+aggregate trigger that runs after this transaction's writes are visible. It
+waits for every mode-required Basic Pitch and ADTOF task to become terminal,
+then marks the whole Job `completed` only when every expected output is
+registered; exhausted failures or broken durable task/output invariants become
+a bounded terminal `failed` state. No separate status-polling Deployment or
+RabbitMQ message is needed for this database-authoritative transition.
 
 ## Private input verification
 

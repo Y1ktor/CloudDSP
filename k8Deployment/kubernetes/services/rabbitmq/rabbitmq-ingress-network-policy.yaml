@@ -70,6 +70,21 @@ spec:
                   - message-identity-bootstrap
                   - message-topology-bootstrap
 
+    # The finite six-stem integration Job reads aggregate queue counts for its
+    # report. It alone receives this narrow management-port exception and uses
+    # RabbitMQ's separate monitoring-only identity; no app Deployment matches.
+    - ports:
+        - protocol: TCP
+          port: 15672
+      from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: clouddsp-app
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: six-stem-load
+              app.kubernetes.io/component: integration-test
+
     # AMQP is the data-plane listener. Permit just the named components that
     # publish or consume messages. The Job API and browser frontend are excluded:
     # browser clients never talk AMQP, and the API uses PostgreSQL and MinIO.

@@ -1,0 +1,120 @@
+# This short-lived Job executes the immutable v007 SQL using the existing
+# Job-API schema owner through the private PostgreSQL Service. It neither needs
+# PostgreSQL administrator credentials nor receives a model/storage credential.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Versioned migration Jobs provide visible, repeatable evidence. Once this
+  # Job succeeds, a later schema change gets a new v008 name and SQL ConfigMap.
+  name: job-api-schema-migration-v007-job-finalization
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: job-api-schema-migration-v007-job-finalization
+    app.kubernetes.io/component: database-migration
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: durable-processing-job-finalization
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 0
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: job-api-schema-migration-v007-job-finalization
+        app.kubernetes.io/component: database-migration
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # The one-shot process opens PostgreSQL only; it has no Kubernetes API
+      # operation and should not receive an ambient ServiceAccount token.
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgresql-migration-client
+          # The pinned Docker Official PostgreSQL image provides only the psql
+          # client needed here; no package install occurs inside the cluster.
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PGHOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: PGPORT
+              value: "5432"
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+            # Only the existing schema owner can change this schema. Its
+            # namespace-local Secret is projected at runtime and never copied
+            # into the committed migration manifest.
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-database-credentials
+                  key: JOB_API_DB_NAME
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-database-credentials
+                  key: JOB_API_DB_USERNAME
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-database-credentials
+                  key: JOB_API_DB_PASSWORD
+          resources:
+            # This is brief schema and parent-state reconciliation, not media
+            # processing. Small explicit limits preserve local cluster headroom.
+            requests:
+              cpu: 10m
+              memory: 32Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            # Keep executable SQL separate from the pinned psql image and
+            # mount it read-only from the immutable, versioned ConfigMap.
+            - name: migration
+              mountPath: /migrations
+              readOnly: true
+          command:
+            - sh
+            - -ec
+            - |
+              # ON_ERROR_STOP makes the Kubernetes Job result reflect SQL
+              # success rather than a shell script that kept going after DDL failed.
+              printf 'Applying CloudDSP job-finalization migration v007 through Service %s:%s\n' "$PGHOST" "$PGPORT"
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                --file /migrations/007_job_finalization.sql
+
+              # Report only the migration marker and trigger/function names;
+              # never query user Job rows, artifact keys, subjects, or secrets.
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                --command "SELECT migration_id, applied_at FROM public.schema_migrations WHERE migration_id = 'v007_job_finalization';"
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                --command "SELECT tgname FROM pg_trigger WHERE tgrelid = 'public.processing_tasks'::regclass AND tgname = 'processing_tasks_aggregate_job_terminal' AND NOT tgisinternal;"
+              printf 'CloudDSP job-finalization migration v007 passed\n'
+      volumes:
+        - name: migration
+          configMap:
+            # This exact versioned ConfigMap is the sole source of DDL for the
+            # Job. Editing an applied migration requires a new version/name.
+            name: job-api-schema-migration-v007-job-finalization
+            defaultMode: 0444
+            items:
+              - key: 007_job_finalization.sql
+                path: 007_job_finalization.sql

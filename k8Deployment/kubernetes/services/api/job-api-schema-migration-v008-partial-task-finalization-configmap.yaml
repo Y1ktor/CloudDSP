@@ -1,0 +1,217 @@
+# Migration v008 corrects the v007 aggregate's assumption that every
+# downstream task row exists before the first Basic Pitch/ADTOF task can finish.
+# Dispatch is asynchronous, so a partial-but-valid task inventory means wait,
+# not terminal parent failure. This new immutable ConfigMap preserves v007 as
+# the applied schema history and gives the correction its own ledger entry.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: job-api-schema-migration-v008-partial-task-finalization
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: job-api-schema-migration-v008-partial-task-finalization
+    app.kubernetes.io/component: database-migration
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: asynchronous-partial-task-finalization
+immutable: true
+data:
+  008_partial_task_finalization.sql: |
+    -- CloudDSP Job API schema migration v008
+    --
+    -- Outbox events are published independently and processing tasks are
+    -- registered when each worker receives its request. An early stem can
+    -- therefore finish while later stem requests are still being dispatched.
+    -- Preserve the parent's midi_processing state until the entire expected
+    -- task set exists and reaches a terminal outcome.
+
+    BEGIN;
+    SELECT pg_advisory_xact_lock(834929517101);
+
+    DO $migration_guard$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM public.schema_migrations
+        WHERE migration_id = 'v007_job_finalization'
+      ) THEN
+        RAISE EXCEPTION 'v008 requires applied migration v007_job_finalization';
+      END IF;
+    END;
+    $migration_guard$;
+
+    CREATE OR REPLACE FUNCTION public.clouddsp_finalize_midi_processing_job(
+      p_job_id uuid
+    )
+    RETURNS text
+    LANGUAGE plpgsql
+    SECURITY DEFINER
+    SET search_path = pg_catalog
+    AS $job_finalizer$
+    DECLARE
+      current_job public.jobs%ROWTYPE;
+      expected_stems text[];
+      expected_count integer;
+      downstream_task_count integer;
+      matched_task_count integer;
+      nonterminal_task_count integer;
+      failed_task_count integer;
+      completed_demucs_count integer;
+      output_missing boolean;
+    BEGIN
+      -- Serialize concurrent final stems and ignore a job another transaction
+      -- has already completed, failed, expired, or otherwise moved forward.
+      SELECT job.*
+      INTO current_job
+      FROM public.jobs AS job
+      WHERE job.job_id = p_job_id
+      FOR UPDATE;
+
+      IF NOT FOUND OR current_job.status <> 'midi_processing' THEN
+        RETURN 'not_processing';
+      END IF;
+
+      expected_stems := CASE current_job.stem_mode
+        WHEN '2-stems' THEN ARRAY['vocals', 'no_vocals']::text[]
+        WHEN '4-stems' THEN ARRAY['vocals', 'bass', 'other', 'drums']::text[]
+        WHEN '6-stems' THEN ARRAY['vocals', 'bass', 'other', 'guitar', 'piano', 'drums']::text[]
+        ELSE NULL
+      END;
+
+      IF expected_stems IS NULL OR jsonb_typeof(current_job.stems) IS DISTINCT FROM 'object' THEN
+        UPDATE public.jobs
+        SET status = 'failed',
+            revision = revision + 1,
+            error_message = 'The processing pipeline produced an incomplete stem set.'
+        WHERE job_id = p_job_id AND status = 'midi_processing';
+        RETURN 'failed';
+      END IF;
+
+      expected_count := cardinality(expected_stems);
+
+      -- Demucs must already have atomically registered the exact output set.
+      -- Split the JSON type and key checks so jsonb_object_keys never receives
+      -- a scalar/array value from a malformed row.
+      IF (SELECT count(*) FROM jsonb_object_keys(current_job.stems)) <> expected_count
+        OR NOT (current_job.stems ?& expected_stems)
+      THEN
+        UPDATE public.jobs
+        SET status = 'failed',
+            revision = revision + 1,
+            error_message = 'The processing pipeline produced an incomplete stem set.'
+        WHERE job_id = p_job_id AND status = 'midi_processing';
+        RETURN 'failed';
+      END IF;
+
+      SELECT count(*)::integer
+      INTO completed_demucs_count
+      FROM public.processing_tasks AS task
+      WHERE task.job_id = p_job_id
+        AND task.stage = 'demucs'
+        AND task.stem_name = ''
+        AND task.status = 'succeeded';
+
+      SELECT
+        count(*)::integer,
+        count(*) FILTER (
+          WHERE task.stem_name = ANY(expected_stems)
+            AND task.stage = CASE WHEN task.stem_name = 'drums'
+              THEN 'adtof' ELSE 'basic-pitch' END
+            AND task.input_bucket = 'clouddsp-uploads'
+            AND task.input_object_key = (
+              'stems/' || p_job_id::text || '/' || task.stem_name || '.wav'
+            )
+        )::integer,
+        count(*) FILTER (WHERE task.status NOT IN ('succeeded', 'failed'))::integer,
+        count(*) FILTER (WHERE task.status = 'failed')::integer
+      INTO downstream_task_count,
+           matched_task_count,
+           nonterminal_task_count,
+           failed_task_count
+      FROM public.processing_tasks AS task
+      WHERE task.job_id = p_job_id
+        AND task.stage IN ('basic-pitch', 'adtof');
+
+      -- A terminal child request is valid only after Demucs completed. An
+      -- extra or malformed downstream row is corruption, not a late message.
+      IF completed_demucs_count <> 1
+        OR downstream_task_count > expected_count
+        OR matched_task_count <> downstream_task_count
+      THEN
+        UPDATE public.jobs
+        SET status = 'failed',
+            revision = revision + 1,
+            error_message = 'The processing pipeline produced an invalid task set.'
+        WHERE job_id = p_job_id AND status = 'midi_processing';
+        RETURN 'failed';
+      END IF;
+
+      -- A real terminal task failure is decisive even if other requests have
+      -- not yet been delivered. It is distinct from a merely incomplete set.
+      IF failed_task_count > 0 THEN
+        UPDATE public.jobs
+        SET status = 'failed',
+            revision = revision + 1,
+            error_message = 'One or more audio-processing steps failed.'
+        WHERE job_id = p_job_id AND status = 'midi_processing';
+        RETURN 'failed';
+      END IF;
+
+      -- The outbox dispatcher and RabbitMQ consumers register downstream task
+      -- rows asynchronously. Never classify a short, otherwise-valid set as
+      -- corrupt; leave the Job active so later task completions can recheck it.
+      IF downstream_task_count < expected_count THEN
+        RETURN 'waiting';
+      END IF;
+
+      -- Once every expected task is registered, keep waiting while any lease
+      -- or retry remains non-terminal.
+      IF nonterminal_task_count > 0 THEN
+        RETURN 'waiting';
+      END IF;
+
+      -- A green task row is not sufficient: every API-visible output must
+      -- reference its exact deterministic key before the parent can complete.
+      SELECT EXISTS (
+        SELECT 1
+        FROM unnest(expected_stems) AS expected(stem_name)
+        WHERE current_job.midi -> expected.stem_name ->> 'status' IS DISTINCT FROM 'ready'
+          OR current_job.midi -> expected.stem_name ->> 's3_key' IS DISTINCT FROM
+            ('midi/' || p_job_id::text || '/' || expected.stem_name || '.mid')
+          OR (expected.stem_name = 'drums'
+            AND current_job.midi -> expected.stem_name ->> 'bpm_key' IS DISTINCT FROM
+              ('midi/' || p_job_id::text || '/drums_bpm.json'))
+      )
+      INTO output_missing;
+
+      IF output_missing THEN
+        UPDATE public.jobs
+        SET status = 'failed',
+            revision = revision + 1,
+            error_message = 'The processing pipeline did not register every output artifact.'
+        WHERE job_id = p_job_id AND status = 'midi_processing';
+        RETURN 'failed';
+      END IF;
+
+      UPDATE public.jobs
+      SET status = 'completed',
+          revision = revision + 1,
+          error_message = NULL
+      WHERE job_id = p_job_id AND status = 'midi_processing';
+      RETURN 'completed';
+    END;
+    $job_finalizer$;
+
+    REVOKE ALL PRIVILEGES ON FUNCTION public.clouddsp_finalize_midi_processing_job(uuid)
+      FROM PUBLIC;
+    REVOKE ALL PRIVILEGES ON FUNCTION public.clouddsp_aggregate_terminal_midi_task()
+      FROM PUBLIC;
+
+    INSERT INTO public.schema_migrations (migration_id, description)
+    VALUES (
+      'v008_partial_task_finalization',
+      'Waits for asynchronously registered downstream task rows instead of prematurely failing a Job when an early stem completes.'
+    )
+    ON CONFLICT (migration_id) DO NOTHING;
+
+    COMMIT;

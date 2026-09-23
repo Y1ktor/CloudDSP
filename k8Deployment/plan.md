@@ -3289,6 +3289,210 @@ five-minute cooldown. This validates the conservative local CPU policy only;
 future threshold, resource, GPU-node, or capacity changes require a separate
 review and controlled observation.
 
+## Planned bounded six-stem end-to-end load test
+
+The approved local load-test contract is three concurrent authenticated
+six-stem jobs. That produces three capped Demucs requests, fifteen Basic Pitch
+requests, and three ADTOF requests through the normal API, presigned upload,
+MinIO notification, upload-intake, PostgreSQL outbox, RabbitMQ, worker, and
+KEDA path. It is intentionally bounded rather than a production-throughput
+claim: local CPU Demucs remains capped at one Pod, while Basic Pitch and ADTOF
+may demonstrate their existing three- and two-Pod caps. One disposable
+Keycloak user will own all three server-generated Jobs and use the normal
+authenticated API plus constrained upload forms; it does not replace the
+separate browser PKCE tests. The load client has no database, object-store,
+broker, Keycloak-admin, or Kubernetes credential. Dedicated companion
+observers hold only reviewed database/object/broker observation capability and
+a read-only KEDA `Role`. A separate lifecycle broker verifies the temporary
+owner's three API-visible Jobs before minting their exact database/object
+capabilities; it records aggregate-only evidence and performs guarded cleanup
+only after success. A failed run preserves all durable evidence and requires a
+later marker-scoped recovery Job. The tested standard-library Keycloak
+identity adapter and lifecycle-broker entrypoint now create/revoke the
+temporary direct-grant client and user without a live cluster change. The
+broker writes only the temporary user configuration through a bounded 0600
+handoff and revokes it on a reported terminal outcome or graceful SIGTERM. The
+ARM64 test-client image is built, digest-pinned, locally registry-verified,
+and recorded at `images.six-stem-load-client` (48.25 MiB; tag
+`0.1.9-postgresql-state-observer`, digest
+`sha256:b5b8c9dcecf42ca4c0530f0575d99d40ee94f535bfddfd3e4e5bdec0fcda752b`). The ignored local
+Keycloak bootstrap-credential template and a valid but suspended broker-only
+Job skeleton now document the single Secret mount, the memory-backed handoff,
+and graceful teardown; neither has been applied. The tested authenticated
+three-concurrent-job ingress library now uses the ordinary Job API and
+constrained upload forms only. It atomically returns the temporary user's
+canonical subject plus the three fixed-mode, server-generated Job coordinates
+through the 0600 shared handoff. The broker now verifies those untrusted claims
+through normal owner-bound Job API reads before any future observer setup.
+
+The tested broker-side owner-bound verification adapter now obtains a fresh
+temporary-user token, confirms the Job API's accepted subject, and reads the
+three claimed Jobs individually. It accepts only exact direct-upload snapshots
+with the handed-off canonical IDs, filenames, byte sizes, audio type, and
+`6-stems` mode. It deliberately has no database, MinIO, RabbitMQ, Kubernetes,
+or Keycloak-administrator operation. The broker now composes that proof in a
+distinct coordinate-ready phase: it waits for the complete private claim,
+shares one overall deadline with the later terminal-outcome wait, writes only
+a marker/mode/count verified-ingress signal, and then continues. That signal
+is explicitly non-authoritative because the same Pod UID can write the shared
+volume; a later broker-owned in-process step must not mint observer capability
+from the marker alone. Verified ingress must never be mistaken for pipeline
+completion.
+
+The first observer-preparation artifact is now a source-only immutable
+capability contract. Given only the broker's in-memory verified proof, it
+revalidates the exact three canonical direct-upload coordinates and derives
+the temporary owner's three database Job IDs plus only their exact source
+object keys and `stems/`/`midi/` prefixes in `clouddsp-uploads`. It refuses the
+writable verified-ingress marker, carries no role/user name or credential, and
+performs no file, network, database, object-store, broker, or Kubernetes
+operation. The next isolated task is the corresponding PostgreSQL
+aggregate-only observation-function/temporary-role contract; neither a role
+nor any observer permission has been created yet.
+
+That PostgreSQL contract is now defined as source-only SQL rendering, not a
+database change. It creates the blueprint for one marker-derived `LOGIN
+NOINHERIT` role with a connection limit of one and a single zero-argument,
+administrator-owned `SECURITY DEFINER` aggregate function. The function has
+the temporary owner and exactly three verified UUIDs embedded after strict
+validation; it returns only job/task/outbox counts and status maps. It takes no
+arguments, reads no raw object/error/event fields, revokes default `PUBLIC`
+execution, and grants the future role only `EXECUTE` on that function. The
+contract includes no password, `CREATE ROLE`, database client, bootstrap Job,
+or Kubernetes resource. The ignored local administrator credential template
+now documents a temporary app-namespace copy of the existing PostgreSQL
+administrator values; it explicitly directs the operator to copy the actual
+local values rather than assume the committed example username is in use. A
+settings reader accepts dedicated broker environment keys, pins the
+destination to `clouddsp-postgresql.clouddsp-data.svc:5432` and database
+`clouddsp`, bounds username/password inputs, and hides the credentials from
+its normal representation. It is included in the newly built image.
+
+The broker now invokes a Psycopg-backed bootstrap only after its temporary
+Keycloak identity has verified all three Job snapshots. It generates a
+run-scoped observer password in memory and computes its SCRAM-SHA-256 verifier
+locally, so raw password text is not embedded in the SQL sent to PostgreSQL.
+One administrator transaction creates the fixed-attribute observer role,
+creates its marker-bound no-argument aggregate function, revokes that function's
+default `PUBLIC` execute privilege, grants only its explicit `EXECUTE`, and
+checks catalog ACLs/role attributes before commit. Any mismatch rolls back the
+role and function together. The transaction checks direct database/schema/
+function grants, memberships, function owner and `SECURITY DEFINER` search path,
+and rejects effective table, sequence, or schema-create privileges.
+
+Only after commit does the broker atomically hand the raw temporary login to a
+separate 1 MiB memory-backed `emptyDir`. The authenticated load client never
+mounts this second volume; the durable-state observer container must mount it
+read-only. At terminal cleanup the broker revokes the marker-derived function
+and role without `CASCADE`, then removes only the known credential file. This
+task changed source, the pinned Psycopg requirements lock, the Dockerfile, and
+the still-suspended skeleton; it did not apply Secrets or Kubernetes resources.
+The offline source suite passed 40 tests, and the rebuilt ARM64 image
+validation stage passed 38 tests. The image was pushed as
+`0.1.9-postgresql-state-observer`, then pulled by its OCI digest to verify the
+registry content. Its recorded size is 50,596,805 bytes (48.25 MiB), and its
+immutable reference is
+`clouddsp-registry.localhost:5001/six-stem-load-client@sha256:b5b8c9dcecf42ca4c0530f0575d99d40ee94f535bfddfd3e4e5bdec0fcda752b`.
+The skeleton remains suspended. The PostgreSQL durable-state observer is now
+implemented at
+`kubernetes/tests/six-stem-load/client/postgresql_durable_state_observer.py`.
+It reads only the broker-minted credential file, reconnects only to the fixed
+PostgreSQL Service in read-only transaction mode, calls the exact
+marker-derived zero-argument function with ten explicit aggregate columns,
+and validates the one-row response before returning counts/status categories.
+Its five offline tests use a fake connection and temporary handoff. The
+adapter is packaged in the ARM64 image tagged
+`0.1.9-postgresql-state-observer`, digest-pulled from the local registry, and
+import-verified with Psycopg 3.2.13. The image validation stage passed 38
+tests.
+
+The source-only `postgresql_observer_report.py` defines a separate,
+memory-backed observer report handoff. It atomically writes one `0600` report,
+binds it to the broker's expected run marker, and accepts only a validated
+aggregate snapshot or one fixed failure category. The full local source suite
+passed 46 tests at that stage. This snapshot remains non-terminal: it does not
+decide overall load success and does not inspect MinIO, RabbitMQ, or KEDA.
+
+The broker now consumes that report as an intermediate step, then waits for a
+separate `load_test_terminal_outcome.py` report bound to the same run marker.
+The terminal outcome contract permits only `succeeded` or `failed` and a
+fixed failure category; a PostgreSQL snapshot cannot satisfy the terminal
+waiter or trigger temporary-identity cleanup. The broker shares one finite
+deadline across both waits and revokes only the temporary PostgreSQL role and
+Keycloak identity after the terminal report, timeout, or safe failure path.
+The new report tmpfs is reserved for the broker and trusted future observer /
+orchestrator, not the authenticated client. The offline client suite now
+passes 51 tests, and the suspended skeleton test suite passes 3 tests. The
+updated ARM64 broker image was built and pushed as
+`0.1.10-terminal-report-handoff`, digest-pulled from the local registry, and
+recorded at
+`clouddsp-registry.localhost:5001/six-stem-load-client@sha256:edb5631a4a86d34fec0f974bdaeeea99df893f898d322dc1733f3c00c50d8993`.
+Its local Docker size is 50,604,261 bytes (48.26 MiB); its image validation
+stage passed 49 tests. No Secret, Job, or cluster resource was applied. Next,
+implement the trusted observer/orchestrator that publishes the PostgreSQL
+snapshot, polls processing evidence, and emits the terminal report only after
+PostgreSQL, MinIO, RabbitMQ, and KEDA checks are combined.
+
+### Current implementation status — 2026-09-23
+
+The three-job six-stem load-test runner is now fully wired in source and a
+suspended Job manifest. The Pod has a restricted root init container that
+secures private `emptyDir` handoff mounts, a lifecycle broker, a normal Keycloak-authenticated
+API/presigned-upload client, and an independent observer for durable
+PostgreSQL state, exact MinIO object hashes, RabbitMQ queue depths, and KEDA
+scale/cooldown evidence. The observer requires the exact 3/15/3 worker task
+shape, 42 source/stem/MIDI objects, empty main/retry/DLQ queues, no failed task
+or lease, each worker observed active without exceeding its cap, and a return
+to zero. Its ServiceAccount has namespaced `get` only on the three worker
+Deployments, generated HPAs, and ScaledObjects; its short-lived token is mounted
+only into the observer. RabbitMQ ingress now permits the management metrics
+port only to the labelled six-stem integration Pod in addition to existing
+platform/bootstrap peers.
+
+The broker is the only container given the temporary Keycloak, PostgreSQL, and
+MinIO administrator copies. It verifies the authenticated user's three Jobs
+before creating a function-limited PostgreSQL observer and an exact-object
+MinIO reader; it revokes those temporary identities after the terminal report.
+The client sees only its temporary user, and the observer sees only generated
+read-only database/object credentials, the existing RabbitMQ monitoring login,
+and a projected get-only Kubernetes token.
+
+The image `clouddsp-registry.localhost:5001/six-stem-load-client:0.1.14-ingress-phase-diagnostics`
+was built for `linux/arm64`, passed 75 in-image offline tests, was pushed and
+pulled back from the local registry by immutable digest
+`sha256:3138aba36ff1155820c0ed91e29cdcb12f4194e877685d8977ecb1d4c27d05e8`,
+and measured 78,160,378 bytes (74.54 MiB). The full local source suite passes
+77 client tests plus six workload-manifest tests. The digest and source
+dependencies are recorded in `kubernetes/images.lock.yaml`.
+
+The Job manifest remains `suspend: true` in Git. Two live starts on 2026-09-23
+confirmed the volume-init correction and prompt failure propagation. The second
+start exited `0` from init and `1` from each normal container in seconds, before
+temporary identity creation or authenticated uploads. The observer rejected the
+dirty RabbitMQ baseline: `clouddsp.basic-pitch.requests.dlq` already held one
+message. A separate `clouddsp.source-intake.dlq` also held one message, but
+is not among the nine queues checked by this observer. At the user's request
+for a clean baseline, exactly those two one-message queues were purged. A
+follow-up count showed every queue in `/clouddsp` empty. The failed baseline
+Job and its temporary app-namespace bootstrap Secret copies were deleted. All
+three KEDA ScaledObjects are ready and inactive, with worker Deployments at
+zero replicas. The next run passed baseline, token issuance, `GET /auth/me`,
+all three Job API creation contracts, and all three presigned MinIO uploads.
+The load Job nevertheless failed before broker coordinate verification; the
+temporary Keycloak identity was revoked and the observer exited on broker
+failure. The application pipeline continued independently: all 3 Demucs, 15
+Basic Pitch, and 3 ADTOF outbox events were published, all 21 processing tasks
+reached `succeeded`, queues drained, and KEDA returned the workers to zero. The
+three browser-visible Job rows remain `midi_processing`: worker completion is
+deliberately task-scoped, and a future aggregate component must set the overall
+Job to `completed` after all tasks finish. That aggregate is also required for
+the load observer's success predicate. This run did not produce final exact
+object-hash evidence and is not a successful end-to-end load test. The broker's
+safe generic failure log still hides the precise coordinate-handoff error; the
+latest image logs client phases without exposing credentials, coordinates, or
+response bodies. Successful data Jobs and MinIO objects remain available for
+inspection; the temporary Secret copies remain applied for repeated runs.
+
 ## Authentication and browser rules
 
 - Keycloak owns password hashing, registration, confirmation, resets, and MFA
@@ -3441,3 +3645,72 @@ The smoke test must cover login, direct upload, linked ingestion, one terminal
 processing job, MIDI availability, polling after a missed WebSocket update,
 duplicate-message idempotency, retry/DLQ handling, retention, and terminal-job
 deletion.
+
+## 2026-09-23 load-test and job-finalization corrections
+
+The previous three-job run uploaded all three sources and then stopped its
+test coordinator before owner verification: the lifecycle broker passed a
+positional timeout to a keyword-only callback. The corrected broker and its
+ARM64 image now pass the callback argument explicitly by name. The 75-test
+offline image suite passes.
+
+That coordinator defect was separate from the data-plane outcome. All 21
+Demucs/Basic Pitch/ADTOF tasks had succeeded, but PostgreSQL had no aggregate
+that moved parent jobs out of `midi_processing`, and Basic Pitch's successful
+MIDI output was not registered in `jobs.midi`. Migration v007 adds the typed
+Basic Pitch output-registration function and a deferred PostgreSQL aggregate
+that makes a parent job `completed` only after every expected task and artifact
+is present, or `failed` when a terminal stage fails. The migration was executed
+against a disposable PostgreSQL instance; synthetic success and failure cases
+both reached the expected terminal state.
+
+The Job API now returns fresh owner-authorized MinIO download URLs for the
+verified original, stems, MIDI, and drum-tempo outputs. An immutable MinIO v003
+policy grants the API `GetObject` only for its existing source-upload prefix
+and the deterministic `stems/*`/`midi/*` output prefixes. New API and
+Basic-Pitch images are pushed and digest-pinned. Existing test Jobs and stored
+objects have not been cleaned up.
+
+### Live rollout and rerun diagnosis
+
+The operator authorized rolling out the new dependencies and rerunning the
+three-job load test. The v003 MinIO artifact-read policy and v007 migration
+were applied successfully; the API and Basic-Pitch Deployments now use their
+locked image digests. The first live run exposed a test-harness database
+configuration error: the broker pointed to PostgreSQL database `clouddsp`,
+while the Job API schema is in `clouddsp_job_api`. The broker, read-only
+observer, and manifest were corrected to the application database, and tests
+now enforce this boundary.
+
+Inspection also found a real parent-finalization race: v007's deferred
+aggregate interpreted the first completed stem task as failure if the
+dispatcher had not yet inserted every expected downstream task row. Migration
+v008 preserves v007 and makes an incomplete task set wait in
+`midi_processing`; terminal child failures and malformed or extra task sets
+still fail the parent. V008 was applied successfully and recorded in the
+migration ledger. The next load-test run uses ARM64 load-client image tag
+`0.1.19-minio-owned-volume-fix`, pinned at
+`sha256:96b002198c81cf3f9c436a0849e05d2df0336fc647196a7a4d7a83f6a60b9edf`.
+
+The failed runs' application Jobs and stored objects were not deleted. The
+observer bootstrap defects were corrected in order: the SQL contract now
+grants the required database `CONNECT` and schema `USAGE`, and the MinIO
+adapter validates the root-owned `emptyDir` mount while restricting only its
+broker-owned `mc-config` child. The updated ARM64 image passes 78 in-image
+tests; the full local client suite passes 80, the workload-manifest suite six,
+and the migration suite five. The temporary PostgreSQL observer transaction
+was verified live, and no temporary observer role remained after cleanup.
+
+The final end-to-end load-test run completed on 2026-09-23 from 18:10:34 to
+18:17:07 UTC (6m33s). All three six-stem parent Jobs reached `completed`, with
+3 Demucs, 15 Basic Pitch, and 3 ADTOF tasks succeeded and all corresponding
+outbox events published. The observer verified 42 MinIO objects (3 source
+files, 18 stems, 21 MIDI/tempo outputs) against database metadata and SHA-256
+hashes. RabbitMQ's nine main/retry/DLQ queues were drained. KEDA observed
+peak replicas Demucs=1, Basic Pitch=3, ADTOF=1—within configured limits—and
+all workers returned to zero before the test reported success. The broker
+revoked its temporary MinIO, PostgreSQL, and Keycloak identities; a follow-up
+role-count check found zero temporary PostgreSQL observer roles. No application
+Jobs or stored objects were deleted. The completed test Job remains until its
+900-second TTL removes the Job/Pod; its Git manifest still defaults to
+`suspend: true` for any future run.

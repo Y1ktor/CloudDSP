@@ -2,16 +2,15 @@
 
 This pure PostgreSQL adapter sits after the local model, restricted MinIO
 upload, and stored-object ``HeadObject`` proof. It validates that evidence
-against the exact leased Basic Pitch stem coordinate, then issues one
-parameterized SQL statement. PostgreSQL's clock and the current lease token
-decide whether the running task can become ``succeeded``.
+against the exact leased Basic Pitch stem coordinate, then calls one
+administrator-owned typed database function. PostgreSQL's clock and the
+current lease token decide whether the output reference and task success can
+commit atomically. Migration v007's deferred task trigger aggregates terminal
+stem rows and changes the parent Job only after its complete output set exists.
 
-Basic Pitch completes one non-drum stem, not the whole Job: this module
-intentionally leaves ``jobs.status`` as ``midi_processing``. A later aggregate
-boundary must wait for every Basic Pitch and ADTOF task before it changes the
-Job's overall state. This module opens no connection or transaction, reads no
-MinIO object, acknowledges no RabbitMQ delivery, invokes no model, and uses no
-Kubernetes API.
+This module opens no connection or transaction, reads no MinIO object,
+acknowledges no RabbitMQ delivery, invokes no model, and uses no Kubernetes
+API.
 """
 
 from __future__ import annotations
@@ -33,33 +32,28 @@ from app.task_lease import (
 
 
 # The stored MIDI has already been proven by HeadObject; this statement does
-# not duplicate S3 I/O. It nevertheless binds the immutable task input fields
-# as defence in depth, so one valid lease cannot complete a different Basic
-# Pitch stem. The task row is the only mutation: a future aggregate waits for
-# all MIDI-stage work before it updates the Job.
+# not duplicate S3 I/O. The administrator-owned PostgreSQL function binds the
+# lease and output proof, records the deterministic MIDI object in the Job's
+# API-visible artifact map, and succeeds the task atomically. A deferred
+# database aggregate then decides the Job's terminal state after every stem
+# task in this transaction is visible.
 COMPLETE_RUNNING_BASIC_PITCH_TASK_SQL = """
-    UPDATE public.processing_tasks AS task
-    SET
-      status = 'succeeded',
-      available_at = CURRENT_TIMESTAMP,
-      lease_token = NULL,
-      lease_expires_at = NULL,
-      completed_at = CURRENT_TIMESTAMP,
-      last_error_code = NULL
-    WHERE task.task_id = %s::uuid
-      AND task.job_id = %s::uuid
-      AND task.stage = 'basic-pitch'
-      AND task.stem_name = %s
-      AND task.input_bucket = %s
-      AND task.input_object_key = %s
-      AND task.stem_mode = %s
-      AND task.status = 'running'
-      AND task.lease_token = %s::uuid
-      AND task.lease_expires_at > CURRENT_TIMESTAMP
-    RETURNING
-      task.task_id::text AS task_id,
-      task.job_id::text AS job_id,
-      task.completed_at
+    SELECT
+      completion.task_id::text AS task_id,
+      completion.job_id::text AS job_id,
+      completion.completed_at
+    FROM public.clouddsp_complete_basic_pitch_task(
+      %s::uuid,
+      %s::uuid,
+      %s::text,
+      %s::text,
+      %s::text,
+      %s::text,
+      %s::uuid,
+      %s::text,
+      %s::bigint,
+      %s::text
+    ) AS completion
 """
 
 
@@ -183,7 +177,7 @@ def complete_running_basic_pitch_task(
     if not callable(getattr(cursor, "execute", None)) or not callable(getattr(cursor, "fetchone", None)):
         raise TypeError("cursor must provide execute and fetchone.")
     validated_lease = _validated_lease(lease)
-    _validated_stored_midi(stored_midi, lease=validated_lease)
+    validated_stored_midi = _validated_stored_midi(stored_midi, lease=validated_lease)
     task_id = _canonical_uuid(validated_lease.task_id)
     job_id = _canonical_uuid(validated_lease.job_id)
     lease_token = _canonical_uuid(validated_lease.lease_token)
@@ -197,6 +191,9 @@ def complete_running_basic_pitch_task(
             validated_lease.input_object_key,
             validated_lease.stem_mode,
             lease_token,
+            validated_stored_midi.object_key,
+            validated_stored_midi.content_length,
+            validated_stored_midi.sha256,
         ),
     )
     row = cursor.fetchone()

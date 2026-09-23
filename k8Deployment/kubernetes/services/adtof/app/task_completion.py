@@ -8,13 +8,16 @@ and Job together, writes the reviewed ``jobs.midi.drums`` entry, increments the
 Job revision, and marks the task succeeded only while PostgreSQL still
 recognizes the exact unexpired lease token.
 
-The Job deliberately remains ``midi_processing``. A later aggregate must wait
-for every Basic Pitch and ADTOF task before it can mark a Job completed or
-failed. This module creates no database connection or transaction, reads no
-MinIO data, handles no RabbitMQ acknowledgement, invokes no model, and uses no
-Kubernetes API. The database bootstrap owns the function definition and grants
-its isolated execute capability; this source module only validates and
-parameterizes the exact call.
+The parent Job remains ``midi_processing`` during this function call. The
+versioned Job API v007 migration installs a deferred PostgreSQL aggregate
+trigger that runs at transaction commit after this function's MIDI/tempo and
+task writes are visible. It marks the parent terminal only after every
+mode-required Basic Pitch/ADTOF task is terminal and every output is present.
+This module creates no database connection or transaction, reads no MinIO
+data, handles no RabbitMQ acknowledgement, invokes no model, and uses no
+Kubernetes API. The database bootstrap owns the typed function and its isolated
+execute capability; this source module only validates and parameterizes the
+exact call.
 """
 
 from __future__ import annotations

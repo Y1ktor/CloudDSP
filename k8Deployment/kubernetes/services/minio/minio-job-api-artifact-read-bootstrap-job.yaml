@@ -1,0 +1,281 @@
+# Attach the reviewed v003 superset policy to the existing Job API MinIO
+# identity. This Job uses the root Secret only for short-lived MinIO
+# administration; the application continues to receive its restricted
+# `clouddsp-job-api` S3 access key from the existing app-namespace Secret.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-job-api-artifact-read-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: minio-job-api-artifact-read-bootstrap
+    app.kubernetes.io/component: object-storage-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: owner-bound-private-artifact-downloads
+spec:
+  # Keep the administrator command evidence briefly, then let Kubernetes
+  # garbage-collect the Pod and its temporary root alias configuration.
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 0
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: minio-job-api-artifact-read-bootstrap
+        app.kubernetes.io/component: object-storage-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      # `mc` is the official, digest-pinned MinIO client. Its image has no
+      # shell, so Kubernetes init containers run one explicit CLI operation
+      # at a time while sharing an ephemeral alias configuration directory.
+      initContainers:
+        - name: configure-minio-root-alias
+          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_PASSWORD
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          # Kubelet expands these Secret-backed environment references only
+          # when this process starts; no live credentials are in the manifest.
+          args:
+            - alias
+            - set
+            - minio-admin
+            - http://clouddsp-minio:9000
+            - $(MINIO_ROOT_USER)
+            - $(MINIO_ROOT_PASSWORD)
+
+        - name: wait-for-minio
+          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          args: [ready, minio-admin]
+
+        - name: create-or-update-artifact-read-policy
+          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+            - name: policy
+              mountPath: /policy
+              readOnly: true
+          # The new version is immutable Kubernetes configuration. MinIO
+          # updates its named policy from exactly this reviewed JSON document.
+          args:
+            - admin
+            - policy
+            - create
+            - minio-admin
+            - clouddsp-job-api-artifact-read-v003
+            - /policy/job-api-artifact-read-policy.json
+
+        - name: attach-artifact-read-policy
+          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+            - name: JOB_API_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-minio-bootstrap-credentials
+                  key: JOB_API_S3_ACCESS_KEY
+          resources:
+            # MinIO policy attachment can require more transient memory than
+            # ordinary `mc` commands on the local ARM64 cluster.
+            requests:
+              cpu: 50m
+              memory: 128Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          # Attach the new policy before retiring the client-side v002 policy
+          # in a later reviewed rotation; an intentional rerun is idempotent.
+          args:
+            - admin
+            - policy
+            - attach
+            - minio-admin
+            - clouddsp-job-api-artifact-read-v003
+            - --user=$(JOB_API_S3_ACCESS_KEY)
+
+        - name: verify-job-api-policy-association
+          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+            - name: JOB_API_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-minio-bootstrap-credentials
+                  key: JOB_API_S3_ACCESS_KEY
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          # This prints the non-sensitive policy association, never the S3
+          # secret access key. A later browser smoke confirms actual GET rules.
+          args:
+            - admin
+            - user
+            - info
+            - minio-admin
+            - $(JOB_API_S3_ACCESS_KEY)
+
+        - name: remove-temporary-root-alias
+          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+          args: [alias, remove, minio-admin]
+
+      containers:
+        - name: completion-marker
+          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          # Kubernetes Job semantics require one regular container to exit 0;
+          # all administration happened sequentially in the init containers.
+          args: [--version]
+      volumes:
+        - name: mc-config
+          emptyDir:
+            sizeLimit: 1Mi
+        - name: policy
+          configMap:
+            name: clouddsp-job-api-artifact-read-policy-v003
+            defaultMode: 0444
+            items:
+              - key: job-api-artifact-read-policy.json
+                path: job-api-artifact-read-policy.json

@@ -27,6 +27,13 @@ RUN python -m pip install \
 # production-like Job API image.
 COPY app ./app
 COPY tests ./tests
+# These tests inspect the immutable migration source and its one-shot Job. They
+# are build-only fixtures: the runtime stage copies just /app/app, so neither
+# Kubernetes manifest is shipped inside the live API image.
+COPY job-api-schema-migration-v007-job-finalization-configmap.yaml ./job-api-schema-migration-v007-job-finalization-configmap.yaml
+COPY job-api-schema-migration-v007-job-finalization-job.yaml ./job-api-schema-migration-v007-job-finalization-job.yaml
+COPY job-api-schema-migration-v008-partial-task-finalization-configmap.yaml ./job-api-schema-migration-v008-partial-task-finalization-configmap.yaml
+COPY job-api-schema-migration-v008-partial-task-finalization-job.yaml ./job-api-schema-migration-v008-partial-task-finalization-job.yaml
 
 # Catch a syntax error in every API module while building. `compile` is used
 # instead of `compileall` so no root-owned .pyc output is left in the app tree.
