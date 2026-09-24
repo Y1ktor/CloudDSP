@@ -77,7 +77,7 @@ configuration separate.
 | Job state | Durable records, UTC quotas, revisions, and outbox | PostgreSQL |
 | Artifacts | Private source, stems, MIDI, and tempo files | MinIO with presigned browser access |
 | Work queue | Durable stage work, retry, DLQ, and status fanout | RabbitMQ quorum queues |
-| Worker scaling | Long-running stage consumers, each scaled from its own queue | KEDA `ScaledObject` + Kubernetes HPA |
+| Worker scaling | Long-running stage consumers; Demucs watches both its request queue and durable active/due PostgreSQL tasks because it acknowledges early | KEDA `ScaledObject` + Kubernetes HPA |
 | GPU scheduling | Demucs resource isolation | Native Linux k3s GPU profile only |
 
 Use locally owned CloudDSP images for all app services and workers. The
@@ -151,10 +151,13 @@ Browser ── OIDC ──> Keycloak
 5. After its artifact and PostgreSQL commit succeed, Demucs writes one outbox
    event per actual stem: drums route to ADTOF and pitched stems route to Basic
    Pitch.
-6. KEDA independently scales each long-running worker Deployment from its
-   primary RabbitMQ queue. Each consumer persists MIDI and terminal state
-   before manually acknowledging its message; the broker retry/DLQ topology,
-   rather than a new Kubernetes Job per delivery, governs redelivery.
+6. KEDA scales each long-running worker Deployment. Basic Pitch and ADTOF
+   use their primary RabbitMQ queues. Demucs uses both its request queue and a
+   read-only PostgreSQL count of leased/running or due-retry tasks: its AMQP
+   delivery is acknowledged immediately after a durable claim, so queue depth
+   alone cannot keep a multi-minute CPU process alive. The broker retry/DLQ
+   topology and PostgreSQL lease recovery—not a Kubernetes Job per
+   delivery—govern redelivery and task recovery.
 7. A linked-media request first runs yt-dlp. Its normalized WAV enters the
    same ordinary upload-intake path; it never creates a second Demucs trigger.
 

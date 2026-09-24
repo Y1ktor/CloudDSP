@@ -6,9 +6,10 @@
 # RabbitMQ delivery itself.
 #
 # PostgreSQL task leases and manual AMQP acknowledgement remain the durable
-# processing boundary. If KEDA scales the Deployment to zero, RabbitMQ retains
-# pending messages. When one worker returns, it claims work through the same
-# idempotent task protocol used by a non-autoscaled worker.
+# processing boundary. Demucs acknowledges a message as soon as its task lease
+# commits, before long CPU inference. RabbitMQ depth alone therefore falls to
+# zero while the worker is busy. A second, read-only PostgreSQL trigger keeps
+# the Pod present for active leases and wakes it for due database-only retries.
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
@@ -19,11 +20,11 @@ metadata:
   labels:
     app.kubernetes.io/name: demucs
     app.kubernetes.io/instance: clouddsp-demucs
-    app.kubernetes.io/component: queue-autoscaler
+    app.kubernetes.io/component: work-autoscaler
     app.kubernetes.io/part-of: clouddsp
     app.kubernetes.io/managed-by: kubectl
     clouddsp.io/environment: local
-    clouddsp.io/purpose: queue-depth-autoscale-private-audio-separation-worker
+    clouddsp.io/purpose: queue-and-task-autoscale-private-audio-separation-worker
 spec:
   # KEDA/HPA changes replicas on this normal Deployment controller only. A Pod
   # or ReplicaSet would be the wrong target because a Deployment owns their
@@ -40,10 +41,11 @@ spec:
   # worker warm for five minutes avoids repeated image/model startup around
   # nearby uploads, yet permits a truly idle local cluster to return to zero.
   cooldownPeriod: 300
-  # RabbitMQ retains durable work while no source-separation Pod is needed.
-  # KEDA can recreate the Deployment's Pod when the exact queue becomes active.
+  # Both triggers below must be inactive before KEDA returns to zero. RabbitMQ
+  # activates a Pod for an unclaimed request; PostgreSQL holds it while a
+  # claimed task runs and reactivates it when a scheduled retry becomes due.
   minReplicaCount: 0
-  # One local Demucs Pod requests 1 CPU and 2 GiB (up to 2 CPU/4 GiB). Cap this
+  # One local Demucs Pod requests 2 CPU and 2 GiB (up to 4 CPU/4 GiB). Cap this
   # CPU-only Apple-Silicon profile at one Pod: another heavy model can starve
   # PostgreSQL, RabbitMQ, and later MIDI workers. Backlog remains safe in the
   # quorum queue; a GPU-node profile may review a different ceiling separately.
@@ -85,13 +87,14 @@ spec:
         # cannot consume, acknowledge, declare, bind, or publish messages.
         queueName: clouddsp.demucs.requests
         mode: QueueLength
-        # The worker has AMQP prefetch one. One ready or unacknowledged request
-        # therefore represents approximately one worker's active capacity.
+        # A ready or unacknowledged request activates the worker before its
+        # PostgreSQL task exists. This metric stops representing work after
+        # the worker durably claims and acknowledges that request.
         value: "1"
         # Zero means inactive, enabling KEDA's scale-to-zero behavior.
         activationValue: "0"
-        # Count the one unacknowledged delivery that an active worker may hold
-        # during long CPU inference, preventing it from looking idle too early.
+        # Include the brief unacknowledged interval between AMQP delivery and
+        # durable claim. The PostgreSQL trigger below covers work after ACK.
         excludeUnacknowledged: "false"
         # Bound a temporarily impaired private management API observation.
         timeout: "5000"
@@ -100,3 +103,30 @@ spec:
         # only RabbitMQ's read-only monitoring identity to KEDA, never a
         # Demucs worker, PostgreSQL, MinIO, or RabbitMQ administrator Secret.
         name: clouddsp-rabbitmq-scaler-authentication
+    - type: postgresql
+      metadata:
+        # KEDA's operator runs in its own namespace. The fully qualified
+        # ClusterIP DNS name reaches the private application database without
+        # a host port or browser-facing Ingress.
+        host: clouddsp-postgresql.clouddsp-data.svc
+        port: "5432"
+        dbName: clouddsp_job_api
+        userName: clouddsp-keda-demucs
+        sslmode: disable
+        # COUNT returns exactly one numeric row. A running/leased task remains
+        # visible after RabbitMQ ACK, preventing the five-minute queue-only
+        # scale-down from terminating its CPU child. A due retry also activates
+        # a new Pod after the previous owner exited; future retries do not
+        # consume an idle replica before their available_at time.
+        query: >-
+          SELECT COUNT(*)::bigint FROM public.processing_tasks
+          WHERE stage = 'demucs'
+            AND (status IN ('leased', 'running')
+              OR (status = 'retry_scheduled' AND available_at <= CURRENT_TIMESTAMP))
+        targetQueryValue: "1"
+        activationTargetQueryValue: "0"
+      authenticationRef:
+        # This credential can read only stage, status, and available_at from
+        # processing_tasks. It cannot read job ownership, object keys, event
+        # payloads, or worker credentials.
+        name: clouddsp-demucs-postgresql-scaler-authentication

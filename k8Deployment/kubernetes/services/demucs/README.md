@@ -1266,7 +1266,7 @@ fake either dispatch or consumption.  See that directory's `README.md` for
 the reviewed bootstrap, apply, inspection, and evidence-preserving cleanup
 procedure.
 
-## Prepared KEDA queue-scaling policy
+## Durable-work KEDA scaling policy
 
 [`demucs-scaledobject.yaml`](demucs-scaledobject.yaml) is the prepared KEDA
 policy for the local CPU Demucs worker. The long-running Deployment remains the
@@ -1275,17 +1275,41 @@ resource limits, rollout behavior, and SIGTERM handling. KEDA's generated HPA
 owns only its standard `/scale` subresource; it is not a second consumer and
 never creates a Kubernetes Job.
 
-KEDA observes only `clouddsp.demucs.requests` through RabbitMQ's private
-management ClusterIP on port 15672. It reuses the existing namespaced
-`clouddsp-rabbitmq-scaler-authentication`, which supplies a read-only
-monitoring identity—not the Demucs AMQP consumer, PostgreSQL, MinIO, or broker
-administrator credential. The existing broker NetworkPolicy permits that
-management port from KEDA while keeping it off the Mac host and outside Traefik.
+KEDA watches `clouddsp.demucs.requests` through RabbitMQ's private management
+ClusterIP on port 15672, using the existing read-only monitoring identity.
+That wakes a worker for a new request. The worker acknowledges RabbitMQ as
+soon as its PostgreSQL task lease is committed, *before* long CPU inference.
+Consequently, the queue may be empty while an active model still needs its
+Pod. A second KEDA PostgreSQL trigger counts only Demucs tasks that are
+`leased`, `running`, or `retry_scheduled` and due. It keeps the Pod alive
+after the broker ACK and wakes a zero-replica Deployment for a database-only
+retry. Neither trigger consumes work or changes task state.
+
+The PostgreSQL observer is a separate, read-only `clouddsp-keda-demucs` role.
+The versioned [bootstrap Job](../postgresql/postgresql-keda-demucs-bootstrap-job.yaml)
+grants SELECT on only the task columns `stage`, `status`, and `available_at`;
+it does not expose job IDs, MinIO keys, event payloads, or write privileges.
+The [TriggerAuthentication](../../helm/keda/keda-demucs-postgresql-trigger-authentication.yaml)
+reads its password from an ignored app-namespace Secret. The temporary
+bootstrap Secret is removed from the data namespace after the role is created.
+
+Reconcile these resources, in that order, with the
+[versioned script](../../scripts/reconcile-demucs-scaling.sh):
+
+```bash
+./k8Deployment/kubernetes/scripts/reconcile-demucs-scaling.sh
+```
+
+The script uses the explicit `k3d-clouddsp-local` context and two ignored
+files under `k8Deployment/.local/`. Their committed `.secret.example.yaml`
+counterparts document the required keys, not deployable credentials. The
+fixed-name bootstrap Job must be absent before running the script again;
+inspect an existing Job and deliberately remove it before a password rotation.
 
 This local policy uses a 15-second polling interval, one-message target,
 `minReplicaCount: 0`, `maxReplicaCount: 1`, and a five-minute cooldown. The
-cap is deliberate: one CPU-only Demucs Pod already requests 1 CPU/2 GiB and
-can use 2 CPU/4 GiB, so a second local model could crowd out PostgreSQL,
+cap is deliberate: one CPU-only Demucs Pod now requests 2 CPU/2 GiB and
+can use 4 CPU/4 GiB, so a second local model could crowd out PostgreSQL,
 RabbitMQ, and MIDI workers. RabbitMQ retains backlog safely. A future NVIDIA
 GPU node profile may define a separate capacity policy after measuring GPU
 memory and node capacity. The reviewed local run applied this policy and used
@@ -1294,7 +1318,10 @@ observed that request, scaled the Deployment from `0 → 1`, and the fresh Pod
 completed the full source-to-stems route. The smoke finished successfully in
 86 seconds and self-cleaned its evidence. Once the queue became inactive, the
 same ScaledObject returned Demucs from `1 → 0` after the configured five-minute
-cooldown. Future threshold, resource, node, or GPU-profile changes still need
+cooldown for a short source. A 150-second MP3 later exposed the flaw in that
+queue-only rule: once its message was acknowledged, KEDA saw zero work and
+terminated the running Pod. The PostgreSQL metric closes that gap. Future
+threshold, resource, node, or GPU-profile changes still need
 their own explicit apply-and-observe task.
 
 ## Prepared PostgreSQL identity

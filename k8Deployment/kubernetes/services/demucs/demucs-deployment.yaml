@@ -188,18 +188,21 @@ spec:
                   name: clouddsp-demucs-rabbitmq-credentials
                   key: RABBITMQ_DEMUCS_PASSWORD
           resources:
-            # Demucs is the heaviest local CPU stage. One requested CPU avoids
-            # oversubscribing the small cluster, while two CPU cores let one
-            # scheduled worker use available local compute. These are ordinary
-            # CPU limits; Apple Silicon k3d exposes no NVIDIA CUDA resource.
+            # The earlier two-CPU Yosemite run was interrupted by the
+            # queue-only scaler, so it did not establish two-CPU throughput.
+            # Reserve two CPUs and permit a four-CPU benchmark on this local
+            # node; keep maxReplicas=1 so the heavy model cannot multiply
+            # this budget. Requests guide scheduling while
+            # the limit is the enforced CPU ceiling. This does not enable the
+            # Apple GPU or NVIDIA CUDA inside the Linux container.
             requests:
-              cpu: "1"
+              cpu: "2"
               memory: 2Gi
               # Bounded media scratch totals 2.1875 GiB. Three GiB reserves
               # scheduler headroom for those volumes, logs, and runtime files.
               ephemeral-storage: 3Gi
             limits:
-              cpu: "2"
+              cpu: "4"
               memory: 4Gi
               ephemeral-storage: 3Gi
           securityContext:

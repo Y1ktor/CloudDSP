@@ -1,0 +1,160 @@
+# A one-shot administrator Job creates the restricted PostgreSQL identity
+# required by KEDA's Demucs task-count trigger. The Job runs inside the data
+# namespace, where the existing PostgreSQL administrator Secret lives. KEDA
+# later receives only the separate app-namespace scaler password.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: postgresql-keda-demucs-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: keda
+    app.kubernetes.io/component: database-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: least-privilege-demucs-task-scaling
+spec:
+  # Retain logs briefly for permission inspection, then remove the
+  # administrator-bearing Pod. A failed privilege step must not be hidden by
+  # automatic retries.
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 0
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: keda
+        app.kubernetes.io/component: database-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        # The pinned official PostgreSQL image includes the non-root postgres
+        # account and psql; no new client image or Kubernetes API token is used.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgresql-bootstrap-client
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PGHOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: PGPORT
+              value: "5432"
+            - name: PGDATABASE
+              value: clouddsp_job_api
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+            # Administrator access is confined to this Job. The persistent
+            # KEDA Secret contains only the restricted role's password.
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_PASSWORD
+            - name: KEDA_DEMUCS_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keda-demucs-postgresql-bootstrap-credentials
+                  key: KEDA_DEMUCS_DB_USERNAME
+            - name: KEDA_DEMUCS_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keda-demucs-postgresql-bootstrap-credentials
+                  key: KEDA_DEMUCS_DB_PASSWORD
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              # A wrong temporary username must not create an unexpected role.
+              test "$KEDA_DEMUCS_DB_USERNAME" = clouddsp-keda-demucs
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                --set=scaler_username="$KEDA_DEMUCS_DB_USERNAME" \
+                --set=scaler_password="$KEDA_DEMUCS_DB_PASSWORD" <<'SQL'
+              -- Require the existing durable task table and the three exact
+              -- columns that the KEDA query is allowed to read.
+              SELECT stage, status, available_at
+              FROM public.processing_tasks
+              LIMIT 0;
+
+              -- psql quotes the variable as an identifier or SQL literal;
+              -- the password never becomes part of this versioned manifest.
+              SELECT format(
+                'CREATE ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT PASSWORD %L',
+                :'scaler_username', :'scaler_password'
+              )
+              WHERE NOT EXISTS (
+                SELECT 1 FROM pg_roles WHERE rolname = :'scaler_username'
+              )
+              \gexec
+              ALTER ROLE :"scaler_username"
+                LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT
+                PASSWORD :'scaler_password';
+
+              REVOKE ALL PRIVILEGES ON DATABASE clouddsp_job_api
+                FROM :"scaler_username";
+              GRANT CONNECT ON DATABASE clouddsp_job_api
+                TO :"scaler_username";
+              REVOKE ALL PRIVILEGES ON SCHEMA public
+                FROM :"scaler_username";
+              GRANT USAGE ON SCHEMA public
+                TO :"scaler_username";
+              REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public
+                FROM :"scaler_username";
+              GRANT SELECT (stage, status, available_at)
+                ON TABLE public.processing_tasks
+                TO :"scaler_username";
+
+              -- Named dollar quoting avoids the anonymous-dollar expansion
+              -- issue seen in earlier Kubernetes bootstrap Jobs. A role with
+              -- extra job IDs, object keys, write rights, or a missing metric
+              -- column fails this Job before its Secret is bound to KEDA.
+              DO $verify_scaler$
+              BEGIN
+                IF NOT (
+                  has_column_privilege('clouddsp-keda-demucs', 'public.processing_tasks', 'stage', 'SELECT')
+                  AND has_column_privilege('clouddsp-keda-demucs', 'public.processing_tasks', 'status', 'SELECT')
+                  AND has_column_privilege('clouddsp-keda-demucs', 'public.processing_tasks', 'available_at', 'SELECT')
+                  AND NOT has_column_privilege('clouddsp-keda-demucs', 'public.processing_tasks', 'job_id', 'SELECT')
+                  AND NOT has_table_privilege('clouddsp-keda-demucs', 'public.jobs', 'SELECT')
+                  AND NOT has_table_privilege('clouddsp-keda-demucs', 'public.outbox_events', 'SELECT')
+                  AND NOT has_table_privilege('clouddsp-keda-demucs', 'public.processing_tasks', 'INSERT')
+                  AND NOT has_table_privilege('clouddsp-keda-demucs', 'public.processing_tasks', 'UPDATE')
+                  AND NOT has_table_privilege('clouddsp-keda-demucs', 'public.processing_tasks', 'DELETE')
+                ) THEN
+                  RAISE EXCEPTION 'Demucs KEDA scaler privileges do not match the reviewed read-only contract.';
+                END IF;
+              END;
+              $verify_scaler$;
+              SQL
+              # Prove the exact production metric query succeeds as the
+              # restricted login rather than relying on administrator grants.
+              PGUSER="$KEDA_DEMUCS_DB_USERNAME" \
+                PGPASSWORD="$KEDA_DEMUCS_DB_PASSWORD" \
+                psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                  --tuples-only --no-align --command \
+                  "SELECT COUNT(*)::bigint FROM public.processing_tasks
+                   WHERE stage = 'demucs'
+                     AND (status IN ('leased', 'running')
+                       OR (status = 'retry_scheduled'
+                           AND available_at <= CURRENT_TIMESTAMP))" >/dev/null
+              printf 'Demucs PostgreSQL scaler bootstrap passed\n'

@@ -67,6 +67,14 @@ independent HTTP queue-depth `ScaledObject`.
 
 ## Private management-network prerequisite
 
+Demucs also needs the separate, read-only PostgreSQL task-count trigger
+described in the [Demucs scaling section](../../services/demucs/README.md).
+Unlike the RabbitMQ metric, this remains active after Demucs durably claims
+and acknowledges a request, and can wake the worker for a due database retry.
+Its database role, namespace-scoped Secret, and TriggerAuthentication are
+reconciled by the versioned Demucs scaling script; KEDA never receives the
+Demucs worker's database credentials.
+
 Each RabbitMQ HTTP scaler will use
 `clouddsp-rabbitmq-management.clouddsp-data.svc:15672`, the dedicated private
 ClusterIP Service—not the AMQP Service, a StatefulSet Pod name, an Ingress, or
