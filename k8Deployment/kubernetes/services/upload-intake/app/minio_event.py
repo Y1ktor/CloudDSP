@@ -32,11 +32,12 @@ UPLOADS_BUCKET: Final = "clouddsp-uploads"
 UPLOADS_PREFIX: Final = "uploads"
 DIRECT_UPLOAD_EVENT_NAME: Final = "s3:ObjectCreated:Post"
 
-# S3 event object keys use percent escapes.  ``urllib.parse.unquote`` leaves a
-# malformed ``%`` unchanged, which is unsafe for a boundary that promises a
-# strict one-time decode.  Check every percent sign first, then decode exactly
-# once below.  A remaining literal percent sequence after one decode is allowed
-# because a user may genuinely name a file ``mix%2Ffinal.wav``.
+# S3 event object keys use form-style URL encoding: spaces become `+`, while
+# a literal plus becomes `%2B`. ``urllib.parse.unquote`` leaves a malformed
+# ``%`` unchanged, which is unsafe for a boundary that promises a strict
+# one-time decode. Check every percent sign first, then decode exactly once.
+# A remaining percent sequence is allowed: a user can name a file
+# ``mix%2Ffinal.wav`` without that text becoming a path separator.
 _PERCENT_ESCAPE = re.compile(r"%[0-9A-Fa-f]{2}")
 
 
@@ -125,13 +126,13 @@ def _decode_json_body(body: str | bytes | bytearray) -> Mapping[str, object]:
 
 
 def _strictly_decode_s3_key_once(raw_key: str) -> str:
-    """Return one UTF-8 percent decode while rejecting malformed escapes.
+    """Decode one S3 event key with form-style spaces and strict UTF-8.
 
-    This intentionally does not treat ``+`` as a space.  An S3 object key may
-    contain a literal plus sign, whereas HTML-form query decoding has different
-    semantics.  ``unquote_to_bytes`` also avoids a second decode pass that
-    could turn a filename containing literal ``%2F`` text into an unexpected
-    slash.
+    S3 notifications encode a space as ``+`` and a *literal* plus as ``%2B``.
+    Replacing raw plus signs before percent-decoding distinguishes the two;
+    replacing afterward would corrupt a real plus. ``unquote_to_bytes`` then
+    performs one byte-level decode, so a filename containing literal ``%2F``
+    text cannot acquire an unexpected slash through a second pass.
     """
 
     if not isinstance(raw_key, str) or not raw_key:
@@ -144,7 +145,7 @@ def _strictly_decode_s3_key_once(raw_key: str) -> str:
                 raise ValueError("Object key has a malformed percent escape.")
 
     try:
-        decoded_key = unquote_to_bytes(raw_key).decode("utf-8")
+        decoded_key = unquote_to_bytes(raw_key.replace("+", " ")).decode("utf-8")
     except UnicodeDecodeError as error:
         raise ValueError("Object key is not valid UTF-8 after decoding.") from error
 

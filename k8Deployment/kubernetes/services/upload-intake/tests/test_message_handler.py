@@ -155,6 +155,47 @@ class SourceIntakeMessageHandlerTests(unittest.TestCase):
             INSERT_PENDING_DEMUCS_OUTBOX_EVENT_SQL,
         )
 
+    def test_form_encoded_spaces_reach_the_exact_unicode_storage_key(self) -> None:
+        """A browser filename with spaces must survive S3 notification intake."""
+
+        object_key = f"uploads/{JOB_ID}/爷爷泡的茶 - Jay Chou.wav"
+        encoded_key = (
+            f"uploads/{JOB_ID}/%E7%88%B7%E7%88%B7%E6%B3%A1%E7%9A%84%E8%8C%B6"
+            "+-+Jay+Chou.wav"
+        )
+        read_cursor = MagicMock()
+        read_cursor.fetchone.return_value = {**pending_row(), "input_object_key": object_key}
+        write_cursor = MagicMock()
+        write_cursor.fetchone.return_value = {
+            "job_id": JOB_ID,
+            "source_uploaded": True,
+            "status": "source_uploaded",
+            "revision": 8,
+        }
+        database = FakeTransactionDatabase(read_cursor=read_cursor, write_cursor=write_cursor)
+        client = MagicMock()
+        client.head_object.return_value = matching_head_response()
+
+        result = handle_source_intake_message(
+            matching_event_body(
+                {
+                    "eventName": DIRECT_UPLOAD_EVENT_NAME,
+                    "s3": {
+                        "bucket": {"name": UPLOADS_BUCKET},
+                        "object": {"key": encoded_key},
+                    },
+                }
+            ),
+            database=database,
+            object_client=client,
+            object_storage_settings=settings(),
+        )
+
+        self.assertTrue(result.safe_to_acknowledge)
+        self.assertEqual(result.candidate_results[0].outcome, SourceIntakeCandidateOutcome.SOURCE_UPLOADED)
+        client.head_object.assert_called_once_with(Bucket=UPLOADS_BUCKET, Key=object_key)
+        self.assertEqual(write_cursor.execute.call_count, 2)
+
     def test_outbox_insert_failure_propagates_without_an_ack_safe_result(self) -> None:
         """A failed second statement makes the caller retry the whole transaction."""
 

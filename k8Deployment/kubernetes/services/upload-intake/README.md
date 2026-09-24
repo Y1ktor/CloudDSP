@@ -287,6 +287,32 @@ queue, a worker Pod, or a browser-facing endpoint.
 
 ## Reconciliation is mandatory
 
+S3-compatible event keys use form-style URL encoding: a space becomes `+`
+and a literal plus becomes `%2B`. Intake now decodes those distinctly before
+matching the exact PostgreSQL-generated object key. This matters for ordinary
+filenames with spaces (including Unicode names); otherwise the notification
+can be safely acknowledged as non-actionable even though the uploaded object
+exists. The [S3 event message format](https://docs.aws.amazon.com/AmazonS3/latest/userguide/notification-content-structure.html)
+documents the plus-for-space representation; parser and handler regression
+tests cover that path locally.
+
+For a retained upload that was already acknowledged before this correction,
+[`../../scripts/reconcile-one-upload-intake-job.sh`](../../scripts/reconcile-one-upload-intake-job.sh)
+accepts only its canonical job UUID. It runs a one-shot module inside the
+digest-pinned upload-intake Pod. The module reads the pending row's bucket/key
+using the existing restricted database role, then calls the normal parser,
+private HeadObject verifier, and atomic source/outbox transition. It does not
+overwrite the user object, publish a broker message, or change a completed
+job. The command is idempotent and prints only a fixed outcome category:
+
+```bash
+./k8Deployment/kubernetes/scripts/reconcile-one-upload-intake-job.sh JOB_UUID
+```
+
+This is a focused operator repair, not the eventual periodic reconciler.
+Future lost notifications still require an operator to identify and reconcile
+pending rows until that bounded background component exists.
+
 MinIO notifications accelerate the normal path but are not authoritative. A
 future reconciler periodically selects retained direct-upload rows still in
 `upload_pending`, performs the same private `HeadObject` verification, and

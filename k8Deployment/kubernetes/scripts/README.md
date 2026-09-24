@@ -147,6 +147,16 @@ RabbitMQ queue, or change MinIO configuration.
 
 ## Build the upload-intake worker image
 
+When a previously acknowledged source event left one retained upload pending,
+use the versioned one-job recovery command *after* rolling out the corrected
+upload-intake image. It accepts only a canonical job UUID, uses the running
+Pod's restricted identities, and reuses the normal HeadObject plus atomic
+PostgreSQL source/outbox transition:
+
+```bash
+./k8Deployment/kubernetes/scripts/reconcile-one-upload-intake-job.sh JOB_UUID
+```
+
 ```bash
 ./k8Deployment/kubernetes/scripts/build-upload-intake-image.sh
 ```

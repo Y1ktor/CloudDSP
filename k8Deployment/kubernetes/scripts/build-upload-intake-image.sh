@@ -26,7 +26,7 @@ readonly REGISTRY_HOST="clouddsp-registry.localhost:5001"
 # The readable tag records this reviewed source milestone for humans and local
 # registry browsing. Kubernetes still receives only the digest printed after
 # push, so later retagging cannot alter a running or reviewed Pod.
-readonly IMAGE_NAME="${REGISTRY_HOST}/upload-intake:0.2.0-atomic-source-outbox"
+readonly IMAGE_NAME="${REGISTRY_HOST}/upload-intake:0.2.1-form-encoded-keys"
 readonly TARGET_PLATFORM="linux/arm64"
 
 usage() {
@@ -73,13 +73,15 @@ require_prerequisites() {
     "${INTAKE_DIRECTORY}/app/minio_event.py" \
     "${INTAKE_DIRECTORY}/app/object_storage.py" \
     "${INTAKE_DIRECTORY}/app/postgresql.py" \
+    "${INTAKE_DIRECTORY}/app/reconcile_one.py" \
     "${INTAKE_DIRECTORY}/tests/test_amqp_consumer.py" \
     "${INTAKE_DIRECTORY}/tests/test_consumer_runtime.py" \
     "${INTAKE_DIRECTORY}/tests/test_database_transition.py" \
     "${INTAKE_DIRECTORY}/tests/test_message_handler.py" \
     "${INTAKE_DIRECTORY}/tests/test_minio_event.py" \
     "${INTAKE_DIRECTORY}/tests/test_object_storage.py" \
-    "${INTAKE_DIRECTORY}/tests/test_postgresql.py"; do
+    "${INTAKE_DIRECTORY}/tests/test_postgresql.py" \
+    "${INTAKE_DIRECTORY}/tests/test_reconcile_one.py"; do
     if [[ ! -f "${required_file}" ]]; then
       printf 'Required upload-intake build input is missing: %s\n' "${required_file}" >&2
       exit 1

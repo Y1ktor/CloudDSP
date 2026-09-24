@@ -81,6 +81,37 @@ class ParseDirectUploadEventTests(unittest.TestCase):
         self.assertEqual(candidate.object_key, f"uploads/{JOB_ID}/mix%2Ffinal.mp3")
         self.assertNotIn("/", candidate.source_filename)
 
+    def test_decodes_form_encoded_spaces_without_losing_literal_plus(self) -> None:
+        """S3 notification '+' means space; a real plus is sent as '%2B'."""
+
+        parsed = parse_direct_upload_event(
+            event_body(
+                event_record(
+                    object_key=(
+                        f"uploads/{JOB_ID}/%E7%88%B7%E7%88%B7%E6%B3%A1%E7%9A%84%E8%8C%B6"
+                        "+-+Jay%2BChou.wav"
+                    )
+                )
+            )
+        )
+
+        self.assertEqual(len(parsed.candidates), 1)
+        self.assertEqual(parsed.ignored_records, ())
+        self.assertEqual(parsed.candidates[0].source_filename, "爷爷泡的茶 - Jay+Chou.wav")
+        self.assertEqual(
+            parsed.candidates[0].object_key,
+            f"uploads/{JOB_ID}/爷爷泡的茶 - Jay+Chou.wav",
+        )
+
+    def test_preserves_double_encoded_literal_plus_after_one_decode(self) -> None:
+        """A literal '%2B' in a filename must not become a plus or space."""
+
+        parsed = parse_direct_upload_event(
+            event_body(event_record(object_key=f"uploads/{JOB_ID}/mix%252Bfinal.wav"))
+        )
+
+        self.assertEqual(parsed.candidates[0].source_filename, "mix%2Bfinal.wav")
+
     def test_ignores_unrelated_prefix_and_future_put_without_creating_candidates(self) -> None:
         """Outputs and future yt-dlp events cannot reach a future DB lookup yet."""
 

@@ -173,12 +173,12 @@ images:
 
   upload-intake:
     # This is the locally built, outbound-only direct-upload intake worker.
-    # Its readable tag records the reviewed atomic source-to-outbox milestone;
+    # Its readable tag records the S3 event-key decoding and one-row repair;
     # any Deployment must use only the immutable registry digest below.
     repository: clouddsp-registry.localhost:5001/upload-intake
-    sourceTag: "0.2.0-atomic-source-outbox"
-    digest: sha256:59f353d1d6cbea3f885769ff175dafba4765c8c0db14aa7e17c53260a5a88609
-    immutableReference: clouddsp-registry.localhost:5001/upload-intake@sha256:59f353d1d6cbea3f885769ff175dafba4765c8c0db14aa7e17c53260a5a88609
+    sourceTag: "0.2.1-form-encoded-keys"
+    digest: sha256:d3a69be20f45b901b98ef4756036eaf5e6aef31264f485e7e4028d63856b4872
+    immutableReference: clouddsp-registry.localhost:5001/upload-intake@sha256:d3a69be20f45b901b98ef4756036eaf5e6aef31264f485e7e4028d63856b4872
     supportedPlatforms:
       - linux/arm64/v8
     builtFrom:
@@ -196,11 +196,12 @@ images:
       messageHandlerTests: kubernetes/services/upload-intake/tests/test_message_handler.py
       amqpAdapterTests: kubernetes/services/upload-intake/tests/test_amqp_consumer.py
       runtimeTests: kubernetes/services/upload-intake/tests/test_consumer_runtime.py
+      oneJobReconciliationTests: kubernetes/services/upload-intake/tests/test_reconcile_one.py
       runtimeImageLock: images.api-python-runtime
       sourceLock: buildSources.upload-intake
-    localDockerSizeBytes: 68268085
+    localDockerSizeBytes: 68273782
     localDockerSize: "65.11 MiB"
-    pushedAt: "2026-09-07"
+    pushedAt: "2026-09-24"
 
   dispatcher:
     # This local image contains both the established Demucs-only dispatcher

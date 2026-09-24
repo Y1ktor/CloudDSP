@@ -82,7 +82,7 @@ spec:
           # ../../images.lock.yaml. A digest names the exact source and locked
           # dependency bytes pushed to the local registry; never use its
           # mutable descriptive tag in a workload manifest.
-          image: clouddsp-registry.localhost:5001/upload-intake@sha256:59f353d1d6cbea3f885769ff175dafba4765c8c0db14aa7e17c53260a5a88609
+          image: clouddsp-registry.localhost:5001/upload-intake@sha256:d3a69be20f45b901b98ef4756036eaf5e6aef31264f485e7e4028d63856b4872
           # Reusing a cached immutable digest is safe and quick on the local
           # K3s nodes. A future changed image must have a different digest,
           # causing Kubernetes to pull it instead of silently retagging bytes.
