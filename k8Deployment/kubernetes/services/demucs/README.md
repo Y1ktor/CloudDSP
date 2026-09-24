@@ -1324,6 +1324,32 @@ terminated the running Pod. The PostgreSQL metric closes that gap. Future
 threshold, resource, node, or GPU-profile changes still need
 their own explicit apply-and-observe task.
 
+### Yosemite local CPU benchmark (2026-09-24)
+
+The first real-file check used the existing authenticated six-stem job for
+`Yosemite.mp3`: MP3, 6,006,016 bytes, 150.048 seconds of audio. Its first
+attempt had been interrupted under the old queue-only scaling policy and
+recorded a process timeout, so that attempt is **not** a valid two-CPU
+throughput baseline. After deploying the dual RabbitMQ/PostgreSQL scaler and
+the two-CPU request/four-CPU limit, a due PostgreSQL-only retry activated
+Demucs from zero replicas with an empty request queue.
+
+The worker acquired its running lease at `04:43:15.993 UTC`, logged
+`model_complete` at `04:50:00.130 UTC` (404.137 seconds, about 6 minutes
+44 seconds), and committed completion at `04:50:01.100 UTC` (405.107 seconds
+from lease acquisition). During inference, `kubectl top` sampled about
+3.4–4.0 CPU cores and 1.2–1.4 GiB of container memory. Those are sampled
+values, not peak CPU or memory claims. KEDA kept the Pod Running beyond the
+previous five-minute scale-down point, PostgreSQL recorded Demucs attempt 2
+as `succeeded`, and the job subsequently reached `completed` with six durable
+stem records. Read-only MinIO `HeadObject` checks found all six expected WAV
+objects (drums, bass, other, vocals, guitar, piano), each 26,468,546 bytes.
+Once the task metric became inactive, the five-minute idle cooldown elapsed
+and KEDA returned the Demucs Deployment to zero replicas with no Pod left.
+This establishes the local four-CPU outcome but cannot isolate
+how much speedup came from extra CPU versus the scaling fix; a separate
+controlled two-CPU run would be required for that comparison.
+
 ## Prepared PostgreSQL identity
 
 The prepared
