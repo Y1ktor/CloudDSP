@@ -17,7 +17,7 @@ from app.demucs_process import DemucsLeaseRenewalOwnershipLost
 from app.demucs_process import DemucsProcessTimedOut
 from app.demucs_task_completion import CommittedDemucsStemSet
 from app.pre_model_failure_runtime import DemucsOneTaskExecution, DemucsOneTaskExecutionOutcome
-from app.running_failure_classification import DemucsRunningRetryCode
+from app.running_failure_classification import DemucsRunningRetryCode, DemucsRunningTerminalCode
 from app.running_failure_runtime import execute_acknowledged_demucs_task_with_running_failure_policy
 from app.running_failure_transition import (
     DemucsRunningFailureTransition,
@@ -71,7 +71,7 @@ def retry_transition() -> DemucsRunningFailureTransition:
             task_id=TASK_ID,
             job_id=JOB_ID,
             attempt_count=1,
-            failure_code=DemucsRunningRetryCode.PROCESS_TIMED_OUT,
+            failure_code=DemucsRunningRetryCode.PROCESS_FAILED,
             available_at=datetime(2026, 9, 20, 12, 0, 30, tzinfo=UTC),
         ),
     )
@@ -86,7 +86,7 @@ def terminal_transition() -> DemucsRunningFailureTransition:
             task_id=TASK_ID,
             job_id=JOB_ID,
             attempt_count=3,
-            failure_code=DemucsRunningRetryExhaustionCode.PROCESS_TIMED_OUT,
+            failure_code=DemucsRunningTerminalCode.PROCESS_TIMED_OUT,
             completed_at=NOW,
             job_revision=8,
         ),
@@ -157,27 +157,27 @@ class DemucsRunningFailureRuntimeTests(unittest.TestCase):
 
     @patch("app.running_failure_runtime.commit_running_demucs_failure_transition")
     @patch("app.running_failure_runtime.execute_acknowledged_demucs_task_with_pre_model_failure_policy")
-    def test_reviewed_running_timeout_commits_matching_retry(
+    def test_reviewed_running_timeout_commits_terminal_result_without_retry(
         self,
         execute_with_pre_model_policy,
         commit_running_failure,
     ) -> None:
-        """A post-start timeout uses the new `running` SQL guard, not source SQL."""
+        """A post-start timeout fails the job on its first running attempt."""
 
         execute_with_pre_model_policy.side_effect = DemucsProcessTimedOut("private timeout detail")
-        transition = retry_transition()
+        transition = terminal_transition()
         commit_running_failure.return_value = transition
 
         result = self._run(running_retry_after_seconds=45)
 
-        self.assertEqual(result.outcome, DemucsOneTaskExecutionOutcome.RETRY_SCHEDULED)
+        self.assertEqual(result.outcome, DemucsOneTaskExecutionOutcome.TERMINAL_FAILURE)
         self.assertIs(result.failure_transition, transition)
         _args, kwargs = commit_running_failure.call_args
         self.assertEqual(kwargs["lease"], lease())
         self.assertEqual(kwargs["retry_after_seconds"], 45)
         self.assertEqual(
-            kwargs["classification"].retry_code,
-            DemucsRunningRetryCode.PROCESS_TIMED_OUT,
+            kwargs["classification"].terminal_code,
+            DemucsRunningTerminalCode.PROCESS_TIMED_OUT,
         )
 
     @patch("app.running_failure_runtime.commit_running_demucs_failure_transition")

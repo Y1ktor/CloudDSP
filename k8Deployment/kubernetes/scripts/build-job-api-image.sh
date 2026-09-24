@@ -26,7 +26,7 @@ readonly REGISTRY_HOST="clouddsp-registry.localhost:5001"
 # deployment input: after push, the script prints a sha256 digest and the image
 # lock records that immutable reference for a later, separately approved
 # rollout task.
-readonly IMAGE_NAME="${REGISTRY_HOST}/job-api:0.0.8-job-artifact-snapshot"
+readonly IMAGE_NAME="${REGISTRY_HOST}/job-api:0.0.9-demucs-timeout-message"
 readonly TARGET_PLATFORM="linux/arm64"
 
 usage() {

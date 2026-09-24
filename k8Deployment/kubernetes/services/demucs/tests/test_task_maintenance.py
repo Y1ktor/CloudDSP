@@ -264,8 +264,9 @@ class TaskMaintenanceCompositionTests(unittest.TestCase):
 class ExpiredLeaseTerminalizationCompositionTests(unittest.TestCase):
     """Prove exhausted-lease finalization gets its own short database scope."""
 
+    @patch("app.task_maintenance.finalize_next_overdue_demucs_task", return_value=None)
     @patch("app.task_maintenance.finalize_next_expired_exhausted_demucs_task")
-    def test_idle_terminalization_commits_without_recovery_work(self, finalize) -> None:
+    def test_idle_terminalization_commits_without_recovery_work(self, finalize, overdue) -> None:
         """An empty final-attempt scan is normal no-mutation maintenance work."""
 
         database = RecordingDatabase(ScriptedCursor([]))
@@ -274,10 +275,12 @@ class ExpiredLeaseTerminalizationCompositionTests(unittest.TestCase):
         self.assertIsNone(terminalize_one_expired_exhausted_demucs_task(database=database))
 
         self.assertEqual(database.events, ["transaction-open", "transaction-commit"])
+        overdue.assert_called_once_with(database.cursor)
         finalize.assert_called_once_with(database.cursor)
 
+    @patch("app.task_maintenance.finalize_next_overdue_demucs_task", return_value=None)
     @patch("app.task_maintenance.finalize_next_expired_exhausted_demucs_task")
-    def test_terminalization_commits_only_valid_atomic_evidence(self, finalize) -> None:
+    def test_terminalization_commits_only_valid_atomic_evidence(self, finalize, overdue) -> None:
         """The returned proof is visible only after the database scope exits."""
 
         database = RecordingDatabase(ScriptedCursor([]))
@@ -287,9 +290,23 @@ class ExpiredLeaseTerminalizationCompositionTests(unittest.TestCase):
         self.assertIs(terminalize_one_expired_exhausted_demucs_task(database=database), expected)
 
         self.assertEqual(database.events, ["transaction-open", "transaction-commit"])
+        overdue.assert_called_once_with(database.cursor)
 
+    @patch("app.task_maintenance.finalize_next_overdue_demucs_task")
     @patch("app.task_maintenance.finalize_next_expired_exhausted_demucs_task")
-    def test_invalid_terminalization_rolls_back_instead_of_reporting_progress(self, finalize) -> None:
+    def test_overdue_result_preempts_expired_lease_scan(self, finalize, overdue) -> None:
+        """A timed-out task is terminalized before any recovery or retry."""
+
+        database = RecordingDatabase(ScriptedCursor([]))
+        overdue.return_value = terminalization()
+
+        self.assertIs(terminalize_one_expired_exhausted_demucs_task(database=database), overdue.return_value)
+        self.assertEqual(database.events, ["transaction-open", "transaction-commit"])
+        finalize.assert_not_called()
+
+    @patch("app.task_maintenance.finalize_next_overdue_demucs_task", return_value=None)
+    @patch("app.task_maintenance.finalize_next_expired_exhausted_demucs_task")
+    def test_invalid_terminalization_rolls_back_instead_of_reporting_progress(self, finalize, overdue) -> None:
         """A future replacement cannot commit an arbitrary non-None object."""
 
         database = RecordingDatabase(ScriptedCursor([]))

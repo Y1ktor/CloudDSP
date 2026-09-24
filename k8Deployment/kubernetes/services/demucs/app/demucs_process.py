@@ -33,6 +33,9 @@ from app.demucs_command import DemucsSeparationCommand, build_demucs_separation_
 # while still bounding a damaged local CPU process. This is not a performance
 # claim: a later workload test may tune it only alongside lease-renewal policy.
 DEFAULT_DEMUCS_PROCESS_TIMEOUT_SECONDS = 12 * 60
+# Shared finite terminal code used by the direct timeout transition and by
+# PostgreSQL recovery when the owner Pod disappears before reporting it.
+DEMUCS_TIMEOUT_ERROR_CODE = "demucs_process_timed_out"
 MIN_DEMUCS_PROCESS_TIMEOUT_SECONDS = 1
 MAX_DEMUCS_PROCESS_TIMEOUT_SECONDS = DEFAULT_DEMUCS_PROCESS_TIMEOUT_SECONDS
 

@@ -136,16 +136,14 @@ images:
     pushedAt: "2026-09-16"
 
   job-api:
-    # This is the locally built Job API runtime. This revision persists Basic
-    # Pitch outputs, finalizes parent Job status, and returns owner-checked
-    # presigned artifact links. Workloads use the immutable digest, not tag.
+    # This locally built API translates the finite Demucs timeout code into
+    # a clear owner-visible failure message while retaining the prior snapshot
+    # and presigned artifact contracts. Workloads use the digest, not the tag.
     repository: clouddsp-registry.localhost:5001/job-api
-    # The ARM64 build ran the complete 61-test suite, including owner-bound
-    # artifact signing and v007 migration contract coverage, before push. The
-    # registry digest was then pulled back explicitly to verify publication.
-    sourceTag: "0.0.8-job-artifact-snapshot"
-    digest: sha256:702357368b4b662c496ad3635d96ed448af392582b049fcac676c4119cdc85bb
-    immutableReference: clouddsp-registry.localhost:5001/job-api@sha256:702357368b4b662c496ad3635d96ed448af392582b049fcac676c4119cdc85bb
+    # The ARM64 Docker validation stage passed all 65 API tests before push.
+    sourceTag: "0.0.9-demucs-timeout-message"
+    digest: sha256:356e1493d2e079c1374d275f6c90047955e567626500ce5cb99954221993929b
+    immutableReference: clouddsp-registry.localhost:5001/job-api@sha256:356e1493d2e079c1374d275f6c90047955e567626500ce5cb99954221993929b
     supportedPlatforms:
       - linux/arm64/v8
     builtFrom:
@@ -167,9 +165,9 @@ images:
       presignedUploadTests: kubernetes/services/api/tests/test_presigned_upload.py
       runtimeImageLock: images.api-python-runtime
       sourceLock: buildSources.api
-    localDockerSizeBytes: 77918581
+    localDockerSizeBytes: 77919191
     localDockerSize: "74.31 MiB"
-    pushedAt: "2026-09-23"
+    pushedAt: "2026-09-24"
 
   upload-intake:
     # This is the locally built, outbound-only direct-upload intake worker.
@@ -247,18 +245,14 @@ images:
     repository: clouddsp-registry.localhost:5001/demucs
     # This readable local-registry tag is build provenance only. The immutable
     # OCI index digest below is the only safe future workload reference.
-    # This local ARM64 CPU revision preserves the MKLDNN safeguard and
-    # launcher working-directory repair. It also moves recovery's immutable
-    # outbox-payload validation behind a PostgreSQL security-definer boolean,
-    # so the restricted worker can reclaim a valid task without receiving
-    # general payload-read authority. It also fixes the guarded completion
-    # CTE's explicit text-to-UUID comparison, so a successful stem upload can
-    # commit the Job, task, and downstream outbox records atomically instead
-    # of entering a retry loop. The phase-only logs remain safe because they
-    # contain no job, object, user, or credential values.
-    sourceTag: "0.1.8-completion-uuid-join"
-    digest: sha256:e6cab988fa3786d66dcfd7f608dfa6479582a4acd3bfb9b47f948d637cf6fd59
-    immutableReference: clouddsp-registry.localhost:5001/demucs@sha256:e6cab988fa3786d66dcfd7f608dfa6479582a4acd3bfb9b47f948d637cf6fd59
+    # This local ARM64 CPU revision retains the reviewed separation/runtime
+    # contract but makes the 12-minute model deadline terminal on its first
+    # occurrence. Recovery also fails a task whose durable start crossed that
+    # deadline after a Pod loss, before granting another processing lease.
+    # Docker validation passed all 317 tests and real two-stem CPU inference.
+    sourceTag: "0.1.9-terminal-deadline"
+    digest: sha256:4aeab642921bc12108cd46f548029b270d7317dad76d416a9ae77d55de605bba
+    immutableReference: clouddsp-registry.localhost:5001/demucs@sha256:4aeab642921bc12108cd46f548029b270d7317dad76d416a9ae77d55de605bba
     supportedPlatforms:
       - linux/arm64/v8
     builtFrom:
@@ -290,16 +284,16 @@ images:
       # Unlike an import check, this fixed two-stem run proves the exact
       # local-ARM64 backend setting allows a real model forward pass.
       localArm64CpuInferenceCheck: two-stem-hybrid-model
-      validatedWorkerTestCount: 309
+      validatedWorkerTestCount: 317
       verifiedFFprobe: true
       runtimeImportCheck: true
       verifiedModelArtifactCount: 4
     # Docker reports uncompressed layer bytes. The larger size compared with
     # other workers is expected: it includes CPU Torch, FFmpeg, and 132.7 MiB
     # of separately checksum-verified Demucs descriptors/weight files.
-    localDockerSizeBytes: 503076960
-    localDockerSize: "479.77 MiB"
-    pushedAt: "2026-09-22"
+    localDockerSizeBytes: 503080619
+    localDockerSize: "479.78 MiB"
+    pushedAt: "2026-09-24"
 
   dispatcher-smoke-client:
     # This disposable image creates exactly one normal authenticated upload,
@@ -553,18 +547,14 @@ images:
     pushedAt: "2026-09-16"
 
   frontend:
-    # This browser image embeds the reviewed public Job API and private-MinIO
-    # browser origins alongside local OIDC configuration. The readable tag
-    # records the local feature milestone, but a Deployment must use only the
-    # immutable registry digest so an accidental retag cannot alter a Pod.
+    # The local browser image now fetches every sampled MIDI instrument from
+    # the dedicated MinIO read-only bucket; its CSP no longer permits the
+    # original online sample hosts. Keep the immutable digest in the Pod so a
+    # mutable registry tag cannot silently change that browser behavior.
     repository: clouddsp-registry.localhost:5001/frontend
-    # This revision also recovers when a Mailpit verification link is opened
-    # in another tab. The original tab's PKCE verifier is intentionally absent
-    # there, so the frontend discards the unusable code and starts a new secure
-    # PKCE request instead of reporting a misleading state-mismatch error.
-    sourceTag: "0.5.0-cross-tab-email-oidc"
-    digest: sha256:f6a2b991b9dfba9675a9aa24b19157157d90ca5c8744aa0ac977c4bbc8945eb5
-    immutableReference: clouddsp-registry.localhost:5001/frontend@sha256:f6a2b991b9dfba9675a9aa24b19157157d90ca5c8744aa0ac977c4bbc8945eb5
+    sourceTag: "0.5.2-local-midi-samples"
+    digest: sha256:80303d3fa50ececff3968838a1a0d9255ead70a9779b53959be6b8d1310e243a
+    immutableReference: clouddsp-registry.localhost:5001/frontend@sha256:80303d3fa50ececff3968838a1a0d9255ead70a9779b53959be6b8d1310e243a
     supportedPlatforms:
       - linux/arm64/v8
     builtFrom:
@@ -584,9 +574,11 @@ images:
       # bundled: browser code cannot resolve Kubernetes Service DNS.
       publicJobApiBaseUrl: http://clouddsp.localhost:8080
       publicObjectStorageOrigin: http://minio.localhost:8080
-    localDockerSizeBytes: 33626105
+      midiSampleLock: kubernetes/services/minio/midi-sample-assets.lock.json
+      sharedSampleBucket: clouddsp-midi-samples
+    localDockerSizeBytes: 33626589
     localDockerSize: "32.07 MiB"
-    pushedAt: "2026-09-06"
+    pushedAt: "2026-09-24"
 
   frontend-node-builder:
     # Official Node image used only while compiling the local React source.

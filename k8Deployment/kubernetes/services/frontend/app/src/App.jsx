@@ -54,7 +54,7 @@ function hasTerminalMidiArtifacts(job) {
      * browser must keep fetching until the snapshot actually contains every
      * stem's terminal MIDI state and a usable URL for each successful result.
      * This protects the workspace from a missed WebSocket hint or a stale
-     * eventually-consistent API read at the exact time Batch finishes.
+     * eventually-consistent API read immediately after the workers finish.
      */
     const stems = job?.stems || {};
     const midi = job?.midi || {};
@@ -78,9 +78,9 @@ function needsJobRefresh(job) {
 function messageForJob(job, fallback) {
     if (!job) return fallback;
     if (job.status === 'source_ingestion') return 'Downloading audio from the linked source…';
-    if (job.status === 'upload_pending') return 'Upload complete. Waiting for AWS Batch capacity…';
-    if (job.status === 'stem_processing') return 'AWS Batch is separating stems…';
-    if (job.status === 'midi_processing') return 'Stems are ready. MIDI extraction is still running…';
+    if (job.status === 'upload_pending') return 'Upload received. Verifying and queuing stem separation…';
+    if (job.status === 'stem_processing') return 'Separating the audio into stems…';
+    if (job.status === 'midi_processing') return 'Stems are ready. Extracting MIDI…';
     if (job.status === 'completed') return 'Stems and MIDI extraction are complete.';
     if (job.status === 'failed') return job.error || 'Processing failed. See the job status for details.';
     return fallback;
@@ -225,9 +225,9 @@ export default function App() {
     const stemUrls = useMemo(() => urlsForReadyArtifacts(currentJob?.stems), [currentJob]);
     const midiUrls = useMemo(() => urlsForReadyArtifacts(currentJob?.midi), [currentJob]);
     const midiStates = currentJob?.midi || {};
-    // A saved job has already been submitted. While its snapshot and private
-    // artifacts are being restored, do not describe the wait as new Batch or
-    // MIDI processing work.
+    // A saved job has already been submitted. While its durable snapshot and
+    // private artifact links are being restored, this is retrieval—not new
+    // processing work.
     const isSplitting = isUploading || (!isRestoringHistoryJob && isJobPending(currentJob));
     useEffect(() => {
         activeJobIdRef.current = activeJobId;
@@ -406,8 +406,8 @@ export default function App() {
             const midiNames = readyArtifactNames(snapshot.midi);
             console.info(
                 `[CloudDSP] Received job snapshot for ${jobId}. `
-                + `Signed S3 stem URLs: ${stemNames.length ? stemNames.join(', ') : 'none'}. `
-                + `Signed S3 MIDI URLs: ${midiNames.length ? midiNames.join(', ') : 'none'}.`,
+                + `Private stem links: ${stemNames.length ? stemNames.join(', ') : 'none'}. `
+                + `Private MIDI links: ${midiNames.length ? midiNames.join(', ') : 'none'}.`,
             );
             jobRefreshBackoffRef.current.delete(jobId);
             setJobSnapshots((current) => {
@@ -747,7 +747,7 @@ export default function App() {
             ]);
             subscribeToActiveJob(socketRef.current, job.job_id);
 
-            setStatusMessage('Uploading audio to the secure job location…');
+            setStatusMessage('Uploading audio to local storage…');
             const uploadForm = new FormData();
             Object.entries(job.upload_fields).forEach(([name, value]) => uploadForm.append(name, value));
             uploadForm.append('file', stemFile);
@@ -756,9 +756,9 @@ export default function App() {
                 body: uploadForm,
             });
             if (!uploadResponse.ok) {
-                throw new Error(`S3 upload failed (${uploadResponse.status}). The file may exceed the 256 MiB limit or the upload policy may have expired.`);
+                throw new Error(`Audio upload failed (${uploadResponse.status}). The file may exceed the 256 MiB limit or the secure upload form may have expired.`);
             }
-            setStatusMessage('Upload complete. Waiting for AWS Batch capacity…');
+            setStatusMessage('Upload received. Verifying and queuing stem separation…');
             await fetchJobSnapshot(job.job_id, { showError: true });
         } catch (error) {
             console.error('CloudDSP upload failed:', error);

@@ -1,4 +1,4 @@
-"""Classify reviewed retryable Demucs failures after ``leased -> running``.
+"""Classify reviewed Demucs failures after ``leased -> running``.
 
 This complements the pre-model source classifier. Once PostgreSQL has
 committed ``running``, the worker may have spent CPU time or written some
@@ -10,10 +10,11 @@ which a fresh bounded attempt is safe because:
 * output object keys are deterministic and retry-overwritable, so a partial
   private upload cannot become a second public artifact set.
 
-There is intentionally no immediately-terminal category in this first running
-policy. A reviewed model/output/storage disruption receives a durable retry on
-attempts one/two; the exact same finite category becomes a terminal
-retry-exhaustion result on attempt three. Image/command-contract faults,
+The 12-minute model deadline is different from a transient disruption: more
+CPU attempts cannot make the already-over-budget request safe or timely. It
+therefore terminates the task and Job on the first timeout. Other reviewed
+model/output/storage disruptions receive a durable retry on attempts one/two;
+the exact same finite category becomes terminal on attempt three. Image/command-contract faults,
 database failures, completion-contract faults, and unknown exceptions remain
 unclassified: retrying or failing a user Job from those facts would hide an
 operator/actionable defect behind an unreviewed task result.
@@ -39,14 +40,26 @@ from app.demucs_artifact_upload import (
     DemucsArtifactUploadUnavailable,
 )
 from app.demucs_artifacts import DemucsArtifactInventoryMismatch, DemucsArtifactPathError
-from app.demucs_process import DemucsProcessError, DemucsProcessFailed, DemucsProcessTimedOut
+from app.demucs_process import (
+    DEMUCS_TIMEOUT_ERROR_CODE,
+    DemucsProcessError,
+    DemucsProcessFailed,
+    DemucsProcessTimedOut,
+)
 
 
 class DemucsRunningFailureDisposition(StrEnum):
     """The finite outcomes of this after-model classifier."""
 
     RETRY_SCHEDULED = "retry_scheduled"
+    TERMINAL_FAILURE = "terminal_failure"
     UNCLASSIFIED = "unclassified"
+
+
+class DemucsRunningTerminalCode(StrEnum):
+    """Safe user-job code for a model that exhausted its 12-minute budget."""
+
+    PROCESS_TIMED_OUT = DEMUCS_TIMEOUT_ERROR_CODE
 
 
 class DemucsRunningRetryCode(StrEnum):
@@ -58,7 +71,6 @@ class DemucsRunningRetryCode(StrEnum):
     """
 
     PROCESS_START_FAILED = "demucs_process_start_failed"
-    PROCESS_TIMED_OUT = "demucs_process_timed_out"
     PROCESS_FAILED = "demucs_process_failed"
     OUTPUT_INVALID = "demucs_output_invalid"
     ARTIFACT_INTEGRITY_UNAVAILABLE = "demucs_artifact_integrity_unavailable"
@@ -69,7 +81,6 @@ class DemucsRunningRetryExhaustionCode(StrEnum):
     """Terminal evidence selected when a running retry reaches attempt three."""
 
     PROCESS_START_FAILED = "demucs_process_start_retry_exhausted"
-    PROCESS_TIMED_OUT = "demucs_process_timeout_retry_exhausted"
     PROCESS_FAILED = "demucs_process_failure_retry_exhausted"
     OUTPUT_INVALID = "demucs_output_retry_exhausted"
     ARTIFACT_INTEGRITY_UNAVAILABLE = "demucs_artifact_integrity_retry_exhausted"
@@ -81,7 +92,6 @@ class DemucsRunningRetryExhaustionCode(StrEnum):
 # the application review here and a corresponding database-transition review.
 DEMUCS_RUNNING_RETRY_EXHAUSTION_BY_RETRY_CODE = {
     DemucsRunningRetryCode.PROCESS_START_FAILED: DemucsRunningRetryExhaustionCode.PROCESS_START_FAILED,
-    DemucsRunningRetryCode.PROCESS_TIMED_OUT: DemucsRunningRetryExhaustionCode.PROCESS_TIMED_OUT,
     DemucsRunningRetryCode.PROCESS_FAILED: DemucsRunningRetryExhaustionCode.PROCESS_FAILED,
     DemucsRunningRetryCode.OUTPUT_INVALID: DemucsRunningRetryExhaustionCode.OUTPUT_INVALID,
     DemucsRunningRetryCode.ARTIFACT_INTEGRITY_UNAVAILABLE: DemucsRunningRetryExhaustionCode.ARTIFACT_INTEGRITY_UNAVAILABLE,
@@ -95,16 +105,21 @@ class DemucsRunningFailureClassification:
 
     disposition: DemucsRunningFailureDisposition
     retry_code: DemucsRunningRetryCode | None = None
+    terminal_code: DemucsRunningTerminalCode | None = None
 
     def __post_init__(self) -> None:
-        """Ensure only a reviewed retry outcome carries a durable code."""
+        """Require exactly the code for a retry, terminal, or unknown result."""
 
         if self.disposition is DemucsRunningFailureDisposition.RETRY_SCHEDULED:
-            if not isinstance(self.retry_code, DemucsRunningRetryCode):
+            if not isinstance(self.retry_code, DemucsRunningRetryCode) or self.terminal_code is not None:
                 raise TypeError("A retryable running Demucs failure requires a retry code.")
             return
+        if self.disposition is DemucsRunningFailureDisposition.TERMINAL_FAILURE:
+            if self.retry_code is not None or not isinstance(self.terminal_code, DemucsRunningTerminalCode):
+                raise TypeError("A terminal running Demucs failure requires a terminal code.")
+            return
         if self.disposition is DemucsRunningFailureDisposition.UNCLASSIFIED:
-            if self.retry_code is not None:
+            if self.retry_code is not None or self.terminal_code is not None:
                 raise TypeError("An unclassified running Demucs failure cannot include a retry code.")
             return
         raise TypeError("Demucs running-failure disposition is invalid.")
@@ -124,12 +139,12 @@ def retry_exhaustion_code_for_running_failure(
 
 
 def classify_demucs_running_failure(error: BaseException) -> DemucsRunningFailureClassification:
-    """Map only bounded retryable failures that occur after `running` starts.
+    """Map finite terminal/retryable failures after `running` starts.
 
-    A process timeout/nonzero/start failure, unsafe/incomplete transient output
-    tree, local post-model artifact change, or MinIO output interruption can
-    safely retry because the later result transition will still match the exact
-    running lease and stable output keys. `DemucsProcessUnavailable` and every
+    A process timeout is terminal. Nonzero/start failures, incomplete transient
+    output, local post-model artifact changes, or MinIO interruptions may retry
+    under the exact running lease and deterministic output keys.
+    `DemucsProcessUnavailable` and every
     contract error are deliberately excluded despite sharing base classes: they
     identify an image/configuration/programming defect, not user work that a
     generic retry should hide.
@@ -145,8 +160,8 @@ def classify_demucs_running_failure(error: BaseException) -> DemucsRunningFailur
         )
     if isinstance(error, DemucsProcessTimedOut):
         return DemucsRunningFailureClassification(
-            disposition=DemucsRunningFailureDisposition.RETRY_SCHEDULED,
-            retry_code=DemucsRunningRetryCode.PROCESS_TIMED_OUT,
+            disposition=DemucsRunningFailureDisposition.TERMINAL_FAILURE,
+            terminal_code=DemucsRunningTerminalCode.PROCESS_TIMED_OUT,
         )
     if isinstance(error, DemucsProcessFailed):
         return DemucsRunningFailureClassification(

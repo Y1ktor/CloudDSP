@@ -5,8 +5,10 @@
 #
 # The route publishes only the existing S3 API Service port (9000). It does not
 # expose MinIO's separate administrative console port (9001), and an Ingress
-# alone grants no object access: MinIO still requires an S3 signature or a
-# deliberately configured anonymous policy (which this project does not use).
+# alone grants no object access: private job artifacts still require an S3
+# signature. The separate clouddsp-midi-samples bucket deliberately grants
+# anonymous GetObject only for shared, non-user instrument samples; it grants
+# neither ListBucket nor PutObject and cannot expose clouddsp-uploads.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

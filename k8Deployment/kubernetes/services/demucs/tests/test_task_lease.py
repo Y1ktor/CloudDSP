@@ -19,6 +19,8 @@ from app.task_lease import (
     DEFAULT_DEMUCS_LEASE_SECONDS,
     DEMUCS_EXHAUSTED_LEASE_ERROR_CODE,
     FINALIZE_NEXT_EXPIRED_EXHAUSTED_DEMUCS_TASK_SQL,
+    FINALIZE_NEXT_OVERDUE_DEMUCS_TASK_SQL,
+    DEMUCS_TIMEOUT_ERROR_CODE,
     INSERT_FIRST_DEMUCS_TASK_LEASE_SQL,
     LOCK_EXISTING_DEMUCS_TASK_SQL,
     MAX_DEMUCS_TASK_ATTEMPTS,
@@ -34,6 +36,7 @@ from app.task_lease import (
     claim_next_recoverable_demucs_task,
     complete_running_demucs_task,
     finalize_next_expired_exhausted_demucs_task,
+    finalize_next_overdue_demucs_task,
     renew_demucs_task_lease,
     start_leased_demucs_task,
 )
@@ -412,6 +415,32 @@ class ExpiredLeaseTerminalizationTests(unittest.TestCase):
             with self.subTest(row=row):
                 with self.assertRaises(DemucsTaskLeaseProtocolError):
                     finalize_next_expired_exhausted_demucs_task(FakeCursor([row]))
+
+    def test_overdue_started_task_fails_at_any_attempt_without_retry(self) -> None:
+        """A lost worker cannot re-lease a model task after its 12-minute budget."""
+
+        row = expired_terminalization_row(
+            attempt_count=1,
+            last_error_code=DEMUCS_TIMEOUT_ERROR_CODE,
+        )
+        cursor = FakeCursor([row])
+        result = finalize_next_overdue_demucs_task(cursor)
+
+        self.assertEqual(result.error_code, DEMUCS_TIMEOUT_ERROR_CODE)  # type: ignore[union-attr]
+        self.assertEqual(result.attempt_count, 1)  # type: ignore[union-attr]
+        self.assertEqual(cursor.calls, [(FINALIZE_NEXT_OVERDUE_DEMUCS_TASK_SQL, (720, 720))])
+        self.assertIn("started_at <= CURRENT_TIMESTAMP", FINALIZE_NEXT_OVERDUE_DEMUCS_TASK_SQL)
+        self.assertIn("FOR UPDATE SKIP LOCKED", FINALIZE_NEXT_OVERDUE_DEMUCS_TASK_SQL)
+        self.assertIn("failed_task.job_id::uuid", FINALIZE_NEXT_OVERDUE_DEMUCS_TASK_SQL)
+
+    def test_overdue_scan_rejects_forged_result_or_deadline(self) -> None:
+        """A caller cannot shorten the user-visible deadline or forge failure proof."""
+
+        self.assertIsNone(finalize_next_overdue_demucs_task(FakeCursor([None])))
+        with self.assertRaises(DemucsTaskLeaseProtocolError):
+            finalize_next_overdue_demucs_task(FakeCursor([]), deadline_seconds=60)
+        with self.assertRaises(DemucsTaskLeaseProtocolError):
+            finalize_next_overdue_demucs_task(FakeCursor([expired_terminalization_row()]))
 
 
 class TaskStartTests(unittest.TestCase):

@@ -64,8 +64,10 @@ Do not use ClickOps or uncommitted `kubectl` changes. Install KEDA before any
 
 - PostgreSQL is authoritative for jobs, artifact keys, revisions, UTC quotas,
   task leases, and outbox events.
-- MinIO stores private object data only. Store stable keys rather than
-  presigned URLs in PostgreSQL.
+- MinIO job artifacts stay private. Store stable keys rather than presigned
+  URLs in PostgreSQL. The separate `clouddsp-midi-samples` bucket is a narrow
+  exception for shared, non-user instrument sounds: anonymous `GetObject`
+  only, with no bucket listing or write grant. Never put user data there.
 - RabbitMQ is at-least-once delivery. Use `(job_id, stage, stem_name)` as the
   idempotency key, manual acknowledgement after durable state, bounded retry,
   and DLQs.
@@ -86,9 +88,12 @@ with PKCE in the frontend and validate issuer, audience, expiry, signing keys,
 and immutable `sub` in API and WebSocket services.
 
 Never log access tokens, passwords, codes, presigned URLs, or credentials.
-Keep MinIO private and browser access presigned. Use Kubernetes Secrets from
-ignored local configuration; do not commit secrets or deployment-specific
-values. Apply default-deny network policies and least-privilege service access.
+Keep user-data MinIO buckets private and browser job-artifact access presigned.
+The read-only shared sample bucket above may be fetched directly by the local
+browser; its bootstrap must not expose administrator credentials to React.
+Use Kubernetes Secrets from ignored local configuration; do not commit secrets
+or deployment-specific values. Apply default-deny network policies and
+least-privilege service access.
 
 Pin base images by digest. Build static frontend assets with Node and serve
 them through NGINX. Keep workers single-purpose, resource-bounded, and free of

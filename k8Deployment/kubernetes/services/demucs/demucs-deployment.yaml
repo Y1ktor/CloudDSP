@@ -70,8 +70,9 @@ spec:
       enableServiceLinks: false
       # The CPU Demucs child has a 12-minute maximum runtime. The extra minute
       # lets its process group stop/finish and lets the AMQP session close after
-      # SIGTERM before Kubernetes uses SIGKILL; a forced stop remains durable-
-      # safe because a PostgreSQL lease and RabbitMQ delivery can recover work.
+      # SIGTERM before Kubernetes uses SIGKILL. A forced stop remains durable-
+      # safe: PostgreSQL recovery either reclaims still-budgeted work or marks
+      # an already-overdue run terminal without repeating Demucs CPU inference.
       terminationGracePeriodSeconds: 780
       # The published image contains Linux/ARM64-native hash-locked packages.
       # Prevent scheduling to a future AMD64 node that cannot run those exact
@@ -97,8 +98,8 @@ spec:
           # fixes the reviewed worker code, CPU libraries, FFmpeg, and models.
           # `images.lock.yaml` records the matching readable build tag and
           # provenance. The digest here—not that mutable tag—ensures every
-          # replacement Pod uses the reviewed completion-UUID repair build.
-          image: clouddsp-registry.localhost:5001/demucs@sha256:e6cab988fa3786d66dcfd7f608dfa6479582a4acd3bfb9b47f948d637cf6fd59
+          # replacement Pod uses the reviewed terminal-deadline build.
+          image: clouddsp-registry.localhost:5001/demucs@sha256:4aeab642921bc12108cd46f548029b270d7317dad76d416a9ae77d55de605bba
           # A digest cannot change. K3s may reuse cached bytes or pull the
           # exact same image from this cluster's dedicated local registry.
           imagePullPolicy: IfNotPresent

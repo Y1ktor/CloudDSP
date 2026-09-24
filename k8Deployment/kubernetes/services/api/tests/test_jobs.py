@@ -398,6 +398,20 @@ class JobDetailRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 404)
         self.assertEqual(json.loads(response.body), {"error": "Job not found."})
 
+    def test_demucs_timeout_is_a_clear_terminal_message_in_owner_snapshot(self) -> None:
+        """The browser sees no private worker code or implied automatic retry."""
+
+        row = retained_snapshot_row()
+        row.update({"status": "failed", "error": "demucs_process_timed_out"})
+        with patch("app.main.get_retained_job_snapshot_for_owner", return_value=row):
+            response = get_job_detail(UUID(FIXED_JOB_ID), self.principal)
+
+        payload = json.loads(response.body)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("12-minute processing limit", payload["error"])
+        self.assertIn("will not retry", payload["error"])
+        self.assertNotIn("demucs_process_timed_out", payload["error"])
+
     def test_detail_database_failure_is_generic_and_retryable(self) -> None:
         """The route exposes no host, SQL, role, or exception detail."""
 

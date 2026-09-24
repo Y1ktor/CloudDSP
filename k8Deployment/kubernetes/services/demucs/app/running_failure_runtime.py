@@ -6,6 +6,8 @@ compact durable outcome for those reviewed source failures and allows every
 later exception to escape. This outer handoff catches only those later escaped
 exceptions, asks the separate running classifier for a finite safe category,
 and commits the token-guarded ``running -> retry_scheduled/failed`` decision.
+The 12-minute model timeout is terminal on its first occurrence; unrelated
+reviewed transient failures keep the bounded retry schedule.
 
 The ordering is intentional. A pre-model exception is resolved by the inner
 policy and never reaches this module. A model process/output/private-artifact

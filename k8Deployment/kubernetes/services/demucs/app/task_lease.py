@@ -27,6 +27,7 @@ from uuid import UUID, uuid4
 
 from app.demucs_artifacts import DEMUCS_STEM_FILE_EXTENSION, DEMUCS_STEMS_BY_MODE
 from app.demucs_requested_message import DemucsRequestedMessage
+from app.demucs_process import DEFAULT_DEMUCS_PROCESS_TIMEOUT_SECONDS, DEMUCS_TIMEOUT_ERROR_CODE
 
 
 # A normal local CPU or future GPU worker starts with a 15-minute lease and
@@ -151,9 +152,10 @@ class DemucsTaskCompletion:
 
 @dataclass(frozen=True)
 class DemucsExpiredLeaseTerminalization:
-    """Evidence that PostgreSQL terminalized one expired final Demucs attempt.
+    """Evidence that PostgreSQL terminalized an overdue or exhausted task.
 
-    The third owner either died or ran beyond its renewal window. This result
+    The owner either exceeded the overall model deadline or the final lease
+    expired. This result
     proves the task and its Job moved together to their terminal states in one
     committed statement. It excludes model output, source/object coordinates,
     lease tokens, credentials, and raw driver diagnostics.
@@ -443,6 +445,75 @@ FINALIZE_NEXT_EXPIRED_EXHAUSTED_DEMUCS_TASK_SQL = """
       failed_task.last_error_code,
       failed_job.revision AS job_revision,
       failed_job.status AS job_status
+    FROM failed_task
+    JOIN failed_job ON failed_job.job_id = failed_task.job_id
+"""
+
+
+# A child normally raises DemucsProcessTimedOut and its owner writes the
+# terminal result immediately. This second path covers a Pod that vanishes,
+# loses its Python exception, or is force-killed after model work began. The
+# first started_at is the durable job-wide processing clock, so even a task
+# left retry_scheduled after another failure cannot start past this budget.
+# The task and Job move together under row locks; a concurrently completing
+# worker either wins first or loses its lease token on the next checkpoint.
+FINALIZE_NEXT_OVERDUE_DEMUCS_TASK_SQL = """
+    WITH candidate AS (
+      SELECT task_id, job_id
+      FROM public.processing_tasks
+      WHERE stage = 'demucs'
+        AND stem_name = ''
+        AND status IN ('leased', 'running', 'retry_scheduled')
+        AND started_at <= CURRENT_TIMESTAMP - (%s::integer * INTERVAL '1 second')
+      ORDER BY started_at ASC, created_at ASC, task_id ASC
+      FOR UPDATE SKIP LOCKED
+      LIMIT 1
+    ),
+    locked_job AS MATERIALIZED (
+      SELECT job.job_id
+      FROM public.jobs AS job
+      JOIN candidate ON candidate.job_id = job.job_id
+      WHERE job.source_uploaded = TRUE
+        AND job.status = 'source_uploaded'
+        AND job.expires_at > CURRENT_TIMESTAMP
+      FOR UPDATE OF job
+    ),
+    failed_task AS (
+      UPDATE public.processing_tasks AS task
+      SET status = 'failed',
+          available_at = CURRENT_TIMESTAMP,
+          lease_token = NULL,
+          lease_expires_at = NULL,
+          completed_at = CURRENT_TIMESTAMP,
+          last_error_code = 'demucs_process_timed_out'
+      FROM candidate, locked_job
+      WHERE task.task_id = candidate.task_id
+        AND task.job_id = locked_job.job_id
+        AND task.stage = 'demucs'
+        AND task.stem_name = ''
+        AND task.status IN ('leased', 'running', 'retry_scheduled')
+        AND task.started_at <= CURRENT_TIMESTAMP - (%s::integer * INTERVAL '1 second')
+      RETURNING task.task_id::text AS task_id,
+                task.job_id::text AS job_id,
+                task.attempt_count,
+                task.completed_at,
+                task.last_error_code
+    ),
+    failed_job AS (
+      UPDATE public.jobs AS job
+      SET status = 'failed',
+          revision = job.revision + 1,
+          error_message = 'demucs_process_timed_out'
+      FROM locked_job, failed_task
+      WHERE job.job_id = locked_job.job_id
+        AND job.job_id = failed_task.job_id::uuid
+      RETURNING job.job_id::text AS job_id, job.revision, job.status
+    )
+    SELECT failed_task.task_id, failed_task.job_id,
+           failed_task.attempt_count, failed_task.completed_at,
+           failed_task.last_error_code,
+           failed_job.revision AS job_revision,
+           failed_job.status AS job_status
     FROM failed_task
     JOIN failed_job ON failed_job.job_id = failed_task.job_id
 """
@@ -828,6 +899,33 @@ def _row_expired_lease_terminalization(
     )
 
 
+def _row_overdue_terminalization(row: Mapping[str, object]) -> DemucsExpiredLeaseTerminalization:
+    """Validate one bounded timeout proof without reading private Job errors."""
+
+    task_id = _canonical_uuid(_row_text(row, "task_id"))
+    job_id = _canonical_uuid(_row_text(row, "job_id"))
+    attempt_count = _row_attempt_count(row)
+    completed_at = row.get("completed_at")
+    job_revision = row.get("job_revision")
+    if (
+        row.get("last_error_code") != DEMUCS_TIMEOUT_ERROR_CODE
+        or not isinstance(completed_at, datetime)
+        or completed_at.tzinfo is None
+        or type(job_revision) is not int
+        or job_revision < 1
+        or row.get("job_status") != "failed"
+    ):
+        raise DemucsTaskLeaseProtocolError("Demucs task database state is invalid.")
+    return DemucsExpiredLeaseTerminalization(
+        task_id=task_id,
+        job_id=job_id,
+        attempt_count=attempt_count,
+        completed_at=completed_at,
+        job_revision=job_revision,
+        error_code=DEMUCS_TIMEOUT_ERROR_CODE,
+    )
+
+
 def _existing_task_result(row: Mapping[str, object], *, message: DemucsRequestedMessage) -> DemucsTaskClaimResult:
     """Classify a pre-existing canonical task without mutating duplicate state."""
 
@@ -1015,6 +1113,29 @@ def finalize_next_expired_exhausted_demucs_task(
     if row is None:
         return None
     return _row_expired_lease_terminalization(_mapping_or_error(row))
+
+
+def finalize_next_overdue_demucs_task(
+    cursor: DatabaseCursor,
+    *,
+    deadline_seconds: int = DEFAULT_DEMUCS_PROCESS_TIMEOUT_SECONDS,
+) -> DemucsExpiredLeaseTerminalization | None:
+    """Fail one Demucs task/Job after the durable 12-minute start deadline.
+
+    Recovery scans this before issuing another lease. A no-row result means
+    either no overdue task exists or a concurrent success/failure won the row
+    locks; neither condition authorizes another terminal write here.
+    """
+
+    if not callable(getattr(cursor, "execute", None)) or not callable(getattr(cursor, "fetchone", None)):
+        raise TypeError("cursor must provide execute and fetchone.")
+    if type(deadline_seconds) is not int or deadline_seconds != DEFAULT_DEMUCS_PROCESS_TIMEOUT_SECONDS:
+        raise DemucsTaskLeaseProtocolError("Demucs process deadline is invalid.")
+    cursor.execute(FINALIZE_NEXT_OVERDUE_DEMUCS_TASK_SQL, (deadline_seconds, deadline_seconds))
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    return _row_overdue_terminalization(_mapping_or_error(row))
 
 
 def renew_demucs_task_lease(

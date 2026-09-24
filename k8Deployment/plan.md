@@ -148,6 +148,14 @@ Browser ── OIDC ──> Keycloak
    `demucs.requested` payload with the reclaimed lease and returns only a
    boolean. This preserves recovery while keeping other private event payloads
    outside the worker's authority.
+
+   The local CPU model has a 12-minute processing budget. A process timeout
+   now atomically fails its task and Job on the first occurrence, without a
+   scheduled retry. A recovery scan also fails a task whose durable first
+   `started_at` crossed that deadline if its Pod vanished or was force-killed;
+   it runs before any new lease is issued. `GET /jobs/{job_id}` translates the
+   fixed timeout code into a clear, owner-visible terminal message. Other
+   reviewed transient failures retain their existing bounded retry policy.
 5. After its artifact and PostgreSQL commit succeed, Demucs writes one outbox
    event per actual stem: drums route to ADTOF and pitched stems route to Basic
    Pitch.
@@ -3529,6 +3537,13 @@ inspection; the temporary Secret copies remain applied for repeated runs.
   the two variants is deliberate and documented in the local app provenance.
 - Keep browser uploads presigned and private. Store object keys—not signed
   URLs—in durable state.
+- Shared MIDI playback samples are a deliberately separate MinIO asset class.
+  The local bootstrap mirrors the exact pinned `smplr` piano, guitar, bass,
+  and drum sample set into `clouddsp-midi-samples`, records upstream SHA-256
+  evidence, and grants anonymous `GetObject` only on that bucket. It grants no
+  listing or write access and never changes the private `clouddsp-uploads`
+  policy. The browser fetches samples through the existing MinIO S3 Ingress;
+  no external sample CDN is needed after bootstrap.
 - Preserve browser polling as the artifact-retrieval fallback. WebSocket
   messages are hints only.
 - Keep CSP exact. Add only reviewed local API, WSS, OIDC, and MinIO origins;

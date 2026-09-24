@@ -8,7 +8,7 @@ const commonDirectives = [
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
-    "media-src 'self' blob: https://*.s3.amazonaws.com https://smpldsnds.github.io",
+    "media-src 'self' blob: https://*.s3.amazonaws.com",
     "worker-src 'self' blob:",
     "frame-src 'none'",
     "frame-ancestors 'none'",
@@ -42,10 +42,9 @@ export function contentSecurityPolicy({
     const connectSources = new Set([
         "'self'",
         'https://*.s3.amazonaws.com',
-        // smplr fetches the FluidR3 guitar and bass banks as data through
-        // fetch(), so this belongs in connect-src rather than script-src.
-        'https://gleitz.github.io',
-        'https://smpldsnds.github.io',
+        // Local MIDI sample reads use the configured MinIO origin below.
+        // Do not whitelist the original online soundfont/piano/drum hosts:
+        // playback must keep working when the browser is offline.
     ]);
     const jobApiOrigin = configuredOrigin(jobApiUrl, new Set(['https:']));
     // The local k3d profile deliberately exposes MinIO through its one HTTP

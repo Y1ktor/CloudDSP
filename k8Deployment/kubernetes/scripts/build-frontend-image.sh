@@ -22,7 +22,7 @@ readonly DOCKERFILE="${FRONTEND_DIRECTORY}/Dockerfile"
 # learning cluster. The immutable repository digest printed after push is the
 # value a future Deployment will use; this descriptive tag is build traceability.
 readonly REGISTRY_HOST="clouddsp-registry.localhost:5001"
-readonly IMAGE_NAME="${REGISTRY_HOST}/frontend:0.5.0-cross-tab-email-oidc"
+readonly IMAGE_NAME="${REGISTRY_HOST}/frontend:0.5.2-local-midi-samples"
 
 usage() {
   cat <<'USAGE'

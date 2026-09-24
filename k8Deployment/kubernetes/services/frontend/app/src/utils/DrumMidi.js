@@ -1,3 +1,5 @@
+import { midiSampleUrl } from './midiSampleAssets';
+
 /**
  * ADTOF emits one General MIDI pitch for each of its five drum classes.
  *
@@ -13,15 +15,15 @@ export const ADTOF_DRUM_VOICES = Object.freeze([
     { id: 'cymbal', label: 'Cymbal', midi: 49, sample: 'cymbal', color: '#ba68c8' },
 ]);
 
-// smplr publishes this compact 808 kit with stable, flat sample paths. Loading
-// only these five avoids downloading the full kit and its many alternate
-// samples when ADTOF only emits five classes.
+// These five compact 808 sounds live in a dedicated local MinIO bucket. Each
+// voice still has its own sampler/gain, but browser playback needs no external
+// GitHub Pages host after the one-time sample mirror has been populated.
 export const ADTOF_DRUM_SAMPLE_BUFFERS = Object.freeze({
-    kick: 'https://smpldsnds.github.io/drum-machines/808-mini/kick.m4a',
-    snare: 'https://smpldsnds.github.io/drum-machines/808-mini/snare-1.m4a',
-    'mid-tom': 'https://smpldsnds.github.io/drum-machines/808-mini/tom-mid.m4a',
-    'hihat-close': 'https://smpldsnds.github.io/drum-machines/808-mini/hhclosed-1.m4a',
-    cymbal: 'https://smpldsnds.github.io/drum-machines/808-mini/crash.m4a',
+    kick: midiSampleUrl('drums/kick.m4a'),
+    snare: midiSampleUrl('drums/snare-1.m4a'),
+    'mid-tom': midiSampleUrl('drums/tom-mid.m4a'),
+    'hihat-close': midiSampleUrl('drums/hhclosed-1.m4a'),
+    cymbal: midiSampleUrl('drums/crash.m4a'),
 });
 
 // smplr's flat-buffer Sampler currently copies these optional values into its

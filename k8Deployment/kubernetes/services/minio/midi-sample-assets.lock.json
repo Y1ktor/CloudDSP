@@ -1,0 +1,2311 @@
+{
+  "asset_count": 461,
+  "assets": {
+    "drums/crash.m4a": {
+      "bytes": 58061,
+      "sha256": "3ba8ae8f9515502dcc40a6217820ec5105e4bb06e7df86317c9f271b72cb8f15",
+      "source": "https://smpldsnds.github.io/drum-machines/808-mini/crash.m4a"
+    },
+    "drums/hhclosed-1.m4a": {
+      "bytes": 4264,
+      "sha256": "d37b1b8258dd293e45df3f9dd11f78eb65efabd137e0d0633a9398e18785fb26",
+      "source": "https://smpldsnds.github.io/drum-machines/808-mini/hhclosed-1.m4a"
+    },
+    "drums/kick.m4a": {
+      "bytes": 5511,
+      "sha256": "0746e2157b2d5a30e883fbcea49428c5a9b8093ab7166b1dedf0c0603cf5ed67",
+      "source": "https://smpldsnds.github.io/drum-machines/808-mini/kick.m4a"
+    },
+    "drums/snare-1.m4a": {
+      "bytes": 6098,
+      "sha256": "d3e6551256f5f5866aec8081057dbfdc3e4c881665a79287e58bedcaf4d463e0",
+      "source": "https://smpldsnds.github.io/drum-machines/808-mini/snare-1.m4a"
+    },
+    "drums/tom-mid.m4a": {
+      "bytes": 13219,
+      "sha256": "9b1997f18b77562c0e725d8764fcae7660cfebc86dc2c36cc2d34520048ca9dd",
+      "source": "https://smpldsnds.github.io/drum-machines/808-mini/tom-mid.m4a"
+    },
+    "piano/FF A#2.m4a": {
+      "bytes": 179140,
+      "sha256": "cf5d55549b475c8037b400341238088d74fb15df913f4ccfdc7d1836412fd6e4",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20A%232.m4a"
+    },
+    "piano/FF A#2.ogg": {
+      "bytes": 162376,
+      "sha256": "4491569ddee45aa64407e4e37e271a4ad28ad1434bc19dfe284c4a35210fc2b7",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20A%232.ogg"
+    },
+    "piano/FF A#4.m4a": {
+      "bytes": 60050,
+      "sha256": "d736821c23a6a820475f3efc90a8ba4fbe9f07dab6d534959142fe3243de434f",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20A%234.m4a"
+    },
+    "piano/FF A#4.ogg": {
+      "bytes": 52734,
+      "sha256": "4ff3f1539222909bbebab701ca616adfcf6df149be54f92fa13ac8e2431e43fb",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20A%234.ogg"
+    },
+    "piano/FF A0.m4a": {
+      "bytes": 200764,
+      "sha256": "5a4f114ca68869fe6c294a54264466be998c7617289db008616bfe990ed66257",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20A0.m4a"
+    },
+    "piano/FF A0.ogg": {
+      "bytes": 149248,
+      "sha256": "ef4a2b9eac00d5418da4b3e62b5e8c4d6dcf2b89e595ddf2a651cdf9966ffb0d",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20A0.ogg"
+    },
+    "piano/FF A1.m4a": {
+      "bytes": 205845,
+      "sha256": "1a2a7dd1e6f33837a9f48f284db6749f342093b6bd165d6286f9d2dd0e783b51",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20A1.m4a"
+    },
+    "piano/FF A1.ogg": {
+      "bytes": 178882,
+      "sha256": "571a608f51542ec8f776898e53be48327e65a47e982e379f30ebbb535d892ede",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20A1.ogg"
+    },
+    "piano/FF A2.m4a": {
+      "bytes": 143037,
+      "sha256": "cc94b35f9eec0268100821f221150778c91d08a8c2a8470f7791b8bc00946f5a",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20A2.m4a"
+    },
+    "piano/FF A2.ogg": {
+      "bytes": 130092,
+      "sha256": "31e61de9524764ae90735613ac032500074b5e03b21fb2963bd6f2ed079bc3c4",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20A2.ogg"
+    },
+    "piano/FF A3.m4a": {
+      "bytes": 100201,
+      "sha256": "76b848aa83e4642475378862eb3a66d77b74082ea59ed33d1d421a5342f07c3b",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20A3.m4a"
+    },
+    "piano/FF A3.ogg": {
+      "bytes": 99690,
+      "sha256": "4a4186d2822c45ff7586a4bf1bfeb30fc9a65febabf3c9d8478beba5e722f2de",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20A3.ogg"
+    },
+    "piano/FF A4.m4a": {
+      "bytes": 56311,
+      "sha256": "e063a87bef82e53e8ec371b6f066bf92f27b4bd0c1a1992fc8b961a14963090c",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20A4.m4a"
+    },
+    "piano/FF A4.ogg": {
+      "bytes": 49937,
+      "sha256": "a77e2a0e2768482a7da939a8b304615f8636bd107a95aa6073ed85a51387dccd",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20A4.ogg"
+    },
+    "piano/FF A5.m4a": {
+      "bytes": 29956,
+      "sha256": "ddf88e76b747bd56241aa2ccf7c77ba702c02d367142a934d55e21073135504c",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20A5.m4a"
+    },
+    "piano/FF A5.ogg": {
+      "bytes": 24399,
+      "sha256": "d93f32bc569528cea95b3995aa47dc41f9ec3899c979504dcc0757a8392d8d90",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20A5.ogg"
+    },
+    "piano/FF B-1.m4a": {
+      "bytes": 212199,
+      "sha256": "85df49433195630d8fc861c5d7489240ebe598bd08b88108847bc820cb959b92",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20B-1.m4a"
+    },
+    "piano/FF B-1.ogg": {
+      "bytes": 136322,
+      "sha256": "72e5bba88e7f604e065fdc55875010e0857b6314bf0ddfd119df3dc186da732d",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20B-1.ogg"
+    },
+    "piano/FF B0.m4a": {
+      "bytes": 191586,
+      "sha256": "740ba8de9e53ef3156c1a3bd6d1a4b411f61ba183187bacc421c4ed8dfc113c3",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20B0.m4a"
+    },
+    "piano/FF B0.ogg": {
+      "bytes": 152790,
+      "sha256": "f6a43ee108049399caad47f70d0991256fff4376f10a45f92b04c8c98ddc73fd",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20B0.ogg"
+    },
+    "piano/FF B1.m4a": {
+      "bytes": 206936,
+      "sha256": "7239ba8633b58f9f5f04491a713b25207294389761d90ce0c8d771ca130a9a1e",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20B1.m4a"
+    },
+    "piano/FF B1.ogg": {
+      "bytes": 186017,
+      "sha256": "950bcbb0e15213ab8d2c93d31815fa6cc75d212f3ba93e7612447474e3c650d0",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20B1.ogg"
+    },
+    "piano/FF B2.m4a": {
+      "bytes": 133978,
+      "sha256": "c68c956edb715bde83133434e0dde95c6a1c85e6aec23291866f79a687eca8b5",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20B2.m4a"
+    },
+    "piano/FF B2.ogg": {
+      "bytes": 123350,
+      "sha256": "74646ba8ba43b5f4680c4f5c86a6e0c70a8e0f7d19b8390a60377504c682e9f7",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20B2.ogg"
+    },
+    "piano/FF B3.m4a": {
+      "bytes": 86000,
+      "sha256": "a543eafd77d28dffecef6b5a578845c1a65134371def5dcddeb08965f926a286",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20B3.m4a"
+    },
+    "piano/FF B3.ogg": {
+      "bytes": 86005,
+      "sha256": "7f19f72659bf1bbeba3f3fd57948559c514e5fc3f85ed9c6a2d707b6b44d34d4",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20B3.ogg"
+    },
+    "piano/FF B4.m4a": {
+      "bytes": 59616,
+      "sha256": "6b422fbdfb5a3e7c3c289597cb3e894573501a77638dbaa65c2b521d41e859cb",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20B4.m4a"
+    },
+    "piano/FF B4.ogg": {
+      "bytes": 56512,
+      "sha256": "24ef7664991b45266e535fe9b763b70dfcb8399cc49b6670a2518f61950cc972",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20B4.ogg"
+    },
+    "piano/FF C#1.m4a": {
+      "bytes": 166510,
+      "sha256": "7789aee2205178aca612c67d54d0ad01441392a2817251a04b0aab9baf229df9",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20C%231.m4a"
+    },
+    "piano/FF C#1.ogg": {
+      "bytes": 140351,
+      "sha256": "e98493dd9bfa4eafbf22294ed83c9dde4a10daecdab967608ee5b65f50e18e1c",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20C%231.ogg"
+    },
+    "piano/FF C#5.m4a": {
+      "bytes": 62225,
+      "sha256": "835a542c101081fae99bbe2f28272a4068d7e02531ff43a86eefa179f79b0e10",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20C%235.m4a"
+    },
+    "piano/FF C#5.ogg": {
+      "bytes": 51159,
+      "sha256": "83d18554ac791170a852a97455c56f30535318692b039db197c98fbbb2c18d8f",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20C%235.ogg"
+    },
+    "piano/FF C2.m4a": {
+      "bytes": 191909,
+      "sha256": "ae58dfbc0f1d463bee31b244041b8619e21d2f5de4152dc1857433179b8c06e5",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20C2.m4a"
+    },
+    "piano/FF C2.ogg": {
+      "bytes": 169281,
+      "sha256": "4c41f83b573b1137557d80dd065649378a67b869b0035b7b032166f137099131",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20C2.ogg"
+    },
+    "piano/FF C3.m4a": {
+      "bytes": 104343,
+      "sha256": "d2895a5cd181875dc0e737c9e9ffbc281ca8f502b4e555c1a7558ab81e9ad769",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20C3.m4a"
+    },
+    "piano/FF C3.ogg": {
+      "bytes": 99614,
+      "sha256": "c06dbf7011bb301f73b838f9465218e5c766fdab52373df620797d794c850e55",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20C3.ogg"
+    },
+    "piano/FF C4.m4a": {
+      "bytes": 62220,
+      "sha256": "70a4adf2118591e1085f7e1c748aa04e2c06904e8eecad8fc9a3b17207d0112a",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20C4.m4a"
+    },
+    "piano/FF C4.ogg": {
+      "bytes": 61608,
+      "sha256": "2713fb555cc845e431e49e780bdf708d28ab1bbc78265173c24dc672d0688a2b",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20C4.ogg"
+    },
+    "piano/FF D#0.m4a": {
+      "bytes": 202413,
+      "sha256": "1b76df60cc88caf5775b64f8ef1f1164e8e0661441b1b7f3ecfc7df4b6c47b9e",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20D%230.m4a"
+    },
+    "piano/FF D#0.ogg": {
+      "bytes": 136148,
+      "sha256": "f021818f2fa30b8d2d6953aa57bb128ae22ab9b454579616f92bab82968dc140",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20D%230.ogg"
+    },
+    "piano/FF D1.m4a": {
+      "bytes": 206568,
+      "sha256": "5c9e29cb4ae9721e6c7be98520ebffb967d1122212fdd9ec121ea22ac7320019",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20D1.m4a"
+    },
+    "piano/FF D1.ogg": {
+      "bytes": 176629,
+      "sha256": "4d23ff6d378f9d5b79dcfa54fc53175242e9b1e69adccdf7e8bb3a4618f55679",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20D1.ogg"
+    },
+    "piano/FF D2.m4a": {
+      "bytes": 202918,
+      "sha256": "fa739f91557b1446a19ecd978d433a2d219f139bc9acb33bd37a89ee412d00eb",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20D2.m4a"
+    },
+    "piano/FF D2.ogg": {
+      "bytes": 182454,
+      "sha256": "c24b78fff38fdb799353356ab17b96e74d2d94d0b3909349d37397a0990c3adb",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20D2.ogg"
+    },
+    "piano/FF D3.m4a": {
+      "bytes": 106889,
+      "sha256": "8072ffd3a43c6584323675067fd6cab73b4518a7c20b94e23aeabf57225422c6",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20D3.m4a"
+    },
+    "piano/FF D3.ogg": {
+      "bytes": 102309,
+      "sha256": "a49d76dcfaedffc7daf6911e0548e57477f5bbe30274e6c959df5f523e3cb343",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20D3.ogg"
+    },
+    "piano/FF D4.m4a": {
+      "bytes": 90468,
+      "sha256": "423752b5500fdf43e77b6077565f9b5635adb78938432c24b09ac262691770d4",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20D4.m4a"
+    },
+    "piano/FF D4.ogg": {
+      "bytes": 86103,
+      "sha256": "0ffde40205c32c8ab20ed8a2f915fc16853fc6f4e75dcfa5409db65ff81ea762",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20D4.ogg"
+    },
+    "piano/FF D5.m4a": {
+      "bytes": 73566,
+      "sha256": "cfb4de6c3b02803ce3da8ba3566946aaf3b2ccfaceadb75a1f2c617be625b515",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20D5.m4a"
+    },
+    "piano/FF D5.ogg": {
+      "bytes": 60923,
+      "sha256": "f080667f6df55f05afdac28487092ee5e76fa37939a98809ac945b03f4a28dd8",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20D5.ogg"
+    },
+    "piano/FF E1.m4a": {
+      "bytes": 197607,
+      "sha256": "d19004d26fdd6fd158664b074c153aa1826b2bf110b98e0f1e93f7efa2edff7e",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20E1.m4a"
+    },
+    "piano/FF E1.ogg": {
+      "bytes": 173099,
+      "sha256": "4551b989b61d76c5362fbeb0ecf3358e63b33f233562e37efc7ecda221e65169",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20E1.ogg"
+    },
+    "piano/FF E2.m4a": {
+      "bytes": 195288,
+      "sha256": "902adc7104ab89f80fc2241b0e8c259357fb0fbd2e1c008a6df5989a50f55857",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20E2.m4a"
+    },
+    "piano/FF E2.ogg": {
+      "bytes": 177038,
+      "sha256": "c2d4a9ffc5ec2e5f923ff4ebb3604e8d483c4d68fe085d48fece1004cfe4d70e",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20E2.ogg"
+    },
+    "piano/FF E3.m4a": {
+      "bytes": 126973,
+      "sha256": "297fdde84f5179ee59826e2e8532d648786c7a9a316aa86dd7081c1ee68af672",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20E3.m4a"
+    },
+    "piano/FF E3.ogg": {
+      "bytes": 120139,
+      "sha256": "39dacb87b61adf2af684b69a671af25edab8fccf2327045bf106a0612382a941",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20E3.ogg"
+    },
+    "piano/FF E4.m4a": {
+      "bytes": 84905,
+      "sha256": "7f47f70ebbcab7ee2e1e500796416530a8eb5eccfab1d90bc2c9d00eb87acbd0",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20E4.m4a"
+    },
+    "piano/FF E4.ogg": {
+      "bytes": 81537,
+      "sha256": "57c229dd3e5fcb5118d4e77f1bfaf522d0fa864d6367c2324e19675e9fc81ffa",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20E4.ogg"
+    },
+    "piano/FF E5.m4a": {
+      "bytes": 49847,
+      "sha256": "6a393d83463a307e7b55732732f254a3adb58b8e685047e18deeaf006b9253b1",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20E5.m4a"
+    },
+    "piano/FF E5.ogg": {
+      "bytes": 39835,
+      "sha256": "7b7498333cc5a685cd13b4a7110c97db63177daa339361f7f95faf88a4bbc5ea",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20E5.ogg"
+    },
+    "piano/FF F0.m4a": {
+      "bytes": 230743,
+      "sha256": "6038784fbcb23842e2f00834e5120bec491bc421164bf01d5ef8df31160e374a",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20F0.m4a"
+    },
+    "piano/FF F0.ogg": {
+      "bytes": 160016,
+      "sha256": "df9f10b06d90ed7be0cd665bad5964d46fc0589de603ef593a3e1589975f2b32",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20F0.ogg"
+    },
+    "piano/FF F1.m4a": {
+      "bytes": 211938,
+      "sha256": "3b78d33808ec56d38bf40926f41cc3f4cbbc856b189d0dda9463c627c821b70a",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20F1.m4a"
+    },
+    "piano/FF F1.ogg": {
+      "bytes": 185236,
+      "sha256": "f260f03d1cda2805f75de8664bb5004bbd9096182066579b2a4efb53bec8f184",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20F1.ogg"
+    },
+    "piano/FF F2.m4a": {
+      "bytes": 142677,
+      "sha256": "92a9a7e9be432136d203b1a09bfe39c1546ae2e44c42af085864e635a4c4ae23",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20F2.m4a"
+    },
+    "piano/FF F2.ogg": {
+      "bytes": 131206,
+      "sha256": "e48f18c96328565ab378e42a84ec2f46c9a9300b36f2763dc259289cbd224efd",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20F2.ogg"
+    },
+    "piano/FF F3.m4a": {
+      "bytes": 100204,
+      "sha256": "ca329e2797aed17ed8a73b6bbe9a14ea26da7e953e2a0f8135e45392703eb629",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20F3.m4a"
+    },
+    "piano/FF F3.ogg": {
+      "bytes": 96518,
+      "sha256": "1547e7eac57f18473e897d20bbb0079e2da39b5e1e4703aba80f430e8fe8d857",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20F3.ogg"
+    },
+    "piano/FF F4.m4a": {
+      "bytes": 70164,
+      "sha256": "3946cafacd553fdf7416b80f66d199e2bf76ed12ce2227d7c3c47a4bc43eb955",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20F4.m4a"
+    },
+    "piano/FF F4.ogg": {
+      "bytes": 65219,
+      "sha256": "c925ff28d9513dfc124f70f6ce19b7af601658452913767e17c640e1c77bbcc2",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20F4.ogg"
+    },
+    "piano/FF F5.m4a": {
+      "bytes": 41964,
+      "sha256": "c213dc9c003f073e2298881dab1b3e6a0109ddd3bfc6873c42070544fa6039f2",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20F5.m4a"
+    },
+    "piano/FF F5.ogg": {
+      "bytes": 36685,
+      "sha256": "f7e70176cc8b4c63f70a8f2c5e2b5c48e6094bce26cd551976aa709cdbb3c02e",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20F5.ogg"
+    },
+    "piano/FF G#2.m4a": {
+      "bytes": 160011,
+      "sha256": "4ea454116222f0a8d1cf7a0ce4905afc4bc5bb364c26acc7fdd99526aede897d",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20G%232.m4a"
+    },
+    "piano/FF G#2.ogg": {
+      "bytes": 146657,
+      "sha256": "9cd62b127230275c5a5664c8b89dfb616b3a9ca6f8288ac8be02763ca9736cb2",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20G%232.ogg"
+    },
+    "piano/FF G#4.m4a": {
+      "bytes": 63479,
+      "sha256": "834e45f88e27ecc8c411c76da7a1d61834408963cc223b9e432785cadb57bc33",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20G%234.m4a"
+    },
+    "piano/FF G#4.ogg": {
+      "bytes": 60071,
+      "sha256": "06c294b4fe17fc222a0e1552428a790f56f0b8d57fa1e7717be093ca17747b09",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20G%234.ogg"
+    },
+    "piano/FF G0.m4a": {
+      "bytes": 199523,
+      "sha256": "773b317db57d532effb607f827ab0e75b2366d6a4b9801879a0373709af6a309",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20G0.m4a"
+    },
+    "piano/FF G0.ogg": {
+      "bytes": 138198,
+      "sha256": "7e1a0a940f43a109825d4266e118fa46137bd26af53c3ec1c88a2c54eb4ec47e",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20G0.ogg"
+    },
+    "piano/FF G1.m4a": {
+      "bytes": 186620,
+      "sha256": "a7b01040b2f14735f4bd439e5525b5e6a8d68af648d3f011024c19b485f26c8d",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20G1.m4a"
+    },
+    "piano/FF G1.ogg": {
+      "bytes": 163628,
+      "sha256": "0f5a6a6df1759e63032d2628cc71840d328e3b06263f683181cfef421decfa5c",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20G1.ogg"
+    },
+    "piano/FF G2.m4a": {
+      "bytes": 136686,
+      "sha256": "c8d42ecc368b9e2cebb213278b2429affcd90a918c23aa62c574c93ca1a2c413",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20G2.m4a"
+    },
+    "piano/FF G2.ogg": {
+      "bytes": 124709,
+      "sha256": "425a9f4508bb75c7e3722d32e4169853ecdc6bdbd8eba72771d23e9a23fadbd8",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20G2.ogg"
+    },
+    "piano/FF G3.m4a": {
+      "bytes": 93833,
+      "sha256": "76f0d845b18c056c1a1d898caf4a64a649a4a7924537e358b64cc726c5b7da68",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20G3.m4a"
+    },
+    "piano/FF G3.ogg": {
+      "bytes": 90172,
+      "sha256": "04ca5d556296a1927ab16e08404225e50bb866fe9d34b880d4b268319d7d2d9a",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20G3.ogg"
+    },
+    "piano/FF G4.m4a": {
+      "bytes": 58536,
+      "sha256": "e6705997446078069a95f7a943e66616e6f281624b4b59ffdd1fcb86ff39e751",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20G4.m4a"
+    },
+    "piano/FF G4.ogg": {
+      "bytes": 55937,
+      "sha256": "8e7abd4c2da49fe679807f33732a89dbeb28cbea6f6b251ff3ce74a92beac760",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20G4.ogg"
+    },
+    "piano/FF G5.m4a": {
+      "bytes": 40418,
+      "sha256": "7432f7bc8978dd70e610591b495e6bf9763e12d88f00e1df7aca8869adac2406",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20G5.m4a"
+    },
+    "piano/FF G5.ogg": {
+      "bytes": 35397,
+      "sha256": "322d6e7e0f137fd0dd85b0bdac3d87b30de9684262fbb0bad56070e71dd8ebf6",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/FF%20G5.ogg"
+    },
+    "piano/MF A#2.m4a": {
+      "bytes": 154309,
+      "sha256": "902a18334458b5738f81cca17091c2e260b64e7adde0e8b7aaae78dac435bade",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20A%232.m4a"
+    },
+    "piano/MF A#2.ogg": {
+      "bytes": 139341,
+      "sha256": "4b55d0d957c4575080284b419fda2460cb974c2f34ba767564917ff1f8196a3c",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20A%232.ogg"
+    },
+    "piano/MF A1.m4a": {
+      "bytes": 171184,
+      "sha256": "a243d5e9de3ebbc24e5e9e0ddb1b16a72dcb7029ef440898423871c633efb085",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20A1.m4a"
+    },
+    "piano/MF A1.ogg": {
+      "bytes": 150874,
+      "sha256": "37e4550d72c015b7fe477e7334973ae8710715d1060ea5cdcc3405b4a873f5db",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20A1.ogg"
+    },
+    "piano/MF A2.m4a": {
+      "bytes": 169265,
+      "sha256": "ed6cbdaace2f2e83d2f9c741ba1f34c5a73855aa19aa602881a37292a0d18b3a",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20A2.m4a"
+    },
+    "piano/MF A2.ogg": {
+      "bytes": 150922,
+      "sha256": "73241c4b6ed287823815a408bc4f3e712fc4909087609d1eeab09206f3f4e9c9",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20A2.ogg"
+    },
+    "piano/MF A3.m4a": {
+      "bytes": 107773,
+      "sha256": "a514fa5908e3aa98771080b89e09d71b6cc5d72b1cdcfa68781b56f8278101ce",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20A3.m4a"
+    },
+    "piano/MF A3.ogg": {
+      "bytes": 104578,
+      "sha256": "09ced8b8a19e9e2d0cafd8e55658c31470e666651599f2e83cfaccef1f5a4f4c",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20A3.ogg"
+    },
+    "piano/MF B1.m4a": {
+      "bytes": 176092,
+      "sha256": "4d384eef7ec2eeff9eabc73196486ed8a325b61a9c3d15ff86e59114f347b1cf",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20B1.m4a"
+    },
+    "piano/MF B1.ogg": {
+      "bytes": 157928,
+      "sha256": "1a896f5573bbc9e068e4359e69b0091809cae21d16826e73f0c2cdbb93ff6511",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20B1.ogg"
+    },
+    "piano/MF B2.m4a": {
+      "bytes": 131355,
+      "sha256": "99d152ad9c312e68445f0c1e18bb2ceb1ed293290b86f7a2b217b4067e1917c8",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20B2.m4a"
+    },
+    "piano/MF B2.ogg": {
+      "bytes": 119968,
+      "sha256": "1f905f5d1e0beb30b24df5c61b5737e1ca5b5ff7c43d641df79e8398c6330447",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20B2.ogg"
+    },
+    "piano/MF B3.m4a": {
+      "bytes": 89665,
+      "sha256": "5bf3037ac2bc81609692179ed783f4f2303867dbb80f8d859fa4e0adf0c33388",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20B3.m4a"
+    },
+    "piano/MF B3.ogg": {
+      "bytes": 89475,
+      "sha256": "51ad30fe1889543008989d378ae520e8a989447dc4b5c18a9e21c5a2e87ef033",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20B3.ogg"
+    },
+    "piano/MF C#1.m4a": {
+      "bytes": 225024,
+      "sha256": "5a4d37fb97050518d8491a8bccf12aa38ca6ae0bfc2842991780e08378b71dd6",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20C%231.m4a"
+    },
+    "piano/MF C#1.ogg": {
+      "bytes": 179123,
+      "sha256": "19f8f0f0fa2f2f6be13299109dc6094df5bb8ab0b797b950e57b4cf7dd883c8e",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20C%231.ogg"
+    },
+    "piano/MF C2.m4a": {
+      "bytes": 184936,
+      "sha256": "f83ca5a58610cfdd0628b08dcfb07897e843500b7fec9d69126001a62ef3a5be",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20C2.m4a"
+    },
+    "piano/MF C2.ogg": {
+      "bytes": 161597,
+      "sha256": "a381f6b65d06daa47a9773e8d31bc91b46b10dc46b2f70e896dd14efc2c617c1",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20C2.ogg"
+    },
+    "piano/MF C3.m4a": {
+      "bytes": 119106,
+      "sha256": "42d4d5dcf205f54e18b92481749ec21290ce1f5fcd6c228d3c90a0ff54a1df73",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20C3.m4a"
+    },
+    "piano/MF C3.ogg": {
+      "bytes": 109934,
+      "sha256": "154161661726ea8af9944235b4b456522d1617a569e88541ca03b464d1d02b89",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20C3.ogg"
+    },
+    "piano/MF C4.m4a": {
+      "bytes": 70841,
+      "sha256": "87d38de30449443992798997203442f705be6aed557ee59c9e48f9ec396fada4",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20C4.m4a"
+    },
+    "piano/MF C4.ogg": {
+      "bytes": 67477,
+      "sha256": "2abedb21e88bc9083b70ceabf3fd253af1829f1b36ae8e60675776661019510d",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20C4.ogg"
+    },
+    "piano/MF D1.m4a": {
+      "bytes": 205380,
+      "sha256": "c2ba6a725d4b6997493398381610220442d80497ce9487c1b7f13c5662184d99",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20D1.m4a"
+    },
+    "piano/MF D1.ogg": {
+      "bytes": 175132,
+      "sha256": "4c1e3b268f8f1500a64b992eb21dfad3403422e7b1ff54f1380f46e8d80bf814",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20D1.ogg"
+    },
+    "piano/MF D2.m4a": {
+      "bytes": 166443,
+      "sha256": "4a61559c6699c389430988d197ca15f0c7a019db6ec2320d4c134536999097fc",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20D2.m4a"
+    },
+    "piano/MF D2.ogg": {
+      "bytes": 149569,
+      "sha256": "0ac08c01dafbaa40f93eecadc2c58a0a168fdc25cc2071f5ba2bdd9aeb8d020b",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20D2.ogg"
+    },
+    "piano/MF D3.m4a": {
+      "bytes": 149730,
+      "sha256": "1c150b1ed2236f7207edee041ead4cfe5ea0494b5912bc1c68369d9da81d1cbd",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20D3.m4a"
+    },
+    "piano/MF D3.ogg": {
+      "bytes": 139102,
+      "sha256": "a30dd5199dbfe0cd1985457fe9e1ab0849d92d17fb331edf8fbf4e1adc712ae2",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20D3.ogg"
+    },
+    "piano/MF E1.m4a": {
+      "bytes": 211182,
+      "sha256": "3e7a1ce0302842cd1a774eb20a4a5a3e8725bfa20c48afac5c2ed23da19929b3",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20E1.m4a"
+    },
+    "piano/MF E1.ogg": {
+      "bytes": 184902,
+      "sha256": "fc3549f40d67cfc50bce513cb02adbb98b7bffabe0a332eb22f793bd9c1dbfc4",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20E1.ogg"
+    },
+    "piano/MF E2.m4a": {
+      "bytes": 168614,
+      "sha256": "7c6b0e013a0921e8aee7917f17aca9b8c108d8de2c428f3aa1f93d9b592cf942",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20E2.m4a"
+    },
+    "piano/MF E2.ogg": {
+      "bytes": 152939,
+      "sha256": "1ac8bd1b21218d6ee51c4d202b051c3693dcab15433fd4630e951c47e1537787",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20E2.ogg"
+    },
+    "piano/MF E3.m4a": {
+      "bytes": 137283,
+      "sha256": "f1c8dc8e12419f861eb84d7b17c07e9dd3586155fbc6d7bf3e4c04f6001b8709",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20E3.m4a"
+    },
+    "piano/MF E3.ogg": {
+      "bytes": 127316,
+      "sha256": "1311702e344c5566289e9f63c2a21f75255e21eedc12b521c7930771f76523ca",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20E3.ogg"
+    },
+    "piano/MF F1.m4a": {
+      "bytes": 207661,
+      "sha256": "ca9ffa6404343443830a400950ac6cc3fa4e9ca6a3207d1fcb35bedc69be21c4",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20F1.m4a"
+    },
+    "piano/MF F1.ogg": {
+      "bytes": 180670,
+      "sha256": "27c3cdc6af951c4e86ccf966cdc2de0696ed51917ce1894016f7e1f4c4ab1f2d",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20F1.ogg"
+    },
+    "piano/MF F2.m4a": {
+      "bytes": 188560,
+      "sha256": "bc3f0b1bef444ba7f65cfea8bebe3e9776308a7b5672f5ddacc240c9433c46cc",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20F2.m4a"
+    },
+    "piano/MF F2.ogg": {
+      "bytes": 167800,
+      "sha256": "fdeda3510b2dfccb1df7b2e1c708ac467513b936c27f85108ae1c0e65c2cc1ae",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20F2.ogg"
+    },
+    "piano/MF F3.m4a": {
+      "bytes": 107752,
+      "sha256": "924222156532252ee780f611a512dd2533862649632488607d2de2c255da9fc5",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20F3.m4a"
+    },
+    "piano/MF F3.ogg": {
+      "bytes": 102561,
+      "sha256": "da9ce3c3c9b5c8269d4671ace0c21193f6ef5a5cbabe2ce6eac214baaa8f025d",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20F3.ogg"
+    },
+    "piano/MF G#2.m4a": {
+      "bytes": 175191,
+      "sha256": "1f2697a5b479e43abb57db65328785e2745c5c14466ce87b407c91da6afd6b57",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20G%232.m4a"
+    },
+    "piano/MF G#2.ogg": {
+      "bytes": 154799,
+      "sha256": "653b4c2f7f6187b11eb672d29405745fb05855fe2f13833a7bae860e80b5a470",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20G%232.ogg"
+    },
+    "piano/MF G1.m4a": {
+      "bytes": 213792,
+      "sha256": "617b8a9667c36e4fb92125e1336bbced645856b664357a43245ba9d552dc3058",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20G1.m4a"
+    },
+    "piano/MF G1.ogg": {
+      "bytes": 185785,
+      "sha256": "406ae2a4d540c4a5648e71c06beb577d4dcbe92aaf5fec364d8f05aaf32eebc5",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20G1.ogg"
+    },
+    "piano/MF G2.m4a": {
+      "bytes": 175409,
+      "sha256": "19d5bafde1c37d715f1ffb5a7a5e2ac44172c2895b25b3ee71980137a5985597",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20G2.m4a"
+    },
+    "piano/MF G2.ogg": {
+      "bytes": 156111,
+      "sha256": "7276a7c5efa023e71035d2ac441d5d212b2b0ba4722c0894c4e9e73b645bb54f",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20G2.ogg"
+    },
+    "piano/MF G3.m4a": {
+      "bytes": 120547,
+      "sha256": "f91f7d17836330e3d850b9ca7847864920f934f10332bc631ac9a7b7cce57dd3",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20G3.m4a"
+    },
+    "piano/MF G3.ogg": {
+      "bytes": 113224,
+      "sha256": "96dbf779ed8cd91de3781b99c2cfd15cb997aef7ac6c4829ef5a9ccce48b7b70",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/MF%20G3.ogg"
+    },
+    "piano/Mf A#4.m4a": {
+      "bytes": 87890,
+      "sha256": "073de70d10c89b064d252eea21ffc5f21a662fedd0444bc0e647780799f8f0a4",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20A%234.m4a"
+    },
+    "piano/Mf A#4.ogg": {
+      "bytes": 72797,
+      "sha256": "32998b53d8b17a2fb27f202ca55a249fe69dc5ed9c81ac60efae32408c45ca01",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20A%234.ogg"
+    },
+    "piano/Mf A#5.m4a": {
+      "bytes": 44943,
+      "sha256": "8385d526996ec1e9760581f204e56e423431f83ac03e1e4704d4680ad1d49c1f",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20A%235.m4a"
+    },
+    "piano/Mf A#5.ogg": {
+      "bytes": 34407,
+      "sha256": "060866035c9e5a7e02bced4f46bd1dbed1fc97ef9cf9dd0b23918753fb3a8253",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20A%235.ogg"
+    },
+    "piano/Mf A#6.m4a": {
+      "bytes": 23179,
+      "sha256": "0f2ec2a4b938615973d10f132de9d145d30110f0665891f18b5d318ef1643ebf",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20A%236.m4a"
+    },
+    "piano/Mf A#6.ogg": {
+      "bytes": 18730,
+      "sha256": "f76a8750a7a99fa444d4409ff490ed5a5bcb6cd5b77533450edba79ba845f04d",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20A%236.ogg"
+    },
+    "piano/Mf A0.m4a": {
+      "bytes": 233168,
+      "sha256": "e6cef1afbc95cec0aeb981b83bbe1c926c68ed7216a188b09ab5bb18f0f23174",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20A0.m4a"
+    },
+    "piano/Mf A0.ogg": {
+      "bytes": 166178,
+      "sha256": "6fd328e8c19f22ad938366a34baf7af4cab1433ed9f6b34ea978d3d4fcbfd59a",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20A0.ogg"
+    },
+    "piano/Mf A4.m4a": {
+      "bytes": 100898,
+      "sha256": "7f40879cda9fbb740c5098df1d3d93367f8e7dd66538cb99e386f5a44f2045e0",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20A4.m4a"
+    },
+    "piano/Mf A4.ogg": {
+      "bytes": 77451,
+      "sha256": "629ca1299ba017fc40579e23a126d608e2db277ae42862f5dcdb88eae7d0baa1",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20A4.ogg"
+    },
+    "piano/Mf A5.m4a": {
+      "bytes": 43884,
+      "sha256": "e725818ecd81bf7ee039dd46b021be86b53495a0597888442e7d1e9642beb69b",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20A5.m4a"
+    },
+    "piano/Mf A5.ogg": {
+      "bytes": 34554,
+      "sha256": "95564d04150021b1e7361e598d9394a6237a45a903e230ee0d584b48503b058d",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20A5.ogg"
+    },
+    "piano/Mf A6.m4a": {
+      "bytes": 38527,
+      "sha256": "aa40e71c42a25d9ef01745c9f85d155c7075f766b6af2f9b56e5730d6d858fe9",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20A6.m4a"
+    },
+    "piano/Mf A6.ogg": {
+      "bytes": 27714,
+      "sha256": "fbe2c8a07b631a9972c1594610df805a63b69b7977ec408da7805d3228732f92",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20A6.ogg"
+    },
+    "piano/Mf B-1.m4a": {
+      "bytes": 197960,
+      "sha256": "7623ff55f14d747912a7e78ee0dac0757258c692bdebc223f51e5e9580b53128",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20B-1.m4a"
+    },
+    "piano/Mf B-1.ogg": {
+      "bytes": 127108,
+      "sha256": "19804fcd6dad385047d71239f582766fe3da2db314a3ee70f989b312f613cd57",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20B-1.ogg"
+    },
+    "piano/Mf B0.m4a": {
+      "bytes": 218223,
+      "sha256": "9e9d2d93622d0d5c8b20bc7304d8c689fcd3215abcea7bb42163a87ebe11c159",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20B0.m4a"
+    },
+    "piano/Mf B0.ogg": {
+      "bytes": 164957,
+      "sha256": "7a31193627d6a29b7547625999d5853dbb2859caf21a239fcdbf62d00739b48e",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20B0.ogg"
+    },
+    "piano/Mf B4.m4a": {
+      "bytes": 74433,
+      "sha256": "886be1ceb764bd0dc6909c0b1407b5af19d99ce235c195a746140f5422c75af5",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20B4.m4a"
+    },
+    "piano/Mf B4.ogg": {
+      "bytes": 67307,
+      "sha256": "aad232a8715780d72d2a9aa6a39aaa094399bf5cfb0ab186bf1caba641729314",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20B4.ogg"
+    },
+    "piano/Mf B5.m4a": {
+      "bytes": 42337,
+      "sha256": "b95496191de5571fb88c0b8bd5aa5b602948ab4b1225de6e4dbc87d304c7082c",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20B5.m4a"
+    },
+    "piano/Mf B5.ogg": {
+      "bytes": 32911,
+      "sha256": "85346f5f0dbb639a83e8673f3ee148e5b5ffb9d22c69b953a1d1d7e669913237",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20B5.ogg"
+    },
+    "piano/Mf B6.m4a": {
+      "bytes": 43131,
+      "sha256": "4744b977817308f3ffff811d8dc39b1205c18c1d1591e30648b98dc6933656f0",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20B6.m4a"
+    },
+    "piano/Mf B6.ogg": {
+      "bytes": 29823,
+      "sha256": "c354062ca009c7ec2b334580a58988e6d24cffbf5e6ac8b39a5d483ff16bb0c1",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20B6.ogg"
+    },
+    "piano/Mf C#5.m4a": {
+      "bytes": 63731,
+      "sha256": "efb6dc61b44124048287485c7e8a8b5e6d6eb77cbc7b1a34997e295f2911025c",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20C%235.m4a"
+    },
+    "piano/Mf C#5.ogg": {
+      "bytes": 51300,
+      "sha256": "4c98da15f7b66d022ce0df2de3ada620c9c0b0838ebb0b09e1699266f2b1b91d",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20C%235.ogg"
+    },
+    "piano/Mf C#6.m4a": {
+      "bytes": 34133,
+      "sha256": "3575e2bba85cf110cd6479627d1965a3b09cc4b5e68f0e8939e41705808edaa4",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20C%236.m4a"
+    },
+    "piano/Mf C#6.ogg": {
+      "bytes": 27328,
+      "sha256": "a9d30f60d50298be7ef22a27ecb596d07e947320755c03b3fd5aef99df9c9213",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20C%236.ogg"
+    },
+    "piano/Mf C6.m4a": {
+      "bytes": 40069,
+      "sha256": "1d11e9f0d10f114e330f0c111f9ed77e646104815748faa2abc3d8a3bcd1c6bf",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20C6.m4a"
+    },
+    "piano/Mf C6.ogg": {
+      "bytes": 30574,
+      "sha256": "d4dbbf7d80b859d3db45c08742e32556cb6c96636e4fc3c9757bdee13b951dea",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20C6.ogg"
+    },
+    "piano/Mf C7.m4a": {
+      "bytes": 41609,
+      "sha256": "f325d7c6bf70fe3f952c9ba830c2aa6678d1f491bec568dab4678f744dc7f34d",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20C7.m4a"
+    },
+    "piano/Mf C7.ogg": {
+      "bytes": 29489,
+      "sha256": "279610e459cecf065a426d792dfad40f99f3a6cdd554faf10b7e06811dd81394",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20C7.ogg"
+    },
+    "piano/Mf D#0.m4a": {
+      "bytes": 199091,
+      "sha256": "20ea8e297b7225cc159ae69f0fb3bbd054ea1c651db3796d8653b1d8a7cf2d33",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20D%230.m4a"
+    },
+    "piano/Mf D#0.ogg": {
+      "bytes": 131863,
+      "sha256": "e8099b7bf3adf9b763dbb48b658f997714b6fe881c016cd957c6bdce68abc5b6",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20D%230.ogg"
+    },
+    "piano/Mf D#5.m4a": {
+      "bytes": 60300,
+      "sha256": "edec4845f2b5e213a568e5e4d21f112fe0f8755140bd6557602e3325b30e6bd4",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20D%235.m4a"
+    },
+    "piano/Mf D#5.ogg": {
+      "bytes": 46269,
+      "sha256": "22a712c844bb0647bd173e2d3110853d316c0075a69e467299b225507be18c85",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20D%235.ogg"
+    },
+    "piano/Mf D#6.m4a": {
+      "bytes": 40828,
+      "sha256": "172e6083a7be8a495191f981f96285bfd529b9fdfb516b2c953ae0cb16a8b858",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20D%236.m4a"
+    },
+    "piano/Mf D#6.ogg": {
+      "bytes": 33926,
+      "sha256": "07048249251e605692c1b1f40c74dfd1eeefd0363125352f5c8222f2a6f6a7a8",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20D%236.ogg"
+    },
+    "piano/Mf D4.m4a": {
+      "bytes": 88564,
+      "sha256": "0d301530dffa310c9f07fbc2079704471a8937f2987848fad7dd0b353e3de327",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20D4.m4a"
+    },
+    "piano/Mf D4.ogg": {
+      "bytes": 82361,
+      "sha256": "53c05927e45b5d0c624f69c344fd7377ed08c023de043bb8e07a3d6a7a6d56de",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20D4.ogg"
+    },
+    "piano/Mf D5.m4a": {
+      "bytes": 62691,
+      "sha256": "c75ce358e69fba3c130db6f9716c98b3103ea72797704ebd624d4d40adfa9ed5",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20D5.m4a"
+    },
+    "piano/Mf D5.ogg": {
+      "bytes": 52265,
+      "sha256": "98980e7549414c0fcd4cc6fb8c590c896215efe1c4375a54a642962f358b3539",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20D5.ogg"
+    },
+    "piano/Mf D6.m4a": {
+      "bytes": 35561,
+      "sha256": "50b58f071700485c560a8ab63bb5ad43f2bd4ed48694322bc84f5df31ed17deb",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20D6.m4a"
+    },
+    "piano/Mf D6.ogg": {
+      "bytes": 30084,
+      "sha256": "fdbb2cdf1eae7a14990a08a825417c0b34ebc53ddfbe58b3a1bb57a71b0a2bed",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20D6.ogg"
+    },
+    "piano/Mf E4.m4a": {
+      "bytes": 88230,
+      "sha256": "7854d29215ef8f28f136b1b3db6f4881a6ebb4ab4399f9446667a22df0b84548",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20E4.m4a"
+    },
+    "piano/Mf E4.ogg": {
+      "bytes": 79291,
+      "sha256": "621787bd11fa9f6357c13123f8dcc19692d6f771d8abd6a299d2e1ad60e05ac7",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20E4.ogg"
+    },
+    "piano/Mf E5.m4a": {
+      "bytes": 70006,
+      "sha256": "40b044ea6b6678c90b5758d8de476b86086fe3f1ea749f8231d952aa0709b614",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20E5.m4a"
+    },
+    "piano/Mf E5.ogg": {
+      "bytes": 54426,
+      "sha256": "a991a30093368cb56ca4f62d4326f00af0ad4f172ae4d72b55ab59c5cb67ce15",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20E5.ogg"
+    },
+    "piano/Mf E6.m4a": {
+      "bytes": 43097,
+      "sha256": "09c70508f66e05970d0226775665f1e18d5d4cb10a352046db0c8c600510303e",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20E6.m4a"
+    },
+    "piano/Mf E6.ogg": {
+      "bytes": 33089,
+      "sha256": "d44059a08aa9d39d2e55b462638c84da99e52da9c3ad59c5295c80383dc9bfb9",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20E6.ogg"
+    },
+    "piano/Mf F#5.m4a": {
+      "bytes": 57012,
+      "sha256": "81f4479e058c9732f523cf28b427552f2e3c1d8a6d30608008e2aeadb3ec02e8",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20F%235.m4a"
+    },
+    "piano/Mf F#5.ogg": {
+      "bytes": 44108,
+      "sha256": "f1ab5b3780dc2d1ee208e0a5d3eda9c08334f76f779529583c911c71686ec3e9",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20F%235.ogg"
+    },
+    "piano/Mf F#6.m4a": {
+      "bytes": 39013,
+      "sha256": "220336586c7e421281740ba17b977e6c7dab4e634d50a33fb4b351dc4e512f6b",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20F%236.m4a"
+    },
+    "piano/Mf F#6.ogg": {
+      "bytes": 31291,
+      "sha256": "c799189dd477e1f37e7ef54fde3996ca3fcda5523a074cb8266f3f86a6baf90e",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20F%236.ogg"
+    },
+    "piano/Mf F0.m4a": {
+      "bytes": 225185,
+      "sha256": "e32422ab53d0e33d751f6de62e4280d7c6cfc9d6e2866c41fb52b1997e68f66c",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20F0.m4a"
+    },
+    "piano/Mf F0.ogg": {
+      "bytes": 154104,
+      "sha256": "fe4521f960acb2b130edbddadd082ccb9fed2c3f7562605076d176cbaee91de1",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20F0.ogg"
+    },
+    "piano/Mf F4.m4a": {
+      "bytes": 113447,
+      "sha256": "752fc2a39e640dcbb5fb8a4d881a646d1f42a2de499c7228f5656110f0a8aafc",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20F4.m4a"
+    },
+    "piano/Mf F4.ogg": {
+      "bytes": 96708,
+      "sha256": "45b07eb190bd632f26dde2175f81c1c4d72cf26aa00c8fc1c2056df2f4cf6656",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20F4.ogg"
+    },
+    "piano/Mf F5.m4a": {
+      "bytes": 66015,
+      "sha256": "a01a1a6ab42a298dd9b3203f615986d364d1a271f46e8374dd3d025432524476",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20F5.m4a"
+    },
+    "piano/Mf F5.ogg": {
+      "bytes": 53316,
+      "sha256": "e9fb7fb7edb2f038edfb54d529f4b898522dae612c539ed892dd6ade3a51b44d",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20F5.ogg"
+    },
+    "piano/Mf F6.m4a": {
+      "bytes": 32938,
+      "sha256": "776a5882fee9f852d1183e00d5b6cfe077f64abeb4bea0c32889f94191c2eaf8",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20F6.m4a"
+    },
+    "piano/Mf F6.ogg": {
+      "bytes": 27056,
+      "sha256": "c1a56f535548419b144bfe67e2c9155092e22db494b261659c0968479a20233b",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20F6.ogg"
+    },
+    "piano/Mf G#4.m4a": {
+      "bytes": 51811,
+      "sha256": "6458e18b2210a964c9c2e32643574d05ee33b4e92fb7accb87802928819ad4c2",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20G%234.m4a"
+    },
+    "piano/Mf G#4.ogg": {
+      "bytes": 48963,
+      "sha256": "c9a5f5f117dc1a87532494ff8af42c0a3c9ea507b0123a3cfe623cd52a34621f",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20G%234.ogg"
+    },
+    "piano/Mf G#5.m4a": {
+      "bytes": 44900,
+      "sha256": "f96cae9129b36d128b3552aec0c99558e5c620b8147d3f893b31415a6fb390d1",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20G%235.m4a"
+    },
+    "piano/Mf G#5.ogg": {
+      "bytes": 35074,
+      "sha256": "0881290b69ea224ddf78ffe4868341ad2a363f21813cfcdf210176271478cd64",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20G%235.ogg"
+    },
+    "piano/Mf G#6.m4a": {
+      "bytes": 41196,
+      "sha256": "afc5d1d43c84db891f4d2424429e90210a1601d97e8e59ccf95f9fae74f21af6",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20G%236.m4a"
+    },
+    "piano/Mf G#6.ogg": {
+      "bytes": 30912,
+      "sha256": "75a0501fbf73ec7d0172d2c77ada1dab2f4007ca2a02b4f95f2514938af1d077",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20G%236.ogg"
+    },
+    "piano/Mf G0.m4a": {
+      "bytes": 198315,
+      "sha256": "308eedebce261d3361893b30a5f523927cde2ad246b384a106bd0eef96a6fba0",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20G0.m4a"
+    },
+    "piano/Mf G0.ogg": {
+      "bytes": 134155,
+      "sha256": "815b39d809544cee582d78d529ecc870d88f8025da0678f43bc12a34436d9009",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20G0.ogg"
+    },
+    "piano/Mf G4.m4a": {
+      "bytes": 93764,
+      "sha256": "3164e0648e9246347ab10d649d14a928d92e535af9b2252d08807a63590e9f7b",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20G4.m4a"
+    },
+    "piano/Mf G4.ogg": {
+      "bytes": 78748,
+      "sha256": "0651f68c313ae5b200049e86416b39cb534ebc078fbcde7421c1d5de9768cdcd",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20G4.ogg"
+    },
+    "piano/Mf G5.m4a": {
+      "bytes": 46810,
+      "sha256": "693f2582526bd10a0e32b2bfff1f8278fc0314954203de4a77013fd7e8d84b1c",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20G5.m4a"
+    },
+    "piano/Mf G5.ogg": {
+      "bytes": 38780,
+      "sha256": "76c60d89a045f74e2889a19ff41964959bdebed0df8a786cef4c96c6937d6c6f",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20G5.ogg"
+    },
+    "piano/Mf G6.m4a": {
+      "bytes": 38599,
+      "sha256": "223ebd285f844801959b37fa7c5defea460fc809abab1b39053c366a3d27392f",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20G6.m4a"
+    },
+    "piano/Mf G6.ogg": {
+      "bytes": 28806,
+      "sha256": "c66ded9e8eabf255e26af5b7d332a96a63c4ffcaab69c9b0278e4a8401f8ee45",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mf%20G6.ogg"
+    },
+    "piano/Mp A#2.m4a": {
+      "bytes": 166064,
+      "sha256": "96762e0d551c476bd6525b8d54df3327c50d1d00c9cbff92e9a3eeaa4cf84efa",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20A%232.m4a"
+    },
+    "piano/Mp A#2.ogg": {
+      "bytes": 147473,
+      "sha256": "ddfe06a83ec0759f58e10b0240c3f134e427f3d27d47a0c4bbc6141f180887fe",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20A%232.ogg"
+    },
+    "piano/Mp A#4.m4a": {
+      "bytes": 66009,
+      "sha256": "ed864a5589f5a3ebb7e9cfe93482bcbd3233d6e1db361e49763e7faec99d496b",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20A%234.m4a"
+    },
+    "piano/Mp A#4.ogg": {
+      "bytes": 56910,
+      "sha256": "8381355699dcd20ae862bd350647020975cf6c164397f7eced64086addb8a054",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20A%234.ogg"
+    },
+    "piano/Mp A#5.m4a": {
+      "bytes": 32996,
+      "sha256": "54e89bca4e32f502636e60fe6ade7c2415894afa74c5d429ca0a061b9e832fe9",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20A%235.m4a"
+    },
+    "piano/Mp A#5.ogg": {
+      "bytes": 24967,
+      "sha256": "af1b5b07525f823a00d4bae96c79cfa822d10b9150d8bdce584f63f4f0d6ce63",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20A%235.ogg"
+    },
+    "piano/Mp A#6.m4a": {
+      "bytes": 35905,
+      "sha256": "cdfe21f1592a6bafc766ad07a6235f6d213f1106839887f23c0fd2557511e105",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20A%236.m4a"
+    },
+    "piano/Mp A#6.ogg": {
+      "bytes": 23772,
+      "sha256": "9192f73ccdc12adf70066c198da1dc3d4983c246d398841b692cebddc69565ac",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20A%236.ogg"
+    },
+    "piano/Mp A0.m4a": {
+      "bytes": 197667,
+      "sha256": "a5db257a1f67fff84d5aa4d748c7efca70c774fa2c5d79805e84d04023e14397",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20A0.m4a"
+    },
+    "piano/Mp A0.ogg": {
+      "bytes": 144475,
+      "sha256": "2358d09b096090367773c9a6f7cc30f8f88c9b42415f6f2652aa049d65d26d25",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20A0.ogg"
+    },
+    "piano/Mp A1.m4a": {
+      "bytes": 194894,
+      "sha256": "40a5111bedbee8261a1b5d68ac9e4e51a1ff1c7b86d026ea6c13980411419966",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20A1.m4a"
+    },
+    "piano/Mp A1.ogg": {
+      "bytes": 170905,
+      "sha256": "6d3c024f11c2068cef6be2377cb3393c898b79be69d01285741259b0c3b8ff90",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20A1.ogg"
+    },
+    "piano/Mp A2.m4a": {
+      "bytes": 167724,
+      "sha256": "13aff68ef601987d84f791596494eea3099b3384e21e4b08d799348c33125cef",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20A2.m4a"
+    },
+    "piano/Mp A2.ogg": {
+      "bytes": 148398,
+      "sha256": "0eec814a5eef2897909e83d5335b32c0e7ca2e135f0313c474f1c3ee7ff9b8e5",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20A2.ogg"
+    },
+    "piano/Mp A3.m4a": {
+      "bytes": 103563,
+      "sha256": "1a6890dbfc05b642fc60118569ece07a959d1342171e321ad05721402a3b251f",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20A3.m4a"
+    },
+    "piano/Mp A3.ogg": {
+      "bytes": 94156,
+      "sha256": "f11de13c469b04124b4fa4471058378cd02fe0c93c044561b22afdb55ea3586a",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20A3.ogg"
+    },
+    "piano/Mp A4.m4a": {
+      "bytes": 70193,
+      "sha256": "ef0db39c198566c992b4b411c7903202d984b9eec677e923d1e5a5d62861da02",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20A4.m4a"
+    },
+    "piano/Mp A4.ogg": {
+      "bytes": 57238,
+      "sha256": "12b278c93096c0f79f1534307a76e38e61e078fbe22ba7e7c27270a6b23513fe",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20A4.ogg"
+    },
+    "piano/Mp A5.m4a": {
+      "bytes": 39883,
+      "sha256": "c3af94fae38b78fbf7419d342b1f4c4919de6be1b3533b52c17760468dba58fd",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20A5.m4a"
+    },
+    "piano/Mp A5.ogg": {
+      "bytes": 29123,
+      "sha256": "504d8411670188a97c6f55f19136ec5a37fa2b8d3c5a550a4141e63e11cdb8a1",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20A5.ogg"
+    },
+    "piano/Mp A6.m4a": {
+      "bytes": 39334,
+      "sha256": "bf31660c9e10cd3d9ce873801cc66d021e17956809493cdd86d7320ba65d9e16",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20A6.m4a"
+    },
+    "piano/Mp A6.ogg": {
+      "bytes": 25602,
+      "sha256": "3784cf47de844b6db7fd2633c502a6f9c49dfd8116bb6487c3a69e9023a75891",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20A6.ogg"
+    },
+    "piano/Mp B-1.m4a": {
+      "bytes": 194932,
+      "sha256": "2fe8b7d48cf5aece78cefa0330ef732bb6b24d4f3f8511d87a99f1d36214621b",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20B-1.m4a"
+    },
+    "piano/Mp B-1.ogg": {
+      "bytes": 124681,
+      "sha256": "a7005c5a4a37471892bea11aa764c117ae00da4255f52dad5a9590edb2111fae",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20B-1.ogg"
+    },
+    "piano/Mp B0.m4a": {
+      "bytes": 195255,
+      "sha256": "8d0c72b1573d7f6aa1aef691025970cb56076f9953e23039e57bc4b1457a457b",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20B0.m4a"
+    },
+    "piano/Mp B0.ogg": {
+      "bytes": 146877,
+      "sha256": "2fd458edd91a0f0309f0bd722e34bee360a1640c0b7698b8bc511a60fe4dd3e9",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20B0.ogg"
+    },
+    "piano/Mp B1.m4a": {
+      "bytes": 150139,
+      "sha256": "a2471625480f04cfa30979fc29310bf0c608555d5a37d893c7ca7e18a03c9eb2",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20B1.m4a"
+    },
+    "piano/Mp B1.ogg": {
+      "bytes": 134236,
+      "sha256": "0c23d8858ca5077c47eb3a93a9c3601b02e4fa87ac24384a0b61e4dd0b93df5f",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20B1.ogg"
+    },
+    "piano/Mp B2.m4a": {
+      "bytes": 174738,
+      "sha256": "77a45a7a1be5473e0213d6140a6c410043152c834e44f355cfe1f29d4326ff69",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20B2.m4a"
+    },
+    "piano/Mp B2.ogg": {
+      "bytes": 154900,
+      "sha256": "51c52547cff38ab3a180d1860d25979fdf469441c237420e72f845725e454dde",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20B2.ogg"
+    },
+    "piano/Mp B3.m4a": {
+      "bytes": 73383,
+      "sha256": "36d85d5d94b657641d66418340984af909b5af6d6e6f499da3eb2d53e92d4e0e",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20B3.m4a"
+    },
+    "piano/Mp B3.ogg": {
+      "bytes": 73470,
+      "sha256": "2a8de3af33eb41da1fe82858fad3b535d785771cf0e3595f7feada210117961d",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20B3.ogg"
+    },
+    "piano/Mp B4.m4a": {
+      "bytes": 80913,
+      "sha256": "2b257199db196fb3cd887e3482803bbd9ae8ba582047bff37bdbff4c7045b74e",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20B4.m4a"
+    },
+    "piano/Mp B4.ogg": {
+      "bytes": 75987,
+      "sha256": "d13fd45e5c4714aa0b543a25248f3c056606f8d8fc8ad1122d6bbb4a7ea79f48",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20B4.ogg"
+    },
+    "piano/Mp B5.m4a": {
+      "bytes": 31804,
+      "sha256": "7f49f64d376832c0c1a896725dc76e7851af24a102ce0e93f3c117fd1f45a41f",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20B5.m4a"
+    },
+    "piano/Mp B5.ogg": {
+      "bytes": 24318,
+      "sha256": "1dd0492933e6b2bdeb2fd615d1e70e606985df0a41bb41b86662393352a4de03",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20B5.ogg"
+    },
+    "piano/Mp C#1.m4a": {
+      "bytes": 180279,
+      "sha256": "3d251fed435d26463d0f383c9c05ce16e7ecac02e6385a2bc5cbb71a82ec504e",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20C%231.m4a"
+    },
+    "piano/Mp C#1.ogg": {
+      "bytes": 149116,
+      "sha256": "de70c01913dae0b3dabc6ed4bd06104a7d72e7f0236beabcd374c24c570877de",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20C%231.ogg"
+    },
+    "piano/Mp C#5.m4a": {
+      "bytes": 57139,
+      "sha256": "3a3dc979eeda21945c5e975e12baab9c7723d53053912054c1b87bc6fa368042",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20C%235.m4a"
+    },
+    "piano/Mp C#5.ogg": {
+      "bytes": 50297,
+      "sha256": "65a5d052fc594ef281fab5860da16819df2f2d0d13126fd511f2d79301b9f63e",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20C%235.ogg"
+    },
+    "piano/Mp C#6.m4a": {
+      "bytes": 34693,
+      "sha256": "39cdbd62e55438fd5cda4f965db264b437310bda764152c242e489e340eb1d8c",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20C%236.m4a"
+    },
+    "piano/Mp C#6.ogg": {
+      "bytes": 24551,
+      "sha256": "7a3e34f65505415f6fada75807a05ae71a9b92a8b9f25f3168e1d260761216f2",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20C%236.ogg"
+    },
+    "piano/Mp C2.m4a": {
+      "bytes": 148633,
+      "sha256": "b768d12e83424a8c322ebe93d03ae28b2a7b2baffcb6fb4f7106587a1d954f52",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20C2.m4a"
+    },
+    "piano/Mp C2.ogg": {
+      "bytes": 129698,
+      "sha256": "c4cc737476d68792fe90abbd92e777f8b00a1e8a5f366717910591afc66751f3",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20C2.ogg"
+    },
+    "piano/Mp C3.m4a": {
+      "bytes": 130734,
+      "sha256": "2d45d6a09cb4cf57cf040264beff9a926c08e3fe2516671d06b1d185b9d91cbd",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20C3.m4a"
+    },
+    "piano/Mp C3.ogg": {
+      "bytes": 119368,
+      "sha256": "d41eb710e35cbd73a89c67425057ad757a9634f04930e0c95b8c38a3be933614",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20C3.ogg"
+    },
+    "piano/Mp C4.m4a": {
+      "bytes": 64165,
+      "sha256": "ecc288a15b0f36e2cf6c52c5a25dab56768d5d1028f9648d004b209ccbb2aaf8",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20C4.m4a"
+    },
+    "piano/Mp C4.ogg": {
+      "bytes": 59770,
+      "sha256": "1d5b7db31072017b44354742b7f2d98f6ed4f05d85764cb953f7a64a82a46e28",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20C4.ogg"
+    },
+    "piano/Mp C6.m4a": {
+      "bytes": 34185,
+      "sha256": "eacc16c8b6f3812214b3e7631e69c341137f493ee3e0753b97c62841b4759310",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20C6.m4a"
+    },
+    "piano/Mp C6.ogg": {
+      "bytes": 26094,
+      "sha256": "679c89d1f8c0fbec0e048a1ccadfa092d043d44848a9ab5f424cfb6baaf068dc",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20C6.ogg"
+    },
+    "piano/Mp D#0.m4a": {
+      "bytes": 210713,
+      "sha256": "347c7f99f804907d34d86eb0cad39d6eb256918d0f2a3f9e1aa5be311648a959",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20D%230.m4a"
+    },
+    "piano/Mp D#0.ogg": {
+      "bytes": 140218,
+      "sha256": "1c627f2a1a66940c4d29870f7a8abec68ee6b1f385f09d79365f779759c8191c",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20D%230.ogg"
+    },
+    "piano/Mp D#5.m4a": {
+      "bytes": 34729,
+      "sha256": "ecd5d9acb349f86f19f68845c5e6395da2599c9e62e36483334621e9a2f6d4b8",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20D%235.m4a"
+    },
+    "piano/Mp D#5.ogg": {
+      "bytes": 31536,
+      "sha256": "e13425cba6d74a190090453d3cc885536dba7cd91b2dc9e0e77da6982a56c5ac",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20D%235.ogg"
+    },
+    "piano/Mp D#6.m4a": {
+      "bytes": 38863,
+      "sha256": "7820b3e97a92dc4fb9850375d2d355ab951966c66128dae3d94fce3496350b45",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20D%236.m4a"
+    },
+    "piano/Mp D#6.ogg": {
+      "bytes": 27144,
+      "sha256": "e67a06e69f68b8a71ba9dd91ff32c7d22726780d6728c5929cc1c38f075be262",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20D%236.ogg"
+    },
+    "piano/Mp D1.m4a": {
+      "bytes": 212714,
+      "sha256": "97e6c74638665a48313da66da744aec3056660c06406dd6c81791fc63532c8c1",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20D1.m4a"
+    },
+    "piano/Mp D1.ogg": {
+      "bytes": 175712,
+      "sha256": "9daa6ce4ecad3cbd114e13f3794f86c677c969cdc75a6ad134a9370b031a8104",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20D1.ogg"
+    },
+    "piano/Mp D2.m4a": {
+      "bytes": 114044,
+      "sha256": "a101535ede9e88f2225f3488f5acc1a6c2c92332d287e483df03b52d9ae124d5",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20D2.m4a"
+    },
+    "piano/Mp D2.ogg": {
+      "bytes": 102475,
+      "sha256": "96464dfe593ddd8392fd01ac39d90b83abf34e42cb9841857a1415336d3e64b8",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20D2.ogg"
+    },
+    "piano/Mp D3.m4a": {
+      "bytes": 121465,
+      "sha256": "8e965e8b9775da342bbe03afd30f8552ad67ec73baaee349eb32a0a813889978",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20D3.m4a"
+    },
+    "piano/Mp D3.ogg": {
+      "bytes": 112236,
+      "sha256": "d991764b0f8a39706a0a7657417796f039c985309641840d29fc07a20e06327c",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20D3.ogg"
+    },
+    "piano/Mp D4.m4a": {
+      "bytes": 93533,
+      "sha256": "57fac556a51aa83b22df237be5c659c6a90fa71e434ee1d4fc5a62465f803211",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20D4.m4a"
+    },
+    "piano/Mp D4.ogg": {
+      "bytes": 84570,
+      "sha256": "5a385974f3fd8c5f7f0fdf502883e0f22c19ec26f0e0209c2907353b00fb59ec",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20D4.ogg"
+    },
+    "piano/Mp D5.m4a": {
+      "bytes": 52124,
+      "sha256": "9b5a9b092f0094970e87ae18eee9505fe869ca9f87b141ee227ec4b7b0f0e10a",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20D5.m4a"
+    },
+    "piano/Mp D5.ogg": {
+      "bytes": 49752,
+      "sha256": "0a23162c48d3f84b9145bbb00652a44813f4b471b2fe2bd07d9ffc7c6ced38b6",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20D5.ogg"
+    },
+    "piano/Mp D6.m4a": {
+      "bytes": 36228,
+      "sha256": "33ec830c86342d98db2f81f3b70bcdd439703d4708956161ef9b6b73674c8aec",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20D6.m4a"
+    },
+    "piano/Mp D6.ogg": {
+      "bytes": 26336,
+      "sha256": "559ce9f4771c748340d97319bfe72461d91a2f8421b0aa2a94cc2bbe63807de9",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20D6.ogg"
+    },
+    "piano/Mp E1.m4a": {
+      "bytes": 201055,
+      "sha256": "9d9a7a797c1d0b897b39388bde61842d45400798d3ab45666365e8ad85ab69e5",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20E1.m4a"
+    },
+    "piano/Mp E1.ogg": {
+      "bytes": 176846,
+      "sha256": "d1883976a6ade27da0e02a12e4e54281ec74fa22abad68bcac437d6d705eb047",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20E1.ogg"
+    },
+    "piano/Mp E2.m4a": {
+      "bytes": 151294,
+      "sha256": "8bbff570781e9e2098f81959f6a815bc50ac97af92e6911b65d718e11eca19fe",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20E2.m4a"
+    },
+    "piano/Mp E2.ogg": {
+      "bytes": 136565,
+      "sha256": "4c61d2ec3d75a8c0ba793e5e94820368112dba64cb5ab03ab4bd9fad139c911c",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20E2.ogg"
+    },
+    "piano/Mp E3.m4a": {
+      "bytes": 123105,
+      "sha256": "a820f38506bda8a1169e23400d27192d4e98bc3fd3ee9bd8e398153b29cfcf03",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20E3.m4a"
+    },
+    "piano/Mp E3.ogg": {
+      "bytes": 113124,
+      "sha256": "6b3d250c7800379054a74091102759dcc67f8fbb1ab33e81413e1fec23c57f9f",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20E3.ogg"
+    },
+    "piano/Mp E4.m4a": {
+      "bytes": 97280,
+      "sha256": "c01c8fc81d6934e637bc83b7fe485e5d5765616c588162126ccdb1fe34b73ec6",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20E4.m4a"
+    },
+    "piano/Mp E4.ogg": {
+      "bytes": 82639,
+      "sha256": "a4af9a976d7ed64ac250c5feb1179d79657514b1f6553e4d0888c3e260d95a08",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20E4.ogg"
+    },
+    "piano/Mp E5.m4a": {
+      "bytes": 54018,
+      "sha256": "bf79b7899aa05562bff55428975355bd23c36abb4513b9e1beac130e2ae1d218",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20E5.m4a"
+    },
+    "piano/Mp E5.ogg": {
+      "bytes": 41246,
+      "sha256": "850509d3be358c6abe4ec1e4a94b4fa54364a5ace63e3677f611d2792f70d762",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20E5.ogg"
+    },
+    "piano/Mp F#5.m4a": {
+      "bytes": 59130,
+      "sha256": "6cb699f70badf474581da34099921a5fd85e1e552be49a33835e798cd9cdcddd",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20F%235.m4a"
+    },
+    "piano/Mp F#5.ogg": {
+      "bytes": 44124,
+      "sha256": "f439b22a510de33c7bb6b696e9af27246924b479aa4a667d8cb13a2873edff14",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20F%235.ogg"
+    },
+    "piano/Mp F#6.m4a": {
+      "bytes": 40036,
+      "sha256": "c822626985c55b183cb3b43bd1f81e999508c5b971a5478ac59d24443220ebaf",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20F%236.m4a"
+    },
+    "piano/Mp F#6.ogg": {
+      "bytes": 27464,
+      "sha256": "7304227b07fbaa9e6d9a482989f3bf3e7096eb9ac146aa421b8903baaf167265",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20F%236.ogg"
+    },
+    "piano/Mp F0.m4a": {
+      "bytes": 216763,
+      "sha256": "2892cb5ddce6d7ee15923c3c0e650809c6bc2ec7dd4edc107f79a28cc8c22cdc",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20F0.m4a"
+    },
+    "piano/Mp F0.ogg": {
+      "bytes": 144777,
+      "sha256": "c669b03f890580f926bf40c3fbcf778a9aa4f87b9429f602289a2e0ca2c9a160",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20F0.ogg"
+    },
+    "piano/Mp F1.m4a": {
+      "bytes": 195989,
+      "sha256": "4c66a36afc4a8cc80d49d8d46d01caa637c26fd2e55657d5f99397c7c82c76ab",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20F1.m4a"
+    },
+    "piano/Mp F1.ogg": {
+      "bytes": 171259,
+      "sha256": "9c9f80afb1ac3545f3e71affde4906490b0a188c002649046ba135b41a7ca8f7",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20F1.ogg"
+    },
+    "piano/Mp F2.m4a": {
+      "bytes": 171631,
+      "sha256": "7a93d5aac3c9d88b82c493f90b4ec87fe025cc4af0d6a84533bb0b806548c22b",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20F2.m4a"
+    },
+    "piano/Mp F2.ogg": {
+      "bytes": 152583,
+      "sha256": "fcb85b6ca24b98f16e1712448394fa4b872873ae82c4dfaaa8dffcf40e1aa5a4",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20F2.ogg"
+    },
+    "piano/Mp F3.m4a": {
+      "bytes": 110247,
+      "sha256": "ecc737c994927333e302f23d7f579bff3aea81d5b2c6cc1521514ce3c3577c0d",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20F3.m4a"
+    },
+    "piano/Mp F3.ogg": {
+      "bytes": 101500,
+      "sha256": "69d377bb89a61d412396d150485cf2cb573674c1ef6ddc510e3fa9f83ede2af2",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20F3.ogg"
+    },
+    "piano/Mp F4.m4a": {
+      "bytes": 95600,
+      "sha256": "8e7af9d995fe84435afa67292cc3bfb4cc12cb5ccb9aeab876a64b2c4598cd5e",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20F4.m4a"
+    },
+    "piano/Mp F4.ogg": {
+      "bytes": 88038,
+      "sha256": "f3032b87e2282b713059f2193ba1ab1137bdb2ea57e5077dde2e0286b79f8ce3",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20F4.ogg"
+    },
+    "piano/Mp F5.m4a": {
+      "bytes": 56329,
+      "sha256": "0bfc5997fbc0c87451235434ff4bce54b34a1d3864aa7f8064487ad3977c5290",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20F5.m4a"
+    },
+    "piano/Mp F5.ogg": {
+      "bytes": 44193,
+      "sha256": "5e0868ae4280d2c9a75a1bc4df0f58cf81c52f416d1ba8b65a2b89befcb78681",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20F5.ogg"
+    },
+    "piano/Mp F6.m4a": {
+      "bytes": 35570,
+      "sha256": "194da901e461798fdd83c768f9af68e9044bcfdecc953f61fe651ea32653dce9",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20F6.m4a"
+    },
+    "piano/Mp F6.ogg": {
+      "bytes": 25337,
+      "sha256": "e27cb782fe04808a9f1e4cc7f57bab84086f3f4f3d25656147dd7698137db423",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20F6.ogg"
+    },
+    "piano/Mp G#2.m4a": {
+      "bytes": 156937,
+      "sha256": "88286c803052bb68cb7df0db461cc8a8eca17ab9e5167af92d5da23ab6cd6bfa",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20G%232.m4a"
+    },
+    "piano/Mp G#2.ogg": {
+      "bytes": 139670,
+      "sha256": "87743dd42ebbc0b444575c6a5671906c0d9514da93a7da924fb5e2b4cd062477",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20G%232.ogg"
+    },
+    "piano/Mp G#4.m4a": {
+      "bytes": 87876,
+      "sha256": "5245b8cc1b6c2c6bab1e36b292102f7e98eb133cd7827bc1bd2c0b106aeb72b2",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20G%234.m4a"
+    },
+    "piano/Mp G#4.ogg": {
+      "bytes": 71512,
+      "sha256": "9d31d0a49736b7a42791fbd6510e91a1082ebe64b27fb423cd4e8ad343938e02",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20G%234.ogg"
+    },
+    "piano/Mp G#5.m4a": {
+      "bytes": 36683,
+      "sha256": "941caad815287662493f41c863589d7397da3317d0d2ff21102ef6195cdc4194",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20G%235.m4a"
+    },
+    "piano/Mp G#5.ogg": {
+      "bytes": 28344,
+      "sha256": "3b34c47ceec1212c76d38e2e8229bc7c38862768f5a6d69a547a0ea90136b4c9",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20G%235.ogg"
+    },
+    "piano/Mp G#6.m4a": {
+      "bytes": 49771,
+      "sha256": "78bffee7f30e41153a62a3498d1817eb98cf5c538328c59eba034c92a64480cc",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20G%236.m4a"
+    },
+    "piano/Mp G#6.ogg": {
+      "bytes": 31254,
+      "sha256": "516d43bccfa8280ee7692a235d64f2ca56c2e172248652c9ae484e1ee6bbb5ee",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20G%236.ogg"
+    },
+    "piano/Mp G0.m4a": {
+      "bytes": 195302,
+      "sha256": "cfa51a3592d4b474c4d560aebcfb6c176350e2ccbb4bd7da037b0857de448690",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20G0.m4a"
+    },
+    "piano/Mp G0.ogg": {
+      "bytes": 127076,
+      "sha256": "d270994f2c653be09b7c569fcf01c1fbfd6543e81a3c0e172e8542f6f421a396",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20G0.ogg"
+    },
+    "piano/Mp G1.m4a": {
+      "bytes": 157312,
+      "sha256": "ff707099a4d9a4b95950d27af4cb5caef9210b76b26dab5237dd8e5f181d1812",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20G1.m4a"
+    },
+    "piano/Mp G1.ogg": {
+      "bytes": 140249,
+      "sha256": "f2e0bb6912e60f0a240501f2621744155ab0af33d7ec4defad5832b095202e7c",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20G1.ogg"
+    },
+    "piano/Mp G2.m4a": {
+      "bytes": 155169,
+      "sha256": "070b017ae471eab35865abe754dd19df15966260ca26456acfa7fbe2682104a8",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20G2.m4a"
+    },
+    "piano/Mp G2.ogg": {
+      "bytes": 138034,
+      "sha256": "f5e45ec0098cd95ac4a96e812ad499a53b506d3e780bbb93ff474ef70227b088",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20G2.ogg"
+    },
+    "piano/Mp G3.m4a": {
+      "bytes": 97582,
+      "sha256": "2fd5bb0aed0662240d46955284cabbf6e2235e24ad7d55bb517af31dbc92e2f5",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20G3.m4a"
+    },
+    "piano/Mp G3.ogg": {
+      "bytes": 90321,
+      "sha256": "172f3e1201cea4e596d240ab15782f8ec9d287db553d7d8bdfd9d22c6d0ef2d2",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20G3.ogg"
+    },
+    "piano/Mp G4.m4a": {
+      "bytes": 78856,
+      "sha256": "15f25e6f4d034325ce6092ea861cd19d7ccb7fc733814bc850c1571e610aa796",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20G4.m4a"
+    },
+    "piano/Mp G4.ogg": {
+      "bytes": 67450,
+      "sha256": "a69c68591d86f57b8b6dd856f2114fda6093159d541a2c45b62e9a67337717d9",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20G4.ogg"
+    },
+    "piano/Mp G5.m4a": {
+      "bytes": 40333,
+      "sha256": "21e832ed4f59f3c1727f0d8d396bbc71d4e326f2cf26ab7a38888c9540ccb0a3",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20G5.m4a"
+    },
+    "piano/Mp G5.ogg": {
+      "bytes": 32870,
+      "sha256": "d5926b0b8cdda30f76a00ae865361fa480f18d21e072629df8199d68bb94fb5b",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20G5.ogg"
+    },
+    "piano/Mp G6.m4a": {
+      "bytes": 40810,
+      "sha256": "e1717784f061aa712b4c365bb957ad5f3b6e01914b18a48e711b5040d2d31d1e",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20G6.m4a"
+    },
+    "piano/Mp G6.ogg": {
+      "bytes": 27881,
+      "sha256": "0c1d1bc7d3cbe157f98747fe7ecc84d7bd52abdca9459a4cc4f770b7451e1957",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/Mp%20G6.ogg"
+    },
+    "piano/PP A#2.m4a": {
+      "bytes": 81049,
+      "sha256": "72b7443fa2e4e60e7c2f153f377bf9565d85f94f57bd8e100a1f4889b81977c0",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20A%232.m4a"
+    },
+    "piano/PP A#2.ogg": {
+      "bytes": 75261,
+      "sha256": "b9865b11fc2d3b10acdf68b132e7b9e5d07c50b4e3da1ee5c9ed73b089faa1de",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20A%232.ogg"
+    },
+    "piano/PP A#4.m4a": {
+      "bytes": 40734,
+      "sha256": "1260eb579f7b66ae328de0fe334e63bc1ffcc4d31a383ad1cdb9d2d13bb85aad",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20A%234.m4a"
+    },
+    "piano/PP A#4.ogg": {
+      "bytes": 35536,
+      "sha256": "7816e747f3e72ea9a04798546739198d91f2e0b5f1dd101e6e46e85ad62571c6",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20A%234.ogg"
+    },
+    "piano/PP A#5.m4a": {
+      "bytes": 37871,
+      "sha256": "3c42801896220ddb0863c61a3c57a09eb1a19fb399e1e03c8022539b06b9a3c8",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20A%235.m4a"
+    },
+    "piano/PP A#5.ogg": {
+      "bytes": 26557,
+      "sha256": "eefba32d33bd5b875236cde4cc449c862fc51e1bb6455691c9cc6236076c9ad7",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20A%235.ogg"
+    },
+    "piano/PP A#6.m4a": {
+      "bytes": 41750,
+      "sha256": "d555e036fbcc2e81791ccac32a2caf50ebfee809034a967b4049385fa2dc948b",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20A%236.m4a"
+    },
+    "piano/PP A#6.ogg": {
+      "bytes": 26890,
+      "sha256": "45743654748c10750d5af35d13076edfc4c01f50455eb6664d1fe444c2da1197",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20A%236.ogg"
+    },
+    "piano/PP A0.m4a": {
+      "bytes": 155939,
+      "sha256": "1b4be891739e411e3db9b56cd7cebb3cda3e8dbf89885d307eb7c695fd704e3d",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20A0.m4a"
+    },
+    "piano/PP A0.ogg": {
+      "bytes": 112224,
+      "sha256": "52007e8d9e38a14986751933da858256291c84d7b1c9e3989af632be3bf1bf74",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20A0.ogg"
+    },
+    "piano/PP A1.m4a": {
+      "bytes": 121615,
+      "sha256": "20dfeb4a6026b6c60a1bd6a46a99c7acd2d64e456f2c3f04ad3186f93280a973",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20A1.m4a"
+    },
+    "piano/PP A1.ogg": {
+      "bytes": 108185,
+      "sha256": "47d0f75ac429d008eb0a53a753891d10ea06b041b22883f2e52a0743bf7e4f7a",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20A1.ogg"
+    },
+    "piano/PP A2.m4a": {
+      "bytes": 109832,
+      "sha256": "a8e022724b4e375937274633d81cbd91269c88b99739d7f6cc99c6fd80c2b474",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20A2.m4a"
+    },
+    "piano/PP A2.ogg": {
+      "bytes": 97977,
+      "sha256": "9933839c60e234972f64907a3584f2e1baa013969b84997d15eed6be5fc8a559",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20A2.ogg"
+    },
+    "piano/PP A3.m4a": {
+      "bytes": 94564,
+      "sha256": "b8f29d3e00b70e925a55944d887cd5a2b1fad1eb012807e042405ca6e5386526",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20A3.m4a"
+    },
+    "piano/PP A3.ogg": {
+      "bytes": 83420,
+      "sha256": "31fede72739716181cbf014fed6c893a18bafad872d0d6643b663555935061e3",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20A3.ogg"
+    },
+    "piano/PP A4.m4a": {
+      "bytes": 32910,
+      "sha256": "3f23b34840b56845ecec8cdff4630ceb69de2da4006aecdfb155f5f6da189cd7",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20A4.m4a"
+    },
+    "piano/PP A4.ogg": {
+      "bytes": 26548,
+      "sha256": "a44504da70e4d856e187e8af531827b3a6beb10080c4031cf51e0719a8532655",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20A4.ogg"
+    },
+    "piano/PP A5.m4a": {
+      "bytes": 47515,
+      "sha256": "a10daa13010ee8faccdfe56abd0ae08e11ec8b3243bb4f689deb738791e48a0d",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20A5.m4a"
+    },
+    "piano/PP A5.ogg": {
+      "bytes": 32495,
+      "sha256": "86c68e6cd48d80b9f848f3eb306e9e9e45be5da15a44982d6e887a92f65d26df",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20A5.ogg"
+    },
+    "piano/PP A6.m4a": {
+      "bytes": 39354,
+      "sha256": "b1ba05a2d50406383e48c53a482d67f1a81f5565700312e7dac9ecb73573df1d",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20A6.m4a"
+    },
+    "piano/PP A6.ogg": {
+      "bytes": 25197,
+      "sha256": "51cc519f55211026912ec75e1b710fae17d968ed871a1fc5de2ee67e62cbb830",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20A6.ogg"
+    },
+    "piano/PP B-1.m4a": {
+      "bytes": 195232,
+      "sha256": "a1bcc20dda9fda29e38239266c3f3208e4ed1f9d1840700dd93d1b26178c3dc1",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20B-1.m4a"
+    },
+    "piano/PP B-1.ogg": {
+      "bytes": 123553,
+      "sha256": "e86693db57f97363577f95df6ceab85855706afbb7a8b58af87857964d3ab9ee",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20B-1.ogg"
+    },
+    "piano/PP B0.m4a": {
+      "bytes": 145824,
+      "sha256": "30a2b68092a0c097c062790cde396d2449ca78fa77c53da01046d79cc95b634b",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20B0.m4a"
+    },
+    "piano/PP B0.ogg": {
+      "bytes": 112989,
+      "sha256": "e9a228b4960f12dd1da40a512d6ec4b0054bea2d48cbec0a2a75258deaf5130d",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20B0.ogg"
+    },
+    "piano/PP B1.m4a": {
+      "bytes": 123842,
+      "sha256": "bc114de0fb5d495dcd0b0281e5942ccb88da56593eb7ae9dd059e41f9e5b8f30",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20B1.m4a"
+    },
+    "piano/PP B1.ogg": {
+      "bytes": 108015,
+      "sha256": "80b1cf3b0d6aa47e29238a57d087bfb0db36e988e66939cead68c403b7905136",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20B1.ogg"
+    },
+    "piano/PP B2.m4a": {
+      "bytes": 81360,
+      "sha256": "95b7f3f27191d3460da48d51f761e09d54ec8f2690f5b8669e9f495fc2a1fe4f",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20B2.m4a"
+    },
+    "piano/PP B2.ogg": {
+      "bytes": 74274,
+      "sha256": "a717d2bb9e0f2bb277e476f7a97b8a2b0dcd16f86703d829e8d77717366e33f4",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20B2.ogg"
+    },
+    "piano/PP B3.m4a": {
+      "bytes": 98188,
+      "sha256": "2a382bfef1d8e3870deadc698a81ddb72afd719c19dc8fa1bd456b6b2f894c9a",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20B3.m4a"
+    },
+    "piano/PP B3.ogg": {
+      "bytes": 90972,
+      "sha256": "abbb5e4736f0922564a541937a4053ac1e86bcbe6d59013c5b89139cf251bc92",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20B3.ogg"
+    },
+    "piano/PP B4.m4a": {
+      "bytes": 41577,
+      "sha256": "dd40b779c26a7936a69c60614a1d8d0e09cdc426f7c683d6a13e001b31da18db",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20B4.m4a"
+    },
+    "piano/PP B4.ogg": {
+      "bytes": 37234,
+      "sha256": "31573d0e777ee3bb195c166f5a91abe43c4d43612f8ff9c2b60bf3aa1d25e109",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20B4.ogg"
+    },
+    "piano/PP B5.m4a": {
+      "bytes": 42748,
+      "sha256": "52c97715618721026079a6c98c28a739ffd529c0e923de071a29460ace7d2604",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20B5.m4a"
+    },
+    "piano/PP B5.ogg": {
+      "bytes": 30966,
+      "sha256": "a3214aa0c0117f7558b7091cf150fb56dd0d74a14f7e8e6afecd3411be18649d",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20B5.ogg"
+    },
+    "piano/PP B6.m4a": {
+      "bytes": 37461,
+      "sha256": "b68c8c20c44bae494704e6f2714a3d5ac0e46c51538122370fcabf3a1dd74dfb",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20B6.m4a"
+    },
+    "piano/PP B6.ogg": {
+      "bytes": 23958,
+      "sha256": "643b75d209a6814a8bff39219d13e469df5151bd2e72ba6f4560cfc5aa076a19",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20B6.ogg"
+    },
+    "piano/PP C#1.m4a": {
+      "bytes": 172730,
+      "sha256": "bfd8e293f754dd66314443e7b3497c6732b08f92c936a553fec2730debc2b5f0",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20C%231.m4a"
+    },
+    "piano/PP C#1.ogg": {
+      "bytes": 143614,
+      "sha256": "55554967587d9e7f960b56ac845522831f214d150517000175ab541b95f39b7e",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20C%231.ogg"
+    },
+    "piano/PP C#5.m4a": {
+      "bytes": 45308,
+      "sha256": "2f52f23ffe2f0d740c88f0b26ae9d4d8cb233c4436de010e8220b9267165cf9a",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20C%235.m4a"
+    },
+    "piano/PP C#5.ogg": {
+      "bytes": 34286,
+      "sha256": "0a6db4c94a3699616a93be25dc401ba8208d481c99a4dec3b43e59706b37b720",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20C%235.ogg"
+    },
+    "piano/PP C#6.m4a": {
+      "bytes": 33202,
+      "sha256": "1fcbe37ee074ae06b3e5e987682a4a78982bffe3dce2ee773171145581897404",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20C%236.m4a"
+    },
+    "piano/PP C#6.ogg": {
+      "bytes": 23567,
+      "sha256": "9b86b6d7c83aee1f33ae44e7720736bafa7b0ad1c38ca72818109daa0d3ad5a3",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20C%236.ogg"
+    },
+    "piano/PP C2.m4a": {
+      "bytes": 120494,
+      "sha256": "4e087e9bc304c80ef37df89e0846412fb8aa99c3271d4897b00eabbf689e4c42",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20C2.m4a"
+    },
+    "piano/PP C2.ogg": {
+      "bytes": 106698,
+      "sha256": "20566353db60a9b03b05cb2c1f7d32ba7ab723c92b4623e856907f3d0923e6a7",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20C2.ogg"
+    },
+    "piano/PP C3.m4a": {
+      "bytes": 83229,
+      "sha256": "78bb4ff62019ecd3f490af26d5d4ac71eeaa4f673ea848f7d715ec6698b1cc29",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20C3.m4a"
+    },
+    "piano/PP C3.ogg": {
+      "bytes": 74496,
+      "sha256": "4a78d9486794b641e16ae7750069f1e665155e0727f62a8993711696e558d1fb",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20C3.ogg"
+    },
+    "piano/PP C4.m4a": {
+      "bytes": 68116,
+      "sha256": "eda43f897e51e6ca6ac642faa319abbb76dec0921f6a730cb65e1ee8f3b7e27a",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20C4.m4a"
+    },
+    "piano/PP C4.ogg": {
+      "bytes": 61613,
+      "sha256": "5655d87c4155fd93b5a8821720a609b273e2360892d594b37891431f665ac6a3",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20C4.ogg"
+    },
+    "piano/PP C6.m4a": {
+      "bytes": 41989,
+      "sha256": "5ce41964e3f94d19b18c7e3c481b41b6ed814967320a96283d7e9a96ec25d414",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20C6.m4a"
+    },
+    "piano/PP C6.ogg": {
+      "bytes": 28582,
+      "sha256": "73cff8780cfb82c7c95cae8b06550fdb5a3c00f71e6a3490ef6cfabb41782392",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20C6.ogg"
+    },
+    "piano/PP C7.m4a": {
+      "bytes": 39659,
+      "sha256": "fcac30153da165910d90f2ba03305fc13c82ac212fa307fda3507bf4c0d386e6",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20C7.m4a"
+    },
+    "piano/PP C7.ogg": {
+      "bytes": 24114,
+      "sha256": "d6040c95d80a1d04c83a999818740d6647b3e7fcf5328ea66572562cc883b6bf",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20C7.ogg"
+    },
+    "piano/PP D#0.m4a": {
+      "bytes": 207318,
+      "sha256": "0c7dfc121712005dadeda30d17f336616391521bf702402b6950108c2f8c6419",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20D%230.m4a"
+    },
+    "piano/PP D#0.ogg": {
+      "bytes": 137346,
+      "sha256": "08b9341ff94679e4f215c37d753192ee054aa37b28b1a1c10f92f89fa757dd0a",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20D%230.ogg"
+    },
+    "piano/PP D#5.m4a": {
+      "bytes": 36993,
+      "sha256": "ace003483f298a06f38ac26f3161a8dc4b3cf351a2604d3a882a986f575442f8",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20D%235.m4a"
+    },
+    "piano/PP D#5.ogg": {
+      "bytes": 30300,
+      "sha256": "666d281f6d776a2ac483b4f26f0eeb969a80c2cd2bc8c17619e81e5597dcf09e",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20D%235.ogg"
+    },
+    "piano/PP D#6.m4a": {
+      "bytes": 42664,
+      "sha256": "592323633068bf39baf7bc16c6b46cf95f6f7f2b9a09fe4a9ffd5d40f9a9fdca",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20D%236.m4a"
+    },
+    "piano/PP D#6.ogg": {
+      "bytes": 28184,
+      "sha256": "b2ace6be2149aef3bac6d52df0f47c3959bcb373541d3224a1cc8f1dacf4c550",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20D%236.ogg"
+    },
+    "piano/PP D1.m4a": {
+      "bytes": 161348,
+      "sha256": "aeda0e10e1407197e12879186bd80db1ae8d63c6293ebda6358e83f1323b2291",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20D1.m4a"
+    },
+    "piano/PP D1.ogg": {
+      "bytes": 139389,
+      "sha256": "256b2c74c2dcf0c8813c02d33a17bd873ecc9780edea04bb5b53a0dc135b52b2",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20D1.ogg"
+    },
+    "piano/PP D2.m4a": {
+      "bytes": 98048,
+      "sha256": "a3a2a75ff3276c86f21a5a6af9fb1b6f206ac6e88cc5c607294c85d954db66e7",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20D2.m4a"
+    },
+    "piano/PP D2.ogg": {
+      "bytes": 87382,
+      "sha256": "e9036876528a1effaeed01eda803f9499b07434ca5e8dd0542035c7ea91d6f50",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20D2.ogg"
+    },
+    "piano/PP D3.m4a": {
+      "bytes": 74231,
+      "sha256": "9d6db9f468cb761597a41c2d6f55cfdf56647a35b05c85ce60735e9fdc835f97",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20D3.m4a"
+    },
+    "piano/PP D3.ogg": {
+      "bytes": 67767,
+      "sha256": "46e666161cd12b2d7573d607a78389755050012c620c75a195fc60a560e22012",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20D3.ogg"
+    },
+    "piano/PP D4.m4a": {
+      "bytes": 65977,
+      "sha256": "933db0078bd4c26788d151b5531b8585493801e16d6b113a7b8376d82c4a65c1",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20D4.m4a"
+    },
+    "piano/PP D4.ogg": {
+      "bytes": 59752,
+      "sha256": "92d69db5663f73e7c49dce0bd3df3df8eadd20b91405e33afddf3abd44b82f9c",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20D4.ogg"
+    },
+    "piano/PP D5.m4a": {
+      "bytes": 34005,
+      "sha256": "1ffe2a35ac07006e3f14e48c4ffd14271d5923fbbb38c3cda0f902c719a4fe51",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20D5.m4a"
+    },
+    "piano/PP D5.ogg": {
+      "bytes": 28767,
+      "sha256": "68dde9ec1bf45e6df33ff01b80aea8e76dfed8cd465c1a80bb872f96a2e4fbaf",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20D5.ogg"
+    },
+    "piano/PP D6.m4a": {
+      "bytes": 33978,
+      "sha256": "ef2f7d1d40b43ff1c043594b6f000ccb8e90b8f6eba70c7b027b16c5bdcc6946",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20D6.m4a"
+    },
+    "piano/PP D6.ogg": {
+      "bytes": 24495,
+      "sha256": "058b9c054ff7e5c4088edd0b37c7e8f0f90d1b3ef4082f37ecf782043b91aba0",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20D6.ogg"
+    },
+    "piano/PP E1.m4a": {
+      "bytes": 153116,
+      "sha256": "8ead4ef2380ae9f56390639031ef1e3f7c58eee5d00b26594396d3ba867fce61",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20E1.m4a"
+    },
+    "piano/PP E1.ogg": {
+      "bytes": 136338,
+      "sha256": "fafb26a057ec1f40164069e85ffaa69bb96bc88d5af02b0d8eb9f31f3471549d",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20E1.ogg"
+    },
+    "piano/PP E2.m4a": {
+      "bytes": 98945,
+      "sha256": "14c9151e70284bdd1122f8126667f6ab1638a8a00eb8e4bb654ec74e014e1fd3",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20E2.m4a"
+    },
+    "piano/PP E2.ogg": {
+      "bytes": 88277,
+      "sha256": "d095e185d82e26f0337f83adbda8b381dd7b9649aa6bc88d42b61aa93139c149",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20E2.ogg"
+    },
+    "piano/PP E3.m4a": {
+      "bytes": 92267,
+      "sha256": "3eaf109443be68be4e57941dee18ab343f01dc3b61fd865a0419e5fb0881f15d",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20E3.m4a"
+    },
+    "piano/PP E3.ogg": {
+      "bytes": 83672,
+      "sha256": "30d396ecd44891bb9e6245f5f9f8df5af23816cf5347a77fe42cb6a9fc45a896",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20E3.ogg"
+    },
+    "piano/PP E4.m4a": {
+      "bytes": 68848,
+      "sha256": "75e68894a3edc32deaa40d6e9b8e7545e8f6b7ee9229f11b0666a5a3f9c497b9",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20E4.m4a"
+    },
+    "piano/PP E4.ogg": {
+      "bytes": 56254,
+      "sha256": "c3d21998abab1a1c4d06b73c3d531f0c430ee3ff59e9d40178454a1a2cdb0b43",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20E4.ogg"
+    },
+    "piano/PP E6.m4a": {
+      "bytes": 38594,
+      "sha256": "a40ad4f86b61f39ec9cd36e6023987ca4ef3d6eded0a4ac7b188bc69d162af0a",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20E6.m4a"
+    },
+    "piano/PP E6.ogg": {
+      "bytes": 26336,
+      "sha256": "f3720b646351c813a58f841902636725a33fa83f1f6209a6073070b52d218098",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20E6.ogg"
+    },
+    "piano/PP F#5.m4a": {
+      "bytes": 34376,
+      "sha256": "5dba6ef7fda528980b0a9d34df2c27d9cf1078d690f68d58ada30efdbcd5d8ac",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20F%235.m4a"
+    },
+    "piano/PP F#5.ogg": {
+      "bytes": 25713,
+      "sha256": "865c73a5801b953356902c29b8e3c36f2de947868f104027445f4efd51df9e2a",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20F%235.ogg"
+    },
+    "piano/PP F#6.m4a": {
+      "bytes": 38135,
+      "sha256": "d0fe26c94feeb66482feb6851e26b6ebcd35ae2f2e4ff96a8927a303754424f5",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20F%236.m4a"
+    },
+    "piano/PP F#6.ogg": {
+      "bytes": 26894,
+      "sha256": "6eb88ba0f3745df949501921ec6fcffffdffb3abb8f99ada7a71ca78fcef2e36",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20F%236.ogg"
+    },
+    "piano/PP F0.m4a": {
+      "bytes": 168849,
+      "sha256": "8baa572baa24f1b4c209b25a3914bd25cf50caff5f23d79d1139162567d19af7",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20F0.m4a"
+    },
+    "piano/PP F0.ogg": {
+      "bytes": 111322,
+      "sha256": "c8716110112cec506ab9652fd4e0dd87e28ad2c407fac33183b3ed2be8b36fe1",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20F0.ogg"
+    },
+    "piano/PP F1.m4a": {
+      "bytes": 132821,
+      "sha256": "b81c0b01cf7100bd71b7b6587088b0f13831090b72b61dfdb62b82b7680da987",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20F1.m4a"
+    },
+    "piano/PP F1.ogg": {
+      "bytes": 117179,
+      "sha256": "cc5a25e3e2fe3011102ca3db5608cfe2f8b715ac60d729e4e59bb7cfbf18cce7",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20F1.ogg"
+    },
+    "piano/PP F2.m4a": {
+      "bytes": 100149,
+      "sha256": "965755f4f5a44edba2102daf1097cfbb216fb1ef860309ddf1ec87f87fafb434",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20F2.m4a"
+    },
+    "piano/PP F2.ogg": {
+      "bytes": 89829,
+      "sha256": "440cfe023742d718f03888390531729279410c2fc9de117a2f5dd910e9b22439",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20F2.ogg"
+    },
+    "piano/PP F3.m4a": {
+      "bytes": 75730,
+      "sha256": "6262ec631c59ac56816a431ef7bb765da4971768af40ca705fd918af57d52fac",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20F3.m4a"
+    },
+    "piano/PP F3.ogg": {
+      "bytes": 70201,
+      "sha256": "58a1f47c3289c44c5273387a74b352876531c73d34bd01e094cdc33d6785ec94",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20F3.ogg"
+    },
+    "piano/PP F4.m4a": {
+      "bytes": 52448,
+      "sha256": "dbb52563af063bdc4b46bb95af8d6b7abd9a7baa67a21744881ee48566e34c91",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20F4.m4a"
+    },
+    "piano/PP F4.ogg": {
+      "bytes": 47902,
+      "sha256": "1c2a9051639abe4bbe05f06e71de9358fb6d73d9acb29dc061f95995ef9146a7",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20F4.ogg"
+    },
+    "piano/PP F5.m4a": {
+      "bytes": 35019,
+      "sha256": "976cbe47d3c32956908e41989f4bac163bafeef1b66e14003b3e0657cddf780b",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20F5.m4a"
+    },
+    "piano/PP F5.ogg": {
+      "bytes": 28294,
+      "sha256": "3e71c57bf89c910a8b7e1314b8b798c98f8f77058996ded3628de6a82c9f7cad",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20F5.ogg"
+    },
+    "piano/PP F6.m4a": {
+      "bytes": 39689,
+      "sha256": "81f76cc3502a427ddb5e0a78ce2c1867ea8e97017094e27d06f6728b84d518ac",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20F6.m4a"
+    },
+    "piano/PP F6.ogg": {
+      "bytes": 27431,
+      "sha256": "0e5768016360521db6be654a0d4cd616f5a2147d2dba0732ac89f9bc401814bc",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20F6.ogg"
+    },
+    "piano/PP G#2.m4a": {
+      "bytes": 101613,
+      "sha256": "2927fd905b840e015a7797c1ab20f1834638a725df683ec68e8f2f9638d26657",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20G%232.m4a"
+    },
+    "piano/PP G#2.ogg": {
+      "bytes": 90566,
+      "sha256": "aee743daa7a019fbe4b07648f30066402d64b6a9213b70f01d62bb1c484fdce9",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20G%232.ogg"
+    },
+    "piano/PP G#4.m4a": {
+      "bytes": 64900,
+      "sha256": "2dfb79e94fac170d0e4f2ed154059ba5c718221673fdb456f0ab07da882b0bd4",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20G%234.m4a"
+    },
+    "piano/PP G#4.ogg": {
+      "bytes": 52907,
+      "sha256": "cdac3d0085d9952a0f463d9c468f7b2e07f402aea6ed6884b6572d6e3f1f47a0",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20G%234.ogg"
+    },
+    "piano/PP G#5.m4a": {
+      "bytes": 34456,
+      "sha256": "91f5963cdd34c0ee30da04f7b7090227580ec02baa329d9b741fb7181fd64ae2",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20G%235.m4a"
+    },
+    "piano/PP G#5.ogg": {
+      "bytes": 25887,
+      "sha256": "2f3d91004b1b9ca97255bd39b00c8c1927e8ac8d0337ab5b37cc4d36909123dc",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20G%235.ogg"
+    },
+    "piano/PP G#6.m4a": {
+      "bytes": 47614,
+      "sha256": "aa1e5fa3f9d2aeccb756e3ab182fecf0a4925c767d60769042430ecd635cd25c",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20G%236.m4a"
+    },
+    "piano/PP G#6.ogg": {
+      "bytes": 29259,
+      "sha256": "bfed7aea817d59199060da8017bbe17383c3ad8656e595c4693fc5ec1d0b1f89",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20G%236.ogg"
+    },
+    "piano/PP G0.m4a": {
+      "bytes": 162521,
+      "sha256": "02dae8c2c37225337e755e1f9f35e0e3518f0d75d2ff093e4ef5bcd8a03ef91e",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20G0.m4a"
+    },
+    "piano/PP G0.ogg": {
+      "bytes": 107277,
+      "sha256": "9ba6641f5f86a8eca93cfdb5be3d33720f3072ceba91f73227c682bf92309e61",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20G0.ogg"
+    },
+    "piano/PP G1.m4a": {
+      "bytes": 103960,
+      "sha256": "3565bb0c8fce8ee5602e41cf4d5226a4ade9bee34c1dbae4e0461cb33f9755c2",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20G1.m4a"
+    },
+    "piano/PP G1.ogg": {
+      "bytes": 92507,
+      "sha256": "38fd5a1a6f59b9a5d5d1225fe5f2109ccbcac5683628c1c1e6e2b6e074fb64ef",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20G1.ogg"
+    },
+    "piano/PP G2.m4a": {
+      "bytes": 111764,
+      "sha256": "4fe63ca532b01458a6ad938bfd468221a7368735440f78cab5a1283640b45c12",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20G2.m4a"
+    },
+    "piano/PP G2.ogg": {
+      "bytes": 99887,
+      "sha256": "6c024e5159fd106e0a93df9e2218a6c82f9e7170214355cad8dc4e4ae879f1e9",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20G2.ogg"
+    },
+    "piano/PP G3.m4a": {
+      "bytes": 88792,
+      "sha256": "62a46f709c8e0505d5c62a7c09b9260d10071eb2c550379fc31125e3aefc274a",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20G3.m4a"
+    },
+    "piano/PP G3.ogg": {
+      "bytes": 81741,
+      "sha256": "af9054f38f18637a714fc4a65db881ab9552b0c1f662f36f6c03c1e03b170cfe",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20G3.ogg"
+    },
+    "piano/PP G4.m4a": {
+      "bytes": 61471,
+      "sha256": "29e4604920e9a914347ba6d42cc7cbfc1bc34081691c51186de9518ca4e0245a",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20G4.m4a"
+    },
+    "piano/PP G4.ogg": {
+      "bytes": 52981,
+      "sha256": "02d0703a2324fecf8d61b00fe2d523e6d58900910bac515dd2f06a37b151f1f2",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20G4.ogg"
+    },
+    "piano/PP G5.m4a": {
+      "bytes": 34775,
+      "sha256": "3a90bbb72b7ad1a670756e9a5346a35f242e9b25f3326c2d6ef0cdbc4c4716c0",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20G5.m4a"
+    },
+    "piano/PP G5.ogg": {
+      "bytes": 27325,
+      "sha256": "f501dbd450edaf82b731940fa3db6a1bea20fa7c63510a125985b39988a2349e",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20G5.ogg"
+    },
+    "piano/PP G6.m4a": {
+      "bytes": 51311,
+      "sha256": "4c43d7784a56e2192f316d4298adcedd8f2f20cd6aee9eed6f82289248daeb02",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20G6.m4a"
+    },
+    "piano/PP G6.ogg": {
+      "bytes": 33546,
+      "sha256": "89da00db005430494192f9b035d275d3879c419ed8d7012bfb24d78f4d7d28ca",
+      "source": "https://smpldsnds.github.io/sfzinstruments-splendid-grand-piano/samples/PP%20G6.ogg"
+    },
+    "soundfonts/FluidR3_GM/acoustic_bass-mp3.js": {
+      "bytes": 1958275,
+      "sha256": "7b6d656613f2b8e2e73526317543a491c630bd5dab4426c54dae55f67dfd1e91",
+      "source": "https://gleitz.github.io/midi-js-soundfonts/FluidR3_GM/acoustic_bass-mp3.js"
+    },
+    "soundfonts/FluidR3_GM/acoustic_bass-ogg.js": {
+      "bytes": 2279643,
+      "sha256": "34b5b3f0795bcf3f85732adf75807e6ea3f00b1416716f4c940ee501ae2f44e1",
+      "source": "https://gleitz.github.io/midi-js-soundfonts/FluidR3_GM/acoustic_bass-ogg.js"
+    },
+    "soundfonts/FluidR3_GM/acoustic_guitar_nylon-mp3.js": {
+      "bytes": 1837439,
+      "sha256": "5375fa9e0408d960e12b6e4ec120c42bce824d80b18e982b27ddaece146a4f64",
+      "source": "https://gleitz.github.io/midi-js-soundfonts/FluidR3_GM/acoustic_guitar_nylon-mp3.js"
+    },
+    "soundfonts/FluidR3_GM/acoustic_guitar_nylon-ogg.js": {
+      "bytes": 2158023,
+      "sha256": "782d76ab219b44c216d5a6c2e2aeee7b6839093d470665c2e82f68717d54c20e",
+      "source": "https://gleitz.github.io/midi-js-soundfonts/FluidR3_GM/acoustic_guitar_nylon-ogg.js"
+    }
+  },
+  "bucket": "clouddsp-midi-samples"
+}

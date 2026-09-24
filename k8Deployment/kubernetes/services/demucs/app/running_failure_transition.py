@@ -9,7 +9,8 @@ earlier ``leased`` state. The two durable outcomes are:
 * attempts one/two: clear ownership and make the task ``retry_scheduled`` at a
   PostgreSQL-clock retry time; or
 * attempt three: atomically mark both this one Demucs task and its authoritative
-  Job ``failed`` with the paired bounded exhaustion category.
+  Job ``failed`` with the paired bounded exhaustion category; or
+* a 12-minute process timeout on any attempt: fail the task and Job immediately.
 
 Private stems written before a failure remain unreachable to the browser and
 can be safely overwritten at their deterministic key by a later attempt. The
@@ -37,6 +38,7 @@ from app.running_failure_classification import (
     DemucsRunningFailureDisposition,
     DemucsRunningRetryCode,
     DemucsRunningRetryExhaustionCode,
+    DemucsRunningTerminalCode,
     retry_exhaustion_code_for_running_failure,
 )
 from app.source_object import LOCAL_UPLOADS_BUCKET
@@ -72,12 +74,12 @@ class DemucsRunningRetrySchedule:
 
 @dataclass(frozen=True)
 class DemucsRunningRetryExhaustion:
-    """Committed evidence that the final allowed running attempt exhausted."""
+    """Committed terminal evidence from timeout or final retry exhaustion."""
 
     task_id: str
     job_id: str
     attempt_count: int
-    failure_code: DemucsRunningRetryExhaustionCode
+    failure_code: DemucsRunningRetryExhaustionCode | DemucsRunningTerminalCode
     completed_at: datetime
     job_revision: int
 
@@ -102,7 +104,7 @@ class DemucsRunningFailureTransition:
                 self.retry_exhaustion,
                 DemucsRunningRetryExhaustion,
             ):
-                raise TypeError("A terminal running Demucs failure requires only exhaustion evidence.")
+                raise TypeError("A terminal running Demucs failure requires only terminal evidence.")
             return
         raise TypeError("Demucs running-failure transition disposition is invalid.")
 
@@ -151,8 +153,8 @@ SCHEDULE_RUNNING_DEMUCS_TASK_RETRY_SQL = """
 """
 
 
-# The final running attempt has no fourth lease. As in the pre-model terminal
-# path, the Job update is dependent on the exact returned task row inside one
+# A timeout is terminal on any attempt; other reviewed failures are terminal
+# only on attempt three. The Job update depends on the exact task row inside one
 # statement. The task retains its original ``started_at`` value: it truthfully
 # records that a model attempt began even though this task ultimately failed.
 FAIL_FINAL_ATTEMPT_RUNNING_DEMUCS_TASK_AND_JOB_SQL = """
@@ -184,7 +186,6 @@ FAIL_FINAL_ATTEMPT_RUNNING_DEMUCS_TASK_AND_JOB_SQL = """
         AND task.stem_mode = %s
         AND task.status = 'running'
         AND task.attempt_count = %s::integer
-        AND task.attempt_count = %s::integer
         AND task.lease_token = %s::uuid
         AND task.lease_expires_at > CURRENT_TIMESTAMP
       RETURNING
@@ -202,12 +203,16 @@ FAIL_FINAL_ATTEMPT_RUNNING_DEMUCS_TASK_AND_JOB_SQL = """
         error_message = %s
       FROM locked_job, failed_task
       WHERE job.job_id = locked_job.job_id
-        AND job.job_id = failed_task.job_id
+        -- The task CTE returns canonical text for the Python proof, whereas
+        -- jobs.job_id remains UUID inside PostgreSQL.
+        AND job.job_id = failed_task.job_id::uuid
       RETURNING
         job.job_id::text AS job_id,
         job.revision,
-        job.status,
-        job.error_message
+        -- The restricted worker may UPDATE error_message but does not have
+        -- SELECT authority for arbitrary historical Job error text. The
+        -- task-side returned code already proves the finite value written.
+        job.status
     )
     SELECT
       failed_task.task_id,
@@ -216,8 +221,7 @@ FAIL_FINAL_ATTEMPT_RUNNING_DEMUCS_TASK_AND_JOB_SQL = """
       failed_task.completed_at,
       failed_task.last_error_code,
       failed_job.revision AS job_revision,
-      failed_job.status AS job_status,
-      failed_job.error_message
+      failed_job.status AS job_status
     FROM failed_task
     JOIN failed_job ON failed_job.job_id = failed_task.job_id
 """
@@ -281,12 +285,18 @@ def _validated_retry_after_seconds(value: object) -> int:
 
 
 def _validated_classification(value: object) -> DemucsRunningFailureClassification:
-    """Reject an unclassified post-model error before it can alter a task row."""
+    """Accept only finite retry or immediate-timeout terminal evidence."""
 
     if (
         not isinstance(value, DemucsRunningFailureClassification)
-        or value.disposition is not DemucsRunningFailureDisposition.RETRY_SCHEDULED
-        or not isinstance(value.retry_code, DemucsRunningRetryCode)
+        or not (
+            (value.disposition is DemucsRunningFailureDisposition.RETRY_SCHEDULED
+             and isinstance(value.retry_code, DemucsRunningRetryCode)
+             and value.terminal_code is None)
+            or (value.disposition is DemucsRunningFailureDisposition.TERMINAL_FAILURE
+                and value.retry_code is None
+                and value.terminal_code is DemucsRunningTerminalCode.PROCESS_TIMED_OUT)
+        )
     ):
         raise _error()
     return value
@@ -328,9 +338,9 @@ def _returned_retry_exhaustion(
     row: Mapping[str, object],
     *,
     lease: DemucsTaskLease,
-    failure_code: DemucsRunningRetryExhaustionCode,
+    failure_code: DemucsRunningRetryExhaustionCode | DemucsRunningTerminalCode,
 ) -> DemucsRunningRetryExhaustion:
-    """Validate proof that the final running attempt and Job failed together."""
+    """Validate proof that the selected running attempt and Job failed together."""
 
     task_id = _canonical_uuid(row.get("task_id"))
     job_id = _canonical_uuid(row.get("job_id"))
@@ -340,16 +350,17 @@ def _returned_retry_exhaustion(
     if (
         task_id != lease.task_id
         or job_id != lease.job_id
-        or attempt_count != MAX_DEMUCS_TASK_ATTEMPTS
         or attempt_count != lease.attempt_count
         or type(attempt_count) is not int
+        or not 1 <= attempt_count <= MAX_DEMUCS_TASK_ATTEMPTS
+        or (isinstance(failure_code, DemucsRunningRetryExhaustionCode)
+            and attempt_count != MAX_DEMUCS_TASK_ATTEMPTS)
         or row.get("last_error_code") != failure_code.value
         or not isinstance(completed_at, datetime)
         or completed_at.tzinfo is None
         or type(job_revision) is not int
         or job_revision < 1
         or row.get("job_status") != "failed"
-        or row.get("error_message") != failure_code.value
     ):
         raise _error()
     return DemucsRunningRetryExhaustion(
@@ -398,9 +409,9 @@ def _fail_final_running_attempt(
     cursor: DatabaseCursor,
     *,
     lease: DemucsTaskLease,
-    failure_code: DemucsRunningRetryExhaustionCode,
+    failure_code: DemucsRunningRetryExhaustionCode | DemucsRunningTerminalCode,
 ) -> DemucsRunningRetryExhaustion | None:
-    """Fail only the exact final running lease and matching Job in one statement."""
+    """Fail the exact running lease and matching Job in one statement."""
 
     cursor.execute(
         FAIL_FINAL_ATTEMPT_RUNNING_DEMUCS_TASK_AND_JOB_SQL,
@@ -412,7 +423,6 @@ def _fail_final_running_attempt(
             lease.input_object_key,
             lease.stem_mode,
             lease.attempt_count,
-            MAX_DEMUCS_TASK_ATTEMPTS,
             lease.lease_token,
             failure_code.value,
         ),
@@ -434,10 +444,9 @@ def transition_running_demucs_failure(
 ) -> DemucsRunningFailureTransition | None:
     """Commit one classified running failure, or return normal ownership loss.
 
-    The classification must be the reviewed retry outcome from
-    ``running_failure_classification.py``. Attempts one/two receive the
-    database-scheduled retry. Attempt three is terminal with the corresponding
-    finite exhaustion code; no branch may create an attempt four. ``None``
+    A reviewed process timeout is terminal on any attempt. Other reviewed
+    failures schedule a retry on attempts one/two and become terminal on
+    attempt three; no branch may create an attempt four. ``None``
     means expiry, recovery, retention/job-state change, or another terminal
     result already won the token guard. Callers must stop rather than create a
     second durable result.
@@ -448,13 +457,24 @@ def transition_running_demucs_failure(
     validated_lease = _validated_running_lease(lease)
     validated_classification = _validated_classification(classification)
     bounded_retry_seconds = _validated_retry_after_seconds(retry_after_seconds)
+    if validated_classification.disposition is DemucsRunningFailureDisposition.TERMINAL_FAILURE:
+        timeout_code = validated_classification.terminal_code
+        if timeout_code is not DemucsRunningTerminalCode.PROCESS_TIMED_OUT:
+            raise _error()
+        terminal = _fail_final_running_attempt(
+            cursor, lease=validated_lease, failure_code=timeout_code,
+        )
+        if terminal is None:
+            return None
+        return DemucsRunningFailureTransition(
+            disposition=DemucsRunningFailureTransitionDisposition.TERMINAL_FAILURE,
+            retry_exhaustion=terminal,
+        )
+
     retry_code = validated_classification.retry_code
-    # Repeat the runtime check instead of relying on ``assert``: optimized
-    # Python removes assertions, while a malformed direct dataclass instance
-    # must never broaden the durable failure vocabulary in production.
+    # Do not let an altered dataclass instance silently broaden retry codes.
     if not isinstance(retry_code, DemucsRunningRetryCode):
         raise _error()
-
     if validated_lease.attempt_count == MAX_DEMUCS_TASK_ATTEMPTS:
         exhaustion = _fail_final_running_attempt(
             cursor,

@@ -8,7 +8,7 @@ acknowledgement, MinIO request, FFprobe/Demucs run, sleep loop, result update,
 or Kubernetes API action.
 
 Terminalization, recovery, and renewal are separate calls because they protect
-different cases: terminalization records an expired third attempt, recovery
+different cases: terminalization records an overdue run or expired third attempt, recovery
 commits a matched lease/request pair for a reclaimable task, and renewal extends
 only a lease token the current worker still owns. All return only after their
 database context has finished, so PostgreSQL's durable answer is known before a
@@ -38,6 +38,7 @@ from app.task_lease import (
     MAX_DEMUCS_TASK_ATTEMPTS,
     claim_next_recoverable_demucs_task,
     finalize_next_expired_exhausted_demucs_task,
+    finalize_next_overdue_demucs_task,
     renew_demucs_task_lease,
 )
 
@@ -111,9 +112,10 @@ def terminalize_one_expired_exhausted_demucs_task(
     *,
     database: DemucsTaskMaintenanceDatabase,
 ) -> DemucsExpiredLeaseTerminalization | None:
-    """Commit one expired third-attempt task/Job failure before recovery work.
+    """Commit one overdue or expired-final task/Job failure before recovery.
 
-    An expired final attempt cannot receive a fourth token. This one-operation
+    An overdue run cannot receive another CPU attempt, and an expired final
+    attempt cannot receive a fourth token. This short
     transaction therefore runs separately from recovery: a committed terminal
     result is durable progress, while ``None`` is an idle/no-row condition that
     may include a concurrent winner, a deleted/expired Job, or no candidate.
@@ -122,14 +124,18 @@ def terminalize_one_expired_exhausted_demucs_task(
     The context ends before another recovery scan, RabbitMQ action, storage
     operation, CPU process, or sleep. An adapter/database failure escapes and
     rolls back. This function does not classify a runtime exception or create a
-    retry schedule; it records only the distinct fact that the final owner
-    disappeared or exceeded its PostgreSQL lease window.
+    retry schedule; it records only durable deadline or lease evidence.
     """
 
     if not callable(getattr(database, "write_cursor", None)):
         raise TypeError("database must provide write_cursor.")
     with database.write_cursor() as cursor:
-        terminalization = finalize_next_expired_exhausted_demucs_task(cursor)
+        # First stop any task whose durable model start crossed the fixed
+        # 12-minute budget, even if a vanished Pod's 15-minute lease has not
+        # expired. Only then consider the older third-attempt lease policy.
+        terminalization = finalize_next_overdue_demucs_task(cursor)
+        if terminalization is None:
+            terminalization = finalize_next_expired_exhausted_demucs_task(cursor)
         # Keep this check inside the transaction. A future substituted adapter
         # must not commit a different object and have it reported as an atomic
         # Job/task terminal state merely because it was non-None.

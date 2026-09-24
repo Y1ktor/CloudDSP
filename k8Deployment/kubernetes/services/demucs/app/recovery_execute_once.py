@@ -3,7 +3,7 @@
 This is the recovery counterpart to ``receive_execute_once.py``. A recovered
 task has no new RabbitMQ frame: its original request already created durable
 work, and PostgreSQL now supplies the lease/request evidence. One iteration
-therefore first terminalizes an expired third attempt, then—only when there was
+therefore first terminalizes an overdue run or expired third attempt, then—only when there was
 no terminalization—claims and executes at most one committed recovery pair.
 
 The composition deliberately has no AMQP channel, polling loop, sleep, backoff,
@@ -126,9 +126,9 @@ def recover_and_execute_demucs_once(
     durable pair and preserves the normal task runtime's failure categories.
     """
 
-    # A final expired lease is durable terminal work. It always takes priority
-    # over new recovery so a third attempt cannot be mistaken for a candidate
-    # that should receive a fourth token or enter private source/model work.
+    # An overdue run or final expired lease is durable terminal work. It
+    # always takes priority over recovery, so a timed-out request cannot enter
+    # another model attempt and attempt three cannot gain a fourth token.
     terminalization = terminalize_one_expired_exhausted_demucs_task(database=database)
     if terminalization is not None:
         return DemucsRecoveryIterationResult(

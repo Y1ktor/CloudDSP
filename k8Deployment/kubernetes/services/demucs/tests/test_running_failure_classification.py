@@ -38,6 +38,7 @@ from app.running_failure_classification import (
     DemucsRunningFailureDisposition,
     DemucsRunningRetryCode,
     DemucsRunningRetryExhaustionCode,
+    DemucsRunningTerminalCode,
     classify_demucs_running_failure,
     retry_exhaustion_code_for_running_failure,
 )
@@ -47,11 +48,10 @@ class DemucsRunningFailureClassificationTests(unittest.TestCase):
     """Prove the after-model policy is finite and fails closed by default."""
 
     def test_process_failures_receive_distinct_bounded_retry_categories(self) -> None:
-        """A process start, timeout, and nonzero exit retain useful safe facts."""
+        """Start and nonzero exit failures retain useful safe retry facts."""
 
         expected_codes = {
             DemucsProcessError("private start detail"): DemucsRunningRetryCode.PROCESS_START_FAILED,
-            DemucsProcessTimedOut("private timeout detail"): DemucsRunningRetryCode.PROCESS_TIMED_OUT,
             DemucsProcessFailed("private exit detail"): DemucsRunningRetryCode.PROCESS_FAILED,
         }
         for error, expected_code in expected_codes.items():
@@ -62,6 +62,14 @@ class DemucsRunningFailureClassificationTests(unittest.TestCase):
                     DemucsRunningFailureDisposition.RETRY_SCHEDULED,
                 )
                 self.assertEqual(classification.retry_code, expected_code)
+
+    def test_twelve_minute_process_timeout_is_terminal_without_retry(self) -> None:
+        """A CPU deadline is never converted into another Demucs attempt."""
+
+        classification = classify_demucs_running_failure(DemucsProcessTimedOut("private process detail"))
+        self.assertEqual(classification.disposition, DemucsRunningFailureDisposition.TERMINAL_FAILURE)
+        self.assertEqual(classification.terminal_code, DemucsRunningTerminalCode.PROCESS_TIMED_OUT)
+        self.assertIsNone(classification.retry_code)
 
     def test_output_hash_and_upload_failures_use_their_reviewed_categories(self) -> None:
         """Private partial artifacts may be retried only under stable object keys."""

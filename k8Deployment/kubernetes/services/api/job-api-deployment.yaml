@@ -74,7 +74,7 @@ spec:
           # ../../images.lock.yaml. A digest identifies the exact Python API
           # bytes reviewed and pushed to the local registry; the readable tag
           # must never be used in a workload manifest.
-          image: clouddsp-registry.localhost:5001/job-api@sha256:702357368b4b662c496ad3635d96ed448af392582b049fcac676c4119cdc85bb
+          image: clouddsp-registry.localhost:5001/job-api@sha256:356e1493d2e079c1374d275f6c90047955e567626500ce5cb99954221993929b
           # Exact digests are safe to reuse from a node cache. Kubernetes pulls
           # only when the node lacks this immutable image, which keeps local
           # startup fast without allowing a mutable retag to alter the Pod.

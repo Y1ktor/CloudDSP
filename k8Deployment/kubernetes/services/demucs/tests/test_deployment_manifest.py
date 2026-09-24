@@ -12,12 +12,6 @@ import unittest
 
 
 DEPLOYMENT_PATH = Path(__file__).resolve().parents[1] / "demucs-deployment.yaml"
-IMMUTABLE_IMAGE = (
-    "clouddsp-registry.localhost:5001/demucs@sha256:"
-    "e6cab988fa3786d66dcfd7f608dfa6479582a4acd3bfb9b47f948d637cf6fd59"
-)
-
-
 class DemucsDeploymentManifestTests(unittest.TestCase):
     """Keep the first worker controller private, bounded, and least-privilege."""
 
@@ -42,7 +36,15 @@ class DemucsDeploymentManifestTests(unittest.TestCase):
         """A readable tag, CUDA request, or wrong architecture must not slip in."""
 
         manifest = self.manifest()
-        self.assertIn(f"image: {IMMUTABLE_IMAGE}", manifest)
+        # The digest is learned only *after* this image has been built and
+        # pushed. Hardcoding it here creates an impossible build/test cycle:
+        # updating the reviewed Deployment would invalidate the test that is
+        # itself part of the Docker build context. Verify immutable form here;
+        # the repository image lock and Deployment are compared separately.
+        self.assertRegex(
+            manifest,
+            r"image: clouddsp-registry\.localhost:5001/demucs@sha256:[0-9a-f]{64}",
+        )
         self.assertIn("imagePullPolicy: IfNotPresent", manifest)
         self.assertIn("kubernetes.io/arch: arm64", manifest)
         self.assertIn("runAsUser: 10003", manifest)

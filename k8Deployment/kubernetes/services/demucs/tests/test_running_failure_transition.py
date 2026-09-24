@@ -15,6 +15,7 @@ from app.running_failure_classification import (
     DemucsRunningFailureDisposition,
     DemucsRunningRetryCode,
     DemucsRunningRetryExhaustionCode,
+    DemucsRunningTerminalCode,
 )
 from app.running_failure_transition import (
     DEFAULT_DEMUCS_RUNNING_RETRY_AFTER_SECONDS,
@@ -158,6 +159,39 @@ class DemucsRunningFailureTransitionTests(unittest.TestCase):
         self.assertIn("UPDATE public.processing_tasks", query)
         self.assertIn("UPDATE public.jobs", query)
         self.assertIn(DemucsRunningRetryExhaustionCode.ARTIFACT_STORAGE_UNAVAILABLE.value, params)
+
+    def test_timeout_fails_first_running_attempt_without_scheduling_retry(self) -> None:
+        """The same task/Job atomic transition accepts a terminal timeout on attempt one."""
+
+        timeout_code = DemucsRunningTerminalCode.PROCESS_TIMED_OUT
+        cursor = RecordingCursor({
+            "task_id": TASK_ID,
+            "job_id": JOB_ID,
+            "attempt_count": 1,
+            "completed_at": NOW,
+            "last_error_code": timeout_code.value,
+            "job_revision": 8,
+            "job_status": "failed",
+            "error_message": timeout_code.value,
+        })
+        classification = DemucsRunningFailureClassification(
+            disposition=DemucsRunningFailureDisposition.TERMINAL_FAILURE,
+            terminal_code=timeout_code,
+        )
+
+        result = transition_running_demucs_failure(
+            cursor,  # type: ignore[arg-type]
+            lease=lease(attempt_count=1),
+            classification=classification,
+        )
+
+        self.assertEqual(result.disposition, DemucsRunningFailureTransitionDisposition.TERMINAL_FAILURE)  # type: ignore[union-attr]
+        self.assertEqual(result.retry_exhaustion.failure_code, timeout_code)  # type: ignore[union-attr]
+        query, params = cursor.calls[0]
+        self.assertEqual(query, FAIL_FINAL_ATTEMPT_RUNNING_DEMUCS_TASK_AND_JOB_SQL)
+        self.assertIn("AND job.job_id = failed_task.job_id::uuid", query)
+        self.assertEqual(params[6], 1)
+        self.assertNotIn(SCHEDULE_RUNNING_DEMUCS_TASK_RETRY_SQL, [call[0] for call in cursor.calls])
 
     def test_no_row_is_normal_running_lease_or_job_state_loss(self) -> None:
         """A stale worker returns no evidence and cannot overwrite recovery."""

@@ -10,7 +10,7 @@ import React from 'react';
  * ControlBar
  *
  * @param {Object} props - Component props
- * @param {boolean} props.isSplitting - Is AWS processing running
+ * @param {boolean} props.isSplitting - Is local processing running
  * @param {boolean} props.processingEnabled - Whether authenticated job creation is available
  * @param {Function} props.handleFileUpload - Callback when a file is selected
  * @param {string} props.fileName - The name of the currently selected file

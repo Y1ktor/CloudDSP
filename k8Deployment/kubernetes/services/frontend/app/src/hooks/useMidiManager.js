@@ -6,6 +6,7 @@ import {
     ADTOF_DRUM_SAMPLER_OPTIONS,
     ADTOF_DRUM_VOICES
 } from '../utils/DrumMidi';
+import { localPianoStorage, midiSampleUrl, soundfontSampleUrl } from '../utils/midiSampleAssets';
 
 function midiPitchesForTrack(trackData) {
     const pitches = new Set();
@@ -34,18 +35,15 @@ function remoteMidiKey(url) {
 
 function createMelodicSynth(audioContext, trackName, trackData) {
     if (trackName === 'guitar') {
-        // Soundfont loads an instrument bank as a unit. FluidR3 is materially
-        // smaller than smplr's default MusyngKite bank while retaining a real
-        // guitar timbre, which is a better browser-memory trade-off here.
+        // The whole FluidR3 instrument bank is mirrored as one JS data file.
+        // smplr decodes its embedded notes; the browser never calls GitHub.
         return new Soundfont(audioContext, {
-            instrument: 'acoustic_guitar_nylon',
-            kit: 'FluidR3_GM',
+            instrumentUrl: soundfontSampleUrl('acoustic_guitar_nylon'),
         });
     }
     if (trackName === 'bass') {
         return new Soundfont(audioContext, {
-            instrument: 'acoustic_bass',
-            kit: 'FluidR3_GM',
+            instrumentUrl: soundfontSampleUrl('acoustic_bass'),
         });
     }
 
@@ -53,12 +51,19 @@ function createMelodicSynth(audioContext, trackName, trackData) {
     // a small subset of pitches, so request only the sample regions needed by
     // this track. Do not allocate an instrument at all until MIDI mode is on.
     const notes = midiPitchesForTrack(trackData);
-    return new SplendidGrandPiano(audioContext, notes.length > 0 ? {
-        notesToLoad: {
+    const pianoOptions = {
+        // The asset key set matches the pinned smplr pianoToPreset inventory.
+        // Its custom storage encodes '#' in sharp-note filenames before fetch.
+        baseUrl: midiSampleUrl('piano'),
+        storage: localPianoStorage,
+    };
+    if (notes.length > 0) {
+        pianoOptions.notesToLoad = {
             notes,
             velocityRange: [0, 127],
-        },
-    } : undefined);
+        };
+    }
+    return new SplendidGrandPiano(audioContext, pianoOptions);
 }
 
 function ensureMelodicSynth(midiSynthRefs, audioContext, trackName, trackData) {

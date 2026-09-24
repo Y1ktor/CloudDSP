@@ -35,6 +35,7 @@ from app.database import (
     verify_database_connection,
 )
 from app.direct_upload_contract import DirectUploadJobCreatedResponse, DirectUploadJobRequest
+from app.job_error_messages import owner_visible_job_error
 from app.object_storage import ObjectStorageConfigurationError, ObjectStorageSettings
 from app.presigned_download import (
     PresignedDownloadContractError,
@@ -51,7 +52,7 @@ SERVICE_NAME = "clouddsp-job-api"
 # This value appears only in the non-sensitive health/readiness responses. It
 # must track the immutable local image milestone so `kubectl exec`/port-forward
 # diagnostics can confirm which API code Kubernetes actually rolled out.
-SERVICE_VERSION = "0.0.8-job-artifact-snapshot"
+SERVICE_VERSION = "0.0.9-demucs-timeout-message"
 
 
 # Disable FastAPI's generated schema and interactive documentation until the
@@ -186,6 +187,11 @@ def job_snapshot_response(row: dict[str, object]) -> JSONResponse:
     """
 
     public_row = dict(row)
+    # Store stable worker codes in PostgreSQL, but render only reviewed text
+    # after the immutable Keycloak owner has been checked by the detail query.
+    public_row["error"] = owner_visible_job_error(
+        status=public_row.get("status"), error=public_row.get("error"),
+    )
     input_bucket = public_row.pop("_storage_input_bucket", None)
     input_object_key = public_row.pop("_storage_input_object_key", None)
     source_uploaded = public_row.get("source_uploaded") is True

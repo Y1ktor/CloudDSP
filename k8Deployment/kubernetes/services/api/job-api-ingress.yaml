@@ -57,10 +57,9 @@ spec:
                 name: clouddsp-job-api
                 port:
                   name: http
-          # Preserve `/jobs` and every nested job ID/link path exactly. The
-          # deployed API does not implement these routes yet, so applying this
-          # Ingress must *not* be paired with VITE_JOB_API_URL configuration
-          # until the first `/jobs` API route exists.
+          # Preserve `/jobs` and every nested job path exactly. These are
+          # implemented Job API routes; Traefik forwards the browser's
+          # same-origin request to the Service without rewriting its path.
           - path: /jobs
             pathType: Prefix
             backend:

@@ -349,6 +349,12 @@ must never accept a browser-supplied user ID.
 | `GET /jobs/{job_id}` | None | Owned current snapshot. A new `upload_pending` job has empty artifact maps and no source URL; verified source/output entries receive freshly signed direct-download URLs without raw object keys. | Bind canonical UUID + verified owner + retention in read-only PostgreSQL, then locally sign only deterministic keys returned for that owner. |
 | `DELETE /jobs/{job_id}` | None | `200` with `job_id` and `deleted_objects` | Allow only the owner to delete terminal jobs; remove MinIO input/stem/MIDI objects and the PostgreSQL record. |
 
+The owner-bound detail snapshot translates the durable
+`demucs_process_timed_out` error code into a plain-language, terminal
+12-minute-limit message. The old retry-exhaustion timeout code receives the
+same wording for retained historical jobs; workers still store only fixed
+codes, and the API does not expose model stderr or private object paths.
+
 The valid initial stem modes are `2-stems`, `4-stems`, and `6-stems`. The
 cloud contract currently accepts WAV, MP3, FLAC, M4A, AAC, OGG, Opus, AIFF,
 and WebM, with a 256 MiB browser/API validation limit. Retaining these values

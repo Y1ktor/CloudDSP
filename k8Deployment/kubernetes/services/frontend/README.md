@@ -38,6 +38,48 @@ post the API-issued form directly to the one public MinIO S3 origin. The API's
 upload-intake, job-detail, queue, and worker stages remain separate later
 tasks; a successful browser object upload is not processing completion.
 
+The local upload screen describes transfer to local storage and asynchronous
+stem/MIDI processing, not AWS Batch. The welcome slides set a browser-local
+`localStorage` marker when first shown, so a refresh, Keycloak redirect, or
+later visit in the same browser profile does not reopen them. Clearing site
+storage (or using a different browser profile) deliberately restores the
+first-visit experience; no account preference or credential is stored there.
+
+## Local MIDI playback samples
+
+The React copy now loads its **shared instrument sounds** from the dedicated
+`clouddsp-midi-samples` MinIO bucket through the existing
+`http://minio.localhost:8080` S3 Ingress. This is distinct from generated MIDI
+files: a user's source, stems, MIDI, and result URLs stay in the **private**
+`clouddsp-uploads` bucket behind owner-checked, short-lived presigned URLs.
+The shared sample bucket grants anonymous `GetObject` but not object writes or
+bucket listing. It contains 226 Splendid Grand piano note regions in both OGG
+and M4A (452 objects), two FluidR3 soundfont instruments in OGG and MP3 data
+files (four objects), and five 808 drum M4A sounds: 461 objects, about 52 MB.
+Browser-specific codec selection remains in `smplr`; the local adapter also
+percent-encodes sharp-note filenames before MinIO receives them.
+
+The versioned [sample mirror command](../minio/midi_sample_mirror.py) derives
+the expected piano filenames from the lockfile-pinned `smplr` dependency,
+checks every source byte against the reviewed
+[SHA-256 catalog](../minio/midi-sample-assets.lock.json), then creates/fills
+the one bucket. It uses the existing MinIO administrator Secret only on the
+developer's machine and never puts credentials into the React image. Initial
+population requires internet access once; subsequent browser playback needs
+only the local cluster. From the repository root:
+
+```bash
+python3 k8Deployment/kubernetes/services/minio/midi_sample_mirror.py
+```
+
+If the `smplr` package or upstream samples change, review the sources first;
+`--record-lock` intentionally regenerates the SHA-256 catalog. The bootstrap
+must finish **before** rolling out the new frontend image, because its CSP no
+longer permits the original online sample hosts. The original suppliers and
+their licensing/attribution information are the [FluidR3 soundfont project](https://github.com/gleitz/midi-js-soundfonts),
+[Splendid Grand piano sample project](https://github.com/smpldsnds/sfzinstruments-splendid-grand-piano),
+and [drum-machine sample project](https://github.com/smpldsnds/drum-machines).
+
 ## Ownership boundary
 
 | Concern | Owner | Reason |
