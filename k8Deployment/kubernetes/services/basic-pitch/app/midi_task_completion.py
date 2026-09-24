@@ -15,6 +15,7 @@ API.
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -29,14 +30,18 @@ from app.task_lease import (
     BasicPitchTaskLease,
     DatabaseCursor,
 )
+from app.tempo_candidate import (
+    BasicPitchTempoCandidate,
+    validate_basic_pitch_tempo_candidate,
+)
 
 
 # The stored MIDI has already been proven by HeadObject; this statement does
 # not duplicate S3 I/O. The administrator-owned PostgreSQL function binds the
-# lease and output proof, records the deterministic MIDI object in the Job's
-# API-visible artifact map, and succeeds the task atomically. A deferred
-# database aggregate then decides the Job's terminal state after every stem
-# task in this transaction is visible.
+# lease, output proof, and validated BPM candidate; it records both result
+# fields and succeeds the task atomically. Migration v009's row trigger also
+# projects the best durable candidate to `jobs.tempo` in that same update. A
+# deferred aggregate then decides the parent Job's terminal state.
 COMPLETE_RUNNING_BASIC_PITCH_TASK_SQL = """
     SELECT
       completion.task_id::text AS task_id,
@@ -52,7 +57,8 @@ COMPLETE_RUNNING_BASIC_PITCH_TASK_SQL = """
       %s::uuid,
       %s::text,
       %s::bigint,
-      %s::text
+      %s::text,
+      %s::jsonb
     ) AS completion
 """
 
@@ -163,6 +169,7 @@ def complete_running_basic_pitch_task(
     *,
     lease: BasicPitchTaskLease,
     stored_midi: VerifiedStoredBasicPitchMidiObject,
+    tempo_candidate: BasicPitchTempoCandidate,
 ) -> BasicPitchMidiTaskCompletion | None:
     """Mark only the current unexpired running task succeeded, or return ``None``.
 
@@ -178,6 +185,7 @@ def complete_running_basic_pitch_task(
         raise TypeError("cursor must provide execute and fetchone.")
     validated_lease = _validated_lease(lease)
     validated_stored_midi = _validated_stored_midi(stored_midi, lease=validated_lease)
+    validated_tempo_candidate = validate_basic_pitch_tempo_candidate(tempo_candidate)
     task_id = _canonical_uuid(validated_lease.task_id)
     job_id = _canonical_uuid(validated_lease.job_id)
     lease_token = _canonical_uuid(validated_lease.lease_token)
@@ -194,6 +202,11 @@ def complete_running_basic_pitch_task(
             validated_stored_midi.object_key,
             validated_stored_midi.content_length,
             validated_stored_midi.sha256,
+            json.dumps(
+                validated_tempo_candidate.as_payload(),
+                allow_nan=False,
+                separators=(",", ":"),
+            ),
         ),
     )
     row = cursor.fetchone()

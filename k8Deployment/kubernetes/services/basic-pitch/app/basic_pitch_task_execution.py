@@ -14,10 +14,11 @@ the only safe happy-path order:
 2. Download/hash the stem and commit ``leased`` -> ``running``.  The temporary
    WAV exists only inside that context.
 3. Create and run the fixed shell-free Basic Pitch command.
-4. Validate/hash its local Standard MIDI File and build its deterministic
-   private MinIO object plan.
-5. Upload the MIDI, then verify the stored object metadata with ``HeadObject``.
-6. Commit the lease-token-guarded ``running`` -> ``succeeded`` task update.
+4. Estimate best-effort BPM evidence from the same verified WAV, then
+   validate/hash the Standard MIDI File and build its deterministic MinIO plan.
+5. Upload the MIDI, then verify stored-object metadata with ``HeadObject``.
+6. Commit the lease-token-guarded ``running`` -> ``succeeded`` task update and
+   its per-stem tempo candidate together.
 
 The coordinator imports no Pika, receives no delivery tag, acknowledges or
 rejects no message, retries nothing, and changes no Kubernetes resource.  It
@@ -57,6 +58,7 @@ from app.midi_task_completion_commit import (
     BasicPitchMidiTaskCompletionDatabase,
     commit_verified_basic_pitch_midi_task,
 )
+from app.tempo_candidate import estimate_basic_pitch_tempo_candidate
 from app.stem_retry_handling import BasicPitchPreModelRetryDatabase
 from app.stem_download import BasicPitchGetObjectClient
 from app.stem_object import BasicPitchHeadObjectClient, verify_claimed_basic_pitch_stem_head_object
@@ -287,6 +289,10 @@ def execute_claimed_basic_pitch_task(
             timeout_seconds=timeout_seconds,
             runner=process_runner,
         )
+        # The cloud workflow estimates BPM from each input stem with librosa
+        # after MIDI extraction. Keep this as best-effort evidence: a tempo
+        # analysis problem must not invalidate the correctly generated MIDI.
+        tempo_candidate = estimate_basic_pitch_tempo_candidate(running.stem.stem_path)
         artifact = verify_and_hash_basic_pitch_midi(completed_inference)
         output_object = build_basic_pitch_midi_output_object(
             lease=lease,
@@ -306,6 +312,7 @@ def execute_claimed_basic_pitch_task(
             database=database,
             lease=lease,
             stored_midi=stored_midi,
+            tempo_candidate=tempo_candidate,
         )
 
     # A completion no-row result means a recovery/expiry/state change won

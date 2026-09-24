@@ -17,6 +17,7 @@ from app.midi_task_completion import (
     complete_running_basic_pitch_task,
 )
 from app.task_lease import BasicPitchTaskLease
+from app.tempo_candidate import BasicPitchTempoCandidate
 
 
 EVENT_ID = "93b31df9-ea8c-46bb-b2c0-19e9db5365d5"
@@ -72,6 +73,19 @@ def stored_midi(**overrides: object) -> VerifiedStoredBasicPitchMidiObject:
     return VerifiedStoredBasicPitchMidiObject(**values)  # type: ignore[arg-type]
 
 
+def tempo_candidate() -> BasicPitchTempoCandidate:
+    """Return one credible cloud-compatible stem BPM estimate."""
+
+    return BasicPitchTempoCandidate(
+        bpm=120.0,
+        beat_count=8,
+        duration_seconds=10.0,
+        interval_consistency=0.9,
+        credible=True,
+        confidence="medium",
+    )
+
+
 class BasicPitchMidiTaskCompletionTests(unittest.TestCase):
     """Prove stored object evidence can complete only the exact current task lease."""
 
@@ -85,6 +99,7 @@ class BasicPitchMidiTaskCompletionTests(unittest.TestCase):
             cursor,
             lease=lease(),
             stored_midi=stored_midi(),
+            tempo_candidate=tempo_candidate(),
         )
 
         self.assertEqual(completion.task_id if completion else None, TASK_ID)
@@ -103,6 +118,9 @@ class BasicPitchMidiTaskCompletionTests(unittest.TestCase):
                 f"midi/{JOB_ID}/vocals.mid",
                 1200,
                 OUTPUT_SHA256,
+                '{"bpm":120.0,"beat_count":8,"duration_seconds":10.0,'
+                '"interval_consistency":0.9,"credible":true,'
+                '"confidence":"medium","source":"librosa_stem"}',
             ),
         )
         self.assertIn("clouddsp_complete_basic_pitch_task", COMPLETE_RUNNING_BASIC_PITCH_TASK_SQL)
@@ -118,6 +136,7 @@ class BasicPitchMidiTaskCompletionTests(unittest.TestCase):
                 cursor,
                 lease=lease(),
                 stored_midi=stored_midi(),
+                tempo_candidate=tempo_candidate(),
             )
         )
         self.assertEqual(len(cursor.calls), 1)
@@ -131,6 +150,7 @@ class BasicPitchMidiTaskCompletionTests(unittest.TestCase):
                 cursor,
                 lease=lease(),
                 stored_midi=stored_midi(object_key=f"midi/{JOB_ID}/bass.mid"),
+                tempo_candidate=tempo_candidate(),
             )
         self.assertEqual(cursor.calls, [])
 
@@ -140,5 +160,6 @@ class BasicPitchMidiTaskCompletionTests(unittest.TestCase):
                 malformed_cursor,
                 lease=lease(),
                 stored_midi=stored_midi(),
+                tempo_candidate=tempo_candidate(),
             )
         self.assertEqual(len(malformed_cursor.calls), 1)

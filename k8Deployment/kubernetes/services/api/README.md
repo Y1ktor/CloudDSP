@@ -236,6 +236,39 @@ full expected task set, but still marks a parent failed immediately for an
 explicit terminal child failure or malformed/extra task rows. It preserves
 v007 and records its own immutable migration-ledger entry.
 
+Migration v009
+([`ConfigMap`](job-api-schema-migration-v009-tempo-resolution-configmap.yaml),
+[`Job`](job-api-schema-migration-v009-tempo-resolution-job.yaml)) restores the
+cloud BPM contract in local PostgreSQL. Each verified MIDI-state update
+recalculates the top-level `jobs.tempo` field inside that same row write, so
+the browser receives the resolved BPM from its normal job snapshot. A credible
+ADTOF drum candidate wins; otherwise credible stem candidates are normalized,
+vocal estimates are excluded when alternatives exist, and the strongest
+agreeing cluster is resolved by weighted median. If no candidate is credible,
+the cloud-compatible result is 120 BPM with `confidence=unknown`. The migration
+also backfills existing jobs that already have MIDI state but a missing or
+outdated top-level tempo. The new Basic Pitch completion overload writes its
+librosa candidate atomically with the MIDI pointer and task success. The prior
+overload remains temporarily callable so an already-running old worker can
+finish during rollout.
+
+Migration v009 has been applied to the current local cluster. Its one-shot Job
+confirmed both the `v009_tempo_resolution` ledger row and the installed trigger;
+the migration backfilled two existing Job rows. When initializing a fresh local
+cluster, apply the immutable ConfigMap and one-shot Job, then inspect the log
+and ledger entry:
+
+```sh
+kubectl --context k3d-clouddsp-local apply \
+  --filename k8Deployment/kubernetes/services/api/job-api-schema-migration-v009-tempo-resolution-configmap.yaml
+kubectl --context k3d-clouddsp-local apply \
+  --filename k8Deployment/kubernetes/services/api/job-api-schema-migration-v009-tempo-resolution-job.yaml
+kubectl --context k3d-clouddsp-local logs --follow \
+  --namespace clouddsp-app job/job-api-schema-migration-v009-tempo-resolution
+kubectl --context k3d-clouddsp-local get job \
+  --namespace clouddsp-app job-api-schema-migration-v009-tempo-resolution
+```
+
 `GET /jobs/{job_id}` now uses the verified owner snapshot to generate fresh
 one-hour URLs for the original upload, Demucs stems, Basic Pitch/ADTOF MIDI,
 and ADTOF drum-tempo JSON. It validates each key against the exact Job UUID

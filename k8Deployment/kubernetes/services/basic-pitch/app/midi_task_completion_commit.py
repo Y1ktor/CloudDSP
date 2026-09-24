@@ -23,6 +23,7 @@ from app.midi_task_completion import (
     complete_running_basic_pitch_task,
 )
 from app.task_lease import BasicPitchTaskLease, DatabaseCursor
+from app.tempo_candidate import BasicPitchTempoCandidate
 
 
 class BasicPitchMidiTaskCompletionDatabase(Protocol):
@@ -37,6 +38,7 @@ def commit_verified_basic_pitch_midi_task(
     database: BasicPitchMidiTaskCompletionDatabase,
     lease: BasicPitchTaskLease,
     stored_midi: VerifiedStoredBasicPitchMidiObject,
+    tempo_candidate: BasicPitchTempoCandidate,
 ) -> BasicPitchMidiTaskCompletion | None:
     """Commit a guarded Basic Pitch task success, or return normal ownership loss.
 
@@ -56,5 +58,6 @@ def commit_verified_basic_pitch_midi_task(
             cursor,
             lease=lease,
             stored_midi=stored_midi,
+            tempo_candidate=tempo_candidate,
         )
     return completion

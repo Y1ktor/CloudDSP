@@ -21,6 +21,7 @@ from app.basic_pitch_task_execution import (
 from app.basic_pitch_requested_message import BasicPitchRequestedMessage
 from app.midi_artifact_upload import BasicPitchMidiUploadUnavailable
 from app.midi_task_completion import BasicPitchMidiTaskCompletion
+from app.stem_download import DownloadedBasicPitchStem
 from app.stem_task_terminal_failure import (
     BasicPitchStemTerminalFailure,
     BasicPitchStemTerminalFailureCode,
@@ -30,7 +31,9 @@ from app.stem_task_retry_exhaustion import (
     BasicPitchStemRetryExhaustionCode,
 )
 from app.stem_task_retry_schedule import BasicPitchStemRetrySchedule, BasicPitchStemRetryScheduleCode
+from app.stem_task_start import RunningBasicPitchStem
 from app.task_lease import BasicPitchTaskLease
+from app.tempo_candidate import BasicPitchTempoCandidate
 
 
 JOB_ID = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
@@ -70,6 +73,20 @@ def lease() -> BasicPitchTaskLease:
     )
 
 
+def running_stem(source_path: Path) -> RunningBasicPitchStem:
+    """Return the real runtime value shape with a mocked, unread local path."""
+
+    return RunningBasicPitchStem(
+        lease=lease(),
+        stem=DownloadedBasicPitchStem(
+            stem_path=source_path,
+            size_bytes=1_024,
+            sha256="a" * 64,
+        ),
+        started_at=datetime(2026, 9, 11, 12, 20, tzinfo=UTC),
+    )
+
+
 class RecordingStemScope:
     """Expose temporary-stem scope lifetime without creating a local file."""
 
@@ -93,6 +110,7 @@ class RecordingStemScope:
 class BasicPitchTaskExecutionTests(unittest.TestCase):
     """Prove only the post-claim happy path reaches durable completion."""
 
+    @patch("app.basic_pitch_task_execution.estimate_basic_pitch_tempo_candidate")
     @patch("app.basic_pitch_task_execution.commit_verified_basic_pitch_midi_task")
     @patch("app.basic_pitch_task_execution.verify_uploaded_basic_pitch_midi_head_object")
     @patch("app.basic_pitch_task_execution.upload_basic_pitch_midi_object")
@@ -113,17 +131,16 @@ class BasicPitchTaskExecutionTests(unittest.TestCase):
         upload,
         verify_stored,
         commit,
+        estimate_tempo,
     ) -> None:
         """The coordinator retains temporary bytes until MinIO proof and commit finish."""
 
         events: list[str] = []
         database = MagicMock()
         storage_client = MagicMock()
-        # The explicit spec makes the runtime's required input type observable
-        # while leaf boundaries remain independently unit-tested elsewhere.
-        from app.stem_task_start import RunningBasicPitchStem
-
-        running = MagicMock(spec=RunningBasicPitchStem)
+        # Use the validated value object so the coordinator's runtime boundary
+        # sees exactly the structure yielded by the verified-download context.
+        running = running_stem(Path("/pod-scratch/temporary-stem.wav"))
         verified_stem = object()
         inference = object()
         artifact = object()
@@ -135,11 +152,23 @@ class BasicPitchTaskExecutionTests(unittest.TestCase):
             job_id=JOB_ID,
             completed_at=datetime(2026, 9, 11, 12, 30, tzinfo=UTC),
         )
+        tempo_candidate = BasicPitchTempoCandidate(
+            bpm=120.0,
+            beat_count=8,
+            duration_seconds=10.0,
+            interval_consistency=0.9,
+            credible=True,
+            confidence="medium",
+        )
 
         verify_stem.side_effect = lambda *args, **kwargs: (events.append("head-stem"), verified_stem)[1]
         start_stem.return_value = RecordingStemScope(events, running)
         build_inference.side_effect = lambda **kwargs: (events.append("build-inference"), inference)[1]
         run_inference.side_effect = lambda *args, **kwargs: (events.append("run-inference"), inference)[1]
+        estimate_tempo.side_effect = lambda path: (
+            events.append("estimate-tempo"),
+            tempo_candidate,
+        )[1]
         verify_midi.side_effect = lambda value: (events.append("verify-midi"), artifact)[1]
         build_output.side_effect = lambda **kwargs: (events.append("plan-midi"), output_object)[1]
         upload.side_effect = lambda **kwargs: (events.append("upload-midi"), upload_receipt)[1]
@@ -163,6 +192,7 @@ class BasicPitchTaskExecutionTests(unittest.TestCase):
                 "stem-scope-enter",
                 "build-inference",
                 "run-inference",
+                "estimate-tempo",
                 "verify-midi",
                 "plan-midi",
                 "upload-midi",
@@ -185,6 +215,7 @@ class BasicPitchTaskExecutionTests(unittest.TestCase):
             timeout_seconds=300,
             runner=None,
         )
+        estimate_tempo.assert_called_once_with(running.stem.stem_path)
         verify_midi.assert_called_once_with(inference)
         build_output.assert_called_once_with(lease=lease(), message=message(), artifact=artifact)
         upload.assert_called_once_with(client=storage_client, output_object=output_object)
@@ -193,7 +224,12 @@ class BasicPitchTaskExecutionTests(unittest.TestCase):
             output_object=output_object,
             upload_receipt=upload_receipt,
         )
-        commit.assert_called_once_with(database=database, lease=lease(), stored_midi=stored_midi)
+        commit.assert_called_once_with(
+            database=database,
+            lease=lease(),
+            stored_midi=stored_midi,
+            tempo_candidate=tempo_candidate,
+        )
 
     @patch("app.basic_pitch_task_execution.commit_verified_basic_pitch_midi_task")
     @patch("app.basic_pitch_task_execution.build_basic_pitch_inference_command")
@@ -284,6 +320,7 @@ class BasicPitchTaskExecutionTests(unittest.TestCase):
                         retry_exhaustion=exhaustion,
                     )
 
+    @patch("app.basic_pitch_task_execution.estimate_basic_pitch_tempo_candidate")
     @patch("app.basic_pitch_task_execution.commit_verified_basic_pitch_midi_task")
     @patch("app.basic_pitch_task_execution.verify_uploaded_basic_pitch_midi_head_object")
     @patch("app.basic_pitch_task_execution.upload_basic_pitch_midi_object")
@@ -304,14 +341,22 @@ class BasicPitchTaskExecutionTests(unittest.TestCase):
         upload,
         verify_stored,
         commit,
+        estimate_tempo,
     ) -> None:
         """A retryable MinIO failure remains visible to the later supervisor."""
 
         events: list[str] = []
-        from app.stem_task_start import RunningBasicPitchStem
-
+        running = running_stem(Path("/pod-scratch/temporary-stem.wav"))
         verify_stem.side_effect = lambda *args, **kwargs: (events.append("head-stem"), object())[1]
-        start_stem.return_value = RecordingStemScope(events, MagicMock(spec=RunningBasicPitchStem))
+        start_stem.return_value = RecordingStemScope(events, running)
+        estimate_tempo.return_value = BasicPitchTempoCandidate(
+            bpm=None,
+            beat_count=0,
+            duration_seconds=0.0,
+            interval_consistency=0.0,
+            credible=False,
+            confidence="low",
+        )
         build_inference.side_effect = lambda **kwargs: (events.append("build-inference"), object())[1]
         run_inference.side_effect = lambda *args, **kwargs: (events.append("run-inference"), object())[1]
         verify_midi.side_effect = lambda value: (events.append("verify-midi"), object())[1]

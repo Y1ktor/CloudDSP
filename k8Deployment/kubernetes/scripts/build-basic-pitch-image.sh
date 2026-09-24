@@ -25,7 +25,7 @@ readonly REQUIREMENTS_LOCK="${BASIC_PITCH_DIRECTORY}/requirements.lock"
 # push and later recorded in images.lock.yaml.
 readonly REGISTRY_HOST="clouddsp-registry.localhost:5001"
 readonly IMAGE_REPOSITORY="${REGISTRY_HOST}/basic-pitch"
-readonly IMAGE_NAME="${IMAGE_REPOSITORY}:0.1.1-midi-artifact-registration"
+readonly IMAGE_NAME="${IMAGE_REPOSITORY}:0.1.2-tempo-resolution"
 readonly TARGET_PLATFORM="linux/arm64"
 
 usage() {

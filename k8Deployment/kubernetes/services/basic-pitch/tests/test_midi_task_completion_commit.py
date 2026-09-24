@@ -20,6 +20,7 @@ from app.midi_task_completion import (
 )
 from app.midi_task_completion_commit import commit_verified_basic_pitch_midi_task
 from app.task_lease import BasicPitchTaskLease
+from app.tempo_candidate import BasicPitchTempoCandidate
 
 
 EVENT_ID = "93b31df9-ea8c-46bb-b2c0-19e9db5365d5"
@@ -77,6 +78,19 @@ def stored_midi() -> VerifiedStoredBasicPitchMidiObject:
     )
 
 
+def tempo_candidate() -> BasicPitchTempoCandidate:
+    """Return one credible cloud-compatible stem BPM estimate."""
+
+    return BasicPitchTempoCandidate(
+        bpm=120.0,
+        beat_count=8,
+        duration_seconds=10.0,
+        interval_consistency=0.9,
+        credible=True,
+        confidence="medium",
+    )
+
+
 class BasicPitchMidiTaskCompletionCommitTests(unittest.TestCase):
     """Prove success only escapes after commit and errors roll back before return."""
 
@@ -96,11 +110,17 @@ class BasicPitchMidiTaskCompletionCommitTests(unittest.TestCase):
             database=database,  # type: ignore[arg-type]
             lease=lease(),
             stored_midi=stored_midi(),
+            tempo_candidate=tempo_candidate(),
         )
 
         self.assertIs(returned, completion)
         self.assertEqual(database.events, ["transaction-open", "transaction-commit"])
-        complete.assert_called_once_with(database.cursor, lease=lease(), stored_midi=stored_midi())
+        complete.assert_called_once_with(
+            database.cursor,
+            lease=lease(),
+            stored_midi=stored_midi(),
+            tempo_candidate=tempo_candidate(),
+        )
 
     @patch("app.midi_task_completion_commit.complete_running_basic_pitch_task")
     def test_stale_owner_commits_no_mutation_then_returns_none(self, complete) -> None:
@@ -114,6 +134,7 @@ class BasicPitchMidiTaskCompletionCommitTests(unittest.TestCase):
                 database=database,  # type: ignore[arg-type]
                 lease=lease(),
                 stored_midi=stored_midi(),
+                tempo_candidate=tempo_candidate(),
             )
         )
         self.assertEqual(database.events, ["transaction-open", "transaction-commit"])
@@ -132,5 +153,6 @@ class BasicPitchMidiTaskCompletionCommitTests(unittest.TestCase):
                 database=database,  # type: ignore[arg-type]
                 lease=lease(),
                 stored_midi=stored_midi(),
+                tempo_candidate=tempo_candidate(),
             )
         self.assertEqual(database.events, ["transaction-open", "transaction-rollback"])

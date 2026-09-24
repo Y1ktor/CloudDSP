@@ -1,0 +1,482 @@
+# Migration v009 makes song tempo a durable projection of verified per-stem
+# candidates. Its immutable versioned ConfigMap preserves the applied schema
+# history and is mounted read-only by the one-shot PostgreSQL migration Job.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: job-api-schema-migration-v009-tempo-resolution
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: job-api-schema-migration-v009-tempo-resolution
+    app.kubernetes.io/component: database-migration
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: durable-job-tempo-resolution
+immutable: true
+data:
+  009_tempo_resolution.sql: |
+    -- CloudDSP Job API schema migration v009
+    --
+    -- Reproduce the cloud workflow's durable BPM decision locally:
+    --   1. Prefer a credible ADTOF drums candidate.
+    --   2. Otherwise normalize credible stem estimates into a canonical range,
+    --      avoid vocals when any pitched/percussive stem can vote, select the
+    --      strongest agreeing cluster, and return its weighted median.
+    --   3. Preserve the cloud fallback of 120 BPM with confidence=unknown when
+    --      no credible candidate exists.
+    --
+    -- The BEFORE UPDATE trigger updates `jobs.tempo` in the same row write as
+    -- `jobs.midi`. Concurrent worker completions therefore resolve against the
+    -- latest locked JSON document and cannot race by writing stale BPM values.
+
+    BEGIN;
+    SELECT pg_advisory_xact_lock(834929517101);
+
+    DO $migration_guard$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM public.schema_migrations
+        WHERE migration_id = 'v008_partial_task_finalization'
+      ) THEN
+        RAISE EXCEPTION 'v009 requires applied migration v008_partial_task_finalization';
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'clouddsp-basic-pitch')
+        OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'clouddsp-adtof')
+      THEN
+        RAISE EXCEPTION 'v009 requires the Basic Pitch and ADTOF runtime roles';
+      END IF;
+    END;
+    $migration_guard$;
+
+    CREATE OR REPLACE FUNCTION public.clouddsp_derive_job_tempo(p_midi jsonb)
+    RETURNS jsonb
+    LANGUAGE plpgsql
+    IMMUTABLE
+    SET search_path = pg_catalog
+    AS $tempo_resolver$
+    DECLARE
+      state_entry RECORD;
+      candidate_entry jsonb;
+      candidate_row jsonb;
+      candidates jsonb := '[]'::jsonb;
+      non_vocal_candidates jsonb := '[]'::jsonb;
+      best_cluster jsonb := '[]'::jsonb;
+      proposed_cluster jsonb;
+      seed_row jsonb;
+      selected_row jsonb;
+      candidate_bpm numeric;
+      beat_count numeric;
+      bpm numeric;
+      confidence text;
+      source_name text;
+      confidence_weight numeric;
+      candidate_weight numeric;
+      tolerance numeric;
+      cluster_weight numeric;
+      best_cluster_weight numeric := -1;
+      cluster_count integer;
+      best_cluster_count integer := 0;
+      candidate_count integer;
+      midpoint numeric;
+      running_weight numeric := 0;
+      selected_bpm numeric;
+      contributing_stems jsonb;
+      normalization_steps integer;
+    BEGIN
+      -- jsonb_each is valid only for an object. Malformed durable JSON is
+      -- handled as no candidates instead of making a task-completion UPDATE
+      -- fail solely because optional tempo evidence is absent or malformed.
+      IF jsonb_typeof(p_midi) IS DISTINCT FROM 'object' THEN
+        RETURN jsonb_build_object(
+          'bpm', 120.0, 'source', 'fallback', 'confidence', 'unknown',
+          'candidate_count', 0, 'contributing_stems', '[]'::jsonb
+        );
+      END IF;
+
+      FOR state_entry IN SELECT key, value FROM jsonb_each(p_midi)
+      LOOP
+        candidate_entry := state_entry.value -> 'tempo_candidate';
+        IF state_entry.value ->> 'status' IS DISTINCT FROM 'ready'
+          OR jsonb_typeof(candidate_entry) IS DISTINCT FROM 'object'
+          OR candidate_entry -> 'credible' IS DISTINCT FROM 'true'::jsonb
+          OR jsonb_typeof(candidate_entry -> 'bpm') IS DISTINCT FROM 'number'
+        THEN
+          CONTINUE;
+        END IF;
+
+        -- Candidate schemas differ slightly by producer (ADTOF includes its
+        -- extractor and drum corroboration fields). The resolver reads only
+        -- the shared evidence fields and independently checks JSON types.
+        candidate_bpm := (candidate_entry ->> 'bpm')::numeric;
+        IF candidate_bpm <= 0 THEN
+          CONTINUE;
+        END IF;
+        bpm := candidate_bpm;
+        normalization_steps := 0;
+        WHILE bpm < 70 AND normalization_steps < 64 LOOP
+          bpm := bpm * 2;
+          normalization_steps := normalization_steps + 1;
+        END LOOP;
+        WHILE bpm > 180 AND normalization_steps < 128 LOOP
+          bpm := bpm / 2;
+          normalization_steps := normalization_steps + 1;
+        END LOOP;
+        -- Extreme but technically positive values cannot be folded safely
+        -- into the browser's canonical range, so they do not vote.
+        IF bpm < 70 OR bpm > 180 THEN
+          CONTINUE;
+        END IF;
+        bpm := round(bpm, 2);
+
+        confidence := COALESCE(candidate_entry ->> 'confidence', 'low');
+        confidence_weight := CASE confidence
+          WHEN 'high' THEN 3.0
+          WHEN 'medium' THEN 2.0
+          ELSE 1.0
+        END;
+        IF jsonb_typeof(candidate_entry -> 'beat_count') = 'number' THEN
+          beat_count := (candidate_entry ->> 'beat_count')::numeric;
+        ELSE
+          beat_count := 0;
+        END IF;
+        candidate_weight := confidence_weight
+          * LEAST(1.5, GREATEST(0.5, beat_count / 8.0));
+        source_name := COALESCE(
+          NULLIF(candidate_entry ->> 'source', ''),
+          NULLIF(state_entry.value ->> 'extractor', ''),
+          'unknown'
+        );
+        candidates := candidates || jsonb_build_array(jsonb_build_object(
+          'stem_name', state_entry.key,
+          'bpm', bpm,
+          'confidence', confidence,
+          'weight', candidate_weight,
+          'source', source_name
+        ));
+      END LOOP;
+
+      -- ADTOF is preferred only when its own beat/drum evidence marked the
+      -- candidate credible; a state named `drums` alone is not sufficient.
+      FOR candidate_row IN SELECT value FROM jsonb_array_elements(candidates)
+      LOOP
+        IF lower(candidate_row ->> 'stem_name') = 'drums'
+          AND candidate_row ->> 'source' = 'adtof_drums'
+        THEN
+          RETURN jsonb_build_object(
+            'bpm', (candidate_row ->> 'bpm')::numeric,
+            'source', 'adtof_drums',
+            'confidence', 'high',
+            'candidate_count', 1,
+            'contributing_stems', jsonb_build_array(candidate_row ->> 'stem_name')
+          );
+        END IF;
+      END LOOP;
+
+      -- As in cloudDSP, avoid vocal stem estimates whenever another candidate
+      -- exists. A vocals-only job still retains its sole usable vote.
+      SELECT COALESCE(
+        jsonb_agg(value ORDER BY lower(value ->> 'stem_name'), value ->> 'stem_name'),
+        '[]'::jsonb
+      )
+      INTO non_vocal_candidates
+      FROM jsonb_array_elements(candidates)
+      WHERE position('vocal' IN lower(value ->> 'stem_name')) = 0;
+      IF jsonb_array_length(non_vocal_candidates) > 0 THEN
+        candidates := non_vocal_candidates;
+      END IF;
+
+      candidate_count := jsonb_array_length(candidates);
+      IF candidate_count = 0 THEN
+        RETURN jsonb_build_object(
+          'bpm', 120.0, 'source', 'fallback', 'confidence', 'unknown',
+          'candidate_count', 0, 'contributing_stems', '[]'::jsonb
+        );
+      END IF;
+      IF candidate_count = 1 THEN
+        selected_row := candidates -> 0;
+        RETURN jsonb_build_object(
+          'bpm', (selected_row ->> 'bpm')::numeric,
+          'source', 'single_stem',
+          'confidence', 'low',
+          'candidate_count', 1,
+          'contributing_stems', jsonb_build_array(selected_row ->> 'stem_name')
+        );
+      END IF;
+
+      -- Each candidate is a possible cluster seed. The winning cluster has
+      -- the largest confidence/beat-count weight, then the largest membership;
+      -- BPM/name ordering makes exact ties deterministic across JSONB writes.
+      FOR seed_row IN
+        SELECT value
+        FROM jsonb_array_elements(candidates)
+        ORDER BY (value ->> 'bpm')::numeric, value ->> 'stem_name'
+      LOOP
+        tolerance := GREATEST(3.0, (seed_row ->> 'bpm')::numeric * 0.03);
+        SELECT COALESCE(
+          jsonb_agg(value ORDER BY (value ->> 'bpm')::numeric, value ->> 'stem_name'),
+          '[]'::jsonb
+        )
+        INTO proposed_cluster
+        FROM jsonb_array_elements(candidates)
+        WHERE abs((value ->> 'bpm')::numeric - (seed_row ->> 'bpm')::numeric) <= tolerance;
+        SELECT COALESCE(sum((value ->> 'weight')::numeric), 0), count(*)::integer
+        INTO cluster_weight, cluster_count
+        FROM jsonb_array_elements(proposed_cluster);
+        IF cluster_weight > best_cluster_weight
+          OR (cluster_weight = best_cluster_weight AND cluster_count > best_cluster_count)
+        THEN
+          best_cluster := proposed_cluster;
+          best_cluster_weight := cluster_weight;
+          best_cluster_count := cluster_count;
+        END IF;
+      END LOOP;
+
+      -- Return the weighted median within the agreeing cluster, not an average
+      -- that could be dragged between two legitimate half/double-time tempos.
+      SELECT sum((value ->> 'weight')::numeric) / 2.0
+      INTO midpoint
+      FROM jsonb_array_elements(best_cluster);
+      FOR candidate_row IN
+        SELECT value
+        FROM jsonb_array_elements(best_cluster)
+        ORDER BY (value ->> 'bpm')::numeric, value ->> 'stem_name'
+      LOOP
+        running_weight := running_weight + (candidate_row ->> 'weight')::numeric;
+        IF running_weight >= midpoint THEN
+          selected_bpm := (candidate_row ->> 'bpm')::numeric;
+          EXIT;
+        END IF;
+      END LOOP;
+      SELECT COALESCE(
+        jsonb_agg(value ->> 'stem_name' ORDER BY value ->> 'stem_name'),
+        '[]'::jsonb
+      )
+      INTO contributing_stems
+      FROM jsonb_array_elements(best_cluster);
+
+      RETURN jsonb_build_object(
+        'bpm', selected_bpm,
+        'source', 'consensus',
+        'confidence', 'medium',
+        'candidate_count', best_cluster_count,
+        'contributing_stems', contributing_stems
+      );
+    END;
+    $tempo_resolver$;
+
+    CREATE OR REPLACE FUNCTION public.clouddsp_resolve_job_tempo_from_midi()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    SECURITY DEFINER
+    SET search_path = pg_catalog
+    AS $tempo_trigger$
+    BEGIN
+      -- This trigger runs inside the worker's existing guarded update. It
+      -- projects current candidate evidence to the API-visible `tempo` field
+      -- without a second write or an extra `revision` increment.
+      NEW.tempo := public.clouddsp_derive_job_tempo(NEW.midi);
+      RETURN NEW;
+    END;
+    $tempo_trigger$;
+
+    DROP TRIGGER IF EXISTS jobs_resolve_tempo_before_midi_update ON public.jobs;
+    CREATE TRIGGER jobs_resolve_tempo_before_midi_update
+      BEFORE UPDATE OF midi ON public.jobs
+      FOR EACH ROW
+      WHEN (OLD.midi IS DISTINCT FROM NEW.midi)
+      EXECUTE FUNCTION public.clouddsp_resolve_job_tempo_from_midi();
+
+    -- Basic Pitch now records its candidate in the same transaction as the
+    -- verified MIDI reference and succeeded task row. Keep the prior ten-arg
+    -- overload temporarily so an already-running old worker can finish during
+    -- rollout; the new image calls this explicitly bounded eleven-arg version.
+    CREATE OR REPLACE FUNCTION public.clouddsp_complete_basic_pitch_task(
+      p_task_id uuid,
+      p_job_id uuid,
+      p_stem_name text,
+      p_input_bucket text,
+      p_input_object_key text,
+      p_stem_mode text,
+      p_lease_token uuid,
+      p_midi_key text,
+      p_midi_size_bytes bigint,
+      p_midi_sha256 text,
+      p_tempo_candidate jsonb
+    )
+    RETURNS TABLE (task_id uuid, job_id uuid, completed_at timestamptz)
+    LANGUAGE plpgsql
+    SECURITY DEFINER
+    SET search_path = pg_catalog
+    AS $basic_pitch_completion$
+    DECLARE
+      candidate_bpm numeric;
+      candidate_beats numeric;
+      candidate_duration numeric;
+      candidate_consistency numeric;
+      candidate_credible boolean;
+    BEGIN
+      -- Preserve the immutable input/output namespace and stem-mode contract.
+      IF p_input_bucket IS DISTINCT FROM 'clouddsp-uploads'
+        OR p_stem_mode NOT IN ('2-stems', '4-stems', '6-stems')
+        OR p_stem_name NOT IN ('vocals', 'no_vocals', 'bass', 'other', 'guitar', 'piano')
+        OR p_input_object_key IS DISTINCT FROM ('stems/' || p_job_id::text || '/' || p_stem_name || '.wav')
+        OR p_midi_key IS DISTINCT FROM ('midi/' || p_job_id::text || '/' || p_stem_name || '.mid')
+        OR p_midi_size_bytes IS NULL OR p_midi_size_bytes < 1
+        OR p_midi_sha256 IS NULL OR p_midi_sha256 !~ '^[0-9a-f]{64}$'
+        OR NOT (
+          (p_stem_mode = '2-stems' AND p_stem_name IN ('vocals', 'no_vocals'))
+          OR (p_stem_mode = '4-stems' AND p_stem_name IN ('vocals', 'bass', 'other'))
+          OR (p_stem_mode = '6-stems'
+            AND p_stem_name IN ('vocals', 'bass', 'other', 'guitar', 'piano'))
+        )
+      THEN
+        RETURN;
+      END IF;
+
+      -- Accept only the seven scalar fields generated by this worker. A false
+      -- candidate is valid evidence too; the resolver simply will not vote it.
+      IF p_tempo_candidate IS NULL
+        OR jsonb_typeof(p_tempo_candidate) IS DISTINCT FROM 'object'
+      THEN
+        RETURN;
+      END IF;
+      IF NOT (p_tempo_candidate ?& ARRAY[
+          'bpm', 'beat_count', 'duration_seconds', 'interval_consistency',
+          'credible', 'confidence', 'source'
+        ])
+      THEN
+        RETURN;
+      END IF;
+      IF (SELECT count(*) FROM jsonb_object_keys(p_tempo_candidate)) <> 7
+      THEN
+        RETURN;
+      END IF;
+      IF
+        jsonb_typeof(p_tempo_candidate -> 'bpm') NOT IN ('null', 'number')
+        OR jsonb_typeof(p_tempo_candidate -> 'beat_count') <> 'number'
+        OR jsonb_typeof(p_tempo_candidate -> 'duration_seconds') <> 'number'
+        OR jsonb_typeof(p_tempo_candidate -> 'interval_consistency') <> 'number'
+        OR jsonb_typeof(p_tempo_candidate -> 'credible') <> 'boolean'
+        OR jsonb_typeof(p_tempo_candidate -> 'confidence') <> 'string'
+        OR p_tempo_candidate ->> 'source' <> 'librosa_stem'
+      THEN
+        RETURN;
+      END IF;
+      IF jsonb_typeof(p_tempo_candidate -> 'bpm') = 'number' THEN
+        candidate_bpm := (p_tempo_candidate ->> 'bpm')::numeric;
+      END IF;
+      candidate_beats := (p_tempo_candidate ->> 'beat_count')::numeric;
+      candidate_duration := (p_tempo_candidate ->> 'duration_seconds')::numeric;
+      candidate_consistency := (p_tempo_candidate ->> 'interval_consistency')::numeric;
+      candidate_credible := (p_tempo_candidate ->> 'credible')::boolean;
+      IF (candidate_bpm IS NOT NULL AND candidate_bpm <= 0)
+        OR candidate_beats < 0 OR candidate_beats <> trunc(candidate_beats)
+        OR candidate_duration < 0
+        OR candidate_consistency < 0 OR candidate_consistency > 1
+        OR (candidate_credible AND (
+          candidate_bpm IS NULL
+          OR candidate_beats < CASE WHEN candidate_duration < 20 THEN 4 ELSE 8 END
+          OR candidate_consistency < 0.70
+          OR p_tempo_candidate ->> 'confidence' <> 'medium'
+        ))
+        OR (NOT candidate_credible AND p_tempo_candidate ->> 'confidence' <> 'low')
+      THEN
+        RETURN;
+      END IF;
+
+      RETURN QUERY
+      WITH eligible AS MATERIALIZED (
+        SELECT task.task_id, task.job_id
+        FROM public.processing_tasks AS task
+        INNER JOIN public.jobs AS job ON job.job_id = task.job_id
+        WHERE task.task_id = p_task_id
+          AND task.job_id = p_job_id
+          AND task.stage = 'basic-pitch'
+          AND task.stem_name = p_stem_name
+          AND task.input_bucket = p_input_bucket
+          AND task.input_object_key = p_input_object_key
+          AND task.stem_mode = p_stem_mode
+          AND task.status = 'running'
+          AND task.lease_token = p_lease_token
+          AND task.lease_expires_at > CURRENT_TIMESTAMP
+          AND job.status = 'midi_processing'
+          AND job.stem_mode = p_stem_mode
+          AND job.expires_at > CURRENT_TIMESTAMP
+          AND job.stems -> p_stem_name ->> 'status' = 'ready'
+          AND job.stems -> p_stem_name ->> 's3_key' = p_input_object_key
+          AND NOT (job.midi ? p_stem_name)
+        FOR UPDATE OF task, job
+      ),
+      updated_job AS (
+        UPDATE public.jobs AS job
+        SET midi = jsonb_set(
+              job.midi,
+              ARRAY[p_stem_name],
+              jsonb_build_object(
+                'status', 'ready',
+                'extractor', 'basic-pitch',
+                's3_key', p_midi_key,
+                'size_bytes', p_midi_size_bytes,
+                'sha256', p_midi_sha256,
+                'tempo_candidate', p_tempo_candidate
+              ),
+              TRUE
+            ),
+            revision = job.revision + 1,
+            error_message = NULL
+        FROM eligible
+        WHERE job.job_id = eligible.job_id
+          AND job.status = 'midi_processing'
+          AND job.stem_mode = p_stem_mode
+          AND job.expires_at > CURRENT_TIMESTAMP
+          AND NOT (job.midi ? p_stem_name)
+        RETURNING job.job_id
+      ),
+      updated_task AS (
+        UPDATE public.processing_tasks AS task
+        SET status = 'succeeded',
+            available_at = CURRENT_TIMESTAMP,
+            lease_token = NULL,
+            lease_expires_at = NULL,
+            completed_at = CURRENT_TIMESTAMP,
+            last_error_code = NULL
+        FROM eligible
+        INNER JOIN updated_job ON updated_job.job_id = eligible.job_id
+        WHERE task.task_id = eligible.task_id
+          AND task.job_id = eligible.job_id
+          AND task.stage = 'basic-pitch'
+          AND task.stem_name = p_stem_name
+          AND task.status = 'running'
+        RETURNING task.task_id, task.job_id, task.completed_at
+      )
+      SELECT task.task_id, task.job_id, task.completed_at FROM updated_task AS task;
+    END;
+    $basic_pitch_completion$;
+
+    REVOKE ALL PRIVILEGES ON FUNCTION public.clouddsp_derive_job_tempo(jsonb) FROM PUBLIC;
+    REVOKE ALL PRIVILEGES ON FUNCTION public.clouddsp_resolve_job_tempo_from_midi() FROM PUBLIC;
+    REVOKE ALL PRIVILEGES ON FUNCTION public.clouddsp_complete_basic_pitch_task(
+      uuid, uuid, text, text, text, text, uuid, text, bigint, text, jsonb
+    ) FROM PUBLIC;
+    GRANT EXECUTE ON FUNCTION public.clouddsp_complete_basic_pitch_task(
+      uuid, uuid, text, text, text, text, uuid, text, bigint, text, jsonb
+    ) TO "clouddsp-basic-pitch";
+
+    -- Existing jobs may already contain ADTOF candidates but have a NULL
+    -- top-level tempo. Backfill their projection once, bumping the revision so
+    -- polling clients can observe this newly populated API field.
+    UPDATE public.jobs AS job
+    SET tempo = public.clouddsp_derive_job_tempo(job.midi),
+        revision = job.revision + 1
+    WHERE job.midi <> '{}'::jsonb
+      AND job.tempo IS DISTINCT FROM public.clouddsp_derive_job_tempo(job.midi);
+
+    INSERT INTO public.schema_migrations (migration_id, description)
+    VALUES (
+      'v009_tempo_resolution',
+      'Resolves durable top-level BPM from credible ADTOF and Basic Pitch candidates, preferring ADTOF drums then weighted stem consensus.'
+    )
+    ON CONFLICT (migration_id) DO NOTHING;
+
+    COMMIT;

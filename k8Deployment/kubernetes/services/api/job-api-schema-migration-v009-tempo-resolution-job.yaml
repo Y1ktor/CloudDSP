@@ -1,0 +1,99 @@
+# Apply this one-shot migration Job after its immutable v009 SQL ConfigMap.
+# It uses only the existing Job API schema-owner Secret; neither worker
+# credentials nor PostgreSQL administrator credentials enter this Pod.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: job-api-schema-migration-v009-tempo-resolution
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: job-api-schema-migration-v009-tempo-resolution
+    app.kubernetes.io/component: database-migration
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: durable-job-tempo-resolution
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 0
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: job-api-schema-migration-v009-tempo-resolution
+        app.kubernetes.io/component: database-migration
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgresql-migration-client
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PGHOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: PGPORT
+              value: "5432"
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-database-credentials
+                  key: JOB_API_DB_NAME
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-database-credentials
+                  key: JOB_API_DB_USERNAME
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-job-api-database-credentials
+                  key: JOB_API_DB_PASSWORD
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: migration
+              mountPath: /migrations
+              readOnly: true
+          command:
+            - sh
+            - -ec
+            - |
+              printf 'Applying CloudDSP durable-tempo migration v009 through Service %s:%s\n' "$PGHOST" "$PGPORT"
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                --file /migrations/009_tempo_resolution.sql
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                --command "SELECT migration_id, applied_at FROM public.schema_migrations WHERE migration_id = 'v009_tempo_resolution';"
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                --command "SELECT tgname FROM pg_trigger WHERE tgrelid = 'public.jobs'::regclass AND tgname = 'jobs_resolve_tempo_before_midi_update' AND NOT tgisinternal;"
+              printf 'CloudDSP durable-tempo migration v009 passed\n'
+      volumes:
+        - name: migration
+          configMap:
+            name: job-api-schema-migration-v009-tempo-resolution
+            defaultMode: 0444
+            items:
+              - key: 009_tempo_resolution.sql
+                path: 009_tempo_resolution.sql

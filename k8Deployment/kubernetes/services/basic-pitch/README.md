@@ -287,11 +287,22 @@ responses, paths, credentials, and ETags remain out of later task state.
 
 [`app/midi_task_completion.py`](app/midi_task_completion.py) now calls the
 administrator-owned `clouddsp_complete_basic_pitch_task` function installed by
-the Job API's versioned v007 migration. PostgreSQL rechecks the current,
-unexpired lease, records the verified MIDI key/byte-count/SHA-256 under
-`jobs.midi[stem_name]`, and succeeds that one task in the same transaction.
+the Job API's versioned v007 migration (with its tempo-aware overload added by
+v009). PostgreSQL rechecks the current, unexpired lease, records the verified
+MIDI key/byte-count/SHA-256 and BPM candidate under `jobs.midi[stem_name]`, and
+succeeds that one task in the same transaction.
 The worker receives `EXECUTE` on that typed function, not direct `UPDATE`
 access to the parent Job. `None` remains the normal stale-owner result.
+
+[`app/tempo_candidate.py`](app/tempo_candidate.py) mirrors cloud Basic Pitch's
+librosa beat-tracker candidate. It records estimated BPM, beat count, stem
+duration, interval consistency, and a credible/low-confidence decision. BPM
+analysis is best-effort: a tempo-estimation error creates a non-credible
+candidate without discarding a valid MIDI result. Migration v009 derives the
+browser-visible `jobs.tempo` field from all ready candidates in the same
+PostgreSQL write; credible ADTOF drums take priority, otherwise the strongest
+agreeing non-vocal candidate cluster is resolved with the cloud weighted-
+median rule.
 
 The same migration installs a deferred PostgreSQL aggregate trigger. When a
 Basic Pitch or ADTOF task becomes terminal, the trigger runs at commit and
@@ -596,7 +607,8 @@ called `tensorflow-cpu-aws` on Linux/ARM64; it is an upstream CPU binary name,
 not an AWS integration or credential source. The adjacent
 [`image source lock`](../../images.lock.yaml) pins the separate official
 Python 3.11.16 base-image digest. The reviewed published worker is now pinned
-as `images.basic-pitch`; only its Deployment remains a separate boundary.
+as `images.basic-pitch`; the Deployment separately records which immutable
+worker build is live in the cluster.
 
 [`Dockerfile`](Dockerfile) now builds the local CPU worker in two stages. Its
 validation stage installs the complete lock with `--require-hashes`, runs all
@@ -608,8 +620,8 @@ not create `/worker-scratch`, so a missing future `emptyDir` mount fails safely
 at startup. The exec-form `ENTRYPOINT ["python", "-m", "app.worker_main"]`
 makes the signal-aware wrapper PID 1. The reviewed published CPU image is now
 recorded as `images.basic-pitch` in [`../../images.lock.yaml`](../../images.lock.yaml),
-and the prepared Deployment below supplies its controller boundary without yet
-applying a Pod.
+and the live Deployment below is pinned to that exact digest. KEDA owns the
+replica count independently of the image version.
 
 [`../../scripts/build-basic-pitch-image.sh`](../../scripts/build-basic-pitch-image.sh)
 is that non-interactive local build-and-push boundary. It accepts no runtime
@@ -618,23 +630,25 @@ builds the Dockerfile specifically for the local Linux/ARM64 nodes, and prints
 both the pushed immutable repository digest and Docker's uncompressed size.
 Its Docker build reruns the unit/model validation stage; the script itself does
 not call `kubectl`, modify an image lock, or create a workload. The separately
-reviewed image-lock record now captures its output, and the prepared Deployment
-below consumes that immutable reference without applying it.
+reviewed image-lock record captures its output, and the Deployment consumes
+that immutable reference in the local cluster.
 
-The current `0.1.1-midi-artifact-registration` CPU image passed all 213 worker
-unit tests plus its TensorFlow/TFLite model checks. Its immutable local-registry
-reference is
-`clouddsp-registry.localhost:5001/basic-pitch@sha256:30d4e0e36e30eb42e66b59469c01ea65a141b09d45a27c89830b51b757e9ca89`
-and its uncompressed Docker size is 520,349,251 bytes (496.24 MiB). This image
-uses the v007 typed completion function to atomically persist each MIDI
-artifact's deterministic key, size, and SHA-256 with task success. The updated
-image and Deployment are prepared but not applied.
+The current `0.1.2-tempo-resolution` CPU image passed all 213 worker unit tests
+plus its TensorFlow/TFLite model checks. Its immutable local-registry reference
+is
+`clouddsp-registry.localhost:5001/basic-pitch@sha256:e4ef1fc639a3571b3b8d4b2ab9cd0dacf3bb62ae1d194e3fad48c10066b0648a`
+and its uncompressed Docker size is 520,356,879 bytes (496.25 MiB). Along with
+the prior verified MIDI artifact evidence, this image records a best-effort
+librosa BPM candidate from the hash-verified stem. PostgreSQL v009 resolves
+that candidate together with ADTOF evidence and updates the parent Job's tempo
+atomically with MIDI task completion. The candidate is advisory: failure to
+estimate BPM does not fail MIDI extraction.
 
-## Prepared Deployment manifest
+## Basic Pitch Deployment manifest
 
-[`basic-pitch-deployment.yaml`](basic-pitch-deployment.yaml) is the prepared
-internal-only worker controller. It uses the locked CPU-only image digest, one
-replica before a scaler is installed, one-message RabbitMQ prefetch, private
+[`basic-pitch-deployment.yaml`](basic-pitch-deployment.yaml) is the applied
+internal-only worker controller. It uses the locked CPU-only image digest,
+KEDA-managed replicas, one-message RabbitMQ prefetch, private
 PostgreSQL/MinIO/RabbitMQ Service DNS, and only the three existing
 app-namespace runtime Secrets. The
 Pod uses no ServiceAccount token, no Service or Ingress, no CUDA resource, and
@@ -645,15 +659,16 @@ than the five-minute fixed Basic Pitch CLI deadline so a normal SIGTERM can let
 the current bounded operation clean up before RabbitMQ/PostgreSQL recovery is
 needed.
 
-The manifest is intentionally **not applied by this task**. Before applying it
-in the next task, confirm that the existing app-namespace database, MinIO, and
-RabbitMQ runtime Secrets are present and that their matching least-privilege
-bootstrap Jobs have completed.
+The v0.1.2 tempo-resolution image and this Deployment manifest are applied in
+the local cluster. Its RabbitMQ scaler is Ready and currently inactive, so the
+Deployment intentionally has zero Pods while its request queue is empty. A new
+Basic Pitch delivery will scale up a Pod from the digest-pinned image; no warm
+worker is retained between bursts.
 
 ## KEDA queue-scaling policy
 
 [`basic-pitch-scaledobject.yaml`](basic-pitch-scaledobject.yaml) is the
-prepared KEDA policy for this worker. It leaves the long-running Deployment
+installed KEDA policy for this worker. It leaves the long-running Deployment
 responsible for the worker process and Pod security, while KEDA's generated HPA
 owns only the Deployment replica count. The policy observes the private
 `clouddsp.basic-pitch.requests` queue through RabbitMQ's private management
