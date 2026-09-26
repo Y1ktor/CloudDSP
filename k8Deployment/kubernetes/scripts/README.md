@@ -5,6 +5,49 @@ declared in [`../cluster/k3d.yaml`](../cluster/k3d.yaml). Run the commands from
 the repository root, or change into this directory first; each script resolves
 its own location and does not depend on the current working directory.
 
+## Read-only deployment plan
+
+```bash
+./k8Deployment/kubernetes/scripts/deploy-local.sh plan
+```
+
+This is the first stage of the proposed
+[deployment orchestrator](../deployment-orchestration-plan.md). It reads the
+versioned workload manifests and lock files, then queries only the explicit
+`k3d-clouddsp-local` context. It checks namespace and Helm ownership,
+StatefulSet selectors/claim templates and bound PVCs, immutable image
+references, and the *names* of runtime Secrets. It checks for matching ignored
+local Secret filenames and committed example contracts without printing Secret
+values. The command makes no cluster changes and returns nonzero when a
+blocking inconsistency is found; warnings identify work needed before a fresh
+bootstrap. Ruby's standard YAML/JSON libraries are required on the host.
+
+This general command reports resource ownership and source/live identity but
+does not render a chart diff. The separate
+[Mailpit release script](../helm/mailpit/README.md) performs the first
+chart-specific render and live-spec comparison. The general command does not
+install, adopt, migrate, bootstrap, or clean up anything. The
+[resource ownership map](../resource-ownership-map.md) records the full
+versioned/live snapshot and proposed boundaries.
+
+## Mailpit Helm adoption and verification
+
+```bash
+./k8Deployment/kubernetes/scripts/mailpit-release.rb plan
+./k8Deployment/kubernetes/scripts/mailpit-release.rb adopt
+./k8Deployment/kubernetes/scripts/mailpit-release.rb verify
+./k8Deployment/kubernetes/scripts/mailpit-release.rb smoke
+```
+
+The [Mailpit chart](../helm/mailpit/README.md) owns only the existing
+Deployment, two Services, and browser Ingress in `clouddsp-data`. Run `plan`
+before its one-time `adopt` operation. Once it is adopted, use `verify` for
+read-only ownership, readiness, and route checks; `smoke` creates only the
+versioned disposable SMTP capture Job and removes it after success. The
+script stops on unknown ownership or any rendered/source/live spec drift.
+The raw manifests under `services/mailpit/` are now an adoption baseline and
+must not be reapplied to the Helm-owned objects.
+
 ## Prerequisites
 
 Start Docker Desktop, then confirm that the local command-line tools are

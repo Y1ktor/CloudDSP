@@ -1,9 +1,5 @@
-# Legacy kubectl source retained as the reviewed baseline for Helm adoption.
-# The active local owner is helm/mailpit; do not reapply this raw manifest to
-# the adopted object, because it would reintroduce kubectl ownership metadata.
-#
 # A Deployment runs Mailpit as CloudDSP's local-only test mailbox.  It captures
-# SMTP messages from Keycloak and later exposes them through a browser UI, but
+# SMTP messages from Keycloak and exposes them through a browser UI, but
 # it never relays messages to an external provider or a real user mailbox.
 #
 # Mailpit state is intentionally ephemeral in this first profile.  The attached
@@ -14,13 +10,13 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: clouddsp-mailpit
-  namespace: clouddsp-data
+  namespace: {{ .Release.Namespace }}
   labels:
     app.kubernetes.io/name: mailpit
     app.kubernetes.io/instance: clouddsp-mailpit
     app.kubernetes.io/component: test-email
     app.kubernetes.io/part-of: clouddsp
-    app.kubernetes.io/managed-by: kubectl
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
     clouddsp.io/environment: local
 spec:
   # One disposable mailbox is sufficient.  Increasing this value would split
@@ -33,7 +29,7 @@ spec:
     # acceptable and intentional for this non-production local component.
     type: Recreate
   # This immutable selector identifies the Pods this Deployment owns.  The
-  # later ClusterIP Service uses this same label contract to find the ready Pod.
+  # SMTP and UI ClusterIP Services use this label contract to find the ready Pod.
   selector:
     matchLabels:
       app.kubernetes.io/name: mailpit
@@ -65,18 +61,18 @@ spec:
       containers:
         - name: mailpit
           # This immutable multi-architecture reference is recorded in
-          # `../../images.lock.yaml`.  It is Mailpit's local SMTP-capture and
+          # `../../../images.lock.yaml`. It is Mailpit's local SMTP-capture and
           # web-inbox image—not an external email relay or user-mailbox server.
-          image: docker.io/axllent/mailpit@sha256:7f33095f80e901f6ad08028f06ca284aa58fe84942be5496008d041d3b9f4d4d
+          image: {{ .Values.image.reference | quote }}
           imagePullPolicy: IfNotPresent
           ports:
-            # The later internal Service exposes this port to Keycloak only as
+            # The internal SMTP Service exposes this port to Keycloak only as
             # its local SMTP host.  It must never be published to the Mac host.
             - name: smtp
               containerPort: 1025
               protocol: TCP
-            # The browser inbox/API listens here.  A later dedicated Service and
-            # Traefik Ingress can expose this local-only UI under its own host.
+            # The browser inbox/API listens here. Its dedicated Service and
+            # Traefik Ingress expose only this local UI under its own host.
             - name: web-ui
               containerPort: 8025
               protocol: TCP
@@ -141,7 +137,7 @@ spec:
             failureThreshold: 12
             timeoutSeconds: 3
           readinessProbe:
-            # The future SMTP/UI Services receive endpoints only after Mailpit
+            # The SMTP/UI Services receive endpoints only after Mailpit
             # reports it is ready to accept the local test-mail workload.
             httpGet:
               path: /readyz

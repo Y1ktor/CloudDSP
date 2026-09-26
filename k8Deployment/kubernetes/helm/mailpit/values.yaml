@@ -1,0 +1,10 @@
+# This immutable image reference must match the reviewed Mailpit entry in
+# ../../images.lock.yaml. Updating the digest is a separate image review, not
+# a side effect of adopting the existing Deployment into Helm.
+image:
+  reference: docker.io/axllent/mailpit@sha256:7f33095f80e901f6ad08028f06ca284aa58fe84942be5496008d041d3b9f4d4d
+
+# The local-only browser route uses Traefik's existing HTTP entry point.
+# SMTP has a separate ClusterIP Service and is never exposed by this Ingress.
+ingress:
+  host: mailpit.localhost

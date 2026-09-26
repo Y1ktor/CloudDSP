@@ -1,0 +1,9 @@
+# This chart owns only Mailpit's existing Deployment, two Services, and UI
+# Ingress. It does not create a namespace, credential, storage claim, or test
+# Job; those have separate lifecycles from the disposable local mailbox.
+apiVersion: v2
+name: mailpit
+description: CloudDSP local SMTP capture and browser inbox
+type: application
+version: 0.1.0
+appVersion: "1.30.6"

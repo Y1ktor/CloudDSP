@@ -277,6 +277,14 @@ bootstrap Secret was deleted after it passed. The future long-running
 dispatcher belongs in `clouddsp-app` and its separate restricted runtime
 database Secret is already applied there.
 
+The committed [database runtime Secret template](dispatcher-database-credentials.secret.example.yaml)
+records the three keys read by both dispatcher Deployments. The separate
+[RabbitMQ runtime Secret template](dispatcher-rabbitmq-credentials.secret.example.yaml)
+records their two publisher login keys. These are name/key contracts with
+placeholders, not deployed credentials. Each ignored local runtime copy must
+match the corresponding temporary bootstrap identity, and the two backends
+must retain separate passwords.
+
 The role is restricted to the adapter's exact `public.outbox_events` boundary:
 
 - `SELECT` only the claim filters, order columns, durable payload, and

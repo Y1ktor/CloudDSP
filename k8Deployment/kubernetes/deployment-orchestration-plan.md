@@ -1,0 +1,283 @@
+# CloudDSP local Kubernetes deployment orchestration plan
+
+## Purpose and scope
+
+Make the existing `k3d-clouddsp-local` deployment reproducible through a
+versioned, non-interactive entry point. The entry point should install a fresh
+local cluster in dependency order, reconcile an existing cluster without
+discarding data, and report which stage failed. It will manage only the local
+Kubernetes track under `k8Deployment/kubernetes/`; the AWS deployment remains
+independent. This is a plan, not an implemented deploy command.
+
+Follow [the Kubernetes instructions](../AGENTS.md),
+[the local implementation plan](../plan.md), and the existing
+[cluster scripts](scripts/README.md) when implementing each stage. In
+particular, keep secrets in ignored local configuration, pin reviewed images,
+deploy through versioned Helm configuration and non-interactive scripts, and
+install KEDA before applying any `ScaledObject`.
+
+## Baseline observed on 2026-09-26
+
+The local context is `k3d-clouddsp-local`. A read-only inventory showed:
+
+- Namespaces `clouddsp-system`, `clouddsp-data`, `clouddsp-app`, and `keda`.
+- Bound local-path PVCs for the PostgreSQL, MinIO, and RabbitMQ StatefulSets.
+  All three StatefulSets were Ready at one replica. Preserve their object
+  names, selectors, volume claim templates, and data during adoption.
+- Ready Keycloak, Mailpit, frontend, Job API, upload-intake, and both dispatcher
+  Deployments. Demucs, Basic Pitch, and ADTOF were at zero replicas by design;
+  their KEDA `ScaledObject` resources reported Ready.
+- Helm releases for KEDA and the k3s-managed Traefik components. No CloudDSP
+  application or data-service Helm release was listed.
+
+This is a point-in-time observation, not a substitute for the implementation
+preflight. The existing [service manifests](services/) and
+[KEDA Helm release](helm/keda/README.md) are the starting inputs. The proposed
+orchestrator must inventory the cluster again immediately before adoption.
+The first delivery task now has a [resource and ownership map](resource-ownership-map.md)
+with the source/live inventory, proposed owners, prerequisites, and data
+preservation rules.
+
+The first stateless adoption trial completed later on **2026-09-26**:
+[Mailpit](helm/mailpit/README.md) is now Helm release `clouddsp-mailpit` in
+`clouddsp-data`. Its four resource UIDs, two Service IPs, Pod UID, and
+browser route were preserved. The versioned SMTP capture smoke passed. This
+does not change the baseline observation or authorize adoption of other
+components without their own review.
+
+## Deployment model
+
+Use **independent Helm releases** for components with distinct upgrade and
+failure boundaries. A small host-side script is the root composition layer:
+it renders/checks inputs, installs or upgrades each release, waits for its
+specific readiness condition, then moves to the next stage. This gives the
+CloudFormation-style sectional layout without making PostgreSQL, workers,
+and the frontend one indivisible release.
+
+| Boundary | Proposed ownership | Namespace | Notes |
+| --- | --- | --- | --- |
+| k3d topology, registry, packaged Traefik | Existing `cluster.sh` and k3s configuration | Host / `kube-system` | Do not take ownership of packaged Traefik. Never recreate an existing cluster during reconcile. |
+| Project namespaces | Versioned cluster manifest and script | Cluster | Keep existing namespace ownership outside application releases. |
+| KEDA | Existing pinned `install-keda.sh` release | `keda` | Verify operator/webhook readiness and CRDs before scaling resources. |
+| PostgreSQL, MinIO, RabbitMQ | One CloudDSP Helm release per data service | `clouddsp-data` | Stateful adoption occurs after stateless components and data-safety checks. |
+| Keycloak, Mailpit | Separate releases | `clouddsp-data` | Keycloak depends on PostgreSQL and its database bootstrap. |
+| Job API, upload-intake, dispatcher, generic dispatcher, frontend | Separate app releases, or one release per tightly coupled app boundary after review | `clouddsp-app` | Keep the two dispatcher Deployments distinct even if they share one parameterized chart and image recipe. |
+| Demucs, Basic Pitch, ADTOF | One worker release each | `clouddsp-app` | Worker chart owns its Deployment; add its `ScaledObject` only after the worker and KEDA prerequisites pass. |
+| Bootstrap jobs and database migrations | Versioned manifests invoked by narrowly scoped scripts | `clouddsp-data` / `clouddsp-app` | These are state transitions with durable results, not continuously reconciled workloads. |
+| Runtime and temporary bootstrap Secrets | Ignored local files consumed by scripts | Relevant namespace | Charts reference existing Secret names; secret values never enter chart values or Helm release history. |
+
+Do not make a single umbrella chart the only release: Helm chart dependencies
+are rendered into one release and do not express the service readiness sequence
+needed here. Shared chart helpers are fine where they reduce duplication. The
+charts should render reviewed Kubernetes resources; the script owns ordering,
+readiness checks, and one-time transitions.
+
+## Proposed repository artifacts
+
+Add these incrementally, after the resource inventory and release boundaries
+are reviewed:
+
+```text
+kubernetes/
+  helm/
+    keda/                         # existing pinned upstream release
+    postgresql/ minio/ rabbitmq/   # CloudDSP data-service charts
+    keycloak/ mailpit/             # identity and local email charts
+    job-api/ upload-intake/        # application charts
+    dispatcher/ frontend/
+    demucs/ basic-pitch/ adtof/    # worker charts
+    values/local.yaml              # non-secret local profile, if useful
+    values/gpu.yaml                # separate native Linux GPU profile
+  scripts/
+    deploy-local.sh                # proposed bootstrap/reconcile/verify entry point
+    lib/deploy-*.sh                # narrow stage helpers, only if needed
+  tests/deployment/               # render, ownership, ordering, and failure checks
+```
+
+Keep [images.lock.yaml](images.lock.yaml) as the source of reviewed image
+digests. Chart values may contain image references and non-secret settings,
+but must not duplicate credentials. Keep the GPU profile separate: a Mac k3d
+run verifies integration and CPU operation, not CUDA behavior.
+
+## Orchestration sequence
+
+Each stage has a prerequisite, action, and observable completion gate. A
+failed gate stops the run. Independent later stages are not applied after a
+failure.
+
+| Stage | Action | Completion gate |
+| --- | --- | --- |
+| 0. Preflight | Confirm Docker/k3d/kubectl/Helm, explicit context, cluster identity when present, chart locks, reviewed image digests/build inputs, and required ignored Secret files. Inventory existing Helm and Kubernetes ownership when a cluster exists. | Inputs are valid; no unexpected ownership or immutable-field change on an existing cluster. Print a redacted plan before mutation. |
+| 1. Cluster foundation | For a fresh install only, call `cluster.sh create`. Apply versioned namespaces. Leave existing k3d cluster and PVCs intact on reconcile. | Nodes Ready; project namespaces Active; local registry reachable. |
+| 1a. Image availability | After the registry exists, verify every required pinned image digest can be pulled by the cluster. If a fresh registry is empty, run the existing versioned build/push procedure for locally built images and verify the resulting digests against the reviewed lock; stop on a mismatch. | Each required image is present at the reviewed digest before its workload is installed. The script never rewrites the lock automatically. |
+| 2. Data services | Reconcile PostgreSQL, RabbitMQ, and MinIO independently. | StatefulSets Ready; PVCs Bound; service-level health checks pass. A StatefulSet being Ready alone is insufficient to prove its bootstrap state. |
+| 3. Data bootstrap | Create/verify databases and least-privilege roles; apply PostgreSQL migrations in numeric order; import RabbitMQ topology and identities; create/verify MinIO buckets, policies, and source notification. | Durable schema migration ledger and service-specific verification match the versioned inputs. Temporary bootstrap credentials are removed only after successful verification. |
+| 4. Identity and local email | Reconcile Mailpit, then Keycloak after its database exists. Run versioned realm/client/audience/SMTP configuration steps. | Mailpit and Keycloak Ready; OIDC discovery, realm/client settings, and local SMTP routing verified. |
+| 5. App services | Reconcile Job API, upload-intake, dispatcher, and generic dispatcher using existing runtime Secrets. | Each required Deployment Ready; `/readyz` or an equivalent dependency-aware probe succeeds where available. |
+| 6. Workers and scaling | Install/verify KEDA if needed. Reconcile worker Deployments and required role/policy bootstrap. Apply TriggerAuthentications and then each worker `ScaledObject`. | KEDA CRDs/controllers Ready; all three `ScaledObject` resources Ready and bound to the intended Deployment. Zero worker replicas is valid when queues and due work are empty. |
+| 7. Browser route | Reconcile frontend after public Keycloak/API/MinIO configuration is checked; verify ingress resources. | Frontend Ready; authenticated browser/API routing check passes. |
+| 8. Verification | Run a small non-destructive smoke first, then the reviewed end-to-end suite. | Login, direct upload, processing to terminal state, MIDI/artifact access, polling recovery, and selected failure/idempotency checks pass. Record report and release revisions. |
+
+The exact order *within* stage 3 must be recorded as a dependency graph,
+because RabbitMQ topology, MinIO notifications, database permissions, and
+worker identities cross service directories. For example, MinIO's source
+notification needs the broker exchange and narrowly scoped broker identity;
+the upload-intake runtime needs its database role and outbox schema. Use
+explicit gates rather than relying on manifest filename order.
+
+```mermaid
+flowchart LR
+  C[k3d + namespaces] --> D[PostgreSQL / RabbitMQ / MinIO]
+  D --> B[Schema + service bootstrap]
+  B --> I[Mailpit + Keycloak + OIDC bootstrap]
+  B --> A[API + intake + dispatchers]
+  I --> A
+  A --> W[Worker Deployments]
+  D --> K[KEDA controller]
+  K --> S[Worker scaling policies]
+  W --> S
+  I --> F[Frontend + ingress]
+  A --> F
+  S --> V[End-to-end verification]
+  F --> V
+```
+
+## Command behavior to implement
+
+The read-only [`deploy-local.sh plan`](scripts/deploy-local.sh) command now
+implements the first preflight slice. The eventual entry point should offer
+this small, explicit interface:
+
+- `plan`: read-only preflight, rendered chart validation, resource/ownership
+  diff, proposed stages, and missing inputs. No cluster mutation. Current
+  implementation checks source/live identity, ownership, Secrets, image locks,
+  and StatefulSet/PVC invariants; chart rendering waits for the first chart.
+- `bootstrap`: create the k3d cluster only if absent, then run the stages for
+  a fresh installation, including image availability after the registry is
+  created. Refuse to treat an existing, partially configured cluster as fresh
+  without inventory and a deliberate reconcile path.
+- `reconcile`: rerun safe desired-state stages against the existing cluster.
+  Skip verified one-time transitions; stop if state disagrees with the ledger
+  or an existing fixed-name Job has an ambiguous result.
+- `verify`: read-only health and release report plus explicit, separately
+  selected smoke checks that may create test jobs or test data.
+
+Every cluster command must pass `--context k3d-clouddsp-local` or Helm's
+equivalent. Output should identify stage, release, namespace, pinned image,
+readiness result, and next recovery action. Do not print Secret contents,
+tokens, connection strings, or private URLs. A repeated successful reconcile
+should make no unnecessary changes.
+
+For each release, render and validate first, then use a pinned chart/version
+with explicit namespace and bounded wait. `--atomic` can recover ordinary
+Helm resource changes on a failed install/upgrade; it does **not** reverse a
+database migration, broker topology change, MinIO data change, or PVC
+contents. Treat those transitions as separate versioned steps with their own
+verification and recovery instructions.
+
+## Existing-resource adoption
+
+This is the main risk in moving from the current `kubectl`-applied CloudDSP
+resources to Helm. Helm must not claim similarly named resources until the
+rendered chart and live resource have been compared.
+
+1. Export a sanitized inventory of names, namespaces, kinds, labels,
+   selectors, immutable fields, owner references, PVC names, and existing Helm
+   ownership. Never export Secret payloads into the repository or reports.
+2. Build each chart from its existing manifest. Preserve Service names and
+   selectors, ingress hosts, StatefulSet names, `volumeClaimTemplates`,
+   storage classes, and the worker `scaleTargetRef` names.
+3. Start with one stateless, low-impact release. Render, diff, check readiness,
+   then deliberately adopt only its reviewed existing objects. Verify that
+   another reconciler will not continue to apply the old raw manifests.
+4. Migrate remaining stateless releases one at a time. Migrate the three data
+   StatefulSets last, after a tested data backup and a specific recovery plan.
+   Stop if Helm proposes replacing a StatefulSet, changing a claim template,
+   deleting a PVC, or renaming a Service.
+5. Keep project namespaces, KEDA, and k3s Traefik with their current owners.
+   Do not run broad Helm ownership takeover or `kubectl delete -f` as a
+   migration technique.
+
+An adoption run must be a distinct, reviewed operation. Normal `reconcile`
+must fail on an unknown existing owner instead of silently taking it over.
+
+## One-time jobs, migration ledger, and secrets
+
+The repository already has versioned PostgreSQL migrations through v009 and
+many fixed-name bootstrap Jobs. Reapplying a completed Kubernetes Job does not
+rerun its body; a Job disappearing after TTL also does not prove that its
+external effect disappeared. Therefore:
+
+- Read the PostgreSQL `schema_migrations` ledger and verify the expected
+  version/description before deciding to skip or run a migration. Apply new
+  migrations in numeric order; never edit a migration already recorded as
+  applied. Stop on a missing predecessor or inconsistent ledger.
+- For RabbitMQ, MinIO, and Keycloak bootstrap, verify the actual external
+  object and its intended policy/configuration before skipping. Add a
+  versioned, non-secret record or check where the current bootstrap has no
+  durable marker. Do not infer success from an old Job status alone.
+- Require ignored local runtime Secrets before starting dependents. Use
+  temporary admin/bootstrap Secret copies only for the narrow Job that needs
+  them, then remove those copies after the external state is verified.
+- Detect changed credentials and direct the operator to an explicit rotation
+  workflow. A normal reconcile must not assume that changing a Secret also
+  changed a PostgreSQL role, RabbitMQ user, MinIO user, or Keycloak client.
+- Keep Job execution, log collection, timeout, and verification in scripts;
+  use unique versioned Job names or an explicitly reviewed rerun procedure.
+  Do not hide all bootstraps in broad Helm hooks.
+
+## Failure, rollback, and data protection
+
+- Stop at the first failed readiness or bootstrap gate and preserve logs and
+  names of the failed resources. Resume with `reconcile` only after diagnosing
+  the mismatch; do not automatically tear down the cluster.
+- For ordinary app chart failures, inspect Helm history and roll back that
+  release only when its previous image/config remains compatible with the
+  current schema and messages.
+- Before a data-service chart adoption or risky upgrade, capture and test a
+  PostgreSQL backup plus a recovery method for MinIO objects and RabbitMQ
+  state. Local-path PVCs are development storage, not a backup mechanism.
+- No automatic `helm uninstall`, namespace deletion, PVC deletion, cluster
+  deletion, or credential rotation in `deploy-local.sh`.
+- Treat Kubernetes resource rollback and external data rollback separately.
+  Schema changes should be forward-compatible with the previous application
+  release whenever practical.
+
+## Delivery in small, reviewable tasks
+
+1. **Inventory and ownership map.** Record every live and versioned resource,
+   its proposed release or bootstrap stage, prerequisites, and preservation
+   rules. This is the first task: it makes subsequent adoption decisions
+   concrete without changing the cluster.
+2. **Read-only plan/preflight command.** Implement context checks, input
+   checks, rendering, ownership diff, and a redacted stage report.
+3. **One stateless chart and adoption trial — completed for Mailpit.** Its
+   release preserved object and Pod identity, routing, and SMTP capture.
+4. **Remaining stateless charts.** Migrate each app/support component
+   independently, retaining existing names and runtime Secret references.
+5. **Data-service charts and protected adoption.** Add backups, immutable-field
+   comparisons, and one-at-a-time StatefulSet ownership changes.
+6. **Bootstrap/migration stage runners.** Implement ledger checks and external
+   state verification before allowing one-command `bootstrap` or `reconcile`.
+7. **Root orchestrator and verification.** Wire the stages together; test a
+   fresh disposable cluster and a repeated reconcile against the existing
+   cluster, then run the required product smoke suite.
+
+Each task needs its own review and validation. This document authorizes no
+cluster mutation by itself.
+
+## Acceptance criteria for the finished orchestrator
+
+- A fresh local cluster reaches a working browser-to-worker deployment from
+  committed non-secret configuration, ignored local Secrets, and reviewed
+  images by running the documented entry point.
+- Repeating `reconcile` succeeds without rerunning completed one-time work,
+  changing PVC identity, or creating new processing messages.
+- A missing Secret, unavailable image, wrong Kubernetes context, ownership
+  conflict, failed migration, or unavailable dependency stops before a later
+  stage is deployed and produces an actionable, non-sensitive error.
+- Helm lint/template, Kubernetes schema validation, relevant unit tests,
+  `git diff --check`, and deployment smoke tests pass. Readiness covers both
+  ordinary Deployments and KEDA workers that legitimately scale to zero.
+- The deployment report records release revisions and bootstrap/migration
+  versions without exposing credentials or user data.

@@ -600,9 +600,12 @@ percent-encoded within MinIO's required AMQP URI. They must be the same
 password in two representations. The upload-intake MinIO runtime Secret has
 an ignored local copy at
 `k8Deployment/.local/upload-intake-minio-credentials.secret.yaml`. It uses a
-distinct S3 secret key and is intentionally not represented by a committed
-template. Neither RabbitMQ template creates a live Kubernetes Secret until its
-local copy is applied.
+distinct S3 secret key. Its committed
+[`upload-intake-minio-credentials.secret.example.yaml`](upload-intake-minio-credentials.secret.example.yaml)
+template now records the exact runtime key names without exposing that key;
+the ignored copy must match the temporary MinIO bootstrap identity. None of
+these templates creates a live Kubernetes Secret until its local copy is
+applied.
 
 ## PostgreSQL identity boundary
 

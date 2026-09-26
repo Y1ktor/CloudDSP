@@ -1,6 +1,3 @@
-# Legacy kubectl source retained as the reviewed baseline for Helm adoption.
-# The active local owner is helm/mailpit; do not reapply this raw manifest.
-#
 # This Ingress publishes Mailpit's local browser inbox through Traefik's shared
 # HTTP entry point.  It routes only the web UI/API Service on port 8025; SMTP is
 # a non-HTTP protocol and remains reachable only at its internal ClusterIP
@@ -14,13 +11,13 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: clouddsp-mailpit
-  namespace: clouddsp-data
+  namespace: {{ .Release.Namespace }}
   labels:
     app.kubernetes.io/name: mailpit
     app.kubernetes.io/instance: clouddsp-mailpit
     app.kubernetes.io/component: test-email
     app.kubernetes.io/part-of: clouddsp
-    app.kubernetes.io/managed-by: kubectl
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
     clouddsp.io/environment: local
   annotations:
     # K3s's bundled Traefik controller calls its HTTP listener `web`; k3d maps
@@ -35,7 +32,7 @@ spec:
     # `.localhost` resolves to the local loopback address in a browser.  Using
     # a distinct host keeps this catch-all path from competing with Keycloak or
     # future CloudDSP frontend/API routing rules on the same shared Traefik port.
-    - host: mailpit.localhost
+    - host: {{ .Values.ingress.host | quote }}
       http:
         paths:
           # Mailpit serves its web UI and HTTP API at the root.  Prefix matching

@@ -1,10 +1,7 @@
-# Legacy kubectl source retained as the reviewed baseline for Helm adoption.
-# The active local owner is helm/mailpit; do not reapply these raw manifests.
-#
 # These two ClusterIP Services give Mailpit separate stable internal addresses
 # for two different protocols.  Both select the same ready Mailpit Pod, but the
 # split keeps SMTP delivery and the browser inbox distinct Kubernetes contracts.
-# Neither Service opens a port on the Mac; only a later Traefik Ingress may
+# Neither Service opens a port on the Mac; the Traefik Ingress may
 # expose the web-UI Service, while SMTP remains cluster-internal.
 
 apiVersion: v1
@@ -14,13 +11,13 @@ metadata:
   # namespace can connect to `clouddsp-mailpit-smtp:1025`; a caller elsewhere
   # uses `clouddsp-mailpit-smtp.clouddsp-data.svc.cluster.local`.
   name: clouddsp-mailpit-smtp
-  namespace: clouddsp-data
+  namespace: {{ .Release.Namespace }}
   labels:
     app.kubernetes.io/name: mailpit
     app.kubernetes.io/instance: clouddsp-mailpit
     app.kubernetes.io/component: test-email
     app.kubernetes.io/part-of: clouddsp
-    app.kubernetes.io/managed-by: kubectl
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
     clouddsp.io/environment: local
     clouddsp.io/purpose: local-smtp-capture
 spec:
@@ -51,13 +48,13 @@ metadata:
   # API.  Keeping it separate means an Ingress backend has no SMTP port in its
   # own Service definition to select accidentally.
   name: clouddsp-mailpit
-  namespace: clouddsp-data
+  namespace: {{ .Release.Namespace }}
   labels:
     app.kubernetes.io/name: mailpit
     app.kubernetes.io/instance: clouddsp-mailpit
     app.kubernetes.io/component: test-email
     app.kubernetes.io/part-of: clouddsp
-    app.kubernetes.io/managed-by: kubectl
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
     clouddsp.io/environment: local
     clouddsp.io/purpose: local-test-inbox-ui
 spec:
@@ -71,7 +68,7 @@ spec:
   ports:
     - name: web-ui
       protocol: TCP
-      # A future Traefik Ingress will route HTTP traffic to this port only.
+      # The Traefik Ingress routes HTTP traffic to this port only.
       # Port 8025 is Mailpit's documented web UI/API listener.
       port: 8025
       targetPort: web-ui
