@@ -1,0 +1,185 @@
+# This Deployment maintains the long-running internal outbox dispatcher. Its
+# Pods claim durable PostgreSQL `demucs.requested` rows, publisher-confirm them
+# to RabbitMQ, then record that same lease as published. It is not a Demucs
+# worker: it neither downloads audio nor uses CUDA/GPU capacity.
+#
+# It intentionally has no Service or Ingress. The dispatcher accepts no
+# inbound HTTP/GRPC connection; it initiates its own private PostgreSQL and
+# RabbitMQ connections. A Kubernetes Service would add an unused inbound route
+# and a browser-facing Ingress would be an unnecessary security boundary.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clouddsp-dispatcher
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: dispatcher
+    app.kubernetes.io/instance: clouddsp-dispatcher
+    app.kubernetes.io/component: outbox-publisher
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: postgresql-outbox-rabbitmq-demucs-publisher
+spec:
+  # One replica makes the first local handoff easy to observe. The PostgreSQL
+  # lease query uses `FOR UPDATE SKIP LOCKED`, so later replicas can safely
+  # share a backlog; HPA/KEDA-based scaling is deliberately a later task after
+  # metrics and operational limits are established.
+  replicas: {{ .Values.replicas }}
+  # Keep enough old ReplicaSet history for a digest-pinned rollback without
+  # accumulating many inactive controllers in a laptop learning cluster.
+  revisionHistoryLimit: 2
+  progressDeadlineSeconds: 180
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # A short overlap is safe. Each Pod must acquire a distinct PostgreSQL
+      # lease before it can publish, and a stale completion cannot overwrite a
+      # recovered lease. This avoids a needless publishing outage on updates.
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    # Deployment selectors are immutable after creation. They must exactly
+    # match the Pod-template labels so this controller owns only dispatcher
+    # Pods, never a future Demucs worker or upload-intake consumer.
+    matchLabels:
+      app.kubernetes.io/name: dispatcher
+      app.kubernetes.io/instance: clouddsp-dispatcher
+      app.kubernetes.io/component: outbox-publisher
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dispatcher
+        app.kubernetes.io/instance: clouddsp-dispatcher
+        app.kubernetes.io/component: outbox-publisher
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      # This worker never creates or reads Kubernetes resources. Omitting the
+      # default ServiceAccount token prevents a compromised process from using
+      # an in-namespace Kubernetes API credential it does not need.
+      automountServiceAccountToken: false
+      # Do not inject legacy `*_SERVICE_HOST` variables. Every permitted
+      # dependency endpoint is explicit below, which makes network intent
+      # inspectable and avoids environment-order surprises.
+      enableServiceLinks: false
+      # The supervisor turns SIGTERM into a stop flag. Thirty-five seconds lets
+      # its current bounded database/publisher attempt finish normally; a hard
+      # stop remains safe because an unfinished PostgreSQL lease later expires
+      # and is recovered by another attempt.
+      terminationGracePeriodSeconds: 35
+      securityContext:
+        # The locked dispatcher image defines this numeric non-root account.
+        # Repeating it here makes an accidental root-capable replacement image
+        # fail early rather than silently broadening the Pod's privileges.
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: dispatcher
+          # This historical Demucs-only runtime is pinned by
+          # images.dispatcher-demucs-only.immutableReference in
+          # ../../../images.lock.yaml. The generic controller instead uses the
+          # separate images.dispatcher digest. The descriptive tag must never
+          # be used in a workload manifest.
+          image: {{ .Values.image.reference | quote }}
+          # A digest never changes meaning. Reuse a cached copy when present,
+          # but pull it from the dedicated k3d registry when a node lacks it.
+          imagePullPolicy: IfNotPresent
+          env:
+            # These are non-secret private Service routes. Fully qualified DNS
+            # keeps Pod traffic inside the cluster and never routes it through
+            # Traefik or a browser-facing `.localhost` hostname.
+            - name: DISPATCHER_DB_HOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: DISPATCHER_DB_PORT
+              value: "5432"
+            - name: DISPATCHER_DB_CONNECT_TIMEOUT_SECONDS
+              value: "3"
+            - name: DISPATCHER_AMQP_HOST
+              value: clouddsp-rabbitmq.clouddsp-data.svc
+            - name: DISPATCHER_AMQP_PORT
+              value: "5672"
+            # The Python settings adapter validates these fixed values again.
+            # A manifest edit cannot widen this least-privilege publisher into
+            # an arbitrary exchange/queue client without corresponding review.
+            - name: DISPATCHER_AMQP_VHOST
+              value: /clouddsp
+            - name: DISPATCHER_AMQP_EXCHANGE
+              value: clouddsp.processing-events
+            - name: DISPATCHER_AMQP_ROUTING_KEY
+              value: demucs.requested
+            - name: DISPATCHER_AMQP_CONNECT_TIMEOUT_SECONDS
+              value: "5"
+            - name: DISPATCHER_AMQP_HEARTBEAT_SECONDS
+              value: "30"
+            # These are bounded supervisor controls, not broker topology or
+            # Secret data. A lease limits recovery after an uncertain publish;
+            # retry-after delays a known pre-confirmation broker failure;
+            # sleeps prevent empty-outbox/database-outage hot loops.
+            - name: DISPATCHER_LEASE_SECONDS
+              value: "30"
+            - name: DISPATCHER_RETRY_AFTER_SECONDS
+              value: "30"
+            - name: DISPATCHER_IDLE_SLEEP_SECONDS
+              value: "1"
+            - name: DISPATCHER_DATABASE_RECOVERY_SLEEP_SECONDS
+              value: "5"
+            # Kubernetes can reference only Secrets in the Pod's own
+            # namespace. These two application Secrets carry the restricted
+            # identities; this Pod never receives PostgreSQL/RabbitMQ
+            # administrator or bootstrap credentials.
+            - name: DISPATCHER_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-dispatcher-database-credentials
+                  key: DISPATCHER_DB_NAME
+            - name: DISPATCHER_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-dispatcher-database-credentials
+                  key: DISPATCHER_DB_USERNAME
+            - name: DISPATCHER_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-dispatcher-database-credentials
+                  key: DISPATCHER_DB_PASSWORD
+            - name: RABBITMQ_DISPATCHER_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-dispatcher-rabbitmq-credentials
+                  key: RABBITMQ_DISPATCHER_USERNAME
+            - name: RABBITMQ_DISPATCHER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-dispatcher-rabbitmq-credentials
+                  key: RABBITMQ_DISPATCHER_PASSWORD
+          resources:
+            # The dispatcher performs indexed SQL plus small JSON/AMQP
+            # publication only. It neither stores audio nor runs ML, so these
+            # modest requests preserve laptop capacity for stateful services
+            # and later CPU/GPU worker Pods.
+            requests:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+              ephemeral-storage: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            # PostgreSQL owns durable outbox state and RabbitMQ owns queued
+            # messages. The image disables `.pyc` writes, so this process does
+            # not need a writable root filesystem or an `emptyDir` volume.
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          # No liveness/readiness probe is defined in this focused task. This
+          # process has no listener, and a superficial `exec` probe could say
+          # healthy while its PostgreSQL outbox route is unavailable. The
+          # entrypoint fails on invalid configuration; a later observability
+          # task will add a truthful process-health signal before scaling.

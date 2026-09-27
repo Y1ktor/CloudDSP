@@ -1,0 +1,30 @@
+# This Service owns a stable internal name while Deployment Pods are replaced.
+# It never exposes a Mac port: the Traefik Ingress is the separate
+# browser-facing route to this ClusterIP address.
+apiVersion: v1
+kind: Service
+metadata:
+  name: clouddsp-frontend
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: clouddsp-frontend
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    clouddsp.io/environment: local
+spec:
+  type: ClusterIP
+  # These are a label query, not descriptive labels. They must exactly match
+  # the Deployment Pod template, otherwise Kubernetes creates no EndpointSlice
+  # entries and connections to this Service have nowhere to go.
+  selector:
+    app.kubernetes.io/name: clouddsp-frontend
+    app.kubernetes.io/component: frontend
+  ports:
+    # Cluster callers use clouddsp-frontend:80. `targetPort` refers to the
+    # Deployment container port *name* `http`, whose numeric port is 8080.
+    # Naming the target avoids duplicating that implementation detail here.
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: http

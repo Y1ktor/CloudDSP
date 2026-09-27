@@ -1,0 +1,22 @@
+# This namespaced KEDA resource maps one ignored app-namespace Secret key to
+# the PostgreSQL scaler's password parameter. It does not mount the password
+# into Demucs, create a database account, or expose PostgreSQL externally.
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: clouddsp-demucs-postgresql-scaler-authentication
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: keda
+    app.kubernetes.io/component: demucs-postgresql-scaler-authentication
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: Helm
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: bind-read-only-demucs-task-count
+spec:
+  secretTargetRef:
+    # The username and private Service coordinates remain reviewable on the
+    # Demucs ScaledObject. Only the password comes from this Secret key.
+    - parameter: password
+      name: clouddsp-keda-demucs-postgresql-credentials
+      key: POSTGRESQL_KEDA_DEMUCS_PASSWORD

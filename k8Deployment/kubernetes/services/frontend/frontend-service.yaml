@@ -1,3 +1,6 @@
+# Legacy kubectl source retained as the reviewed Helm adoption baseline.
+# The active local owner is helm/frontend; do not reapply this raw manifest.
+#
 # This Service owns a stable internal name while Deployment Pods are replaced.
 # It never exposes a Mac port: the later Traefik Ingress will be the separate
 # browser-facing route to this ClusterIP address.

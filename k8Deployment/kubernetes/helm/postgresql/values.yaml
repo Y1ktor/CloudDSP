@@ -1,0 +1,6 @@
+# Use the reviewed multi-platform image index. The kubelet chooses its local
+# architecture child; a running imageID can therefore differ from this index.
+# Keep the PVC claim template, Service names, and Pod selector in templates so
+# an accidental values override cannot silently change durable identity.
+image:
+  reference: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0

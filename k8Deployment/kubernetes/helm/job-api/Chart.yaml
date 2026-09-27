@@ -1,0 +1,9 @@
+# This release owns the existing Job API Deployment, ClusterIP Service, and
+# two-prefix same-origin Ingress. Database migrations, runtime Secrets, and
+# the frontend are separate ownership and lifecycle boundaries.
+apiVersion: v2
+name: job-api
+description: CloudDSP local authenticated Job API
+type: application
+version: 0.1.0
+appVersion: "0.0.9-demucs-timeout-message"

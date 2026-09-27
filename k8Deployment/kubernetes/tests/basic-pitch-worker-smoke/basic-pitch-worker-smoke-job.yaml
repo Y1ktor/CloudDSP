@@ -16,8 +16,9 @@
 #   3. The generic dispatcher and Basic Pitch worker Deployments are healthy.
 #   4. No previous failed run retains this test's fixed database rows or objects.
 #
-# This file is deliberately unapplied. A later explicit task will provide the
-# apply, log, inspection, and human-approved failed-run cleanup commands.
+# Run only through basic-pitch-release.rb smoke. That script requires the
+# fixed Job name to be free and removes the Job only after complete success;
+# an interrupted run keeps durable evidence for diagnosis.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -74,7 +75,7 @@ spec:
           # This digest is images.basic-pitch-worker-smoke-client in
           # ../../images.lock.yaml. The readable tag is deliberately absent:
           # only this exact ARM64 image may execute the smoke sequence.
-          image: clouddsp-registry.localhost:5001/basic-pitch-worker-smoke-client@sha256:c37acb0177e213cdecff061057f1f91e4ecf554bf2f52f52a5d6f8b8c62f72d1
+          image: clouddsp-registry.localhost:5001/basic-pitch-worker-smoke-client@sha256:786d0261a5bbe1d318d807e32f2151fc678839b899c0371bebe25347a3457de0
           imagePullPolicy: IfNotPresent
           env:
             # Both dependencies use private Kubernetes Service DNS. The image

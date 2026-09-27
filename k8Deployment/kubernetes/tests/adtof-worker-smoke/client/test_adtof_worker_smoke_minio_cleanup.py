@@ -51,7 +51,7 @@ def _successful_observation(**overrides: object) -> ADTOFWorkerSmokeObservation:
         "task_attempt_count": 1,
         "task_lease_is_clear": True,
         "task_completed_at": now,
-        "job_status": "midi_processing",
+        "job_status": "failed_incomplete_stem_fixture",
     }
     values.update(overrides)
     return ADTOFWorkerSmokeObservation(**values)  # type: ignore[arg-type]

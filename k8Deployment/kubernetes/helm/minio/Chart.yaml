@@ -1,0 +1,9 @@
+# One release owns only the long-lived S3 server and its two stable internal
+# Services plus browser S3 Ingress. The generated PVC, bucket data, IAM state,
+# runtime Secrets, and one-shot policy/notification Jobs remain outside Helm.
+apiVersion: v2
+name: minio
+description: CloudDSP local single-node MinIO object storage
+type: application
+version: 0.1.0
+appVersion: "RELEASE.2025-10-15T17-29-55Z"

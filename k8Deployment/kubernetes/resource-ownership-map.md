@@ -4,9 +4,9 @@ This began as the first implementation task in the
 [deployment orchestration plan](deployment-orchestration-plan.md): an inventory
 and proposed ownership map. The counts and source catalog below are the
 pre-adoption snapshot from context `k3d-clouddsp-local` on **2026-09-26**;
-they exclude the later Mailpit chart files. Re-run the inventory and a full
-spec diff before each further Helm adoption. A matching name in this document
-does not prove that live spec and source spec match.
+they exclude subsequently added Helm chart files. Re-run the inventory
+and a full spec diff before each further Helm adoption. A matching name in
+this document does not prove that live spec and source spec match.
 
 ## Scope and counting
 
@@ -37,16 +37,29 @@ does not prove that live spec and source spec match.
 | Three CloudDSP namespaces | Live, `managed-by=kubectl` | Cluster manifest/script | Keep outside app Helm releases; preserve names and existing namespace labels. |
 | KEDA controller, services, RBAC, six CRDs | Helm release `keda` | Existing pinned KEDA release | Do not adopt into CloudDSP charts; install and verify before `ScaledObject` resources. CRD lifecycle stays separate. |
 | Traefik and Traefik CRDs | k3s Helm releases in `kube-system` | k3s | Keep outside CloudDSP orchestration and ownership changes. |
-| PostgreSQL, MinIO, RabbitMQ StatefulSets and Services | Live, `managed-by=kubectl` | One data-service Helm release each | Preserve exact names, selectors, headless Service names, claim templates, and bound PVCs; back up before adoption. |
-| Keycloak | Live, `managed-by=kubectl` | Identity release | Needs its PostgreSQL database/Secret; preserve routes and Service selectors. |
+| PostgreSQL StatefulSet and Services | Helm release `clouddsp-postgresql`, revision 1 | Data release [`helm/postgresql`](helm/postgresql/README.md) | Protected backup/isolated restore passed; three object UIDs, Pod UID, Service IPs, and bound PVC/PV identity unchanged. Read/write smoke passed. |
+| MinIO StatefulSet, Services, and S3 Ingress | Helm release `clouddsp-minio`, revision 1 | Data release [`helm/minio`](helm/minio/README.md) | Stopped-volume backup and isolated restore passed; four resource UIDs, post-backup Pod UID, Service IPs, and PVC/PV identity preserved. S3 and restricted-access smokes passed. |
+| RabbitMQ StatefulSet, three Services, and ingress NetworkPolicy | Helm release `clouddsp-rabbitmq`, revision 1 | Data release [`helm/rabbitmq`](helm/rabbitmq/README.md) | Stopped-volume backup and isolated restore passed; five resource UIDs, post-backup Pod UID, Service IPs, and bound PVC/PV identity preserved. AMQP smoke passed. |
+| Keycloak | Helm release `clouddsp-keycloak`, revision 1 | Identity release [`helm/keycloak`](helm/keycloak/README.md) | Three resource UIDs, Service IP, Pod UID, issuer route, and PostgreSQL Secret references preserved. OIDC, PKCE authorization, verification email, and authenticated-read smokes passed. |
 | Mailpit | Helm release `clouddsp-mailpit`, revision 2 | Support release [`helm/mailpit`](helm/mailpit/README.md) | Four existing objects adopted without changing UIDs, Service IPs, Pod UID, or route; use Helm for subsequent changes. |
-| Job API, upload-intake, dispatcher pair, frontend | Live, `managed-by=kubectl` | Separate app releases; one parameterized dispatcher chart may serve two releases | Preserve Deployment selectors, Service names, routes, runtime Secret references, and reviewed image digests. |
-| Demucs, Basic Pitch, ADTOF Deployments | Live, `managed-by=kubectl`; currently scale to zero | One worker release each | Preserve Deployment names used by KEDA; zero replicas can be healthy. |
-| Three worker `ScaledObject` resources | Live, `managed-by=kubectl`; KEDA Ready | Corresponding worker release, enabled only after prerequisites | Requires KEDA CRDs, worker Deployment, observer identity/Secret, TriggerAuthentication, and broker/database access. Preserve scale targets and queue names. |
-| Two shared `TriggerAuthentication` resources | Live, `managed-by=kubectl` | Proposed `scaling-auth` release | Requires KEDA, RabbitMQ and PostgreSQL observer bootstrap, and existing app-namespace Secrets. Do not put secret values in Helm. |
+| Frontend | Helm release `clouddsp-frontend`, revision 1 | App release [`helm/frontend`](helm/frontend/README.md) | Three existing objects adopted without changing UIDs, Service IP, Pod UID, or route; preserve the OIDC redirect origin. |
+| Legacy dispatcher | Helm release `clouddsp-dispatcher`, revision 3 | App release [`helm/dispatcher`](helm/dispatcher/README.md) | Adoption preserved the Deployment and Pod UIDs; the later smoke pause/restore replaced the Pod. One Ready replica uses the Demucs-only digest. |
+| Generic dispatcher | Helm release `clouddsp-generic-dispatcher`, revision 3 | App release [`helm/generic-dispatcher`](helm/generic-dispatcher/README.md) | Adoption preserved the Deployment and Pod UIDs; the later smoke pause/restore replaced the Pod. Explicit generic command and digest remain. |
+| Job API | Helm release `clouddsp-job-api`, revision 1 | App release [`helm/job-api`](helm/job-api/README.md) | Three resource UIDs, Service IP, Pod UID, image digest, and protected `/auth` and `/jobs` routes preserved. |
+| Upload-intake | Helm release `clouddsp-upload-intake`, revision 1 | App release [`helm/upload-intake`](helm/upload-intake/README.md) | Existing Deployment and Pod UIDs, Secret references, and running image digest unchanged; no Service or route. |
+| Demucs Deployment and ScaledObject | Helm release `clouddsp-demucs`, revision 1 | Worker release [`helm/demucs`](helm/demucs/README.md) | Both resource UIDs, scaler generation, generated HPA UID, and zero idle Pods preserved. The chart retains the RabbitMQ and PostgreSQL triggers and KEDA's `/scale` ownership. |
+| ADTOF Deployment and ScaledObject | Helm release `clouddsp-adtof`, revision 1 | Worker release [`helm/adtof`](helm/adtof/README.md) | Existing UIDs, scaler generation, generated HPA UID, and zero idle Pods preserved. Repaired one-drum smoke passed with verified MIDI/tempo and scoped cleanup. |
+| Basic Pitch Deployment and ScaledObject | Helm release `clouddsp-basic-pitch`, revision 5 | Worker release [`helm/basic-pitch`](helm/basic-pitch/README.md) | Existing Deployment, ScaledObject, and generated HPA UIDs preserved. The scaler combines RabbitMQ backlog with the read-only PostgreSQL task count and holds scale-in for six minutes; the worker Pod sets the portable Numba CPU target. |
+| Two shared `TriggerAuthentication` resources | Helm release `clouddsp-scaling-auth`, revision 1 | Shared release [`helm/scaling-auth`](helm/scaling-auth/README.md) | Both UIDs and spec generations, three Ready ScaledObject UIDs, generated HPA UIDs, and worker Deployment UIDs were preserved. Secret values remain outside Helm. |
 | Database migrations, service bootstrap Jobs and their ConfigMaps | ConfigMaps live; Jobs currently absent after completion/TTL | Versioned one-shot scripts, outside long-lived releases | Verify the schema ledger or external service state; never infer completion solely from a missing/present Job. Preserve migration IDs and existing grants/policies. |
 | Runtime and bootstrap Secrets | Live names mostly match ignored local files; examples are committed | Ignored local Secret inputs and narrow scripts | Charts only refer to Secret names. Avoid Helm ownership of values; rotation is separate. |
 | Smoke/load resources | Some test RBAC, ConfigMaps, and Secrets remain; Jobs absent | Explicit test commands only | Exclude from normal bootstrap/reconcile. Review retained credentials and test data separately. |
+
+The source-to-outbox smoke now has one fixed-name, label-constrained
+RabbitMQ-management ingress exception in the versioned NetworkPolicy. It is
+limited to `source-to-outbox-smoke` in `clouddsp-data` on TCP 15672; normal
+application Pods and other integration Jobs remain excluded. The test passed
+after that rule was applied, and its disposable Job was deleted.
 
 ## Stateful identity that Helm must preserve
 
@@ -85,7 +98,7 @@ An individual Job can have additional requirements in its manifest or README.
 | `app:dispatcher` | Dispatcher Helm release(s) | Outbox schema/role and RabbitMQ publisher identity | Preserve both Deployment names and message/lease behavior. |
 | `app:frontend` | Frontend Helm release | Keycloak browser client and public API/MinIO URLs | Preserve ingress route, CSP/public build config, and image digest. |
 | `worker:demucs`, `worker:basic-pitch`, `worker:adtof` | Worker Helm releases | DB role, RabbitMQ queue/user, MinIO policy/user, locked image; KEDA/observer auth before scaler | Preserve worker Deployment name and `scaleTargetRef`; zero idle replicas valid. |
-| `scaling-auth` | Proposed shared TriggerAuthentication release | KEDA CRDs, observer users, app-namespace Secrets, network path | Preserve exact observer Secret refs; never place credentials in values. |
+| `scaling-auth` | Shared TriggerAuthentication Helm release | KEDA CRDs, observer users, app-namespace Secrets, network path | Preserve exact observer Secret refs; never place credentials in values. |
 | `migration` | Versioned migration runner | PostgreSQL, schema-owner Secret, preceding migration | Keep immutable SQL/IDs and `schema_migrations` ledger; verify before skip/rerun. |
 | `bootstrap` | Versioned service-specific one-shot runner | Named backing service, admin/bootstrap Secret, required prior schema/topology/policy | Verify external state and remove only temporary credentials after success. No automatic rerun from Job absence. |
 | `secret` | Ignored local configuration | Secret template only; actual file outside Git | Template never applied; live name only proves existence, not content or rotation. |
@@ -95,7 +108,7 @@ An individual Job can have additional requirements in its manifest or README.
 ## Source manifest catalog
 
 The next table lists every YAML document in the pre-adoption source inventory;
-it does not include the later `helm/mailpit/` chart and values files.
+it does not include charts and values files added after that snapshot.
 For multi-document files, `#doc N` identifies the document. Namespace is
 shown with each Kubernetes object; `—` means cluster-scoped or non-Kubernetes
 configuration. Live status is identity-only. Secret rows expose names only.
@@ -279,6 +292,7 @@ configuration. Live status is identity-only. Secret rows expose names only.
 | [tests/demucs-worker-smoke/demucs-worker-smoke-database-bootstrap-credentials.secret.example.yaml](tests/demucs-worker-smoke/demucs-worker-smoke-database-bootstrap-credentials.secret.example.yaml) | `Secret/clouddsp-demucs-worker-smoke-database-bootstrap-credentials` | `clouddsp-data` | Absent | `test` |
 | [tests/demucs-worker-smoke/demucs-worker-smoke-database-bootstrap-job.yaml](tests/demucs-worker-smoke/demucs-worker-smoke-database-bootstrap-job.yaml) | `Job/demucs-worker-smoke-database-bootstrap` | `clouddsp-data` | Absent | `test` |
 | [tests/demucs-worker-smoke/demucs-worker-smoke-database-credentials.secret.example.yaml](tests/demucs-worker-smoke/demucs-worker-smoke-database-credentials.secret.example.yaml) | `Secret/clouddsp-demucs-worker-smoke-database-credentials` | `clouddsp-app` | Present | `test` |
+| [tests/demucs-worker-smoke/demucs-worker-smoke-downstream-scale-recovery-v001-job.yaml](tests/demucs-worker-smoke/demucs-worker-smoke-downstream-scale-recovery-v001-job.yaml) | `Job/demucs-worker-smoke-downstream-scale-recovery-v001` | `clouddsp-data` | Temporary; TTL after cleanup | `test` |
 | [tests/demucs-worker-smoke/demucs-worker-smoke-failed-run-cleanup-job.yaml](tests/demucs-worker-smoke/demucs-worker-smoke-failed-run-cleanup-job.yaml) | `Job/demucs-worker-smoke-failed-run-cleanup` | `clouddsp-data` | Absent | `test` |
 | [tests/demucs-worker-smoke/demucs-worker-smoke-job.yaml](tests/demucs-worker-smoke/demucs-worker-smoke-job.yaml) | `Job/demucs-worker-smoke` | `clouddsp-app` | Absent | `test` |
 | [tests/demucs-worker-smoke/demucs-worker-smoke-minio-bootstrap-credentials.secret.example.yaml](tests/demucs-worker-smoke/demucs-worker-smoke-minio-bootstrap-credentials.secret.example.yaml) | `Secret/clouddsp-demucs-worker-smoke-minio-bootstrap-credentials` | `clouddsp-data` | Absent | `test` |
@@ -388,9 +402,10 @@ CloudDSP charts should own neither the CRDs nor the generated HPAs.
    `.secret.example.yaml` counterparts with the names and keys required by
    their Deployments. Runtime values remain in ignored local files; this
    inventory checked Secret identities only and did not read live values.
-2. **Persistent data is in use.** All three data PVCs are Bound. Mailpit was
-   adopted as the first stateless release. Stateful adoption still needs
-   backups and a precise rendered-versus-live diff.
+2. **Persistent data is in use.** All three data PVCs are Bound. PostgreSQL,
+   MinIO, and RabbitMQ each completed a protected Helm adoption with a tested
+   backup and rendered-versus-live diff. The bound claims and PVs remain
+   outside those Helm releases.
 3. **Jobs are absent while effects may persist.** All 83 versioned Job
    objects were absent from this snapshot. The nine SQL migration ConfigMaps
    were live. Consult `schema_migrations` and each external service's actual
@@ -404,17 +419,32 @@ CloudDSP charts should own neither the CRDs nor the generated HPAs.
    namespaces carry `managed-by=kubectl`. KEDA is its own Helm release, and
    Traefik belongs to k3s. The future orchestrator should leave those
    boundaries intact.
-6. **One deployed digest is outside the current image lock.** The
-   `clouddsp-dispatcher` Deployment and its source manifest reference
-   `dispatcher@sha256:3d04f458...`, while `images.lock.yaml` currently pins
-   `dispatcher@sha256:cc2d36bd...` for the generic dispatcher image. The
-   read-only preflight flags this. Resolve the intended dispatcher image
-   provenance in a separate reviewed change before chart adoption; do not
-   rewrite the lock or roll the workload merely to silence the check.
+6. **The dispatcher controllers intentionally use separate image digests.**
+   The legacy `clouddsp-dispatcher` Deployment still uses the Demucs-only
+   `dispatcher@sha256:3d04f458...` image, now cataloged as
+   `images.dispatcher-demucs-only`. The separate generic controller uses
+   `dispatcher@sha256:cc2d36bd...`, cataloged as `images.dispatcher`. The
+   local registry, Docker cache, and running Pods confirm these references;
+   the historical source tree is not asserted to reproduce the older image.
+   The read-only preflight now requires each controller to match its own lock
+   entry. Neither Deployment was rolled to reconcile the catalog. The legacy
+   controller was subsequently adopted by Helm without replacing its Pod; the
+   generic controller was then adopted in its own release with the same
+   identity preservation.
 
 The read-only [plan/preflight command](scripts/deploy-local.sh) now checks
 current ownership, Secret names, image-lock consistency, and StatefulSet/PVC
-identity. The [Mailpit release script](scripts/mailpit-release.rb) separately
-checks rendered/source/live spec parity and Helm ownership. The general
+identity. The [Mailpit](scripts/mailpit-release.rb),
+[frontend](scripts/frontend-release.rb),
+[legacy dispatcher](scripts/dispatcher-release.rb),
+[generic dispatcher](scripts/generic-dispatcher-release.rb),
+[Job API](scripts/job-api-release.rb),
+[upload-intake](scripts/upload-intake-release.rb),
+[Keycloak](scripts/keycloak-release.rb),
+[PostgreSQL](scripts/postgresql-release.rb),
+[MinIO](scripts/minio-release.rb),
+[RabbitMQ](scripts/rabbitmq-release.rb), and
+[scaling-auth](scripts/scaling-auth-release.rb) release scripts separately check
+rendered/source/live spec parity and Helm ownership. The general
 preflight does not perform chart-specific rendered diffs; each remaining
 component needs its own chart and adoption gate.

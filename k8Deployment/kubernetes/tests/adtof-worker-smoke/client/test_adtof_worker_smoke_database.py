@@ -87,7 +87,7 @@ def _observation_row(**overrides: object) -> dict[str, object]:
         "task_attempt_count": 1,
         "task_lease_is_clear": True,
         "task_completed_at": now,
-        "job_status": "midi_processing",
+        "job_status": "failed_incomplete_stem_fixture",
     }
     row.update(overrides)
     return row

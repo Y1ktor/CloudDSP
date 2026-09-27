@@ -1,3 +1,7 @@
+# Legacy kubectl source retained as the reviewed Helm adoption baseline.
+# The active local owner is helm/frontend; use its chart for future changes
+# instead of reapplying this raw manifest to the adopted Deployment.
+#
 # This Deployment is the Kubernetes controller for CloudDSP's local static
 # frontend. It maintains one replaceable Pod behind the applied Service and
 # Traefik Ingress, which make its static browser application reachable without

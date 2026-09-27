@@ -1,0 +1,8 @@
+# This release owns only the existing Demucs-only outbox dispatcher Deployment.
+# Its generic successor is a separate controller and must not be adopted here.
+apiVersion: v2
+name: dispatcher
+description: CloudDSP local Demucs outbox publisher
+type: application
+version: 0.1.0
+appVersion: "0.1.0-outbox-supervisor"

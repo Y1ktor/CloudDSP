@@ -368,7 +368,17 @@ spec:
                     AND task.lease_expires_at IS NULL
                   ) AS task_lease_is_clear,
                   task.completed_at,
-                  job.status
+                  CASE
+                    -- This test deliberately produces one of two stems. The
+                    -- current parent finalizer must fail that synthetic Job,
+                    -- while the worker's individual task can still succeed.
+                    -- Expose a distinct marker only for that exact expected
+                    -- error; an unrelated failed Job remains plain 'failed'.
+                    WHEN job.status = 'failed'
+                     AND job.error_message = 'The processing pipeline produced an incomplete stem set.'
+                      THEN 'failed_incomplete_stem_fixture'
+                    ELSE job.status
+                  END
                 FROM public.jobs AS job
                 JOIN public.outbox_events AS event
                   ON event.job_id = job.job_id
@@ -400,7 +410,8 @@ spec:
                 DELETE FROM public.jobs AS job
                 WHERE job.job_id = '7ea5ee7e-c726-4af8-8f21-4d0e227bdd0b'::uuid
                   AND job.owner_sub = 'clouddsp-basic-pitch-worker-smoke'
-                  AND job.status = 'midi_processing'
+                  AND job.status = 'failed'
+                  AND job.error_message = 'The processing pipeline produced an incomplete stem set.'
                   AND EXISTS (
                     SELECT 1
                     FROM public.outbox_events AS event
@@ -423,6 +434,8 @@ spec:
                       AND task.lease_expires_at IS NULL
                       AND task.completed_at IS NOT NULL
                   )
+                  AND (SELECT COUNT(*) FROM public.processing_tasks AS task
+                       WHERE task.job_id = job.job_id) = 1
                 RETURNING TRUE INTO did_delete;
                 RETURN COALESCE(did_delete, FALSE);
               END;

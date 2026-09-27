@@ -1,0 +1,3 @@
+# Temporarily stop this publisher while the source-to-outbox test asserts one
+# pending row. The runner restores values.yaml's one replica in all outcomes.
+replicas: 0

@@ -1,0 +1,69 @@
+# This Ingress gives the browser a deliberately small same-origin route to the
+# local Job API. Its paths preserve the cloud frontend's API contract exactly:
+#
+#   clouddsp.localhost:8080/auth/me   -> Job API Service -> /auth/me
+#   clouddsp.localhost:8080/jobs/...  -> Job API Service -> /jobs/...
+#
+# The separate frontend Ingress owns the less-specific `/` path on this same
+# host. Kubernetes Ingress path precedence selects these longer `/auth` and
+# `/jobs` prefixes first, so Traefik sends API paths to the Job API while React
+# assets and client-side routes remain with the frontend Service. No rewrite or
+# Traefik-specific middleware is needed: the API receives its original paths.
+#
+# This is an HTTP-only local-learning route on k3d's mapped port 8080. It must
+# not be copied to a non-local environment without a separate TLS, hostname,
+# and browser-security review.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  # The resource name identifies the route owner, not a Pod. Traefik sends
+  # traffic to the stable Service even while a Deployment replaces API Pods.
+  name: clouddsp-job-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: job-api
+    app.kubernetes.io/instance: clouddsp-job-api
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: job-api-same-origin-browser-routing
+  annotations:
+    # K3s's bundled Traefik calls its HTTP listener `web`; k3d maps that
+    # listener to Mac loopback port 8080. HTTPS remains a later explicit task.
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  # Select K3s's bundled Traefik controller explicitly. This avoids relying on
+  # a cluster-wide default if another Ingress controller is installed later.
+  ingressClassName: traefik
+  rules:
+    # The frontend is already served at this exact loopback-resolving host. A
+    # shared origin lets its JavaScript call the API without CORS preflight or
+    # an additional public API hostname.
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          # Prefix matching includes `/auth/me` but does not match unrelated
+          # paths such as `/authentication`. The API currently exposes only
+          # the bearer-protected `/auth/me` path under this prefix; liveness and
+          # readiness probes deliberately remain internal-only.
+          - path: /auth
+            pathType: Prefix
+            backend:
+              service:
+                # This is a ClusterIP Service, so Traefik—not the browser—
+                # resolves ready API Pod endpoints. The named Service port is
+                # 80 and maps internally to the container's named 8080 port.
+                name: clouddsp-job-api
+                port:
+                  name: http
+          # Preserve `/jobs` and every nested job path exactly. These are
+          # implemented Job API routes; Traefik forwards the browser's
+          # same-origin request to the Service without rewriting its path.
+          - path: /jobs
+            pathType: Prefix
+            backend:
+              service:
+                name: clouddsp-job-api
+                port:
+                  name: http

@@ -234,7 +234,7 @@ spec:
           # already hash-locked Boto3 dependency performs S3 DeleteObject,
           # which is idempotent when a diagnosed run stopped before producing
           # one or more of these literal output keys.
-          image: clouddsp-registry.localhost:5001/demucs-worker-smoke-client@sha256:da6ff550d60acdb84949cf8e26c47d30ca3f434bb7e1cc5121034cc2e95cb743
+          image: clouddsp-registry.localhost:5001/demucs-worker-smoke-client@sha256:0d5513a288b3aa0285234d7ca2c8553570e8f0bb38d4177c9ecc6017b66f5bd6
           imagePullPolicy: IfNotPresent
           env:
             - name: MINIO_ROOT_USER

@@ -1,14 +1,24 @@
 # Basic Pitch worker smoke contract
 
-This document defines one future **end-to-end Basic Pitch worker smoke run**.
-The applied PostgreSQL bootstrap has created its fixed-scope database role and
-functions, and the applied MinIO bootstrap has created its exact-key identity.
-Its source client has a hash-enforced, Linux/ARM64 CPython 3.12 dependency lock
-and a published non-root local-registry image, both verified during the image
-build. The credential-scoped smoke Job manifest is prepared but unapplied; no
-MinIO test object, database smoke Job/event, or RabbitMQ message exists.
-Defining and implementing each boundary separately keeps the eventual test
-small, least-privileged, and unambiguous.
+## Reviewed live run (2026-09-27)
+
+The first post-adoption run exposed an obsolete parent-status assertion. The
+real dispatcher published the fixed event and the Basic Pitch task succeeded,
+but migration v008 correctly failed the deliberately incomplete two-stem
+parent Job. After inspecting the expired fixed row, the guarded cleanup Job
+removed only its two MinIO objects and matching PostgreSQL Job/event/task.
+
+The restricted `observe` and `cleanup` functions now recognize only that exact
+fixture finalization error. A versioned v002 ConfigMap and one-shot Job installed
+those functions; the original bootstrap source contains the same definitions
+for a fresh cluster. The rebuilt Linux/ARM64 client image passed all nine
+in-image tests and is digest-pinned in the smoke Job and image lock.
+
+The rerun passed: the event was published, the worker task succeeded on its
+first attempt, the client verified the stored MIDI headers, bytes, SHA-256 and
+provenance, and successful cleanup removed the fixed MinIO keys and database
+rows. The disposable Kubernetes smoke Job was removed. The separate
+`basic-pitch-release.rb verify` checks Helm and KEDA ownership after cooldown.
 
 ## What one successful run proves
 
@@ -20,7 +30,7 @@ simulate either component or publish a message directly to RabbitMQ.
 controlled WAV in private MinIO
         |
         v
-test-specific PostgreSQL prepare function creates Job/task/outbox event
+test-specific PostgreSQL prepare function creates Job/outbox event
         |
         v
 generic dispatcher publishes basic-pitch.requested
@@ -105,17 +115,20 @@ fixed coordinates:
    that published event.
 2. **observe** returns a compact projection of only this Job/event/task: outbox
    publication state, task status/attempt/lease/completion fields, and the
-   expected output coordinate.  It must not expose other users' Jobs, source
+   exact expected parent-finalization marker. It must not expose other users' Jobs, source
    objects, credentials, or arbitrary table contents.
 3. **cleanup** deletes only these fixed test rows and only after successful
    observation of the expected completed task.  It must never be a general
    deletion capability.
 
-The Job remains `midi_processing` after the Basic Pitch task completes.  That
-is expected: per-stem completion is not the later aggregate that decides the
-overall Job's terminal MIDI state.
+The parent Job is deliberately incomplete: it contains only `vocals` of a
+`2-stems` set. After the real Basic Pitch task succeeds, migration v008 marks
+that synthetic parent `failed` with its exact incomplete-stem error. The
+restricted `observe` function maps only that combination to
+`failed_incomplete_stem_fixture`; any unrelated parent failure remains
+`failed` and causes the client to stop without cleanup.
 
-The applied MinIO policy gives the future smoke client only `PutObject`,
+The applied MinIO policy gives the smoke client only `PutObject`,
 `GetObject` (which also authorizes `HeadObject`), and `DeleteObject` for the
 two fixed keys. It must not list a bucket, issue presigned URLs, access
 `uploads/*`, or access any normal `stems/*` or `midi/*` prefix. No smoke
@@ -126,7 +139,7 @@ publication.
 
 ## Required ordering and evidence
 
-The future one-shot Job performs the following order exactly:
+The one-shot Job performs the following order exactly:
 
 1. Preflight that its fixed database rows and both fixed MinIO keys are absent.
 2. Generate, hash, and upload the controlled WAV with the complete Demucs
@@ -151,7 +164,7 @@ audio, or MIDI bytes.
 
 ## Failure, timeout, and cleanup policy
 
-- The client wait is bounded to 180 seconds.  The later Kubernetes Job uses a
+- The client wait is bounded to 180 seconds. The Kubernetes Job uses a
   300-second `activeDeadlineSeconds` and `backoffLimit: 0`.  Basic Pitch model
   startup can take longer than the tiny input warrants; the deadline detects a
   broken worker rather than hiding it with retries.
@@ -161,7 +174,7 @@ audio, or MIDI bytes.
   database rows and objects for diagnosis.  It must not automatically erase
   evidence of a dispatcher, worker, or storage failure.
 - Only a fully successful observation permits automatic scoped cleanup.  A
-  later documented manual-cleanup command may remove exactly the same fixed
+  documented manual-cleanup command may remove exactly the same fixed
   resources after a human has inspected a failed run.
 
 ### Diagnosed failed-run cleanup
@@ -170,8 +183,9 @@ audio, or MIDI bytes.
 is the one explicit administrator-only recovery path after that inspection. It
 first removes only the fixed `stems/{job_id}/vocals.wav` and
 `midi/{job_id}/vocals.mid` smoke keys, then deletes exactly one *expired*,
-`midi_processing` smoke Job with the fixed owner/event coordinates and no task
-rows. PostgreSQL cascades only that Job's matching outbox event. It has no
+`failed` smoke Job with the exact incomplete-stem error, fixed owner/event
+coordinates, and one succeeded first-attempt Basic Pitch task. PostgreSQL
+cascades only that Job's matching event and task. It has no
 RabbitMQ credential and intentionally preserves the prior dead-letter message.
 It fails on a missing or mismatched database row rather than becoming a general
 cleanup mechanism. A new smoke Job may be started only after its logs confirm
@@ -189,11 +203,12 @@ instead, so it never competes for a queue message.
 
 ## Follow-up tasks
 
-The remaining implementation is deliberately split:
+The worker smoke is now an explicit verification command for this release:
 
-1. review the prepared one-shot Kubernetes Job and provide its
-   inspection/cleanup commands;
-2. run the first controlled smoke execution and inspect its durable evidence.
+```bash
+./k8Deployment/kubernetes/scripts/basic-pitch-release.rb smoke
+```
 
-No follow-up may broaden the stated credentials or replace the dispatcher/
-worker route with direct AMQP publication.
+Investigate any failed fixed-coordinate run before using the guarded cleanup
+Job. Do not broaden the test credentials or replace the dispatcher/worker
+route with direct AMQP publication.

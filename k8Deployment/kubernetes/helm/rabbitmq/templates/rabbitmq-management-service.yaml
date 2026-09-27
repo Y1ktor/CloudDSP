@@ -1,0 +1,44 @@
+# This Service is the one stable in-cluster endpoint for RabbitMQ's management
+# HTTP API. It exists only because KEDA's RabbitMQ HTTP scaler needs queue-depth
+# metrics from that API. It is deliberately separate from the ordinary AMQP
+# Service, so application code cannot casually discover an administration endpoint.
+#
+# A ClusterIP Service has no port on the Mac and no Traefik Ingress route. It is
+# therefore not browser- or LAN-reachable. ClusterIP alone is *not* authorization:
+# the paired NetworkPolicy isolates port 15672 to KEDA, narrowly labelled
+# broker bootstrap Jobs, the fixed source-to-outbox smoke Job, and the finite
+# six-stem test observer. Normal application Pods remain excluded.
+apiVersion: v1
+kind: Service
+metadata:
+  # KEDA ScaledObjects use this stable DNS name instead of a StatefulSet ordinal
+  # or the headless peer-identity Service. A broker replacement may receive a
+  # new Pod IP without changing the scaler endpoint.
+  name: clouddsp-rabbitmq-management
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: rabbitmq
+    app.kubernetes.io/instance: clouddsp-rabbitmq
+    app.kubernetes.io/component: management-metrics
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: Helm
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: private-keda-rabbitmq-metrics
+spec:
+  # The virtual IP exists only inside Kubernetes networking. Do not change it
+  # to NodePort or LoadBalancer, and do not add an Ingress: local management
+  # remains an explicit administrator `kubectl port-forward` operation.
+  type: ClusterIP
+  selector:
+    # Keep this selector aligned with the RabbitMQ StatefulSet and normal AMQP
+    # Service. Kubernetes routes only to ready selected Pods.
+    app.kubernetes.io/name: rabbitmq
+    app.kubernetes.io/instance: clouddsp-rabbitmq
+    app.kubernetes.io/component: message-broker
+  ports:
+    - name: management
+      protocol: TCP
+      # KEDA speaks HTTP to this Service port. The named target avoids copying
+      # the container-port number across every Service manifest.
+      port: 15672
+      targetPort: management

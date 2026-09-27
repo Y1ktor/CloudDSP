@@ -1,0 +1,45 @@
+# This is the normal RabbitMQ client Service.  Kubernetes assigns it a stable
+# virtual ClusterIP and DNS name so CloudDSP API and worker Pods can publish or
+# consume AMQP messages through one endpoint:
+# `clouddsp-rabbitmq.clouddsp-data.svc.cluster.local:5672`.
+#
+# It deliberately exposes only AMQP.  The management UI stays reachable only
+# through a temporary administrator port-forward; the separately named private
+# `clouddsp-rabbitmq-management` ClusterIP exists only for KEDA's management
+# metrics and is paired with an endpoint-level NetworkPolicy.  Erlang discovery
+# and distribution ports remain part of the headless peer-identity Service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: clouddsp-rabbitmq
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: rabbitmq
+    app.kubernetes.io/instance: clouddsp-rabbitmq
+    app.kubernetes.io/component: message-broker
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: Helm
+    clouddsp.io/environment: local
+spec:
+  # ClusterIP is an internal Kubernetes virtual IP.  It is reachable by Pods
+  # through Service DNS, but creates no host port on the Mac and no Internet
+  # route to the broker.
+  type: ClusterIP
+
+  # Kubernetes continuously selects ready broker Pods with these labels.  If
+  # the StatefulSet replaces its Pod and it receives a different Pod IP, this
+  # Service keeps the DNS name stable for AMQP clients.
+  selector:
+    app.kubernetes.io/name: rabbitmq
+    app.kubernetes.io/instance: clouddsp-rabbitmq
+    app.kubernetes.io/component: message-broker
+
+  ports:
+    # The Service listener and target named container port are both AMQP 0-9-1.
+    # There is intentionally no management, epmd, or cluster port in this
+    # application-facing Service: CloudDSP applications must not use those
+    # administration or peer-coordination interfaces.
+    - name: amqp
+      protocol: TCP
+      port: 5672
+      targetPort: amqp

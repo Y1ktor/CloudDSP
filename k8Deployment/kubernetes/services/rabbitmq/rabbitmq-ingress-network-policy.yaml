@@ -70,6 +70,24 @@ spec:
                   - message-identity-bootstrap
                   - message-topology-bootstrap
 
+    # The source-to-outbox smoke needs the management API for one controlled
+    # duplicate source notification and a queue-drain check. Permit only that
+    # fixed-name disposable Job in the data namespace; its Pod also carries
+    # short-lived administrator credentials and is deleted after success.
+    # Keep this separate from the bootstrap peer set so unrelated integration
+    # Jobs and long-running application Pods remain excluded from port 15672.
+    - ports:
+        - protocol: TCP
+          port: 15672
+      from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: clouddsp-data
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: source-to-outbox-smoke
+              app.kubernetes.io/component: integration-test
+
     # The finite six-stem integration Job reads aggregate queue counts for its
     # report. It alone receives this narrow management-port exception and uses
     # RabbitMQ's separate monitoring-only identity; no app Deployment matches.

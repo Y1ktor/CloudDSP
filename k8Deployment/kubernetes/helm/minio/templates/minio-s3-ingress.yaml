@@ -1,0 +1,51 @@
+# This Ingress is the browser route to MinIO's S3-compatible API. It is needed
+# for a future browser to submit a presigned POST directly to object storage,
+# keeping up-to-256 MiB audio files out of the Job API Pod's HTTP memory and
+# network path.
+#
+# The route publishes only the existing S3 API Service port (9000). It does not
+# expose MinIO's separate administrative console port (9001), and an Ingress
+# alone grants no object access: private job artifacts still require an S3
+# signature. The separate clouddsp-midi-samples bucket deliberately grants
+# anonymous GetObject only for shared, non-user instrument samples; it grants
+# neither ListBucket nor PutObject and cannot expose clouddsp-uploads.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: clouddsp-minio-s3
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/instance: clouddsp-minio
+    app.kubernetes.io/component: object-storage-browser-route
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: private-presigned-browser-s3-access
+  annotations:
+    # K3s's bundled Traefik HTTP entrypoint is published by k3d on Mac loopback
+    # port 8080. TLS/certificates on 8443 remain a distinct local-hardening task.
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  # Explicitly select the existing Traefik controller. This prevents an
+  # additional controller from claiming the browser S3 route in the future.
+  ingressClassName: traefik
+  rules:
+    # Like the React and Keycloak hosts, this `.localhost` name resolves to the
+    # Mac loopback interface. It is intentionally different from the internal
+    # Service DNS name; browser JavaScript cannot resolve `*.svc` addresses.
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          # Preserve the entire S3 request URI. In particular, a future
+          # presigned POST has a signature tied to its bucket/path contract, so
+          # Traefik must forward it without a path-prefix rewrite.
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                # This ClusterIP Service exposes only its named S3 API port.
+                # MinIO console traffic has no Service/Ingress browser route.
+                name: clouddsp-minio
+                port:
+                  name: s3-api

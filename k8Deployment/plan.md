@@ -80,6 +80,50 @@ configuration separate.
 | Worker scaling | Long-running stage consumers; Demucs watches both its request queue and durable active/due PostgreSQL tasks because it acknowledges early | KEDA `ScaledObject` + Kubernetes HPA |
 | GPU scheduling | Demucs resource isolation | Native Linux k3s GPU profile only |
 
+Keycloak's live Deployment, ClusterIP Service, and browser Ingress are now
+owned by the independent
+[`clouddsp-keycloak` Helm release](kubernetes/helm/keycloak/README.md).
+Adoption preserved their UIDs, the Service IP, the running Pod, and the
+`http://keycloak.localhost:8080` issuer. Its PostgreSQL database, runtime
+Secrets, realm/client/SMTP bootstrap Jobs, and durable identity records have
+separate lifecycles. OIDC discovery, React PKCE authorization to the login
+form, verification email capture in Mailpit, and temporary-user token reads
+from `/auth/me` and `/jobs` passed after adoption.
+
+The durable PostgreSQL StatefulSet and its two Services are now owned by the
+independent [`clouddsp-postgresql` Helm release](kubernetes/helm/postgresql/README.md).
+The protected takeover followed a full logical backup and successful restore
+into an isolated no-network instance. StatefulSet, Pod, Service, and bound
+PVC/PV identities stayed unchanged. The in-cluster read/write smoke passed
+through the ClusterIP Service. The database files, credentials, migrations,
+and bootstrap Jobs remain separate from the Helm chart.
+
+The MinIO StatefulSet, two Services, and S3 Ingress are now owned by the
+independent [`clouddsp-minio` Helm release](kubernetes/helm/minio/README.md).
+A stopped-volume snapshot was verified by an isolated restore of two buckets,
+489 current objects, their versions and notification settings, plus an object
+download. Adoption preserved the four resource UIDs, post-backup Pod UID,
+Service IPs, and bound PVC/PV. The in-cluster S3 API and restricted Job API
+access smokes passed. Bucket contents, IAM state, credentials, and bootstrap
+Jobs remain separate from the Helm chart.
+
+The RabbitMQ StatefulSet, three Services, and ingress NetworkPolicy are now
+owned by the independent
+[`clouddsp-rabbitmq` Helm release](kubernetes/helm/rabbitmq/README.md).
+A stopped-volume backup restored into an isolated no-network broker with the
+same node name; two vhosts, 12 queues, full definitions, and queue depths
+matched. Adoption preserved the five resource UIDs, post-backup Pod UID,
+Service IPs, and bound PVC/PV. The in-cluster AMQP
+publish/consume/acknowledge smoke passed. Broker state, credentials,
+bootstrap Jobs, and KEDA resources remain separate from the Helm chart.
+
+The two shared KEDA `TriggerAuthentication` objects are now owned by the
+independent [`clouddsp-scaling-auth` Helm release](kubernetes/helm/scaling-auth/README.md).
+Their UIDs, spec generations, and KEDA finalizers stayed unchanged. All
+three worker ScaledObjects remained Ready with their generated HPA and
+worker Deployment UIDs preserved. Observer Secret values remain outside Helm;
+each worker Deployment and ScaledObject will be adopted separately.
+
 Use locally owned CloudDSP images for all app services and workers. The
 preserved Lambda images and Lambda handlers are cloud deployment artifacts;
 they must not become Kubernetes entrypoints unchanged.
@@ -201,10 +245,22 @@ PostgreSQL requires to evaluate the named `ON CONFLICT` constraint. It cannot
 read event payloads or dispatch outbox rows.
 The upload-intake source now commits that event atomically with
 `source_uploaded`, and its reviewed ARM64 image digest is now rolled out in
-the applied Deployment. The prepared source-to-outbox integration smoke Job
-will verify the ordinary authenticated upload route, native MinIO notification,
-one durable pending Demucs event, and a duplicate RabbitMQ notification before
-the separate dispatcher task safely publishes `demucs.requested` to RabbitMQ.
+the applied Deployment. The source-to-outbox integration smoke Job verifies
+the ordinary authenticated upload route, native MinIO notification, one
+durable pending Demucs event, and a duplicate RabbitMQ notification before
+the separate dispatcher publishes `demucs.requested` to RabbitMQ.
+The live source-to-outbox smoke has now passed against the Helm-owned
+upload-intake Deployment. Its first attempt exposed that the versioned
+RabbitMQ ingress NetworkPolicy excluded this fixed test Pod from the
+management listener needed for one duplicate source notification. A narrow
+TCP 15672 rule now admits only `source-to-outbox-smoke` in `clouddsp-data`
+with the `integration-test` component label; KEDA, bootstrap Jobs, and the
+existing six-stem observer retain their own separate rules. The test Job uses
+the current reviewed Job API image digest. Both dispatcher Helm releases were
+paused through versioned values while the test asserted one pending Demucs
+outbox event, then restored to one replica after the Job cleaned up its
+temporary user, object, and database row. The source and Demucs queues were
+empty afterward.
 
 ### Demucs dispatch event contract
 
@@ -3732,3 +3788,159 @@ role-count check found zero temporary PostgreSQL observer roles. No application
 Jobs or stored objects were deleted. The completed test Job remains until its
 900-second TTL removes the Job/Pod; its Git manifest still defaults to
 `suspend: true` for any future run.
+
+## Basic Pitch Helm ownership handoff (2026-09-27)
+
+The first worker Helm release now owns only the existing Basic Pitch
+Deployment and RabbitMQ ScaledObject. Chart values pin the reviewed image
+reference; the template omits `spec.replicas` so KEDA continues to write the
+Deployment `/scale` subresource. The versioned release script compared source,
+rendered, server-validated, and live specs before adopting. The handoff
+preserved both resource UIDs, the ScaledObject spec generation, the KEDA-owned
+HPA UID, and zero idle Pods. Shared TriggerAuthentication, KEDA itself,
+Secrets, and the generated HPA remain outside this worker release.
+
+The post-adoption one-request smoke published its durable event and recorded a
+first-attempt succeeded Basic Pitch task, but the old client timed out waiting
+for parent status `midi_processing`. The active v008 finalizer correctly
+marked its intentionally incomplete two-stem parent Job `failed`. This smoke
+fixture and its narrow cleanup contract need a focused update before a passing
+rerun. The Helm release and KEDA idle-state verification passed after the
+failed smoke; no second fixed-coordinate test was started.
+
+### Basic Pitch worker smoke fixture repair and rerun (2026-09-27)
+
+The expired fixed-coordinate failed run was inspected before the exact-key
+MinIO and fixed-row PostgreSQL cleanup Job removed only its diagnosed evidence.
+The test's database `observe` function now emits a success-eligible marker
+only for migration v008's exact incomplete-stem error on this intentionally
+one-stem parent; the `cleanup` function requires that error plus one published
+event and one first-attempt succeeded task. The source bootstrap definitions
+and versioned v002 function repair match. The rebuilt Linux/ARM64 client
+image is pinned at `sha256:786d0261a5bbe1d318d807e32f2151fc678839b899c0371bebe25347a3457de0`;
+nine fake-client tests pass both locally and inside the image.
+
+The live rerun passed through the deployed generic dispatcher and Helm-owned
+Basic Pitch worker. The smoke client verified MIDI framing, SHA-256, and
+provenance, then removed its two fixed MinIO objects and exact database rows.
+The disposable Kubernetes test Job was removed. Unrelated parent failures
+still stop the client without cleanup.
+
+## ADTOF Helm ownership and worker smoke (2026-09-27)
+
+The ADTOF worker and its RabbitMQ ScaledObject were adopted as one Helm
+release after source/render/live spec parity and API-server validation. Both
+resource UIDs, the ScaledObject generation, KEDA-owned HPA UID, and zero idle
+Pods were preserved. The chart keeps `spec.replicas` absent so KEDA continues
+to own `/scale`; shared scaler authentication, Secrets, and the generated HPA
+remain outside the worker release.
+
+The existing one-drum smoke fixture required a test-only update for migration
+v008's parent finalizer. Its restricted PostgreSQL observer now exposes a
+special marker only when the synthetic four-stem parent has the exact expected
+incomplete-stem error. Its cleanup function requires that error, one published
+outbox event, and exactly one first-attempt succeeded ADTOF task. A versioned
+v002 ConfigMap and one-shot Job installed those functions for the live cluster;
+the source bootstrap has matching definitions for a fresh cluster. The
+rebuilt ARM64 client image is pinned at
+`sha256:cb59778c62e973151b24f9a61683334651d97d2559675e6721aa31a0ed7282aa`;
+64 tests passed locally and inside the image.
+
+The live smoke passed. KEDA activated ADTOF from zero to one Pod; the real
+dispatcher and worker completed the fixed task; the client verified private
+MIDI and tempo bytes, checksums, and provenance, then removed its exact
+MinIO and PostgreSQL evidence. The disposable smoke Job was deleted. After
+KEDA's idle cooldown, `adtof-release.rb verify` checks the zero-Pod state.
+
+## Demucs Helm ownership and downstream smoke finding (2026-09-27)
+
+The Demucs Deployment and its dual-trigger RabbitMQ/PostgreSQL ScaledObject
+were adopted as the separate `clouddsp-demucs` Helm release after image-lock,
+source/render/live spec, API schema, authentication, and KEDA HPA checks.
+The takeover preserved both resource UIDs, the ScaledObject generation,
+generated HPA UID, and zero idle Pods. The chart leaves `spec.replicas` absent
+because KEDA continues to own the Deployment `/scale` subresource. A final
+read-only `demucs-release.rb verify` passed after the smoke trial.
+
+The fixed two-stem smoke client was updated for migration v008: it recognizes
+Demucs completion before or after parent finalization, but requires both
+first-attempt downstream Basic Pitch successes and a `completed` parent before
+cleanup. A v002 immutable ConfigMap and one-shot database Job installed the
+matching restricted cleanup function; the source bootstrap was updated for
+fresh clusters. The rebuilt ARM64 smoke image is pinned at
+`sha256:0d5513a288b3aa0285234d7ca2c8553570e8f0bb38d4177c9ecc6017b66f5bd6`.
+Ten client tests passed locally and inside the image; six manifest tests,
+Helm lint, Ruby syntax, API-server validation, and `git diff --check` passed.
+
+The live trial proved the dispatcher published the fixed Demucs request,
+KEDA activated the adopted worker, its task succeeded on the first attempt,
+and the smoke client verified both private stem artifacts. One Basic Pitch
+task then succeeded; the other remained `running` with an active lease while
+the Basic Pitch Deployment scaled from two Pods to zero. The broker's Basic
+Pitch queue had zero ready and unacknowledged messages because that worker
+acknowledges after its durable claim and before model inference. Its current
+RabbitMQ-only ScaledObject therefore saw no active trigger and removed the
+Pod mid-task. The smoke Job failed at its deadline; its guarded client left
+the fixed database rows and objects in place. This is a separate Basic Pitch
+scaling and expired-running-task recovery issue. A fixed-coordinate rerun is
+unsafe until the preserved evidence is reviewed and cleaned through a policy
+for this exact state; the existing failed-run cleanup Job intentionally
+refuses a succeeded Demucs task or downstream work.
+
+### Basic Pitch durable-work scaling repair (2026-09-27)
+
+The preserved first trial was inspected before the versioned
+`demucs-worker-smoke-downstream-scale-recovery-v001` Job ran. Its SQL required
+the exact owner/Job/event coordinates, one succeeded Demucs task, one
+first-attempt succeeded Basic Pitch task, and one expired first-attempt
+`running` Basic Pitch task. It deleted only that fixed Job and cascading test
+rows, then five literal MinIO keys. The subsequent database count was zero
+for the fixed Job, tasks, and outbox events.
+
+The existing `clouddsp-keda-demucs` observer role already has SELECT only on
+`processing_tasks.stage`, `status`, and `available_at`; it can execute a
+Basic Pitch filtered count without new grants or Secrets. Basic Pitch's Helm
+ScaledObject now combines its RabbitMQ queue with that PostgreSQL task metric.
+The first Helm upgrade met two old `kubectl` field-owner conflicts and left
+the live scaler unchanged; the reviewed script retried with explicit conflict
+override after comparing installed and live baseline. Release revision 3
+preserved the worker, scaler, and generated HPA UIDs and reported both
+triggers Ready. During the next smoke trial the broker queue emptied while
+the PostgreSQL trigger kept the worker active, confirming the missing hold
+signal was restored.
+
+That trial also revealed a separate scale-in race: when one of two Basic Pitch
+tasks succeeded, HPA reduced two Pods to one while the other lease remained
+`running`. Kubernetes cannot choose the idle Pod from a Deployment. Chart
+0.1.2 extends the HPA scale-down stabilization window from 60 to 360 seconds,
+beyond the five-minute bounded model invocation. The guarded Helm upgrade to
+revision 4 changed only that scaler policy, preserved all three resource
+UIDs, and the generated HPA reported `stabilizationWindowSeconds: 360`.
+The second trial had already scaled two Pods to one before revision 4 landed,
+so it could not validate the completed policy. Its client was stopped without
+deleting test data. After the new `vocals` lease expired and process inspection
+found no model child, the same exact-coordinate recovery Job again removed
+the fixed Job and its task/event rows plus five literal objects; the database
+count returned `0|0|0`. A fresh trial must start with revision 4 already
+installed.
+
+The fresh revision-4 trial kept two Basic Pitch Pods while the RabbitMQ queue
+was empty and one task still held its PostgreSQL lease, validating the HPA
+stabilization fix. It then exposed another failure: the `vocals` worker
+container terminated with exit code 132 (SIGILL) during the best-effort tempo
+step. The exact `vocals.wav` succeeded through the Basic Pitch CLI, but a
+separate call to `app.tempo_candidate.estimate_basic_pitch_tempo_candidate`
+crashed in Numba's JIT path under librosa beat tracking. The same call
+completed with `NUMBA_CPU_NAME=generic`. After the failed client was stopped,
+the broker queues and model subprocesses were confirmed empty; the guarded
+exact-coordinate recovery Job removed the expired fixture and its five
+literal object keys.
+
+Basic Pitch chart 0.1.3 sets that portable Numba CPU target in the Pod
+template. The guarded `upgrade-numba` script compared the installed and live
+0.1.2 release before Helm revision 5 rolled out. The Deployment, ScaledObject,
+and generated HPA UIDs were preserved, and the new Pod used `generic`. The
+full Demucs smoke then passed: first-attempt Demucs completion, verified
+private stems, both downstream Basic Pitch task successes, completed parent,
+and fixed-coordinate cleanup. The disposable smoke Job was removed. This
+validates the local ARM64 CPU path, not NVIDIA GPU throughput.

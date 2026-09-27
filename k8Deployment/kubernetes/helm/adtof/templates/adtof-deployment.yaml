@@ -1,0 +1,235 @@
+# This Deployment defines the long-lived, internal ADTOF drum-MIDI worker. It
+# consumes one durable `adtof.requested` RabbitMQ delivery at a time, obtains a
+# PostgreSQL task lease, verifies/reads one private Demucs drums WAV from
+# MinIO, runs CPU inference, writes private MIDI/tempo artifacts, and commits
+# the task result. PostgreSQL remains authoritative for retries and recovery.
+#
+# There is deliberately no Service or Ingress. This worker has no inbound HTTP
+# or gRPC endpoint: it initiates only private connections to PostgreSQL, MinIO,
+# and RabbitMQ. A public route would expose an unnecessary attack surface and
+# would not help the queue-driven processing workflow.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clouddsp-adtof
+  namespace: clouddsp-app
+  labels:
+    # These standard labels identify this controller without selecting Demucs,
+    # Basic Pitch, API, dispatcher, or browser-facing workloads.
+    app.kubernetes.io/name: adtof
+    app.kubernetes.io/instance: clouddsp-adtof
+    app.kubernetes.io/component: drum-midi-worker
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: Helm
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: private-drums-to-midi-processing
+spec:
+  # Do not declare `replicas` here. After the companion KEDA ScaledObject is
+  # applied, its generated HPA owns this Deployment's `/scale` subresource and
+  # can set the worker Pod count from zero to the reviewed local maximum.
+  # Omitting this field prevents a later ordinary `kubectl apply` of this
+  # Deployment from continually fighting KEDA by restoring a handwritten `1`.
+  # Before the ScaledObject exists, Kubernetes' normal Deployment default is
+  # still one replica, preserving an independently usable worker manifest.
+  # Retain two prior digest-pinned ReplicaSets for a small local rollback
+  # window without accumulating obsolete local controller history.
+  revisionHistoryLimit: 2
+  # This controls controller rollout progress, not the ten-minute ADTOF model
+  # deadline. It allows an initial 329 MiB local-registry image pull and start.
+  progressDeadlineSeconds: 600
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # Never double CPU-heavy ADTOF inference during a one-replica local
+      # update. RabbitMQ retains backlog while the old worker exits gracefully.
+      maxUnavailable: 1
+      maxSurge: 0
+  selector:
+    # Deployment selectors are immutable. They must exactly equal the Pod
+    # labels below and cannot include another processing-stage worker.
+    matchLabels:
+      app.kubernetes.io/name: adtof
+      app.kubernetes.io/instance: clouddsp-adtof
+      app.kubernetes.io/component: drum-midi-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adtof
+        app.kubernetes.io/instance: clouddsp-adtof
+        app.kubernetes.io/component: drum-midi-worker
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      # This worker never needs to call the Kubernetes API. Omitting the
+      # default ServiceAccount token removes an otherwise unnecessary credential
+      # from an image that only needs its three dedicated service identities.
+      automountServiceAccountToken: false
+      # The dependency addresses are deliberately explicit below. Do not inject
+      # legacy `*_SERVICE_HOST` variables that could obscure this contract.
+      enableServiceLinks: false
+      # The default CPU child-process timeout is ten minutes. SIGTERM is turned
+      # into the worker's cooperative event; 660 seconds leaves one minute for
+      # the bounded inference cleanup and connection closure before SIGKILL.
+      # A failed/forced stop is safe because PostgreSQL leases recover work.
+      terminationGracePeriodSeconds: 660
+      # This lock contains a Linux/ARM64-only CPU artifact. The standard node
+      # architecture label prevents scheduling it to a future AMD64 node that
+      # cannot run the native wheels in its hash-verified dependency closure.
+      nodeSelector:
+        kubernetes.io/arch: arm64
+      securityContext:
+        # The locked image creates this exact non-root account. Repeating it at
+        # Pod level prevents a replacement image from silently acquiring root.
+        runAsNonRoot: true
+        runAsUser: 10005
+        runAsGroup: 10005
+        # Kubernetes gives emptyDirs a usable group before the worker starts,
+        # letting the fixed non-root account use the three writable mounts.
+        fsGroup: 10005
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: adtof
+          # Copied exactly from images.adtof.immutableReference in
+          # ../../images.lock.yaml. Never substitute its mutable readable tag.
+          image: {{ .Values.image.reference }}
+          # A digest cannot change. Nodes may reuse it locally, while a new
+          # node pulls the same precise ARM64 bytes from the k3d registry.
+          imagePullPolicy: IfNotPresent
+          env:
+            # Fixed, non-secret private service coordinates. Each Python
+            # settings adapter checks equality again before opening a socket,
+            # so a manifest edit cannot redirect a restricted credential.
+            - name: ADTOF_DB_HOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: ADTOF_DB_PORT
+              value: "5432"
+            - name: ADTOF_DB_CONNECT_TIMEOUT_SECONDS
+              value: "3"
+            - name: ADTOF_S3_INTERNAL_ENDPOINT
+              value: http://clouddsp-minio.clouddsp-data.svc:9000
+            - name: ADTOF_S3_ARTIFACTS_BUCKET
+              value: clouddsp-uploads
+            - name: ADTOF_S3_REGION
+              value: us-east-1
+            # One internal MinIO Service uses path-style S3 access. The worker
+            # receives neither a browser endpoint nor a host-published port.
+            - name: ADTOF_S3_ADDRESSING_STYLE
+              value: path
+            - name: ADTOF_AMQP_HOST
+              value: clouddsp-rabbitmq.clouddsp-data.svc
+            - name: ADTOF_AMQP_PORT
+              value: "5672"
+            - name: ADTOF_AMQP_VHOST
+              value: /clouddsp
+            - name: ADTOF_AMQP_QUEUE
+              value: clouddsp.adtof.requests
+            # The worker enforces this value as one. One CPU-bound Pod cannot
+            # reserve a second unacknowledged drums task while processing one.
+            - name: ADTOF_AMQP_PREFETCH_COUNT
+              value: "1"
+            - name: ADTOF_AMQP_CONNECT_TIMEOUT_SECONDS
+              value: "5"
+            - name: ADTOF_AMQP_HEARTBEAT_SECONDS
+              value: "30"
+            # Third-party temporary/cache writes stay on explicit emptyDirs.
+            # The image root remains immutable and source audio uses the
+            # separate bounded `/worker-scratch` mount below.
+            - name: TMPDIR
+              value: /tmp
+            - name: NUMBA_CACHE_DIR
+              value: /tmp/numba-cache
+            # Every Secret is namespace-local and least-privilege. This worker
+            # never mounts PostgreSQL/MinIO/RabbitMQ administrator credentials
+            # or another processing stage's runtime identity.
+            - name: ADTOF_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-adtof-database-credentials
+                  key: ADTOF_DB_NAME
+            - name: ADTOF_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-adtof-database-credentials
+                  key: ADTOF_DB_USERNAME
+            - name: ADTOF_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-adtof-database-credentials
+                  key: ADTOF_DB_PASSWORD
+            - name: ADTOF_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-adtof-minio-credentials
+                  key: ADTOF_S3_ACCESS_KEY
+            - name: ADTOF_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-adtof-minio-credentials
+                  key: ADTOF_S3_SECRET_KEY
+            - name: RABBITMQ_ADTOF_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-adtof-rabbitmq-credentials
+                  key: RABBITMQ_ADTOF_USERNAME
+            - name: RABBITMQ_ADTOF_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-adtof-rabbitmq-credentials
+                  key: RABBITMQ_ADTOF_PASSWORD
+          resources:
+            # Reserve one CPU and 2 GiB before scheduling the CPU PyTorch
+            # process. Limits protect Docker Desktop capacity for PostgreSQL,
+            # MinIO, RabbitMQ, and the other workers; this is not CUDA/GPU
+            # scheduling on the Apple-Silicon local profile.
+            requests:
+              cpu: "1"
+              memory: 2Gi
+              # The three bounded emptyDirs below total 704 MiB. One GiB gives
+              # scheduler accounting headroom for writable runtime overhead.
+              ephemeral-storage: 1Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+              ephemeral-storage: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            # Application, model weights, and dependencies are baked into the
+            # digest-pinned image. Only the three explicit emptyDirs can write.
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: worker-scratch
+              # The worker entrypoint refuses to start if this fixed path is
+              # absent. It holds one verified WAV and fresh transient outputs.
+              mountPath: /worker-scratch
+            - name: runtime-tmp
+              # Native/Python temporary files cannot make the image root
+              # writable or persist beyond this Pod's lifecycle.
+              mountPath: /tmp
+            - name: runtime-home
+              # Dependency caches/config stay disposable and separate from
+              # source/output media scratch and durable MinIO/PostgreSQL data.
+              mountPath: /home/clouddsp-adtof
+          # There is no liveness/readiness probe in this manifest. The worker
+          # has no listener, and an `exec` probe that merely sees Python would
+          # misrepresent health during database/broker/storage loss. Its future
+          # truthful metrics/probes and KEDA scaler are separate focused tasks.
+      volumes:
+        - name: worker-scratch
+          emptyDir:
+            # Disk-backed rather than `medium: Memory`: input drums WAVs may be
+            # up to 256 MiB. 512 MiB covers input plus small MIDI/tempo output
+            # while protecting the node from unbounded transient media.
+            sizeLimit: 512Mi
+        - name: runtime-tmp
+          emptyDir:
+            # Small dependency-only files, accounted as Pod ephemeral storage.
+            sizeLimit: 128Mi
+        - name: runtime-home
+          emptyDir:
+            # No durable task state belongs in HOME; it disappears on restart.
+            sizeLimit: 64Mi

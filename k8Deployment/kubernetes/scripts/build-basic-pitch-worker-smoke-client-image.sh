@@ -24,7 +24,7 @@ readonly REQUIREMENTS_LOCK="${CLIENT_DIRECTORY}/requirements.lock"
 # never execute this mutable tag directly.
 readonly REGISTRY_HOST="clouddsp-registry.localhost:5001"
 readonly IMAGE_REPOSITORY="${REGISTRY_HOST}/basic-pitch-worker-smoke-client"
-readonly IMAGE_NAME="${IMAGE_REPOSITORY}:0.1.0-durable-worker-path"
+readonly IMAGE_NAME="${IMAGE_REPOSITORY}:0.1.1-parent-finalizer-fixture"
 readonly TARGET_PLATFORM="linux/arm64"
 
 usage() {
@@ -32,7 +32,7 @@ usage() {
 Usage: ./k8Deployment/kubernetes/scripts/build-basic-pitch-worker-smoke-client-image.sh
 
 Builds the isolated Basic Pitch worker smoke client for linux/arm64, runs its
-eight fake-client unit tests during the Docker build, pushes it to the local
+nine fake-client unit tests during the Docker build, pushes it to the local
 k3d registry, and prints its immutable digest and Docker image size.
 
 It does not create a Kubernetes Job, upload a MinIO object, create a database

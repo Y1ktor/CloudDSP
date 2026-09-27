@@ -1,0 +1,9 @@
+# This independent identity release owns Keycloak's replaceable server and
+# network route. PostgreSQL, credentials, realm configuration, and one-time
+# bootstrap Jobs have separate lifecycles and are never embedded in Helm.
+apiVersion: v2
+name: keycloak
+description: CloudDSP local Keycloak identity service
+type: application
+version: 0.1.0
+appVersion: "26.7.3"

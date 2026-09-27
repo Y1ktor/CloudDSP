@@ -202,6 +202,25 @@ images:
     localDockerSize: "65.11 MiB"
     pushedAt: "2026-09-24"
 
+  dispatcher-demucs-only:
+    # The existing clouddsp-dispatcher Deployment deliberately keeps this
+    # earlier Demucs-only outbox supervisor while the separate generic
+    # dispatcher uses images.dispatcher below. The local registry returned
+    # this exact digest on 2026-09-26, and the running Pod reports it as its
+    # imageID. Its image config starts `python -m app.dispatcher_runtime`.
+    # The historical build came from a local working tree, so the present
+    # source is not claimed to reproduce these bytes. Keep the digest pinned
+    # until a separately reviewed rollout replaces this legacy controller.
+    repository: clouddsp-registry.localhost:5001/dispatcher
+    sourceTag: "0.1.0-outbox-supervisor"
+    digest: sha256:3d04f458945004925313267ca62379a7cc2eb2511f10b9b727be94b5819abf76
+    immutableReference: clouddsp-registry.localhost:5001/dispatcher@sha256:3d04f458945004925313267ca62379a7cc2eb2511f10b9b727be94b5819abf76
+    supportedPlatforms:
+      - linux/arm64
+    observedImageCreatedAt: "2026-09-08T21:37:47Z"
+    observedLocalDockerSizeBytes: 51020437
+    observedAt: "2026-09-26"
+
   dispatcher:
     # This local image contains both the established Demucs-only dispatcher
     # runtime and the reviewed generic dispatcher runtime. Its Dockerfile keeps
@@ -359,9 +378,9 @@ images:
     # client. A future Job must use the immutable reference below; its readable
     # tag is provenance only and can be replaced by a later build.
     repository: clouddsp-registry.localhost:5001/basic-pitch-worker-smoke-client
-    sourceTag: "0.1.0-durable-worker-path"
-    digest: sha256:c37acb0177e213cdecff061057f1f91e4ecf554bf2f52f52a5d6f8b8c62f72d1
-    immutableReference: clouddsp-registry.localhost:5001/basic-pitch-worker-smoke-client@sha256:c37acb0177e213cdecff061057f1f91e4ecf554bf2f52f52a5d6f8b8c62f72d1
+    sourceTag: "0.1.1-parent-finalizer-fixture"
+    digest: sha256:786d0261a5bbe1d318d807e32f2151fc678839b899c0371bebe25347a3457de0
+    immutableReference: clouddsp-registry.localhost:5001/basic-pitch-worker-smoke-client@sha256:786d0261a5bbe1d318d807e32f2151fc678839b899c0371bebe25347a3457de0
     supportedPlatforms:
       - linux/arm64/v8
     builtFrom:
@@ -377,9 +396,9 @@ images:
       sourceLock: buildSources.basic-pitch-worker-smoke-client
     # Docker reports local uncompressed layer bytes, which are larger than the
     # small registry manifest shown by `docker push`.
-    localDockerSizeBytes: 66125383
+    localDockerSizeBytes: 66125559
     localDockerSize: "63.06 MiB"
-    pushedAt: "2026-09-12"
+    pushedAt: "2026-09-27"
 
   demucs-worker-smoke-client:
     # This finite Job image validates the real durable Demucs stage through the
@@ -387,9 +406,9 @@ images:
     # client, a Kubernetes client, an administrator tool, or a general-purpose
     # PostgreSQL/MinIO client. Workload manifests use only this digest.
     repository: clouddsp-registry.localhost:5001/demucs-worker-smoke-client
-    sourceTag: "0.1.0-durable-demucs-stage"
-    digest: sha256:da6ff550d60acdb84949cf8e26c47d30ca3f434bb7e1cc5121034cc2e95cb743
-    immutableReference: clouddsp-registry.localhost:5001/demucs-worker-smoke-client@sha256:da6ff550d60acdb84949cf8e26c47d30ca3f434bb7e1cc5121034cc2e95cb743
+    sourceTag: "0.1.1-parent-finalizer-completion"
+    digest: sha256:0d5513a288b3aa0285234d7ca2c8553570e8f0bb38d4177c9ecc6017b66f5bd6
+    immutableReference: clouddsp-registry.localhost:5001/demucs-worker-smoke-client@sha256:0d5513a288b3aa0285234d7ca2c8553570e8f0bb38d4177c9ecc6017b66f5bd6
     supportedPlatforms:
       - linux/arm64/v8
     builtFrom:
@@ -404,9 +423,9 @@ images:
       sourceLock: buildSources.demucs-worker-smoke-client
     # Docker reports uncompressed layers; this intentionally differs from the
     # small registry manifest document printed by `docker push`.
-    localDockerSizeBytes: 66125995
+    localDockerSizeBytes: 66126150
     localDockerSize: "63.06 MiB"
-    pushedAt: "2026-09-21"
+    pushedAt: "2026-09-27"
 
   six-stem-load-client:
     # This ARM64 load-test image contains the private-volume init adapter,
@@ -525,9 +544,9 @@ images:
     # Kubernetes client. A future Job must copy the immutable reference below;
     # its readable tag is provenance only and can be replaced by a later build.
     repository: clouddsp-registry.localhost:5001/adtof-worker-smoke-client
-    sourceTag: "0.1.1-psycopg-uuid-observation"
-    digest: sha256:f6908bfabe930a1066fed18446aa6006d58dbea43764d75265557bdd6771c74f
-    immutableReference: clouddsp-registry.localhost:5001/adtof-worker-smoke-client@sha256:f6908bfabe930a1066fed18446aa6006d58dbea43764d75265557bdd6771c74f
+    sourceTag: "0.1.2-parent-finalizer-fixture"
+    digest: sha256:cb59778c62e973151b24f9a61683334651d97d2559675e6721aa31a0ed7282aa
+    immutableReference: clouddsp-registry.localhost:5001/adtof-worker-smoke-client@sha256:cb59778c62e973151b24f9a61683334651d97d2559675e6721aa31a0ed7282aa
     supportedPlatforms:
       - linux/arm64/v8
     builtFrom:
@@ -543,9 +562,9 @@ images:
       sourceLock: buildSources.adtof-worker-smoke-client
     # Docker reports uncompressed local layer bytes. Registry manifest bytes
     # printed by `docker push` are a different, much smaller measurement.
-    localDockerSizeBytes: 66164647
+    localDockerSizeBytes: 66164712
     localDockerSize: "63.10 MiB"
-    pushedAt: "2026-09-16"
+    pushedAt: "2026-09-27"
 
   frontend:
     # The local browser image now fetches every sampled MIDI instrument from

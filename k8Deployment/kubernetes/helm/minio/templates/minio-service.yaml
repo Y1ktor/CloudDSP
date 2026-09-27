@@ -1,0 +1,43 @@
+# This is the normal client-facing MinIO Service.  Unlike the governing
+# headless Service, Kubernetes assigns it a stable virtual ClusterIP and DNS
+# name so CloudDSP API and worker Pods can reach one S3-compatible endpoint:
+# `clouddsp-minio.clouddsp-data.svc.cluster.local:9000`.
+#
+# It intentionally exposes only MinIO's S3 API.  The administrative console
+# listener on port 9001 is kept off this Service so application Pods do not
+# accidentally depend on or publish an administrator-only browser interface.
+apiVersion: v1
+kind: Service
+metadata:
+  name: clouddsp-minio
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/instance: clouddsp-minio
+    app.kubernetes.io/component: object-storage
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    clouddsp.io/environment: local
+spec:
+  # `ClusterIP` is Kubernetes's internal virtual IP Service type.  It is
+  # reachable from Pods in the cluster through Service DNS, but it does not
+  # publish a port on the Mac host or make MinIO publicly reachable.
+  type: ClusterIP
+
+  # This label query selects the single Pod managed by minio-statefulset.yaml.
+  # Kubernetes maintains the Service endpoint as that Pod is recreated, so
+  # clients use the stable Service name rather than the Pod's changing IP.
+  selector:
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/instance: clouddsp-minio
+    app.kubernetes.io/component: object-storage
+
+  ports:
+    # `port` is the Service's internal listener.  `targetPort` resolves to the
+    # `s3-api` named container port (9000) in the MinIO StatefulSet.  There is
+    # deliberately no `console` port here: administrators use a short-lived
+    # `kubectl port-forward` directly to the Pod when console access is needed.
+    - name: s3-api
+      protocol: TCP
+      port: 9000
+      targetPort: s3-api

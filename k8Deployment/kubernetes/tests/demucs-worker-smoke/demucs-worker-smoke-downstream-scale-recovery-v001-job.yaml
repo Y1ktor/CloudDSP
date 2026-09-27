@@ -1,0 +1,302 @@
+# Recover only the Demucs smoke run whose Basic Pitch vocals worker was
+# scaled away on 2026-09-27 after acknowledging its request. The fixed parent
+# is midi_processing, Demucs and no_vocals succeeded on attempt one, and the
+# vocals task is running with an expired first lease. The operator checks that
+# Demucs is idle, related RabbitMQ queues are empty, and no Basic Pitch Pod
+# has a model child before applying this Job. A PostgreSQL scaler may keep an
+# otherwise idle Basic Pitch Pod up until this stale row is removed. The SQL
+# locks and validates the exact Job, all
+# three tasks and all three published events before deleting the Job and its
+# cascading test rows. Only then may the second init container delete five
+# literal test object keys. Other shapes fail closed and retain their data.
+# This Job has no Kubernetes API token, broker credential or wildcard delete.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: demucs-worker-smoke-downstream-scale-recovery-v001
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: demucs-worker-smoke-downstream-scale-recovery-v001
+    app.kubernetes.io/component: manual-test-cleanup
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: exact-coordinate-demucs-smoke-evidence-cleanup
+spec:
+  # Retain one-time proof briefly for logs, then remove Pods that mounted
+  # administrator credentials. Both ordered init steps must succeed.
+  ttlSecondsAfterFinished: 600
+  # A partial administrative cleanup must stay visible. Automatic retries could
+  # hide its first failure or make an operator mistake it for a clean rerun.
+  backoffLimit: 0
+  # Five S3 deletes and one indexed database delete are tiny local operations.
+  # A finite deadline limits how long administrator credentials can be mounted
+  # when a private Service or dependency is unavailable.
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: demucs-worker-smoke-downstream-scale-recovery-v001
+        app.kubernetes.io/component: manual-test-cleanup
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        # Each container overrides this default only when its pinned upstream
+        # image requires a different non-root UID/GID.
+        seccompProfile:
+          type: RuntimeDefault
+      # Init containers serialize the cross-store cleanup. The database guard
+      # removes only the inspected expired-lease Job after its task owner is
+      # gone; literal object deletion follows its committed transaction.
+      initContainers:
+        - name: delete-only-diagnosed-stopped-task
+          # The pinned Docker Official PostgreSQL image supplies `psql`; this
+          # administration step needs no local port-forward or package install.
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PGHOST
+              value: clouddsp-postgresql
+            - name: PGPORT
+              value: "5432"
+            - name: PGCONNECT_TIMEOUT
+              value: "10"
+            - name: PGDATABASE
+              value: clouddsp_job_api
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -ec
+            - |
+              # Refuse any drift from the inspected three-task fixture. An
+              # expired running lease is eligible only after the operator
+              # verifies no worker still owns it and queues are empty.
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 <<'SQL'
+              DO $downstream_scale_recovery$
+              DECLARE
+                fixed_job_id UUID := '12139966-5891-4d53-a817-f3ce1f264c61'::uuid;
+                fixed_event_id UUID := 'e20cf942-ef7b-478e-89c4-f4795ed801ec'::uuid;
+              BEGIN
+                -- Lock only this reserved Job. The operator first confirms
+                -- no model child can still write this fixed test coordinate.
+                PERFORM 1 FROM public.jobs AS job
+                WHERE job.job_id = fixed_job_id
+                  AND job.owner_sub = 'clouddsp-demucs-worker-smoke'
+                  AND job.status = 'midi_processing'
+                  AND job.source_uploaded = TRUE
+                  AND job.stem_mode = '2-stems'
+                FOR UPDATE;
+                IF NOT FOUND THEN
+                  -- Retrying after the database step may finish pending object deletion,
+                  -- but any partially present fixed coordinate remains a hard refusal.
+                  IF EXISTS (SELECT 1 FROM public.jobs WHERE job_id = fixed_job_id)
+                     OR EXISTS (SELECT 1 FROM public.processing_tasks WHERE job_id = fixed_job_id)
+                     OR EXISTS (SELECT 1 FROM public.outbox_events WHERE job_id = fixed_job_id)
+                  THEN
+                    RAISE EXCEPTION 'Refused: fixed Demucs smoke Job is not in the diagnosed downstream state.';
+                  END IF;
+                  RAISE NOTICE 'Exact Demucs smoke database coordinates were already absent.';
+                  RETURN;
+                END IF;
+
+                IF (SELECT COUNT(*) FROM public.processing_tasks WHERE job_id = fixed_job_id) <> 3
+                   OR (SELECT COUNT(*) FROM public.outbox_events WHERE job_id = fixed_job_id) <> 3
+                   OR NOT EXISTS (
+                     SELECT 1 FROM public.outbox_events AS event
+                     WHERE event.job_id = fixed_job_id
+                       AND event.event_id = fixed_event_id
+                       AND event.stage = 'demucs' AND event.stem_name = ''
+                       AND event.event_type = 'demucs.requested'
+                       AND event.publication_status = 'published'
+                   ) OR NOT EXISTS (
+                     SELECT 1 FROM public.processing_tasks AS task
+                     WHERE task.job_id = fixed_job_id
+                       AND task.request_event_id = fixed_event_id
+                       AND task.stage = 'demucs' AND task.stem_name = ''
+                       AND task.status = 'succeeded' AND task.attempt_count = 1
+                       AND task.input_bucket = 'clouddsp-uploads'
+                       AND task.input_object_key = 'uploads/12139966-5891-4d53-a817-f3ce1f264c61/demucs-worker-smoke.wav'
+                       AND task.lease_token IS NULL AND task.lease_expires_at IS NULL
+                       AND task.completed_at IS NOT NULL AND task.last_error_code IS NULL
+                   )
+                THEN
+                  RAISE EXCEPTION 'Refused: fixed Demucs smoke source/task evidence changed.';
+                END IF;
+
+                IF EXISTS (
+                  SELECT 1 FROM (VALUES ('no_vocals', 'succeeded'), ('vocals', 'running')) AS expected(stem_name, task_status)
+                  WHERE NOT EXISTS (
+                    SELECT 1 FROM public.processing_tasks AS task
+                    JOIN public.outbox_events AS event ON event.event_id = task.request_event_id
+                    WHERE task.job_id = fixed_job_id
+                      AND task.stage = 'basic-pitch' AND task.stem_name = expected.stem_name
+                      AND task.status = expected.task_status AND task.attempt_count = 1
+                      AND task.input_bucket = 'clouddsp-uploads'
+                      AND task.input_object_key = 'stems/12139966-5891-4d53-a817-f3ce1f264c61/' || expected.stem_name || '.wav'
+                      AND task.last_error_code IS NULL
+                      AND event.job_id = fixed_job_id AND event.stage = 'basic-pitch'
+                      AND event.stem_name = expected.stem_name
+                      AND event.event_type = 'basic-pitch.requested'
+                      AND event.publication_status = 'published'
+                      AND (
+                        (expected.task_status = 'succeeded'
+                          AND task.lease_token IS NULL AND task.lease_expires_at IS NULL
+                          AND task.completed_at IS NOT NULL)
+                        OR (expected.task_status = 'running'
+                          AND task.lease_token IS NOT NULL
+                          AND task.lease_expires_at < CURRENT_TIMESTAMP
+                          AND task.completed_at IS NULL)
+                      )
+                  )
+                ) THEN
+                  RAISE EXCEPTION 'Refused: fixed Demucs smoke downstream task evidence changed.';
+                END IF;
+
+                -- The existing foreign keys cascade only records of this exact Job.
+                -- Every stage, stem, event and task above was counted and checked first.
+                DELETE FROM public.jobs
+                WHERE job_id = fixed_job_id AND owner_sub = 'clouddsp-demucs-worker-smoke';
+                IF NOT FOUND THEN
+                  RAISE EXCEPTION 'Refused: fixed Demucs smoke Job disappeared during cleanup.';
+                END IF;
+              END;
+              $downstream_scale_recovery$;
+              SQL
+              printf 'Exact expired downstream smoke database cleanup passed\n'
+
+        - name: delete-only-fixed-smoke-objects
+          # Reuse the existing digest-pinned Demucs smoke-client runtime. Its
+          # already hash-locked Boto3 dependency performs S3 DeleteObject,
+          # which is idempotent when a diagnosed run stopped before producing
+          # one or more of these literal output keys.
+          image: clouddsp-registry.localhost:5001/demucs-worker-smoke-client@sha256:0d5513a288b3aa0285234d7ca2c8553570e8f0bb38d4177c9ecc6017b66f5bd6
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_PASSWORD
+            - name: MINIO_INTERNAL_ENDPOINT
+              value: http://clouddsp-minio:9000
+            # Explicit values above are the only credentials Boto3 receives.
+            # Prevent the temporary administration Pod from probing cloud
+            # metadata in the event a future base image adds such a provider.
+            - name: AWS_EC2_METADATA_DISABLED
+              value: "true"
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            runAsUser: 10003
+            runAsGroup: 10003
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - python
+            - -c
+            - |
+              # S3 DeleteObject has no wildcard/prefix behavior: each call
+              # affects exactly its supplied bucket/key. It also succeeds when
+              # a particular output was never created, while an authentication
+              # or network failure still raises after the durable cleanup; a
+              # rerun then performs only these same literal object deletes.
+              import os
+
+              import boto3
+              from botocore.config import Config
+
+              client = boto3.client(
+                  "s3",
+                  endpoint_url=os.environ["MINIO_INTERNAL_ENDPOINT"],
+                  aws_access_key_id=os.environ["MINIO_ROOT_USER"],
+                  aws_secret_access_key=os.environ["MINIO_ROOT_PASSWORD"],
+                  region_name="us-east-1",
+                  config=Config(s3={"addressing_style": "path"}),
+              )
+              for object_key in (
+                  "uploads/12139966-5891-4d53-a817-f3ce1f264c61/demucs-worker-smoke.wav",
+                  "stems/12139966-5891-4d53-a817-f3ce1f264c61/vocals.wav",
+                  "stems/12139966-5891-4d53-a817-f3ce1f264c61/no_vocals.wav",
+                  "midi/12139966-5891-4d53-a817-f3ce1f264c61/vocals.mid",
+                  "midi/12139966-5891-4d53-a817-f3ce1f264c61/no_vocals.mid",
+              ):
+                  client.delete_object(Bucket="clouddsp-uploads", Key=object_key)
+              print("Exact expired downstream smoke MinIO cleanup passed")
+      containers:
+        - name: completion-marker
+          # A no-credential final container makes Job success mean both ordered
+          # destructive init steps completed and their credentials are gone.
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -ec
+            - |
+              printf 'Exact expired downstream smoke cleanup passed\n'

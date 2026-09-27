@@ -164,7 +164,9 @@ server-side workloads, not browser assets.
 1. **Image build:** Node/NGINX bases are digest-pinned; the script builds and
    pushes the static arm64 image and records its immutable registry digest.
 2. **Kubernetes delivery:** the one-replica Deployment, ClusterIP Service, and
-   Traefik Ingress are applied for `clouddsp.localhost`.
+   Traefik Ingress were originally applied for `clouddsp.localhost`. They are
+   now owned by the [frontend Helm release](../../helm/frontend/README.md),
+   which preserves their names, selectors, Pod identity, and browser route.
 3. **Browser integration:** sign-up, Mailpit confirmation, password creation,
    OIDC code exchange, and authenticated frontend return have passed. Session
    refresh/expiry behavior should be revisited once the local protected API

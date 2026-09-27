@@ -1,0 +1,5 @@
+# Copy only images.rabbitmq.immutableReference from the reviewed image lock.
+# Resource names, selectors, AMQP topology, Secret names, and PVC template stay
+# in the templates so a routine values override cannot rename durable state.
+image:
+  reference: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df

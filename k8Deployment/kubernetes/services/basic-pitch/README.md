@@ -659,33 +659,37 @@ than the five-minute fixed Basic Pitch CLI deadline so a normal SIGTERM can let
 the current bounded operation clean up before RabbitMQ/PostgreSQL recovery is
 needed.
 
-The v0.1.2 tempo-resolution image and this Deployment manifest are applied in
-the local cluster. Its RabbitMQ scaler is Ready and currently inactive, so the
-Deployment intentionally has zero Pods while its request queue is empty. A new
-Basic Pitch delivery will scale up a Pod from the digest-pinned image; no warm
-worker is retained between bursts.
+The v0.1.2 tempo-resolution image is installed in the local cluster through
+the Basic Pitch Helm release. Its dual-trigger scaler is Ready and normally
+inactive, so the Deployment intentionally has zero Pods when the queue and
+durable task count are both empty. A new Basic Pitch delivery or due retry
+will scale up a Pod from the digest-pinned image.
 
-## KEDA queue-scaling policy
+## KEDA queue and durable-task scaling policy
 
 [`basic-pitch-scaledobject.yaml`](basic-pitch-scaledobject.yaml) is the
 installed KEDA policy for this worker. It leaves the long-running Deployment
 responsible for the worker process and Pod security, while KEDA's generated HPA
 owns only the Deployment replica count. The policy observes the private
 `clouddsp.basic-pitch.requests` queue through RabbitMQ's private management
-ClusterIP using the dedicated read-only monitoring identity—not the Basic
-Pitch AMQP consumer credential.
+ClusterIP using the dedicated read-only monitoring identity. It also counts
+active and due Basic Pitch tasks through the existing read-only PostgreSQL
+observer role. Neither trigger receives the Basic Pitch worker's credentials.
 
 The policy has a five-second scale-from-zero polling interval, a one-message
 target that matches the worker's `prefetch=1`, a zero-to-three replica range,
 and a one-minute idle cooldown. Its HPA may add up to three Pods per
 15-second control interval, so a five-stem Demucs burst does not wait through
-several 30-second one-Pod increments. Unacknowledged work is counted, so a CPU
-inference already held by a worker cannot look like an empty queue and be
-scaled down prematurely. The Deployment omits a handwritten `replicas` field
-once this policy exists so ordinary future `kubectl apply` operations do not
-fight the generated HPA.
+several 30-second one-Pod increments. HPA holds the previous desired count
+for six minutes before scale-in, longer than the worker's five-minute model
+deadline; it cannot know which Pod owns a remaining task. The worker ACKs
+after committing its lease, before CPU inference. RabbitMQ depth can be zero
+during active tasks; the PostgreSQL trigger keeps their Pods present and wakes
+the worker for due database retries. The Deployment omits a handwritten
+`replicas` field so KEDA alone controls `/scale`. Subsequent delivery changes
+must use the Helm chart rather than applying this source manifest directly.
 
-The reviewed local run applied this policy and its three-request burst Job on
+An earlier queue-only policy and its three-request burst Job ran on
 2026-09-20. It confirmed the full `0 → 3 → 0` lifecycle: three valid durable
 requests reached the configured three-Pod ceiling, completed through the normal
 worker path, then returned to zero after the idle cooldown. Future policy

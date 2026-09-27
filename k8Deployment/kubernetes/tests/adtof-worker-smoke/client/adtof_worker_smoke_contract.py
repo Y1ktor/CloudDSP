@@ -256,6 +256,7 @@ class ADTOFWorkerSmokeObservation:
             "source_uploaded",
             "stem_processing",
             "midi_processing",
+            "failed_incomplete_stem_fixture",
             "completed",
             "failed",
         }:
@@ -294,7 +295,9 @@ class ADTOFWorkerSmokeObservation:
             and self.task_attempt_count == 1
             and self.task_lease_is_clear
             and self.task_completed_at is not None
-            and self.job_status == "midi_processing"
+            # The restricted SQL observer emits this only for the exact
+            # expected parent-finalizer error on this one-drum fixture.
+            and self.job_status == "failed_incomplete_stem_fixture"
         )
 
 

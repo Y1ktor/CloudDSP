@@ -1,0 +1,90 @@
+# One-time repair for the fixed-coordinate test functions after parent Job
+# finalization migration v008. This uses the existing PostgreSQL admin Secret
+# only in a disposable Pod; the smoke client still gets no table access.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: basic-pitch-worker-smoke-functions-v002
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: basic-pitch-worker-smoke-functions-v002
+    app.kubernetes.io/component: integration-test-database-repair
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 0
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: basic-pitch-worker-smoke-functions-v002
+        app.kubernetes.io/component: integration-test-database-repair
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: psql
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PGHOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: PGPORT
+              value: "5432"
+            - name: PGDATABASE
+              value: clouddsp_job_api
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_PASSWORD
+          command:
+            - sh
+            - -ec
+            - |
+              # ON_ERROR_STOP and the SQL transaction make this a bounded
+              # all-or-nothing function update, not a general DB migration.
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                --file /repair/functions.sql
+              printf 'Basic Pitch smoke functions v002 installed\n'
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: repair
+              mountPath: /repair
+              readOnly: true
+      volumes:
+        - name: repair
+          configMap:
+            name: basic-pitch-worker-smoke-functions-v002
+            items:
+              - key: functions.sql
+                path: functions.sql

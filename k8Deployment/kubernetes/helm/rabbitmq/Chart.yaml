@@ -1,0 +1,9 @@
+# This release owns only the existing single-node broker and its four stable
+# networking objects. The generated PVC, messages, credentials, topology
+# bootstrap Jobs, and KEDA scaler remain on separate lifecycles.
+apiVersion: v2
+name: rabbitmq
+description: CloudDSP local single-node RabbitMQ broker
+type: application
+version: 0.1.0
+appVersion: "4.3.5"

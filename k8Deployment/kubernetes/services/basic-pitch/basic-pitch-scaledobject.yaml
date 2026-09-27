@@ -2,8 +2,10 @@
 # The Basic Pitch Deployment remains the owner of the Pod template, immutable
 # image, least-privilege identities, resource limits, rollout behavior, and
 # SIGTERM handling. This is not a Kubernetes Job: RabbitMQ retains durable
-# work, while each worker claims and completes its PostgreSQL task lease before
-# manually acknowledging its AMQP delivery.
+# work, while each worker commits its PostgreSQL task lease and manually
+# acknowledges the AMQP delivery before CPU inference. The broker queue can
+# be empty while inference is still running; a read-only PostgreSQL
+# trigger keeps the Pod present for active leases and due retries.
 #
 # KEDA creates one ordinary Kubernetes HPA for this exact Deployment. That HPA
 # writes only the Deployment `/scale` subresource; it neither bypasses the
@@ -20,7 +22,7 @@ metadata:
     app.kubernetes.io/part-of: clouddsp
     app.kubernetes.io/managed-by: kubectl
     clouddsp.io/environment: local
-    clouddsp.io/purpose: queue-depth-autoscale-private-midi-worker
+    clouddsp.io/purpose: queue-and-task-autoscale-private-midi-worker
 spec:
   # This is the controller whose standard apps/v1 `scale` subresource KEDA/HPA
   # manages. It must not be an individual Pod, a ReplicaSet, a Service, or a
@@ -39,9 +41,9 @@ spec:
   # minutes is unnecessary. One minute absorbs nearby stems but returns the
   # CPU/memory reservation to the cluster promptly after a short burst.
   cooldownPeriod: 60
-  # When no durable Basic Pitch request is present, no worker Pod is needed.
-  # The Deployment itself remains present at zero so KEDA can recreate a Pod
-  # when the queue becomes active.
+  # Both the broker queue and the durable task count must be idle before
+  # KEDA returns the Deployment to zero. A due database retry can reactivate
+  # the worker even when its original AMQP delivery was already acknowledged.
   minReplicaCount: 0
   # Each Pod requests one CPU and 2 GiB memory. Three replicas let a five-stem
   # burst process three stems concurrently while leaving the remaining durable
@@ -67,10 +69,13 @@ spec:
               value: 3
               periodSeconds: 15
         scaleDown:
-          # A short stabilization window avoids reacting to a momentary empty
-          # metric while a nearby message is being published. KEDA's one-minute
-          # cooldown performs the final scale from an inactive Pod to zero.
-          stabilizationWindowSeconds: 60
+          # A claimed request is ACKed before up to five minutes of bounded
+          # inference. While two tasks are in progress, one may finish first;
+          # a quick 2 -> 1 scale-in can kill the other task's Pod because the
+          # Deployment cannot distinguish busy from idle replicas. Hold the
+          # earlier desired count for six minutes, beyond the model deadline.
+          # KEDA's cooldown handles the final idle transition to zero.
+          stabilizationWindowSeconds: 360
           policies:
             - type: Pods
               value: 3
@@ -96,9 +101,8 @@ spec:
         value: "1"
         # A zero backlog is inactive and enables KEDA's scale-to-zero path.
         activationValue: "0"
-        # An active Pod may hold one unacknowledged task during CPU inference.
-        # Count it so the worker is not treated as idle before its durable
-        # completion and manual acknowledgement finish.
+        # Count the brief unacknowledged interval before a durable claim.
+        # After ACK, the PostgreSQL trigger below tracks the active lease.
         excludeUnacknowledged: "false"
         # Do not let a temporarily impaired management endpoint make one
         # polling attempt wait forever.
@@ -108,3 +112,27 @@ spec:
         # monitoring credential. Basic Pitch's database, MinIO, RabbitMQ
         # consumer, and administrator credentials are never supplied to KEDA.
         name: clouddsp-rabbitmq-scaler-authentication
+    - type: postgresql
+      metadata:
+        # Reuse the existing restricted task-count login. It has SELECT only
+        # on processing_tasks.stage/status/available_at, with no Job, object
+        # key, write, or worker credential access. Its historical Demucs name
+        # does not limit those column grants to one stage; this query does.
+        host: clouddsp-postgresql.clouddsp-data.svc
+        port: "5432"
+        dbName: clouddsp_job_api
+        userName: clouddsp-keda-demucs
+        sslmode: disable
+        # Basic Pitch acknowledges an AMQP request after committing its lease
+        # and before model inference. Count active leases so queue drain does
+        # not scale away an executing Pod. A due retry also wakes a zero-Pod
+        # worker; future retries do not reserve an idle replica.
+        query: >-
+          SELECT COUNT(*)::bigint FROM public.processing_tasks
+          WHERE stage = 'basic-pitch'
+            AND (status IN ('leased', 'running')
+              OR (status = 'retry_scheduled' AND available_at <= CURRENT_TIMESTAMP))
+        targetQueryValue: "1"
+        activationTargetQueryValue: "0"
+      authenticationRef:
+        name: clouddsp-demucs-postgresql-scaler-authentication

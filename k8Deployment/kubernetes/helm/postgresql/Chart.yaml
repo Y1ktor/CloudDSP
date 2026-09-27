@@ -1,0 +1,9 @@
+# This release owns only the durable PostgreSQL StatefulSet and its two
+# stable Services. Database contents, generated PVC/PV, Secret values,
+# migrations, bootstrap Jobs, and backups have separate lifecycles.
+apiVersion: v2
+name: postgresql
+description: CloudDSP local durable PostgreSQL service
+type: application
+version: 0.1.0
+appVersion: "17.11"

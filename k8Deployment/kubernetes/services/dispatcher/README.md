@@ -431,10 +431,21 @@ lease protects future additional replicas and the RollingUpdate overlap, but
 autoscaling is intentionally deferred until metrics/operational boundaries are
 implemented. This existing manifest deliberately still pins the prior
 Demucs-only image and has not been modified by the generic-capable image build.
+That historical `0.1.0-outbox-supervisor` image is separately recorded as
+`images.dispatcher-demucs-only` in
+[`../../images.lock.yaml`](../../images.lock.yaml). The local registry and
+running Pod both report its digest
+`sha256:3d04f458945004925313267ca62379a7cc2eb2511f10b9b727be94b5819abf76`.
+The present working tree is not asserted to reproduce that earlier image;
+recording the existing artifact does not trigger a rollout.
+The legacy Deployment is now owned by the dedicated
+[`../../helm/dispatcher/`](../../helm/dispatcher/README.md) Helm release;
+its source manifest remains the comparison baseline and must not be reapplied.
+The adoption preserved its Deployment UID, Pod UID, and running digest.
 The following manifest provides the separate generic controller identity and
 explicit generic runtime command.
 
-## Prepared generic dispatcher Deployment
+## Generic dispatcher Deployment
 
 [`dispatcher-generic-deployment.yaml`](dispatcher-generic-deployment.yaml)
 defines that second, outbound-only controller. It pins the generic-capable
@@ -451,6 +462,11 @@ but only one current lease holder can record its result. After a smoke test, a
 separate rollout task can scale the legacy controller to zero. This new
 manifest is now applied: its one replica was verified Running with zero
 restarts, the pinned image digest, and the explicit generic runtime command.
+It is now owned by the separate
+[`../../helm/generic-dispatcher/`](../../helm/generic-dispatcher/README.md)
+Helm release. Adoption preserved the Deployment and Pod UIDs, image digest,
+and command; the raw manifest remains a comparison baseline and must not be
+reapplied to the Helm-owned object.
 
 ## Prepared Basic Pitch routing-smoke identity
 
@@ -526,13 +542,17 @@ the final stage copies only verified packages and the one client module under a
 numeric non-root account. The local Linux/ARM64 build passed all 16 tests and
 is pushed under this immutable reference:
 `clouddsp-registry.localhost:5001/generic-dispatcher-basic-pitch-smoke-client@sha256:886bdb2d29b29a6aa6eee674283c769524e0e51f86b6e310e03e437f25af9eb3`.
-The prepared, unapplied
+The versioned
 [`one-shot Job`](../../tests/generic-dispatcher-smoke/generic-dispatcher-basic-pitch-routing-smoke-job.yaml)
 uses that digest in `clouddsp-app`, mounts only the two restricted app-namespace
 Secrets, disables the ServiceAccount token, and runs as the image's non-root
 UID/GID `10002`. It creates no Service, Ingress, PVC, or Kubernetes API client.
 Its `backoffLimit: 0` preserves a failed synthetic event for inspection instead
 of rerunning automatically against an active 10-minute test record.
+On 2026-09-26, this Job passed against the Helm-owned generic dispatcher: its
+controlled event reached the Basic Pitch queue, was acknowledged, and its
+synthetic database row was cleaned up. The completed Job was deleted, and the
+queue returned to zero ready/unacknowledged messages.
 
 ## Prepared smoke-test RabbitMQ identity
 

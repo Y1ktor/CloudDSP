@@ -1,4 +1,4 @@
-"""Structural guardrails for the Basic Pitch queue-driven KEDA policy.
+"""Structural guardrails for the Basic Pitch queue-and-task KEDA policy.
 
 These tests inspect versioned source only. They do not query the Kubernetes
 API, read a Secret, create an HPA, alter Basic Pitch replicas, or start a
@@ -51,6 +51,21 @@ class BasicPitchScaledObjectManifestTests(unittest.TestCase):
         self.assertNotIn("RABBITMQ_BASIC_PITCH_PASSWORD", manifest)
         self.assertNotIn("secretKeyRef:", manifest)
 
+    def test_durable_task_trigger_survives_broker_ack_during_inference(self) -> None:
+        """A claimed task must keep or wake its Pod after the queue empties."""
+
+        manifest = _SCALED_OBJECT.read_text(encoding="utf-8")
+        self.assertIn("type: postgresql", manifest)
+        self.assertIn("host: clouddsp-postgresql.clouddsp-data.svc", manifest)
+        self.assertIn("userName: clouddsp-keda-demucs", manifest)
+        self.assertIn("WHERE stage = 'basic-pitch'", manifest)
+        self.assertIn("status IN ('leased', 'running')", manifest)
+        self.assertIn("status = 'retry_scheduled' AND available_at <= CURRENT_TIMESTAMP", manifest)
+        self.assertIn('targetQueryValue: "1"', manifest)
+        self.assertIn('activationTargetQueryValue: "0"', manifest)
+        self.assertIn("name: clouddsp-demucs-postgresql-scaler-authentication", manifest)
+        self.assertNotIn("PGPASSWORD", manifest)
+
     def test_scale_to_zero_and_capacity_limits_follow_basic_pitch_flow_control(self) -> None:
         """Prefetch one and bounded CPU requests support a three-Pod burst cap."""
 
@@ -70,6 +85,7 @@ class BasicPitchScaledObjectManifestTests(unittest.TestCase):
             "value: 3",
             "periodSeconds: 15",
             "periodSeconds: 60",
+            "stabilizationWindowSeconds: 360",
         ):
             self.assertIn(required, manifest)
         self.assertNotIn("\n  replicas:", deployment)

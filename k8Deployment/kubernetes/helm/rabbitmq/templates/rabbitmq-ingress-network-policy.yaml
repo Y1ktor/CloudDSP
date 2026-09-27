@@ -1,0 +1,170 @@
+# This policy makes the selected RabbitMQ broker Pod ingress-isolated. Once a
+# Pod is selected by an Ingress NetworkPolicy, Kubernetes permits only the
+# union of explicit peer-and-port rules below. It protects actual Pod listeners,
+# whether traffic arrived through a Service DNS name or a direct Pod address.
+#
+# K3s enables its network-policy controller by default in this local profile.
+# This policy therefore enforces the Service's private intent rather than merely
+# documenting it. It deliberately has no egress policy; broker egress requires
+# a separate, tested task because it involves DNS and future peer discovery.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: clouddsp-rabbitmq-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: rabbitmq
+    app.kubernetes.io/instance: clouddsp-rabbitmq
+    app.kubernetes.io/component: message-broker
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: Helm
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: restrict-rabbitmq-listener-ingress
+spec:
+  # Services route traffic, but policies secure endpoint Pods. This exact
+  # selector is aligned with the StatefulSet and both RabbitMQ Services.
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: rabbitmq
+      app.kubernetes.io/instance: clouddsp-rabbitmq
+      app.kubernetes.io/component: message-broker
+  policyTypes:
+    - Ingress
+  ingress:
+    # The management listener exposes metrics and broker operations, not AMQP
+    # delivery. KEDA's operator is the only long-running workload allowed here.
+    # Namespace and Pod selectors combine with AND, so a similarly labelled Pod
+    # outside `keda` cannot reach this port.
+    - ports:
+        - protocol: TCP
+          port: 15672
+      from:
+        - namespaceSelector:
+            # Kubernetes adds this immutable namespace-name label itself.
+            matchLabels:
+              kubernetes.io/metadata.name: keda
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: keda-operator
+
+    # Keep the finite bootstrap exception in a second ingress item, rather than
+    # another `from` peer above. Kubernetes treats both forms as a union, but
+    # this local K3s controller materializes one source IP set per ingress item;
+    # splitting preserves the same intended authorization and makes both source
+    # sets independently observable in its generated firewall state.
+    - ports:
+        - protocol: TCP
+          port: 15672
+      from:
+        # Broker identity/topology bootstrap Jobs use administrator credentials,
+        # but normal app, frontend, database, and Mailpit Pods cannot match
+        # either component label.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: clouddsp-data
+          podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/component
+                operator: In
+                values:
+                  - message-identity-bootstrap
+                  - message-topology-bootstrap
+
+    # The source-to-outbox smoke needs the management API for one controlled
+    # duplicate source notification and a queue-drain check. Permit only that
+    # fixed-name disposable Job in the data namespace; its Pod also carries
+    # short-lived administrator credentials and is deleted after success.
+    # Keep this separate from the bootstrap peer set so unrelated integration
+    # Jobs and long-running application Pods remain excluded from port 15672.
+    - ports:
+        - protocol: TCP
+          port: 15672
+      from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: clouddsp-data
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: source-to-outbox-smoke
+              app.kubernetes.io/component: integration-test
+
+    # The finite six-stem integration Job reads aggregate queue counts for its
+    # report. It alone receives this narrow management-port exception and uses
+    # RabbitMQ's separate monitoring-only identity; no app Deployment matches.
+    - ports:
+        - protocol: TCP
+          port: 15672
+      from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: clouddsp-app
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: six-stem-load
+              app.kubernetes.io/component: integration-test
+
+    # AMQP is the data-plane listener. Permit just the named components that
+    # publish or consume messages. The Job API and browser frontend are excluded:
+    # browser clients never talk AMQP, and the API uses PostgreSQL and MinIO.
+    - ports:
+        - protocol: TCP
+          port: 5672
+      from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: clouddsp-app
+          podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/component
+                operator: In
+                values:
+                  - source-event-consumer
+                  - outbox-publisher
+                  - generic-outbox-publisher
+                  - audio-separation-worker
+                  - midi-extraction-worker
+                  - drum-midi-worker
+
+        # MinIO is the only current data-namespace runtime publisher: it sends
+        # native object-created events. PostgreSQL, Keycloak, and Mailpit cannot
+        # match this rule.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: clouddsp-data
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: object-storage
+
+        # Keep current integration smoke Jobs functional without granting AMQP
+        # access to arbitrary Pods. RabbitMQ's per-test credentials still decide
+        # which publish/consume/acknowledge actions are authorized after TCP.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: clouddsp-app
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: integration-test
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: clouddsp-data
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: integration-test
+
+    # These are RabbitMQ peer ports, not application interfaces. Restrict them
+    # to broker Pods so a later deliberately designed multi-broker StatefulSet
+    # can form and replicate without exposing Erlang traffic to CloudDSP apps.
+    - ports:
+        - protocol: TCP
+          port: 4369
+        - protocol: TCP
+          port: 25672
+      from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: clouddsp-data
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: rabbitmq
+              app.kubernetes.io/instance: clouddsp-rabbitmq
+              app.kubernetes.io/component: message-broker

@@ -1,0 +1,36 @@
+# This namespaced KEDA custom resource maps the dedicated RabbitMQ observer
+# credential into later RabbitMQ scaler instances. It is not a Kubernetes
+# Secret, does not create a Pod, and does not open a connection by itself.
+# Each worker ScaledObject in the same namespace references it explicitly.
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  # TriggerAuthentication resources are namespaced. Keeping this resource in
+  # clouddsp-app lets it read only the matching app-namespace KEDA observer
+  # Secret; it cannot cross into RabbitMQ's data namespace to read the broker
+  # administrator credential or a worker's consumer credential.
+  name: clouddsp-rabbitmq-scaler-authentication
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: keda
+    app.kubernetes.io/component: rabbitmq-scaler-authentication
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: Helm
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: bind-read-only-rabbitmq-queue-observer
+spec:
+  secretTargetRef:
+# KEDA passes these two values only to its RabbitMQ scaler when a
+    # ScaledObject references this resource. They override no worker process
+    # environment and are never exposed in that ScaledObject's metadata.
+    #
+    # The private HTTP host, vhost, queue name, protocol, and threshold remain
+    # non-secret fields of each individual ScaledObject. Keeping those values
+    # with the target Deployment makes each scaling decision reviewable and
+    # prevents a single broad credential object from silently choosing a queue.
+    - parameter: username
+      name: clouddsp-keda-rabbitmq-scaler-credentials
+      key: RABBITMQ_KEDA_SCALER_USERNAME
+    - parameter: password
+      name: clouddsp-keda-rabbitmq-scaler-credentials
+      key: RABBITMQ_KEDA_SCALER_PASSWORD

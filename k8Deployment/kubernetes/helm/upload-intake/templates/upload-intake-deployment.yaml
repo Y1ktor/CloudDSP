@@ -1,0 +1,200 @@
+# This Deployment maintains the long-running, outbound-only upload-intake
+# consumer. RabbitMQ delivers MinIO source-created notifications; this Pod
+# verifies the object through private MinIO DNS and conditionally changes the
+# authoritative PostgreSQL job row before manually acknowledging the message.
+#
+# It intentionally has no Service or Ingress. A Service gives other workloads
+# a stable *inbound* address, but this consumer accepts no HTTP/GRPC traffic and
+# initiates all of its own RabbitMQ, MinIO, and PostgreSQL connections.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clouddsp-upload-intake
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: upload-intake
+    app.kubernetes.io/instance: clouddsp-upload-intake
+    app.kubernetes.io/component: source-event-consumer
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: minio-source-upload-state-transition
+spec:
+  # One replica keeps the first local event flow simple to observe. The
+  # revision-guarded database transition and RabbitMQ manual acknowledgement
+  # are safe for multiple consumers, but KEDA-driven scaling is a separate
+  # task after retry/DLQ publishing and operational metrics are complete.
+  replicas: 1
+  # Retain a small rollback history without accumulating old ReplicaSets in a
+  # laptop learning cluster. The previous digest can still be re-applied from
+  # images.lock.yaml if a future update needs an intentional rollback.
+  revisionHistoryLimit: 2
+  progressDeadlineSeconds: 180
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # A brief overlap is safe: RabbitMQ gives each consumer a distinct
+      # delivery and the PostgreSQL transition is idempotent. Keeping the old
+      # Pod while the new container starts avoids unnecessarily stopping intake
+      # during a digest-pinned image update.
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    # Deployment selectors are immutable after creation. They must equal the
+    # labels on the Pod template so this controller owns only intake Pods.
+    matchLabels:
+      app.kubernetes.io/name: upload-intake
+      app.kubernetes.io/instance: clouddsp-upload-intake
+      app.kubernetes.io/component: source-event-consumer
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: upload-intake
+        app.kubernetes.io/instance: clouddsp-upload-intake
+        app.kubernetes.io/component: source-event-consumer
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      # The worker never creates Pods, Jobs, or other Kubernetes resources.
+      # Suppress the automatically mounted ServiceAccount token so a compromise
+      # cannot gain even the cluster's default in-namespace API credential.
+      automountServiceAccountToken: false
+      # Avoid Kubernetes injecting legacy `*_SERVICE_HOST` environment values.
+      # Every allowed dependency route is stated explicitly below, making the
+      # worker's network contract auditable and independent of env ordering.
+      enableServiceLinks: false
+      # SIGTERM sets the Python worker's stop flag. Its bounded polling loop,
+      # database timeout, and connection cleanup normally finish within this
+      # period. If a hard kill occurs, RabbitMQ safely redelivers any unacked
+      # at-least-once message after the connection closes.
+      terminationGracePeriodSeconds: 35
+      securityContext:
+        # The image creates this exact account. Repeating it in the Pod makes
+        # an accidental root-capable replacement image fail at admission time.
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: upload-intake
+          # Copied from images.upload-intake.immutableReference in
+          # ../../../images.lock.yaml. A digest names the exact source and locked
+          # dependency bytes pushed to the local registry; never use its
+          # mutable descriptive tag in a workload manifest.
+          image: {{ .Values.image.reference | quote }}
+          # Reusing a cached immutable digest is safe and quick on the local
+          # K3s nodes. A future changed image must have a different digest,
+          # causing Kubernetes to pull it instead of silently retagging bytes.
+          imagePullPolicy: IfNotPresent
+          env:
+            # These are ordinary reviewed routes/settings, not credentials.
+            # Fully qualified Service DNS avoids relying on namespace search
+            # suffixes and never routes private Pod traffic through Traefik.
+            - name: UPLOAD_INTAKE_DB_HOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: UPLOAD_INTAKE_DB_PORT
+              value: "5432"
+            - name: UPLOAD_INTAKE_DB_CONNECT_TIMEOUT_SECONDS
+              value: "3"
+            - name: UPLOAD_INTAKE_S3_INTERNAL_ENDPOINT
+              value: http://clouddsp-minio.clouddsp-data.svc:9000
+            - name: UPLOAD_INTAKE_S3_UPLOADS_BUCKET
+              value: clouddsp-uploads
+            - name: UPLOAD_INTAKE_S3_REGION
+              value: us-east-1
+            # One MinIO Service host handles every bucket through path-style
+            # addressing. Virtual-hosted bucket subdomains are intentionally
+            # neither configured in MinIO nor exposed through local Traefik.
+            - name: UPLOAD_INTAKE_S3_ADDRESSING_STYLE
+              value: path
+            - name: UPLOAD_INTAKE_AMQP_HOST
+              value: clouddsp-rabbitmq.clouddsp-data.svc
+            - name: UPLOAD_INTAKE_AMQP_PORT
+              value: "5672"
+            # These fixed topology names are checked again by the Python
+            # settings adapter. A manifest edit cannot turn this consumer into
+            # an arbitrary queue reader without a corresponding code review.
+            - name: UPLOAD_INTAKE_AMQP_VHOST
+              value: /clouddsp
+            - name: UPLOAD_INTAKE_AMQP_QUEUE
+              value: clouddsp.source-intake
+            - name: UPLOAD_INTAKE_AMQP_CONNECT_TIMEOUT_SECONDS
+              value: "5"
+            - name: UPLOAD_INTAKE_AMQP_HEARTBEAT_SECONDS
+              value: "30"
+            # The first implementation polls one non-blocking basic_get at a
+            # time. These bounded process-level sleeps save CPU when the queue
+            # is empty or a dependency is briefly unavailable; they do not
+            # suspend the container or remove its memory allocation.
+            - name: UPLOAD_INTAKE_IDLE_POLL_SECONDS
+              value: "1"
+            - name: UPLOAD_INTAKE_RECONNECT_DELAY_SECONDS
+              value: "5"
+            # Each reference reads one field from a Secret in the same
+            # namespace. This Pod never receives PostgreSQL/MinIO/RabbitMQ
+            # administrator credentials or a cross-namespace bootstrap Secret.
+            - name: UPLOAD_INTAKE_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-upload-intake-database-credentials
+                  key: UPLOAD_INTAKE_DB_NAME
+            - name: UPLOAD_INTAKE_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-upload-intake-database-credentials
+                  key: UPLOAD_INTAKE_DB_USERNAME
+            - name: UPLOAD_INTAKE_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-upload-intake-database-credentials
+                  key: UPLOAD_INTAKE_DB_PASSWORD
+            - name: UPLOAD_INTAKE_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-upload-intake-minio-credentials
+                  key: UPLOAD_INTAKE_S3_ACCESS_KEY
+            - name: UPLOAD_INTAKE_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-upload-intake-minio-credentials
+                  key: UPLOAD_INTAKE_S3_SECRET_KEY
+            - name: RABBITMQ_UPLOAD_INTAKE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-upload-intake-rabbitmq-credentials
+                  key: RABBITMQ_UPLOAD_INTAKE_USERNAME
+            - name: RABBITMQ_UPLOAD_INTAKE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-upload-intake-rabbitmq-credentials
+                  key: RABBITMQ_UPLOAD_INTAKE_PASSWORD
+          resources:
+            # Requests reserve scheduler capacity; limits prevent a consumer
+            # fault from taking resources needed by PostgreSQL, MinIO,
+            # RabbitMQ, Keycloak, or later DSP worker Pods. This worker only
+            # parses JSON, executes bounded SQL, and performs S3 HeadObject;
+            # it does not download/decode audio or run ML inference.
+            requests:
+              cpu: 100m
+              memory: 192Mi
+              ephemeral-storage: 64Mi
+            limits:
+              cpu: 500m
+              memory: 384Mi
+              ephemeral-storage: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            # Application code writes no data: MinIO owns objects and
+            # PostgreSQL owns durable state. The image disables Python bytecode
+            # creation, so this filesystem can remain entirely read-only.
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          # No readiness/liveness probe is defined yet. This worker has no
+          # inbound listener, and an `exec` probe that only checks Python would
+          # falsely report health during a RabbitMQ/MinIO/PostgreSQL outage.
+          # The entrypoint exits for invalid configuration; a later focused
+          # observability task will add an accurate process-health signal
+          # before KEDA scaling or production-like availability assertions.

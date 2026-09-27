@@ -58,22 +58,24 @@ observer identity with the separate, prepared
 [`rabbitmq-keda-scaler-bootstrap Job`](../../services/rabbitmq/rabbitmq-keda-scaler-bootstrap-job.yaml).
 It uses an ignored temporary data-namespace credential to create a read-only
 RabbitMQ `monitoring` user with no AMQP resource permissions. Its matching
-ignored app-namespace Secret template lives beside this README. The prepared
+ignored app-namespace Secret template lives beside this README. The
 [`TriggerAuthentication`](keda-rabbitmq-scaler-trigger-authentication.yaml)
-maps only that Secret's username/password into future KEDA RabbitMQ scalers.
-It does not declare a queue or create an HPA. After both the observer account
-and this resource are explicitly applied, each worker can receive one
-independent HTTP queue-depth `ScaledObject`.
+maps only that Secret's username/password into the three current KEDA
+RabbitMQ scalers. It does not declare a queue or create an HPA. The resource
+is now owned by the separate
+[`scaling-auth` release](../scaling-auth/README.md); each worker `ScaledObject`
+retains its independent HTTP queue-depth policy.
 
 ## Private management-network prerequisite
 
-Demucs also needs the separate, read-only PostgreSQL task-count trigger
-described in the [Demucs scaling section](../../services/demucs/README.md).
-Unlike the RabbitMQ metric, this remains active after Demucs durably claims
-and acknowledges a request, and can wake the worker for a due database retry.
-Its database role, namespace-scoped Secret, and TriggerAuthentication are
-reconciled by the versioned Demucs scaling script; KEDA never receives the
-Demucs worker's database credentials.
+Demucs and Basic Pitch also use a read-only PostgreSQL task-count trigger.
+Unlike the RabbitMQ metric, each stage's query remains active after that
+worker durably claims and acknowledges a request, and can wake a worker for
+a due database retry. The shared observer role can read only task stage,
+status, and due time; each ScaledObject filters its own stage. Its Secret and
+role retain separate bootstrap/runtime lifecycles. The corresponding
+TriggerAuthentication is owned by the `scaling-auth` release; KEDA never
+receives a worker's database credentials.
 
 Each RabbitMQ HTTP scaler will use
 `clouddsp-rabbitmq-management.clouddsp-data.svc:15672`, the dedicated private

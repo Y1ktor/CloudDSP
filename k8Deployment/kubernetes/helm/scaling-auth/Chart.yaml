@@ -1,0 +1,9 @@
+# This release owns only CloudDSP's two shared namespaced KEDA credential
+# mappings. KEDA itself, runtime Secret values, worker ScaledObjects, and
+# generated HPAs have independent lifecycles and are not chart resources.
+apiVersion: v2
+name: scaling-auth
+description: Shared CloudDSP local KEDA TriggerAuthentications
+type: application
+version: 0.1.0
+appVersion: "2.20.2"

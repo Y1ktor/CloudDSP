@@ -1,0 +1,4 @@
+# Reviewed ARM64 CPU image from images.adtof.immutableReference.
+# The Deployment template intentionally omits replicas: KEDA owns /scale.
+image:
+  reference: clouddsp-registry.localhost:5001/adtof@sha256:c8706bb0b814ed3a0c1e58455a7c153848ddf7808e65d4e3f4ed52a37b521b91

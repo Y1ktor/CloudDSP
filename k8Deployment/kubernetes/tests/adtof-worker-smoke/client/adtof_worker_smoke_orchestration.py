@@ -140,8 +140,8 @@ def _terminal_observation_failure(observation: ADTOFWorkerSmokeObservation) -> b
 
     A not-yet-published event, absent task, lease, or running task is still
     observable progress. In contrast, a dead-lettered event, retry, second
-    attempt, failed task/job, or a malformed would-be completion cannot become
-    the required first-attempt `midi_processing` result by waiting longer.
+    attempt, unrelated failed task/job, or a malformed would-be completion
+    cannot become the required first-attempt fixture result by waiting longer.
     """
 
     if observation.publication_status == "dead_lettered" or observation.job_status in {"failed", "completed"}:

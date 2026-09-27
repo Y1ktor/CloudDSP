@@ -467,7 +467,9 @@ def _demucs_completed(observation: SmokeObservation) -> bool:
         and observation.demucs_task_attempt_count == 1
         and observation.demucs_task_lease_is_clear
         and observation.demucs_task_completed_at is not None
-        and observation.job_status == "midi_processing"
+        # The first Demucs completion may be seen before downstream MIDI work,
+        # or after the current finalizer has completed the whole parent Job.
+        and observation.job_status in {"midi_processing", "completed"}
         and observation.stem_count == len(STEM_NAMES)
         and observation.downstream_event_count == len(STEM_NAMES)
     )
@@ -487,8 +489,8 @@ def wait_for_demucs_completion(
     deadline = monotonic() + timeout_seconds
     while monotonic() < deadline:
         observation = read_observation(connection)
-        if observation.demucs_task_status == "failed":
-            raise DemucsWorkerSmokeAssertionError("Demucs worker recorded a terminal task failure.")
+        if observation.demucs_task_status == "failed" or observation.job_status == "failed":
+            raise DemucsWorkerSmokeAssertionError("Demucs smoke recorded a terminal task or Job failure.")
         if _demucs_completed(observation):
             return observation
         sleep_function(2)
@@ -568,6 +570,9 @@ def _downstream_cleanup_is_safe(observation: SmokeObservation) -> bool:
         and observation.basic_pitch_succeeded_first_attempt_count == len(STEM_NAMES)
         and observation.basic_pitch_active_task_count == 0
         and observation.basic_pitch_failed_task_count == 0
+        # With migration v008 active, the parent must reach its complete
+        # aggregate state before any test objects or rows can be removed.
+        and observation.job_status == "completed"
     )
 
 
@@ -583,7 +588,7 @@ def wait_for_downstream_cleanup_barrier(
     deadline = monotonic() + timeout_seconds
     while monotonic() < deadline:
         observation = read_observation(connection)
-        if observation.basic_pitch_failed_task_count:
+        if observation.basic_pitch_failed_task_count or observation.job_status == "failed":
             raise DemucsWorkerSmokeAssertionError("Downstream cleanup barrier recorded a terminal task failure.")
         if _downstream_cleanup_is_safe(observation):
             return observation

@@ -79,10 +79,11 @@ spec:
           type: RuntimeDefault
       containers:
         - name: dispatcher
-          # Copied from images.dispatcher.immutableReference in
-          # ../../images.lock.yaml. The digest identifies the exact tested
-          # source/dependency bytes in the local registry; the descriptive tag
-          # must never be used in a workload manifest.
+          # This historical Demucs-only runtime is pinned by
+          # images.dispatcher-demucs-only.immutableReference in
+          # ../../images.lock.yaml. The generic controller instead uses the
+          # separate images.dispatcher digest. The descriptive tag must never
+          # be used in a workload manifest.
           image: clouddsp-registry.localhost:5001/dispatcher@sha256:3d04f458945004925313267ca62379a7cc2eb2511f10b9b727be94b5819abf76
           # A digest never changes meaning. Reuse a cached copy when present,
           # but pull it from the dedicated k3d registry when a node lacks it.

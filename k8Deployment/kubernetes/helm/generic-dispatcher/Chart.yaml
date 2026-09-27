@@ -1,0 +1,8 @@
+# This release owns only the existing route-aware outbox dispatcher Deployment.
+# It never takes ownership of the separate Demucs-only legacy controller.
+apiVersion: v2
+name: generic-dispatcher
+description: CloudDSP local route-aware outbox publisher
+type: application
+version: 0.1.0
+appVersion: "0.2.0-generic-outbox-dispatcher"

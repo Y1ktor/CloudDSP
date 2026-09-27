@@ -22,6 +22,17 @@ deployed Demucs worker claims, probes, separates, hashes, and uploads stems
 PostgreSQL Demucs-task success + two durable downstream outbox events
 ```
 
+The first 2026-09-27 post-adoption run proved the Demucs stage and both
+private stem artifacts, but Basic Pitch scaled away during its `vocals` task.
+The guarded recovery Job below removed that expired fixed fixture after the
+worker and broker were idle. A subsequent trial exposed a Numba illegal
+instruction in the Basic Pitch tempo step on the ARM64 k3d node. With the
+PostgreSQL active-task trigger, six-minute HPA scale-down window, and
+`NUMBA_CPU_NAME=generic` in the Helm-owned Basic Pitch Pod, the complete
+Demucs and downstream Basic Pitch smoke passed on 2026-09-27. The client
+observed a completed parent and cleaned only its fixed database and object
+coordinates.
+
 The one-shot client has no RabbitMQ identity.  The deployed dispatcher remains
 the only component that publishes work, and the deployed worker remains the
 only component that consumes it.  This avoids a smoke test accidentally
@@ -63,19 +74,20 @@ security-definer `observe()` projection until it proves all of the following:
 - the source event was publisher-confirmed as `published`;
 - the deployed worker created one Demucs task, completed it on its first
   attempt, and cleared its lease;
-- the Job reached `midi_processing` with exactly the two expected stem records;
+- the Job reached `midi_processing` or `completed` with exactly the two expected
+  stem records (the active parent finalizer can complete it before polling);
 - exactly two downstream Basic Pitch outbox events were inserted with the
   Demucs task/Job completion in the same durable transition; and
 - both private stem objects have `audio/wav`, exact producer/job/task/stem
   metadata, a positive bounded length, and a metadata SHA-256 that matches a
   separately streamed read.
 
-This is a Demucs-stage assertion.  The test does **not** judge the musical
+This is a Demucs-stage assertion. The test does **not** judge the musical
 quality of separation and does not validate Basic Pitch MIDI contents.  It
-does wait for the two normal downstream Basic Pitch tasks to finish successfully
-before cleanup.  That is a safety barrier only: deleting a stem while a real
-downstream worker can still read it would create a false failure and leave a
-race in the cluster.
+does wait for the two normal downstream Basic Pitch tasks and parent Job to
+complete before cleanup. That is a safety barrier: deleting a stem while a
+real downstream worker can still read it would create a false failure and
+leave a race in the cluster.
 
 ## Credentials and cleanup
 
@@ -88,10 +100,11 @@ The client receives two deliberately independent, narrow identities:
   stems and the two cleanup-only MIDI keys, and cannot list a bucket, presign,
   write a stem/MIDI output, or access an ordinary CloudDSP prefix.
 
-On a successful run, the client waits until no downstream Basic Pitch task is
-active, removes only the five literal test keys, and calls guarded database
-cleanup.  The database function refuses to delete unless the expected
-first-attempt Demucs and downstream Basic Pitch states are durable.  Failed or
+On a successful run, the client waits for the parent Job to be `completed`
+and both downstream Basic Pitch tasks to succeed, removes only the five
+literal test keys, and calls guarded database cleanup. The v002 function
+refuses to delete unless the expected first-attempt Demucs and downstream
+Basic Pitch states and completed parent are durable. Failed or
 timed-out runs preserve rows and objects for diagnosis; they must be cleaned
 through a separately reviewed, exact-coordinate recovery operation rather than
 by rerunning the Job.
@@ -103,6 +116,11 @@ the PostgreSQL and MinIO bootstrap Jobs.  The bootstrap Jobs create the
 restricted identities; they create no source object, smoke Job, RabbitMQ
 message, or processing task.  The generic dispatcher, Demucs Deployment, and
 Basic Pitch Deployment must already be healthy.
+
+For an existing cluster bootstrapped before migration v008, apply
+[`demucs-worker-smoke-cleanup-v002-configmap.yaml`](demucs-worker-smoke-cleanup-v002-configmap.yaml)
+and run its paired one-shot Job once before the smoke. The source bootstrap
+already holds the same completed-parent cleanup definition for fresh clusters.
 
 The prepared Job uses a digest-pinned client image and has no Service,
 Ingress, ServiceAccount token, Kubernetes API access, AMQP credential, or ML
@@ -165,64 +183,36 @@ waiting for the two downstream Basic Pitch tasks to finish.  If it fails or
 times out, it preserves its five literal objects and fixed database rows for
 review instead of hiding the evidence.
 
-### Failed-run cleanup
+### Failed-run recovery
 
-A failed or timed-out run deliberately preserves its database rows and five
-literal objects for diagnosis. It is not safe to rerun a fixed-coordinate Job
-until that evidence has been reviewed and removed. This requires an explicit
-operator cleanup action, but **not** manually typed database deletion: the
-reviewed
-[`demucs-worker-smoke-failed-run-cleanup-job.yaml`](demucs-worker-smoke-failed-run-cleanup-job.yaml)
-has the only necessary destructive authority.
+A failed or timed-out run preserves its fixed database rows and five literal
+objects for diagnosis. Do not rerun the fixed-coordinate smoke until that
+evidence has been inspected and removed. The
+[`failed-run cleanup Job`](demucs-worker-smoke-failed-run-cleanup-job.yaml)
+accepts only the original unfinished `source_uploaded` Job with one
+error-free leased/running Demucs task and no downstream work. It refuses a
+succeeded Demucs task, downstream events/tasks, or a completed/failed parent.
+These states need a separate, state-specific recovery review; the cleanup Job
+must not be widened to make a retry pass.
 
-First scale the long-running worker to zero and remove the failed smoke client,
-so neither can renew or change the task while the recovery Job checks it. Its
-first init container accepts only the reserved owner, Job/event/source keys,
-`source_uploaded` Job state, and one unfinished, error-free `leased` or
-`running` Demucs task with no downstream task/event. A task ID and lease token
-are intentionally *not* hard-coded because each deliberate smoke attempt
-generates new values. The container then deletes that sole task, Job, and
-source event. Any other state causes a refusal before the second init container
-can delete its five literal MinIO keys. It has no RabbitMQ authority, cannot
-list a prefix, and cannot delete a normal CloudDSP Job. Reapplying it after a
-completed cleanup accepts only the all-absent database shape and repeats the
-idempotent literal object deletion.
+The previous direct `kubectl scale` recovery procedure predates the Helm and
+KEDA handoff. KEDA controls the Deployment `/scale` subresource and can
+reactivate a worker from its RabbitMQ or PostgreSQL trigger. A recovery
+operator must first inspect the failed smoke Job, task and event rows, object
+keys, queue state, and scaler activity, then arrange an explicit quiet window
+for the exact diagnosed state. Do not apply the raw `services/demucs/` manifest
+or scale the Helm-owned Deployment as a restoration shortcut. The chart and
+[`demucs-release.rb`](../../scripts/demucs-release.rb) are the delivery and
+verification path for this worker.
 
-```bash
-# Stop the relevant worker and wait until its Pod has exited. Do not use this
-# procedure against a healthy active smoke run.
-kubectl --context k3d-clouddsp-local scale --namespace clouddsp-app \
-  deployment/clouddsp-demucs --replicas=0
-kubectl --context k3d-clouddsp-local wait --namespace clouddsp-app \
-  --for=delete pod --selector app.kubernetes.io/name=demucs --timeout=2m
-
-# Stop and remove only the fixed smoke client. Its database/object evidence
-# remains for the guarded recovery Job below.
-kubectl --context k3d-clouddsp-local delete --ignore-not-found \
-  --namespace clouddsp-app job/demucs-worker-smoke
-kubectl --context k3d-clouddsp-local wait --namespace clouddsp-app \
-  --for=delete pod --selector app.kubernetes.io/name=demucs-worker-smoke --timeout=2m
-
-# A completed fixed-name Job cannot be rerun in place, so recreate only this
-# recovery controller after the prior result has been inspected.
-kubectl --context k3d-clouddsp-local delete --ignore-not-found \
-  --namespace clouddsp-data job/demucs-worker-smoke-failed-run-cleanup
-kubectl --context k3d-clouddsp-local apply \
-  --filename k8Deployment/kubernetes/tests/demucs-worker-smoke/demucs-worker-smoke-failed-run-cleanup-job.yaml
-
-kubectl --context k3d-clouddsp-local wait --namespace clouddsp-data \
-  --for=condition=complete job/demucs-worker-smoke-failed-run-cleanup --timeout=3m
-
-kubectl --context k3d-clouddsp-local logs --namespace clouddsp-data \
-  job/demucs-worker-smoke-failed-run-cleanup --all-containers
-
-# Restore the ordinary one-replica local worker only after cleanup reports
-# success. Apply its digest-pinned manifest before scaling so the Pod uses the
-# intended tested image.
-kubectl --context k3d-clouddsp-local apply \
-  --filename k8Deployment/kubernetes/services/demucs/demucs-deployment.yaml
-kubectl --context k3d-clouddsp-local scale --namespace clouddsp-app \
-  deployment/clouddsp-demucs --replicas=1
-kubectl --context k3d-clouddsp-local rollout status --namespace clouddsp-app \
-  deployment/clouddsp-demucs --timeout=3m
-```
+The first post-adoption failure had a different exact shape: Demucs and the
+`no_vocals` Basic Pitch task succeeded, but `vocals` remained `running` after
+its worker was scaled away. The reviewed
+[`downstream scale recovery Job`](demucs-worker-smoke-downstream-scale-recovery-v001-job.yaml)
+accepts only that fixed three-task, three-event shape after the running lease
+expires. Its database init step removes the fixed Job and cascading test rows;
+its object init step then deletes only the five literal test keys. Before
+using it, verify the smoke client has stopped, related queues are empty, and
+no Pod still has a model child. A PostgreSQL task-count trigger may keep an
+otherwise idle Basic Pitch Pod up until the stale row is removed. The Job
+refuses any different status, owner, event, attempt, or unexpired lease.

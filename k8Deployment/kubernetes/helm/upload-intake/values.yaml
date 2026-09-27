@@ -1,0 +1,5 @@
+# This exact digest must match images.upload-intake.immutableReference in the
+# reviewed ../../images.lock.yaml. The chart never builds an image or stores
+# PostgreSQL, MinIO, or RabbitMQ credentials as Helm values.
+image:
+  reference: clouddsp-registry.localhost:5001/upload-intake@sha256:d3a69be20f45b901b98ef4756036eaf5e6aef31264f485e7e4028d63856b4872

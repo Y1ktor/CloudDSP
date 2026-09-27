@@ -1,0 +1,4 @@
+# Reviewed ARM64 CPU image from images.demucs.immutableReference.
+# The template omits replicas because KEDA and its HPA own /scale.
+image:
+  reference: clouddsp-registry.localhost:5001/demucs@sha256:4aeab642921bc12108cd46f548029b270d7317dad76d416a9ae77d55de605bba

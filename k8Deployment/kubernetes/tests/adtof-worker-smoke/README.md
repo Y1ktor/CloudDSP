@@ -1,10 +1,26 @@
 # ADTOF worker smoke fixture contract
 
-This directory begins the one future **end-to-end ADTOF worker smoke test**.
-This first task defines only its deterministic input fixture and the durable
-coordinates that every later smoke boundary must share. It does **not** create
-a Kubernetes Job, Secret, PostgreSQL row, RabbitMQ message, MinIO object,
-image, or ADTOF model invocation.
+## Reviewed live run (2026-09-27)
+
+The fixed-coordinate ADTOF smoke passed after the worker's Helm adoption.
+The versioned v002 test-only PostgreSQL functions recognize only the parent
+finalizer's exact incomplete-stem result for this intentionally one-drum
+four-stem fixture; an unrelated failure still preserves evidence. The pinned
+Linux/ARM64 client image passed all 64 in-image tests. During the live run,
+KEDA activated the Helm-owned worker from zero to one Pod. The client observed
+real durable publication and first-attempt task success, independently verified
+private MIDI and tempo bytes and provenance, then removed its three exact MinIO
+objects and guarded database rows. The disposable Kubernetes smoke Job was
+removed. The worker returns to zero after KEDA's 180-second idle cooldown.
+
+The historical sections below describe how each narrow fixture boundary was
+built. Use the [ADTOF release script](../../scripts/adtof-release.rb) for a
+new smoke run; inspect any failed fixed-coordinate attempt before cleanup.
+
+This directory contains the deterministic input fixture, restricted database
+and MinIO boundaries, pinned client image, and versioned Job for an **end-to-end
+ADTOF worker smoke test**. The source files alone make no cluster change;
+`adtof-release.rb smoke` runs the reviewed live test.
 
 The deployed `clouddsp-adtof` worker is already the system under test. The
 smoke client uses the existing generic dispatcher and worker rather than
@@ -85,8 +101,11 @@ model execution.
 The eventual observer must require that the generic dispatcher published the
 fixed `adtof.requested` outbox event and that the deployed worker created one
 `(job_id, adtof, drums)` task with attempt count one, cleared its lease, and
-marked it `succeeded`. The overall Job remains `midi_processing`; a later
-aggregate, not this per-stem worker, decides terminal job state.
+marked it `succeeded`. The parent Job is intentionally incomplete: it contains only the `drums`
+part of a `4-stems` set. Migration v008 marks that synthetic parent `failed`
+with its exact incomplete-stem error after the worker task succeeds. The
+restricted observer returns `failed_incomplete_stem_fixture` only for that
+combination; an unrelated failed parent remains `failed` and stops the test.
 
 The observer must independently validate both stored MinIO objects. The MIDI
 must be a non-empty valid Standard MIDI file with `audio/midi`; the tempo file
@@ -106,7 +125,7 @@ administrator-only cleanup Job will be designed later. The smoke client will
 have no RabbitMQ credentials: durable PostgreSQL publication, the generic
 dispatcher, and the deployed ADTOF consumer form the behavior under test.
 
-## PostgreSQL smoke boundary (prepared, not applied)
+## PostgreSQL smoke boundary (applied)
 
 [`adtof-worker-smoke-database-bootstrap-job.yaml`](adtof-worker-smoke-database-bootstrap-job.yaml)
 is a source-only one-shot administrator Job for a future test run. It requires
@@ -177,7 +196,7 @@ the three keys, upload only the controlled WAV, verify the two ADTOF outputs,
 and delete those keys only after success; it has no generic bucket/key, list,
 presign, or output-write operation. Typed results also require the dynamic task
 ID to be canonical, and require published, first-attempt, lease-cleared
-`midi_processing` completion before output cleanup becomes eligible.
+`failed_incomplete_stem_fixture` completion before output cleanup becomes eligible.
 
 ## Fixed-key MinIO input adapter (source only)
 
@@ -260,7 +279,7 @@ or create a Job.
 defines the smoke client's only destructive object-storage capability. It still
 does not construct Boto3 or call another system. Before its first deletion it
 requires all three independently established facts: a published, completed,
-first-attempt, lease-cleared `midi_processing` task observation; the fixed WAV
+first-attempt, lease-cleared `failed_incomplete_stem_fixture` task observation; the fixed WAV
 upload evidence; and the verified fixed MIDI/tempo output pair. Invalid or
 incomplete evidence causes no S3 call.
 
@@ -442,15 +461,15 @@ hashes rather than an unsafe resolver change. Its four static Dockerfile tests
 verify these constraints without invoking Docker.
 
 The recipe was built locally for `linux/arm64` under the readable provenance
-tag `clouddsp-registry.localhost:5001/adtof-worker-smoke-client:0.1.1-psycopg-uuid-observation`.
+tag `clouddsp-registry.localhost:5001/adtof-worker-smoke-client:0.1.2-parent-finalizer-fixture`.
 Its validation stage ran all 64 smoke-client tests successfully. Docker reports
-the local image ID `sha256:f6908bfabe930a1066fed18446aa6006d58dbea43764d75265557bdd6771c74f`
-and uncompressed local layer size `66,164,647` bytes (`63.10 MiB`). The image
+the local image ID `sha256:cb59778c62e973151b24f9a61683334651d97d2559675e6721aa31a0ed7282aa`
+and uncompressed local layer size `66,164,712` bytes (`63.10 MiB`). The image
 has now been pushed to the k3d registry, which confirmed the same immutable
 reference:
 
 ```text
-clouddsp-registry.localhost:5001/adtof-worker-smoke-client@sha256:f6908bfabe930a1066fed18446aa6006d58dbea43764d75265557bdd6771c74f
+clouddsp-registry.localhost:5001/adtof-worker-smoke-client@sha256:cb59778c62e973151b24f9a61683334651d97d2559675e6721aa31a0ed7282aa
 ```
 
 [`../../images.lock.yaml`](../../images.lock.yaml) records that output digest,
@@ -477,9 +496,9 @@ and uncompressed local size.
 The script never calls `kubectl`, creates a Job, or supplies a runtime Secret.
 After a source-changing rebuild, its newly printed digest must be deliberately
 recorded in `images.lock.yaml` before any future manifest can use it. Creating
-the Kubernetes Job remains the next separate task.
+the Kubernetes Job is the versioned live verification input.
 
-## End-to-end smoke Job manifest (prepared, not applied)
+## End-to-end smoke Job manifest
 
 [`adtof-worker-smoke-job.yaml`](adtof-worker-smoke-job.yaml) now defines the
 finite end-to-end verifier Pod. It uses only the registry-confirmed ARM64 image
@@ -495,15 +514,11 @@ client persists its fixed event, an automatic retry would obscure or collide
 with failure evidence. A successful run performs its reviewed object-first,
 database-second cleanup; failed/timed-out evidence remains for diagnosis. The
 completed credential-bearing Pod is retained for ten minutes of log inspection
-before Kubernetes TTL cleanup. The manifest has not been applied, so it has not
-created a Pod, object, durable event, task, or RabbitMQ message.
+before Kubernetes TTL cleanup. The reviewed live run passed and removed the disposable Job after scoped
+cleanup. Four offline manifest tests protect the immutable image, exact
+identities, private routes, finite waits, and hardened Pod settings.
 
-Four offline manifest tests protect the immutable image, exact identities,
-private routes, finite waits, and hardened Pod settings. The next separate task
-is to review the apply/log/inspection commands; applying this Job needs explicit
-user approval.
-
-## Reviewed run procedure (not executed)
+## Reviewed run procedure
 
 Run these commands from the `CloudDSP` repository root. They intentionally use
 the explicit `k3d-clouddsp-local` context, rather than relying on whichever
@@ -584,5 +599,5 @@ message, edit the Job’s environment, or delete fixed objects to make a failure
 appear successful.
 
 The Job and Pod TTL-clean about ten minutes after either outcome, so inspect or
-save safe diagnostics before then. This documented procedure has not been run;
-the Job remains unapplied.
+save safe diagnostics before then. The release script ran the equivalent procedure on 2026-09-27, observed a
+passing result, and removed the disposable Job.

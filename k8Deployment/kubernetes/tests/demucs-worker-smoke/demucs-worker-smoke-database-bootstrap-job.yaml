@@ -378,7 +378,8 @@ spec:
 
               -- The smoke client removes five exact private objects first. This
               -- function then removes exactly one Job only after Demucs and
-              -- both downstream tasks are durable, first-attempt successes.
+              -- both downstream tasks are durable, first-attempt successes
+              -- and the parent finalizer has marked the full Job completed.
               -- The guard prevents a cleanup request racing a worker read.
               CREATE OR REPLACE FUNCTION public.clouddsp_demucs_worker_smoke_cleanup()
               RETURNS BOOLEAN
@@ -392,7 +393,7 @@ spec:
                 DELETE FROM public.jobs AS job
                 WHERE job.job_id = '12139966-5891-4d53-a817-f3ce1f264c61'::uuid
                   AND job.owner_sub = 'clouddsp-demucs-worker-smoke'
-                  AND job.status = 'midi_processing'
+                  AND job.status = 'completed'
                   AND EXISTS (
                     SELECT 1 FROM public.outbox_events AS source_event
                     WHERE source_event.event_id = 'e20cf942-ef7b-478e-89c4-f4795ed801ec'::uuid

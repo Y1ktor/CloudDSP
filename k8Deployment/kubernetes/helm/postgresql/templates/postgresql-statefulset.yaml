@@ -1,0 +1,205 @@
+# A StatefulSet manages Pods that need a durable identity and storage.  Unlike a
+# Deployment (whose replacement Pods are interchangeable), it gives this local
+# PostgreSQL instance the predictable Pod name `clouddsp-postgresql-0` and a
+# PersistentVolumeClaim made specifically for that Pod.
+#
+# This manifest intentionally creates one replica only.  One local PostgreSQL
+# instance is appropriate for learning and development; database high
+# availability requires replication, failover, backups, and more than one
+# failure domain, which is a separate future design task.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: clouddsp-postgresql
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: clouddsp-postgresql
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    clouddsp.io/environment: local
+spec:
+  # The governing headless Service must exist before this StatefulSet is
+  # applied.  It creates stable DNS such as
+  # `clouddsp-postgresql-0.clouddsp-postgresql-headless.clouddsp-data.svc`.
+  serviceName: clouddsp-postgresql-headless
+  replicas: 1
+
+  # Create and replace Pods one at a time, waiting for ordinal 0 to become
+  # ready.  That conservative ordering is the correct default for a database
+  # whose persistent data directory cannot safely be initialized by multiple
+  # Pods concurrently.
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+
+  # PVCs remain if this StatefulSet is deleted or scaled down.  Retaining the
+  # claim prevents an accidental manifest deletion from silently deleting the
+  # local database.  Deliberately deleting the PVC later still follows the
+  # `local-path` StorageClass reclaim policy and removes its underlying PV data.
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+
+  # This selector is immutable after creation.  It must exactly match the Pod
+  # template labels below and the selector on the governing headless Service.
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgresql
+      app.kubernetes.io/instance: clouddsp-postgresql
+      app.kubernetes.io/component: database
+
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgresql
+        app.kubernetes.io/instance: clouddsp-postgresql
+        app.kubernetes.io/component: database
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      # PostgreSQL neither needs the Kubernetes API nor a token for it.  This
+      # disables the default ServiceAccount token mount as least privilege.
+      automountServiceAccountToken: false
+      # Give PostgreSQL time to finish active work during a controlled stop.
+      # The pre-stop period is not a backup mechanism; it merely allows a clean
+      # database shutdown before Kubernetes sends a forceful termination.
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        # The official image contains the `postgres` account at UID/GID 999.
+        # Running as that non-root account and assigning the PVC group prevents
+        # the database process from needing root access to its data directory.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        # Kubelet changes volume ownership only when necessary, avoiding a full
+        # recursive permission walk each time this one-Pod database restarts.
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgresql
+          # This immutable reference comes from `../../images.lock.yaml`.
+          # Never replace it with the mutable `postgres:17-bookworm` tag.
+          image: {{ .Values.image.reference | quote }}
+          # A digest never changes, so a node may reuse a cached copy safely.
+          imagePullPolicy: IfNotPresent
+          ports:
+            # The headless Service's `targetPort: postgresql` resolves to this
+            # named container port. The regular client Service in this release
+            # uses the same name and port contract.
+            - name: postgresql
+              containerPort: 5432
+              protocol: TCP
+          env:
+            # These values come from the Secret already applied to
+            # `clouddsp-data`.  `secretKeyRef` injects the individual key into
+            # this container without embedding credentials in the image or this
+            # versioned StatefulSet manifest.
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_PASSWORD
+            # Initializing PostgreSQL in a subdirectory keeps the volume mount
+            # itself separate from database files.  This avoids conflicts with
+            # filesystem-created entries and makes the database layout obvious.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          resources:
+            # Requests reserve a modest share on the local cluster; limits stop
+            # one database Pod from consuming all laptop memory or CPU.  These
+            # are development defaults to benchmark and revise later.
+            requests:
+              cpu: 250m
+              memory: 512Mi
+              ephemeral-storage: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+              ephemeral-storage: 1Gi
+          securityContext:
+            # The database needs write access only through its PVC.  It cannot
+            # gain additional Linux privileges and receives no Linux capability.
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            # `postgres-data` is generated per Pod by `volumeClaimTemplates`.
+            # For ordinal 0 the resulting PVC is named
+            # `postgres-data-clouddsp-postgresql-0`.
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+          # `pg_isready` comes with the official PostgreSQL image.  A startup
+          # probe prevents liveness restarts while `initdb` creates the initial
+          # cluster, while readiness holds the Pod out of Service endpoints
+          # until the server accepts connections.
+          startupProbe:
+            exec:
+              command:
+                - sh
+                - -ec
+                - 'pg_isready --username="${POSTGRES_USER}" --dbname="${POSTGRES_DB}"'
+            periodSeconds: 5
+            failureThreshold: 30
+            timeoutSeconds: 3
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -ec
+                - 'pg_isready --username="${POSTGRES_USER}" --dbname="${POSTGRES_DB}"'
+            periodSeconds: 5
+            failureThreshold: 3
+            timeoutSeconds: 3
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -ec
+                - 'pg_isready --username="${POSTGRES_USER}" --dbname="${POSTGRES_DB}"'
+            periodSeconds: 10
+            failureThreshold: 6
+            timeoutSeconds: 3
+
+  volumeClaimTemplates:
+    - metadata:
+        # Kubernetes appends the StatefulSet name and Pod ordinal to this
+        # template name.  Each replica therefore receives a distinct claim
+        # rather than sharing one writable database directory.
+        name: postgres-data
+        labels:
+          app.kubernetes.io/name: postgresql
+          app.kubernetes.io/instance: clouddsp-postgresql
+          app.kubernetes.io/component: database
+          app.kubernetes.io/part-of: clouddsp
+          clouddsp.io/environment: local
+      spec:
+        # `ReadWriteOnce` permits one node to mount this local-path volume for
+        # read/write use.  That matches this one-replica database and prevents
+        # an unsafe multi-node shared data directory design.
+        accessModes:
+          - ReadWriteOnce
+        # K3s supplies this default local StorageClass.  Its
+        # `WaitForFirstConsumer` binding mode waits for Pod scheduling before
+        # provisioning node-local storage on the selected node.
+        storageClassName: local-path
+        resources:
+          requests:
+            # This is a development capacity request, not a physical 5 GiB
+            # reservation on macOS.  Increase it only after measuring actual
+            # database, object-metadata, and Keycloak usage.
+            storage: 5Gi

@@ -23,7 +23,7 @@ readonly REQUIREMENTS_LOCK="${CLIENT_DIRECTORY}/requirements.lock"
 # the OCI digest after push; only that digest may be placed in a Job manifest.
 readonly REGISTRY_HOST="clouddsp-registry.localhost:5001"
 readonly IMAGE_REPOSITORY="${REGISTRY_HOST}/demucs-worker-smoke-client"
-readonly IMAGE_NAME="${IMAGE_REPOSITORY}:0.1.0-durable-demucs-stage"
+readonly IMAGE_NAME="${IMAGE_REPOSITORY}:0.1.1-parent-finalizer-completion"
 readonly TARGET_PLATFORM="linux/arm64"
 
 usage() {

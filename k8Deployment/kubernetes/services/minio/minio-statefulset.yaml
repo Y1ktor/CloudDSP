@@ -91,7 +91,7 @@ spec:
             - server
             - /data
             - --console-address
-            - :9001
+            - ":9001"
           ports:
             # Applications will eventually use this S3-compatible API port
             # through an internal ClusterIP Service, never by mounting /data.

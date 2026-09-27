@@ -101,24 +101,25 @@ class ADTOFWorkerSmokeDatabaseBootstrapManifestTests(unittest.TestCase):
         self.assertNotIn("DO $$", source)
         self.assertIn("DO $adtof_smoke_bootstrap$", source)
 
-    def test_cleanup_is_success_only_and_preserves_failed_evidence(self) -> None:
-        """A failed worker run must stay inspectable instead of being erased."""
+    def test_cleanup_requires_only_the_expected_fixture_finalization(self) -> None:
+        """An unrelated failed parent or worker run remains inspectable."""
 
         source = _MANIFEST.read_text(encoding="utf-8")
         cleanup_start = source.index("CREATE OR REPLACE FUNCTION public.clouddsp_adtof_worker_smoke_cleanup")
         cleanup_end = source.index("$adtof_smoke_cleanup$;", cleanup_start)
         cleanup = source[cleanup_start:cleanup_end]
         for required_fact in (
-            "job.status = 'midi_processing'",
+            "job.status = 'failed'",
+            "job.error_message = 'The processing pipeline produced an incomplete stem set.'",
             "event.publication_status = 'published'",
             "task.status = 'succeeded'",
             "task.attempt_count = 1",
             "task.lease_token IS NULL",
             "task.lease_expires_at IS NULL",
             "task.completed_at IS NOT NULL",
+            "WHERE task.job_id = job.job_id) = 1",
         ):
             self.assertIn(required_fact, cleanup)
-        self.assertNotIn("status = 'failed'", cleanup)
 
 
 if __name__ == "__main__":

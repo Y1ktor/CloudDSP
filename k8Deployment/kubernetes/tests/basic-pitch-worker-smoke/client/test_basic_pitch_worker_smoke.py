@@ -134,7 +134,7 @@ def observation_row(*, succeeded: bool) -> dict[str, object]:
         "task_attempt_count": 1 if succeeded else None,
         "task_lease_is_clear": succeeded,
         "task_completed_at": now if succeeded else None,
-        "job_status": "midi_processing",
+        "job_status": "failed_incomplete_stem_fixture" if succeeded else "midi_processing",
     }
 
 
@@ -279,6 +279,18 @@ class FullSequenceTests(unittest.TestCase):
                 sleep_function=MagicMock(),
                 monotonic=lambda: next(clock),
             )
+        self.assertIn(STEM_KEY, client.objects)
+        self.assertNotIn(("delete", STEM_KEY), client.calls)
+
+    def test_unexpected_parent_failure_preserves_durable_evidence(self) -> None:
+        """Only the SQL-verified incomplete-stem marker may count as success."""
+
+        failed = observation_row(succeeded=True)
+        failed["job_status"] = "failed"
+        connection = Connection([None, {"smoke_job_id": SMOKE_JOB_ID, "smoke_event_id": SMOKE_EVENT_ID}, failed])
+        client = S3()
+        with self.assertRaisesRegex(BasicPitchWorkerSmokeAssertionError, "unexpected terminal state"):
+            run_smoke(connection, client, timeout_seconds=5)
         self.assertIn(STEM_KEY, client.objects)
         self.assertNotIn(("delete", STEM_KEY), client.calls)
 

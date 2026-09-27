@@ -133,6 +133,13 @@ spec:
             # data uses the separate `/worker-scratch` mount below.
             - name: TMPDIR
               value: /tmp
+            # The best-effort librosa beat tracker runs Numba JIT code inside
+            # the worker's PID 1 process. Its default ARM64 CPU target raised
+            # SIGILL on this k3d node for the verified vocals smoke stem.
+            # Numba's generic target emits portable code for this architecture
+            # instead of crashing the process and stranding a running lease.
+            - name: NUMBA_CPU_NAME
+              value: generic
             # These three Secrets live in this Pod's namespace and each holds
             # only one restricted runtime identity. This Pod never receives a
             # PostgreSQL, MinIO, or RabbitMQ administrator/bootstrap Secret.

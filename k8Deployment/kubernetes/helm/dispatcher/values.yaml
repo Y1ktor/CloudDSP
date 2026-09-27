@@ -1,0 +1,10 @@
+# This digest is images.dispatcher-demucs-only.immutableReference in the
+# reviewed ../../images.lock.yaml. The generic controller uses a different
+# image entry even though both images share one registry repository.
+image:
+  reference: clouddsp-registry.localhost:5001/dispatcher@sha256:3d04f458945004925313267ca62379a7cc2eb2511f10b9b727be94b5819abf76
+
+# One legacy publisher runs in the normal local profile. The reviewed
+# source-to-outbox smoke temporarily uses values.smoke-pause.yaml to stop both
+# dispatcher controllers before its test event can leave PostgreSQL.
+replicas: 1

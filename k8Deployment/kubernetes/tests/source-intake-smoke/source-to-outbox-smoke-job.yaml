@@ -9,6 +9,12 @@
 # RabbitMQ's management API and verifies the same single outbox row remains.
 # That covers the normal MinIO-triggered route plus at-least-once redelivery
 # behavior without adding a Demucs queue, dispatcher, worker, or browser route.
+# Both existing dispatcher Helm releases must be temporarily scaled to zero
+# for this pending-row assertion. Restore their one-replica defaults after the
+# Job deletes its synthetic row; otherwise a dispatcher could publish this
+# deliberately tiny WAV as a real Demucs request before the assertion runs.
+# RabbitMQ's NetworkPolicy permits management access only to this fixed-name
+# disposable test Pod among integration Jobs in the data namespace.
 #
 # The Job uses existing pinned Job API dependencies (`psycopg` and `boto3`) by
 # overriding the API image's normal Uvicorn entrypoint. It creates no new image,
@@ -63,7 +69,7 @@ spec:
           # Reuse images.job-api.immutableReference from ../../images.lock.yaml.
           # Its production Uvicorn ENTRYPOINT is replaced below with this
           # disposable client program; no application server starts in this Pod.
-          image: clouddsp-registry.localhost:5001/job-api@sha256:702357368b4b662c496ad3635d96ed448af392582b049fcac676c4119cdc85bb
+          image: clouddsp-registry.localhost:5001/job-api@sha256:356e1493d2e079c1374d275f6c90047955e567626500ce5cb99954221993929b
           imagePullPolicy: IfNotPresent
           env:
             # Every service route is private in-cluster DNS. The Job API's

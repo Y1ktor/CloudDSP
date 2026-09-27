@@ -1,0 +1,10 @@
+# Copy only images.minio.immutableReference from the reviewed local image
+# lock. The PVC template, Service names, selectors, and notification settings
+# stay in templates so a routine values override cannot rename durable data.
+image:
+  reference: clouddsp-registry.localhost:5001/minio@sha256:96dd150e3e8c93ebc407344078829c43240df19c74db58de17dd777d7d28ab5e
+
+# This host is the existing public S3 origin used by presigned browser POSTs.
+# Moving it requires updating signatures and frontend/API configuration.
+ingress:
+  host: minio.localhost

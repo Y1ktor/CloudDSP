@@ -1,3 +1,6 @@
+# Legacy kubectl source retained as the reviewed Helm adoption baseline.
+# The active local owner is helm/frontend; do not reapply this raw manifest.
+#
 # This is the browser-facing rule for the local frontend. Traefik watches the
 # Ingress and routes clouddsp.localhost requests to the stable ClusterIP Service;
 # it never connects a browser directly to a replaceable frontend Pod.

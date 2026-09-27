@@ -1,0 +1,8 @@
+# One worker release owns the existing Demucs controller and its dual-trigger
+# scaler. KEDA, shared authentication, generated HPA, and Secrets stay separate.
+apiVersion: v2
+name: demucs
+description: CloudDSP local Demucs worker and KEDA dual-trigger scaler
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

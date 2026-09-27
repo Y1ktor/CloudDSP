@@ -113,9 +113,21 @@ class ADTOFWorkerSmokeContractTests(unittest.TestCase):
             task_attempt_count=1,
             task_lease_is_clear=True,
             task_completed_at=completed_at,
-            job_status="midi_processing",
+            job_status="failed_incomplete_stem_fixture",
         )
         self.assertTrue(success.is_successful_first_attempt)
+        self.assertFalse(
+            ADTOFWorkerSmokeObservation(
+                publication_status="published",
+                published_at=completed_at,
+                task_id=success.task_id,
+                task_status="succeeded",
+                task_attempt_count=1,
+                task_lease_is_clear=True,
+                task_completed_at=completed_at,
+                job_status="failed",
+            ).is_successful_first_attempt
+        )
         self.assertFalse(
             ADTOFWorkerSmokeObservation(
                 publication_status="published",
@@ -125,7 +137,7 @@ class ADTOFWorkerSmokeContractTests(unittest.TestCase):
                 task_attempt_count=2,
                 task_lease_is_clear=True,
                 task_completed_at=completed_at,
-                job_status="midi_processing",
+                job_status="failed_incomplete_stem_fixture",
             ).is_successful_first_attempt
         )
         self.assertFalse(

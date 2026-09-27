@@ -24,11 +24,10 @@ readonly REQUIREMENTS_LOCK="${CLIENT_DIRECTORY}/requirements.lock"
 # must never execute a tag because tags can be repointed to different bytes.
 readonly REGISTRY_HOST="clouddsp-registry.localhost:5001"
 readonly IMAGE_REPOSITORY="${REGISTRY_HOST}/adtof-worker-smoke-client"
-# This readable tag records the current client fix: PostgreSQL UUID values
-# decoded natively by Psycopg are normalized at the restricted observer
-# boundary before the strict transport-neutral smoke contract validates them.
+# This revision recognizes only the database observer's exact marker for the
+# intentionally incomplete parent fixture after a real ADTOF task succeeds.
 # Kubernetes Jobs still use only the immutable digest printed after push.
-readonly IMAGE_NAME="${IMAGE_REPOSITORY}:0.1.1-psycopg-uuid-observation"
+readonly IMAGE_NAME="${IMAGE_REPOSITORY}:0.1.2-parent-finalizer-fixture"
 readonly TARGET_PLATFORM="linux/arm64"
 
 usage() {

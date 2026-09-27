@@ -1,0 +1,4 @@
+# Use only during the source-to-outbox integration smoke. The test verifies a
+# pending Demucs outbox row before any dispatcher publishes it to RabbitMQ.
+# Restore the chart's default values immediately after the disposable Job.
+replicas: 0

@@ -24,8 +24,21 @@ bootstrap. Ruby's standard YAML/JSON libraries are required on the host.
 
 This general command reports resource ownership and source/live identity but
 does not render a chart diff. The separate
-[Mailpit release script](../helm/mailpit/README.md) performs the first
-chart-specific render and live-spec comparison. The general command does not
+[Mailpit](mailpit-release.rb), [Keycloak](keycloak-release.rb),
+[PostgreSQL](postgresql-release.rb),
+[MinIO](minio-release.rb),
+[RabbitMQ](rabbitmq-release.rb),
+[shared KEDA scaling authentication](scaling-auth-release.rb),
+[Basic Pitch worker](basic-pitch-release.rb),
+[ADTOF worker](adtof-release.rb),
+[Demucs worker](demucs-release.rb),
+[frontend](frontend-release.rb),
+[legacy dispatcher](dispatcher-release.rb),
+[generic dispatcher](generic-dispatcher-release.rb),
+[Job API](job-api-release.rb), and
+[upload-intake](upload-intake-release.rb) release
+scripts perform component-specific render and live-spec comparisons. The
+general command does not
 install, adopt, migrate, bootstrap, or clean up anything. The
 [resource ownership map](../resource-ownership-map.md) records the full
 versioned/live snapshot and proposed boundaries.
@@ -47,6 +60,276 @@ versioned disposable SMTP capture Job and removes it after success. The
 script stops on unknown ownership or any rendered/source/live spec drift.
 The raw manifests under `services/mailpit/` are now an adoption baseline and
 must not be reapplied to the Helm-owned objects.
+
+## PostgreSQL protected Helm adoption and verification
+
+```bash
+./k8Deployment/kubernetes/scripts/postgresql-release.rb plan
+./k8Deployment/kubernetes/scripts/postgresql-release.rb adopt
+./k8Deployment/kubernetes/scripts/postgresql-release.rb verify
+./k8Deployment/kubernetes/scripts/postgresql-release.rb smoke
+```
+
+The [PostgreSQL chart](../helm/postgresql/README.md) owns the existing
+StatefulSet, normal ClusterIP Service, and governing headless Service. Its
+script verifies source/render/live equality and the bound generated PVC.
+Before `adopt` can call Helm, the versioned
+[`backup and restore rehearsal`](postgresql-backup-and-restore-test.sh)
+captures all databases and roles into an ignored owner-only file, restores
+them in an isolated Docker container with no network, and compares counts.
+Adoption preserved resource and Pod UIDs, Service IPs, and PVC/PV identity.
+`smoke` ran the versioned read/write Job through the ordinary Service and
+removed its disposable table and Job. The generated PVC, database contents,
+Secret, migrations, and bootstrap Jobs remain outside Helm ownership.
+
+## MinIO protected Helm adoption and verification
+
+```bash
+./k8Deployment/kubernetes/scripts/minio-release.rb plan
+./k8Deployment/kubernetes/scripts/minio-release.rb adopt
+./k8Deployment/kubernetes/scripts/minio-release.rb verify
+./k8Deployment/kubernetes/scripts/minio-release.rb smoke
+```
+
+The [MinIO chart](../helm/minio/README.md) owns its existing StatefulSet,
+normal and headless Services, and S3 Ingress. Its script checks exact
+source/render/live spec and bound-PVC parity before adoption. The automatic
+[`backup and restore rehearsal`](minio-backup-and-restore-test.py) briefly
+stops the MinIO Pod, archives its node-local PVC, restarts the original Pod,
+and compares an isolated restored server's S3 inventory and object bytes.
+The owner-only archive remains under ignored `k8Deployment/.local/backups/`.
+The successful Helm takeover preserved the four resource UIDs, post-backup
+Pod UID, Service IPs, and bound PVC/PV. `smoke` passed the S3 API
+create/read/delete test through the normal Service and removed its Job. The
+separate restricted Job API identity smoke passed and its Job was removed.
+Bucket data, IAM, Secrets, and bootstrap Jobs remain outside this release.
+
+## RabbitMQ protected Helm adoption and verification
+
+```bash
+./k8Deployment/kubernetes/scripts/rabbitmq-release.rb plan
+./k8Deployment/kubernetes/scripts/rabbitmq-release.rb adopt
+./k8Deployment/kubernetes/scripts/rabbitmq-release.rb verify
+./k8Deployment/kubernetes/scripts/rabbitmq-release.rb smoke
+```
+
+The [RabbitMQ chart](../helm/rabbitmq/README.md) owns the existing broker
+StatefulSet, AMQP, headless and management Services, and its ingress
+NetworkPolicy. Its automatic
+[`backup and restore rehearsal`](rabbitmq-backup-and-restore-test.py) checks
+that no messages are unacknowledged, briefly stops the broker, archives its
+bound PVC, restarts the original Pod, then compares full definitions and queue
+depths on a disposable no-network restore. The owner-only archive remains
+under ignored `k8Deployment/.local/backups/`. The successful takeover
+preserved five resource UIDs, post-backup Pod UID, Service IPs, and bound
+PVC/PV identity. `smoke` passed a real AMQP publish/consume/acknowledge round
+trip through the normal Service and removed its Job. Broker state, runtime
+Secrets, bootstrap Jobs, and KEDA resources remain outside this release.
+
+## Shared KEDA scaling authentication adoption
+
+```bash
+./k8Deployment/kubernetes/scripts/scaling-auth-release.rb plan
+./k8Deployment/kubernetes/scripts/scaling-auth-release.rb adopt
+./k8Deployment/kubernetes/scripts/scaling-auth-release.rb verify
+```
+
+The [scaling-auth chart](../helm/scaling-auth/README.md) owns only the two
+existing app-namespace `TriggerAuthentication` resources. Its read-only plan
+requires exact source/render/live spec parity, the pinned KEDA release, both
+referenced Secret names, three Ready worker `ScaledObject`s, and their
+correctly owned HPAs. Adoption preserved both authentication UIDs and spec
+generations plus all dependent scaler, HPA, and worker Deployment UIDs.
+Secret values, worker scale decisions, and the KEDA controller remain outside
+this release. Each worker adoption and processing smoke is a later task.
+
+## Basic Pitch worker Helm adoption and verification
+
+```bash
+./k8Deployment/kubernetes/scripts/basic-pitch-release.rb plan
+./k8Deployment/kubernetes/scripts/basic-pitch-release.rb adopt
+./k8Deployment/kubernetes/scripts/basic-pitch-release.rb verify
+./k8Deployment/kubernetes/scripts/basic-pitch-release.rb upgrade-scaling
+./k8Deployment/kubernetes/scripts/basic-pitch-release.rb upgrade-numba
+```
+
+The [Basic Pitch chart](../helm/basic-pitch/README.md) owns the existing
+Deployment and RabbitMQ ScaledObject. The read-only preflight compared both
+source manifests with the chart and live specs. The one-time takeover retained
+both resource UIDs, the ScaledObject spec generation, generated HPA UID, and
+zero idle replicas. `verify` checks Helm's stored manifest, KEDA Ready state,
+shared authentication references, HPA target/ownership, and zero Pods. The first fixed one-request smoke exposed an obsolete parent-status
+assertion. After guarded cleanup, a versioned restricted-function update and
+a digest-pinned client rebuild, the rerun passed: durable publication,
+first-attempt task success, verified MIDI bytes/provenance, and scoped cleanup.
+The test fixture's parent Job is intentionally incomplete; only its exact
+expected finalization error is accepted.
+
+The Demucs two-stem smoke later exposed Basic Pitch's early AMQP ACK: the
+queue became empty while its model task still held a PostgreSQL lease, and
+KEDA scaled the worker away. Chart 0.1.2 added the existing restricted
+PostgreSQL task-count trigger and a six-minute scale-in stabilization window.
+`upgrade-scaling` verifies the queue-only v0.1.0 baseline and upgrades it to
+the current policy. A cluster already at intermediate v0.1.1 uses
+`upgrade-stabilization`. A later Demucs trial exposed a Numba illegal
+instruction in the Basic Pitch tempo step on the ARM64 k3d node. Chart 0.1.3
+sets `NUMBA_CPU_NAME=generic`, validated against that exact WAV in the running
+worker image. The guarded `upgrade-numba` path upgrades an installed v0.1.2
+release. All paths keep the Deployment, ScaledObject, and generated HPA UIDs
+stable.
+
+## ADTOF worker Helm adoption and verification
+
+```bash
+./k8Deployment/kubernetes/scripts/adtof-release.rb plan
+./k8Deployment/kubernetes/scripts/adtof-release.rb adopt
+./k8Deployment/kubernetes/scripts/adtof-release.rb verify
+./k8Deployment/kubernetes/scripts/adtof-release.rb smoke
+```
+
+The [ADTOF chart](../helm/adtof/README.md) owns only the existing worker
+Deployment and RabbitMQ ScaledObject. Its read-only preflight checked image
+lock, source/render/live spec parity, KEDA readiness, HPA ownership, and the
+zero-Pod idle state. Helm takeover preserved both resource UIDs, scaler spec
+generation, generated HPA UID, and zero replicas. The fixed one-drum worker
+smoke passed after its test-only finalizer fixture update: KEDA activated one
+Pod, the real dispatcher and worker completed the request, the client verified
+MIDI and tempo evidence, and scoped cleanup removed its Job and fixed data.
+
+## Demucs worker Helm adoption and verification
+
+```bash
+./k8Deployment/kubernetes/scripts/demucs-release.rb plan
+./k8Deployment/kubernetes/scripts/demucs-release.rb adopt
+./k8Deployment/kubernetes/scripts/demucs-release.rb verify
+./k8Deployment/kubernetes/scripts/demucs-release.rb smoke
+```
+
+The [Demucs chart](../helm/demucs/README.md) owns its existing worker
+Deployment and dual-trigger ScaledObject. The read-only preflight checked the
+image lock, exact source/render/live specs, both RabbitMQ and PostgreSQL
+authentication references, scaler readiness, HPA ownership, and zero idle
+Pods. Helm takeover preserved both object UIDs, the scaler generation, the
+KEDA-owned HPA UID, and zero replicas. The fixed two-stem smoke validates the
+real dispatcher and Demucs worker, verifies stem bytes and provenance, waits
+for both downstream Basic Pitch tasks and the parent Job to complete, and
+uses guarded cleanup of only its test data. The first trial reached verified
+Demucs completion, then stalled because Basic Pitch scaled away during its
+second task; the full smoke remains failed with fixed evidence preserved.
+
+## Keycloak Helm adoption and verification
+
+```bash
+./k8Deployment/kubernetes/scripts/keycloak-release.rb plan
+./k8Deployment/kubernetes/scripts/keycloak-release.rb adopt
+./k8Deployment/kubernetes/scripts/keycloak-release.rb verify
+./k8Deployment/kubernetes/scripts/keycloak-release.rb smoke
+```
+
+The [Keycloak chart](../helm/keycloak/README.md) owns the existing identity
+Deployment, ClusterIP Service, and browser Ingress in `clouddsp-data`. The
+release script checks the image lock and exact source/render/live spec before
+its one-time takeover. `verify` checks Helm's stored manifest, the Ready Pod,
+and the public OIDC discovery route. `smoke` runs the versioned internal
+discovery/issuer Job and deletes only that completed Job. Adoption preserved
+the three object UIDs, Service IP, and Pod UID. The separate React PKCE
+authorization, Keycloak-to-Mailpit verification-email, and temporary-user
+authenticated-read smoke Jobs also passed and were deleted after completion.
+PostgreSQL, Secrets, and realm, client, and SMTP bootstrap remain outside this
+release.
+
+## Frontend Helm adoption and verification
+
+```bash
+./k8Deployment/kubernetes/scripts/frontend-release.rb plan
+./k8Deployment/kubernetes/scripts/frontend-release.rb adopt
+./k8Deployment/kubernetes/scripts/frontend-release.rb verify
+```
+
+The [frontend chart](../helm/frontend/README.md) owns its existing
+Deployment, ClusterIP Service, and Traefik Ingress in `clouddsp-app`.
+The shared [`stateless-release.rb`](stateless-release.rb) helper supplies the
+same source/render/live comparison and one-time ownership gate as Mailpit.
+`verify` also checks the local browser app shell, CSP header, and linked
+JavaScript and CSS assets. After adoption, the raw
+`services/frontend/` manifests are a retained comparison baseline; use
+the Helm chart for subsequent delivery changes.
+
+## Legacy dispatcher Helm adoption and verification
+
+```bash
+./k8Deployment/kubernetes/scripts/dispatcher-release.rb plan
+./k8Deployment/kubernetes/scripts/dispatcher-release.rb adopt
+./k8Deployment/kubernetes/scripts/dispatcher-release.rb verify
+```
+
+The [dispatcher chart](../helm/dispatcher/README.md) owns only the existing
+`Deployment/clouddsp-dispatcher` in `clouddsp-app`. Its image is checked
+against `images.dispatcher-demucs-only`, distinct from the generic controller's
+image lock. The shared release helper compares source, render, and live spec
+before the one-time ownership handoff. `verify` checks Helm ownership, stored
+manifest, unchanged spec, Ready Pod, and running image digest. There is no
+Service or HTTP route for this internal outbox publisher. The separate
+normal-path smoke test is required to prove actual message publication; this
+adoption does not run that credential-bearing integration test.
+
+## Generic dispatcher Helm adoption and verification
+
+```bash
+./k8Deployment/kubernetes/scripts/generic-dispatcher-release.rb plan
+./k8Deployment/kubernetes/scripts/generic-dispatcher-release.rb adopt
+./k8Deployment/kubernetes/scripts/generic-dispatcher-release.rb verify
+```
+
+The [generic dispatcher chart](../helm/generic-dispatcher/README.md) owns only
+`Deployment/clouddsp-generic-dispatcher` in `clouddsp-app`. Its pinned image
+and explicit `app.dispatcher_generic_runtime` command are compared with the
+source and live Deployment before the one-time Helm ownership transfer.
+`verify` checks the stored release manifest, unchanged live spec, Ready Pod,
+and running image digest. It has no Service or HTTP route. The separate
+Basic Pitch routing smoke test is needed to demonstrate message behavior;
+it passed on 2026-09-26 with one controlled event published, acknowledged,
+and cleaned up. The disposable Job was removed. This adoption keeps the legacy
+dispatcher running at one replica.
+
+## Job API Helm adoption and verification
+
+```bash
+./k8Deployment/kubernetes/scripts/job-api-release.rb plan
+./k8Deployment/kubernetes/scripts/job-api-release.rb adopt
+./k8Deployment/kubernetes/scripts/job-api-release.rb verify
+```
+
+The [Job API chart](../helm/job-api/README.md) owns its existing Deployment,
+ClusterIP Service, and same-origin `/auth` and `/jobs` Ingress in
+`clouddsp-app`. The release script checks the image lock, source/render/live
+spec parity, and API-server schema before one-time adoption. `verify` checks
+Helm ownership, stored manifest, ready Pod and running digest, and that both
+protected browser paths still reject unauthenticated requests with HTTP 401.
+The Service IP, three resource UIDs, and Pod UID were preserved. Database
+migrations and runtime Secret contents remain outside Helm.
+The versioned authenticated-read smoke Job passed with a temporary Keycloak
+user and client, then cleaned up both identities and its disposable Job.
+
+## Upload-intake Helm adoption and verification
+
+```bash
+./k8Deployment/kubernetes/scripts/upload-intake-release.rb plan
+./k8Deployment/kubernetes/scripts/upload-intake-release.rb adopt
+./k8Deployment/kubernetes/scripts/upload-intake-release.rb verify
+```
+
+The [upload-intake chart](../helm/upload-intake/README.md) owns only its
+outbound Deployment in `clouddsp-app`. It preserves the Pod's three restricted
+PostgreSQL, MinIO, and RabbitMQ Secret references and the reviewed image
+digest. The release checker requires source/render/live equality before the
+one-time adoption and then verifies the original Deployment and Pod UIDs.
+`verify` checks Helm ownership, stored manifest, Ready Pod, and running
+digest. The separate [source-to-outbox integration smoke](../tests/source-intake-smoke/README.md)
+subsequently passed after its test image was aligned with the Job API lock and
+the fixed test Pod received narrowly scoped RabbitMQ management access. Its
+runbook pauses and restores both dispatcher releases around the pending-row
+assertion.
 
 ## Prerequisites
 

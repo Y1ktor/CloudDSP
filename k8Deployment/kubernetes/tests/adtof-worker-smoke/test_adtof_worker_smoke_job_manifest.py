@@ -36,7 +36,7 @@ class ADTOFWorkerSmokeJobManifestTests(unittest.TestCase):
         self.assertIn("kubernetes.io/arch: arm64", self.source)
         self.assertIn(
             "clouddsp-registry.localhost:5001/adtof-worker-smoke-client@"
-            "sha256:f6908bfabe930a1066fed18446aa6006d58dbea43764d75265557bdd6771c74f",
+            "sha256:cb59778c62e973151b24f9a61683334651d97d2559675e6721aa31a0ed7282aa",
             self.source,
         )
         self.assertNotIn("image: clouddsp-registry.localhost:5001/adtof-worker-smoke-client:", self.source)

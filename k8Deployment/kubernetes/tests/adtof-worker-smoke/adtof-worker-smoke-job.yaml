@@ -19,10 +19,10 @@
 #      zero: this Job's durable request is deliberately able to activate KEDA.
 #   4. No previous failed run retains this test's fixed database rows/objects.
 #
-# This source is deliberately unapplied. It is both the end-to-end ADTOF smoke
-# driver and the controlled KEDA activation stimulus; a later explicit task
-# applies it, observes `0 -> 1` worker activation, then reads its durable result
-# before any human-approved failed-run cleanup.
+# Run this versioned Job through adtof-release.rb smoke. It drives the
+# end-to-end worker path and KEDA activation from zero; the release script
+# removes the Job only after complete success. A failed run retains its fixed
+# durable evidence for diagnosis.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -88,7 +88,7 @@ spec:
           # Copied exactly from images.adtof-worker-smoke-client in
           # ../../images.lock.yaml. A readable tag is deliberately absent: the
           # test must run this exact ARM64 image even if a tag is repointed.
-          image: clouddsp-registry.localhost:5001/adtof-worker-smoke-client@sha256:f6908bfabe930a1066fed18446aa6006d58dbea43764d75265557bdd6771c74f
+          image: clouddsp-registry.localhost:5001/adtof-worker-smoke-client@sha256:cb59778c62e973151b24f9a61683334651d97d2559675e6721aa31a0ed7282aa
           # A digest cannot move. K3s may reuse matching local bytes, while a
           # newly created node still pulls the same immutable registry object.
           imagePullPolicy: IfNotPresent

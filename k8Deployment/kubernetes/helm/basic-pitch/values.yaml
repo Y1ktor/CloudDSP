@@ -1,0 +1,4 @@
+# Reviewed immutable image, matching images.basic-pitch.immutableReference.
+# Keep runtime Secret names and queue coordinates in the source-parity template.
+image:
+  reference: clouddsp-registry.localhost:5001/basic-pitch@sha256:e4ef1fc639a3571b3b8d4b2ab9cd0dacf3bb62ae1d194e3fad48c10066b0648a

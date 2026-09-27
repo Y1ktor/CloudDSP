@@ -1,0 +1,38 @@
+# This ClusterIP Service gives the replaceable Job API Pods one stable internal
+# DNS name. It is intentionally created before any browser-facing Ingress: a
+# Service tracks ready matching Pods while a Deployment rollout changes their
+# names and IP addresses.
+apiVersion: v1
+kind: Service
+metadata:
+  name: clouddsp-job-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: job-api
+    app.kubernetes.io/instance: clouddsp-job-api
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: job-api-internal-routing
+spec:
+  # ClusterIP is an internal virtual address only. It does not create a Docker
+  # port mapping, NodePort, LoadBalancer, Mac host port, or browser route. A
+  # later Traefik Ingress can use this stable Service as its backend.
+  type: ClusterIP
+  selector:
+    # This label query must match the Deployment's Pod template. Kubernetes adds
+    # only Pods that pass `/readyz` to the Service EndpointSlice, so PostgreSQL-
+    # unavailable API Pods are not eligible for future callers.
+    app.kubernetes.io/name: job-api
+    app.kubernetes.io/instance: clouddsp-job-api
+    app.kubernetes.io/component: api
+  ports:
+    # Callers use the conventional internal HTTP port 80. `targetPort: http`
+    # refers to the Deployment container port *name*, not the number written in
+    # this Service. The named target stays correct if the container's actual
+    # port changes later in one reviewed Deployment update.
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: http

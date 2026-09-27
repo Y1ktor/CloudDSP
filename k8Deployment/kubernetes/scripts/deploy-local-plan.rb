@@ -128,6 +128,14 @@ class CloudDSPDeploymentPlan
     end
 
     locked_references = lock['images'].values.map { |entry| entry.is_a?(Hash) ? entry['immutableReference'] : nil }.compact
+    # Both dispatcher controllers use the same registry repository, but they
+    # intentionally run different generations of that image. Checking only
+    # catalog membership would let one controller silently adopt the other's
+    # digest while still passing this read-only preflight.
+    dispatcher_lock_keys = {
+      'clouddsp-dispatcher' => 'dispatcher-demucs-only',
+      'clouddsp-generic-dispatcher' => 'dispatcher'
+    }
     checked = 0
     workloads(manifests).each do |item|
       document = item['document']
@@ -142,6 +150,10 @@ class CloudDSPDeploymentPlan
         end
         unless locked_references.include?(reference)
           @blockers << "#{name} image digest is absent from images.lock.yaml (#{reference})."
+        end
+        expected_key = dispatcher_lock_keys[name]
+        if expected_key && lock['images'].dig(expected_key, 'immutableReference') != reference
+          @blockers << "#{name} image must match images.#{expected_key}.immutableReference."
         end
       end
     end
@@ -280,7 +292,7 @@ class CloudDSPDeploymentPlan
       @notes << "Pending #{release_name}: #{objects.sort.join(', ')}."
     end
     @warnings << "#{manifests.length - present} source long-lived objects are absent from the cluster." if present < manifests.length
-    @notes << 'Chart-specific rendered/live spec comparison is outside this general preflight; use mailpit-release.rb verify for Mailpit.'
+    @notes << 'Chart-specific rendered/live spec comparison is outside this general preflight; use each component release script verify.'
     check_pvcs(manifests, live)
   end
 

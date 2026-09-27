@@ -1,0 +1,9 @@
+# This release owns only the long-running source-event consumer Deployment.
+# MinIO notifications, RabbitMQ topology, PostgreSQL bootstrap, Secrets, and
+# test Jobs stay in their separate existing lifecycle boundaries.
+apiVersion: v2
+name: upload-intake
+description: CloudDSP local MinIO source-event consumer
+type: application
+version: 0.1.0
+appVersion: "0.2.1-form-encoded-keys"

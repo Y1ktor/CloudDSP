@@ -10,7 +10,7 @@
 #   1. delete exactly the synthetic WAV and MIDI object names;
 #   2. delete exactly the expired failed-run Job after strict database guards;
 #   3. let PostgreSQL's existing foreign keys cascade only that Job's outbox
-#      event (and any matching task, although this diagnosed case has none).
+#      event and its one already-diagnosed, succeeded Basic Pitch task.
 #
 # The old RabbitMQ dead-letter message is intentionally outside this Job's
 # authority and is preserved as independent transport evidence.
@@ -62,7 +62,7 @@ spec:
           # through the local registry, unlike the retired Docker Hub `mc`
           # reference that caused the first cleanup attempt to stop before any
           # credential or object operation began.
-          image: clouddsp-registry.localhost:5001/basic-pitch-worker-smoke-client@sha256:c37acb0177e213cdecff061057f1f91e4ecf554bf2f52f52a5d6f8b8c62f72d1
+          image: clouddsp-registry.localhost:5001/basic-pitch-worker-smoke-client@sha256:786d0261a5bbe1d318d807e32f2151fc678839b899c0371bebe25347a3457de0
           imagePullPolicy: IfNotPresent
           env:
             # Kubernetes resolves these only in the short-lived Pod. Neither
@@ -181,10 +181,10 @@ spec:
             - -ec
             - |
               # The Job is useful only if it deletes exactly one previously
-              # diagnosed, expired smoke Job. The owner/event/no-task guards
-              # prevent it from becoming a generic Job deletion capability.
+              # diagnosed, expired smoke Job. The owner/event/exact-one-task
+              # guards prevent it from becoming a generic Job deletion tool.
               psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 <<'SQL'
-              DO $$$$
+              DO $cleanup$
               DECLARE
                 deleted_count INTEGER;
               BEGIN
@@ -192,7 +192,8 @@ spec:
                   DELETE FROM public.jobs AS job
                   WHERE job.job_id = '7ea5ee7e-c726-4af8-8f21-4d0e227bdd0b'::uuid
                     AND job.owner_sub = 'clouddsp-basic-pitch-worker-smoke'
-                    AND job.status = 'midi_processing'
+                    AND job.status = 'failed'
+                    AND job.error_message = 'The processing pipeline produced an incomplete stem set.'
                     AND job.expires_at <= CURRENT_TIMESTAMP
                     AND EXISTS (
                       SELECT 1
@@ -204,11 +205,20 @@ spec:
                         AND event.event_type = 'basic-pitch.requested'
                         AND event.publication_status = 'published'
                     )
-                    AND NOT EXISTS (
+                    AND EXISTS (
                       SELECT 1
                       FROM public.processing_tasks AS task
                       WHERE task.job_id = job.job_id
+                        AND task.stage = 'basic-pitch'
+                        AND task.stem_name = 'vocals'
+                        AND task.status = 'succeeded'
+                        AND task.attempt_count = 1
+                        AND task.lease_token IS NULL
+                        AND task.lease_expires_at IS NULL
+                        AND task.completed_at IS NOT NULL
                     )
+                    AND (SELECT COUNT(*) FROM public.processing_tasks AS task
+                         WHERE task.job_id = job.job_id) = 1
                   RETURNING job.job_id
                 )
                 SELECT COUNT(*) INTO deleted_count FROM deleted;
@@ -217,7 +227,7 @@ spec:
                   RAISE EXCEPTION 'Refused: expected one expired diagnosed Basic Pitch smoke Job.';
                 END IF;
               END
-              $$$$;
+              $cleanup$;
               SQL
               printf 'Exact diagnosed Basic Pitch smoke database cleanup passed\n'
       containers:

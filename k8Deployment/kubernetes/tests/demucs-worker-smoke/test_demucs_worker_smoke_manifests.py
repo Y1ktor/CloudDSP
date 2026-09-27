@@ -18,6 +18,7 @@ _POLICY = _DIRECTORY / "demucs-worker-smoke-minio-policy-v001-configmap.yaml"
 _MINIO_BOOTSTRAP = _DIRECTORY / "minio-demucs-worker-smoke-objects-bootstrap-job.yaml"
 _DATABASE_BOOTSTRAP = _DIRECTORY / "demucs-worker-smoke-database-bootstrap-job.yaml"
 _FAILED_RUN_CLEANUP = _DIRECTORY / "demucs-worker-smoke-failed-run-cleanup-job.yaml"
+_DOWNSTREAM_SCALE_RECOVERY = _DIRECTORY / "demucs-worker-smoke-downstream-scale-recovery-v001-job.yaml"
 _LOCK = _DIRECTORY.parent.parent / "images.lock.yaml"
 
 
@@ -42,7 +43,7 @@ class DemucsWorkerSmokeManifestTests(unittest.TestCase):
             "kubernetes.io/arch: arm64", "automountServiceAccountToken: false",
             "enableServiceLinks: false", "runAsNonRoot: true", "runAsUser: 10003",
             "readOnlyRootFilesystem: true", "allowPrivilegeEscalation: false",
-            "clouddsp-registry.localhost:5001/demucs-worker-smoke-client@sha256:da6ff550d60acdb84949cf8e26c47d30ca3f434bb7e1cc5121034cc2e95cb743",
+            "clouddsp-registry.localhost:5001/demucs-worker-smoke-client@sha256:0d5513a288b3aa0285234d7ca2c8553570e8f0bb38d4177c9ecc6017b66f5bd6",
         ):
             self.assertIn(required, source)
         self.assertNotIn("kind: Deployment", source)
@@ -107,7 +108,7 @@ class DemucsWorkerSmokeManifestTests(unittest.TestCase):
 
         lock = _LOCK.read_text(encoding="utf-8")
         self.assertIn("demucs-worker-smoke-client:", lock)
-        self.assertIn("sha256:da6ff550d60acdb84949cf8e26c47d30ca3f434bb7e1cc5121034cc2e95cb743", lock)
+        self.assertIn("sha256:0d5513a288b3aa0285234d7ca2c8553570e8f0bb38d4177c9ecc6017b66f5bd6", lock)
 
     def test_failed_run_cleanup_is_exact_and_has_no_broker_authority(self) -> None:
         """A diagnosed cleanup may remove only the documented fixed evidence."""
@@ -120,7 +121,7 @@ class DemucsWorkerSmokeManifestTests(unittest.TestCase):
             "automountServiceAccountToken: false",
             "clouddsp-minio-root-credentials",
             "clouddsp-postgresql-credentials",
-            "clouddsp-registry.localhost:5001/demucs-worker-smoke-client@sha256:da6ff550d60acdb84949cf8e26c47d30ca3f434bb7e1cc5121034cc2e95cb743",
+            "clouddsp-registry.localhost:5001/demucs-worker-smoke-client@sha256:0d5513a288b3aa0285234d7ca2c8553570e8f0bb38d4177c9ecc6017b66f5bd6",
             "client.delete_object(Bucket=\"clouddsp-uploads\", Key=object_key)",
             "uploads/12139966-5891-4d53-a817-f3ce1f264c61/demucs-worker-smoke.wav",
             "stems/12139966-5891-4d53-a817-f3ce1f264c61/vocals.wav",
@@ -148,6 +149,31 @@ class DemucsWorkerSmokeManifestTests(unittest.TestCase):
         # Keeping neither in the recovery source makes this operator Job
         # reusable while its fixed Job/event/object coordinates stay narrow.
         self.assertNotIn("lease_token =", source)
+
+    def test_downstream_scale_recovery_accepts_only_expired_fixed_fixture(self) -> None:
+        """The second recovery must refuse active leases and unrelated work."""
+
+        source = _DOWNSTREAM_SCALE_RECOVERY.read_text(encoding="utf-8")
+        for required in (
+            "name: demucs-worker-smoke-downstream-scale-recovery-v001",
+            "namespace: clouddsp-data",
+            "backoffLimit: 0",
+            "automountServiceAccountToken: false",
+            "job.owner_sub = 'clouddsp-demucs-worker-smoke'",
+            "job.status = 'midi_processing'",
+            "task.status = 'succeeded' AND task.attempt_count = 1",
+            "('no_vocals', 'succeeded'), ('vocals', 'running')",
+            "task.lease_expires_at < CURRENT_TIMESTAMP",
+            "SELECT COUNT(*) FROM public.processing_tasks WHERE job_id = fixed_job_id) <> 3",
+            "SELECT COUNT(*) FROM public.outbox_events WHERE job_id = fixed_job_id) <> 3",
+            "e20cf942-ef7b-478e-89c4-f4795ed801ec",
+            "uploads/12139966-5891-4d53-a817-f3ce1f264c61/demucs-worker-smoke.wav",
+        ):
+            self.assertIn(required, source)
+        self.assertLess(source.index("name: delete-only-diagnosed-stopped-task"),
+                        source.index("name: delete-only-fixed-smoke-objects"))
+        self.assertNotIn("RABBITMQ_", source)
+        self.assertNotIn("serviceAccountName:", source)
 
 
 if __name__ == "__main__":

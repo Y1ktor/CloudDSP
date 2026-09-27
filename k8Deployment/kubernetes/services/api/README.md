@@ -1,5 +1,15 @@
 # Local Job API: contract inventory
 
+The existing API Deployment, Service, and Ingress are now Helm release
+[`../../helm/job-api/`](../../helm/job-api/README.md). Adoption on 2026-09-26
+preserved their resource UIDs, Service IP, Pod UID, image digest, and
+same-origin protected browser routes. Their raw manifests remain comparison
+baselines and must not be reapplied to Helm-owned objects. The historical
+contract-inventory task described below predates this running release.
+The authenticated-read smoke Job was rerun after adoption: its disposable
+Keycloak user's token passed `/auth/me`, `GET /jobs` returned an empty list,
+and the temporary identities and completed test Job were removed.
+
 ## Scope of this task
 
 This document records the browser contract that the local Kubernetes Job API

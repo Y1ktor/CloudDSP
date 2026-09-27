@@ -1,0 +1,10 @@
+# This digest is images.dispatcher.immutableReference in the reviewed
+# ../../images.lock.yaml. The generic runtime command remains explicit in the
+# Deployment template because this image defaults to the Demucs-only runtime.
+image:
+  reference: clouddsp-registry.localhost:5001/dispatcher@sha256:cc2d36bd78ceb7e8ff8cd58d0d39d312c3325dda5e3d540dfcfad94e0dfdb487
+
+# Keep one route-aware publisher in the normal local profile. Both dispatcher
+# releases must pause for the source-to-outbox smoke's pending-row assertion;
+# that temporary state lives in the separate values.smoke-pause.yaml file.
+replicas: 1

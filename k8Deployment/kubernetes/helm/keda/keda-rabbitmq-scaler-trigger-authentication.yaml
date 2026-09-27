@@ -1,7 +1,7 @@
 # This namespaced KEDA custom resource maps the dedicated RabbitMQ observer
 # credential into later RabbitMQ scaler instances. It is not a Kubernetes
 # Secret, does not create a Pod, and does not open a connection by itself.
-# A later ScaledObject in the same namespace will reference it explicitly.
+# Each worker ScaledObject in the same namespace references it explicitly.
 apiVersion: keda.sh/v1alpha1
 kind: TriggerAuthentication
 metadata:
@@ -20,7 +20,7 @@ metadata:
     clouddsp.io/purpose: bind-read-only-rabbitmq-queue-observer
 spec:
   secretTargetRef:
-    # KEDA passes these two values only to its RabbitMQ scaler when a future
+# KEDA passes these two values only to its RabbitMQ scaler when a
     # ScaledObject references this resource. They override no worker process
     # environment and are never exposed in that ScaledObject's metadata.
     #

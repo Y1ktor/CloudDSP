@@ -1,0 +1,124 @@
+# Immutable repair input for the existing restricted ADTOF smoke role.
+# It changes no application schema, worker runtime, runtime Secret, or parent
+# finalizer. The paired Job executes it once through the private DB Service.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adtof-worker-smoke-functions-v002
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: adtof-worker-smoke-functions-v002
+    app.kubernetes.io/component: integration-test-database-repair
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+immutable: true
+data:
+  functions.sql: |
+    -- Version 2 repairs only the existing fixed-coordinate ADTOF smoke functions.
+    -- The original bootstrap Job has the same definitions for fresh clusters.
+    -- Its one-drum fixture must receive the exact incomplete-stem parent result.
+    BEGIN;
+    CREATE OR REPLACE FUNCTION public.clouddsp_adtof_worker_smoke_observe()
+    RETURNS TABLE (
+      publication_status TEXT,
+      published_at TIMESTAMPTZ,
+      task_id UUID,
+      task_status TEXT,
+      task_attempt_count INTEGER,
+      task_lease_is_clear BOOLEAN,
+      task_completed_at TIMESTAMPTZ,
+      job_status TEXT
+    )
+    LANGUAGE sql
+    SECURITY DEFINER
+    SET search_path = pg_catalog, public
+    AS $adtof_smoke_observe$
+      SELECT
+        event.publication_status,
+        event.published_at,
+        task.task_id,
+        task.status,
+        task.attempt_count,
+        (
+          task.task_id IS NOT NULL
+          AND task.lease_token IS NULL
+          AND task.lease_expires_at IS NULL
+        ) AS task_lease_is_clear,
+        task.completed_at,
+        CASE
+          -- This one-drum fixture cannot complete a four-stem
+          -- parent Job. Accept only the finalizer's exact expected
+          -- incomplete-stem result as a worker-smoke marker; an
+          -- unrelated failed parent remains plain 'failed'.
+          WHEN job.status = 'failed'
+           AND job.error_message = 'The processing pipeline produced an incomplete stem set.'
+            THEN 'failed_incomplete_stem_fixture'
+          ELSE job.status
+        END
+      FROM public.jobs AS job
+      JOIN public.outbox_events AS event
+        ON event.job_id = job.job_id
+      LEFT JOIN public.processing_tasks AS task
+        ON task.job_id = job.job_id
+       AND task.stage = 'adtof'
+       AND task.stem_name = 'drums'
+      WHERE job.job_id = '8d94ca4d-8f27-4d78-a01f-73ee0fb8c6bc'::uuid
+        AND job.owner_sub = 'clouddsp-adtof-worker-smoke'
+        AND event.event_id = '0b37b59f-3634-47de-97f0-5a1f3e27ea2f'::uuid
+        AND event.stage = 'adtof'
+        AND event.stem_name = 'drums'
+        AND event.event_type = 'adtof.requested';
+    $adtof_smoke_observe$;
+
+    -- Cleanup is a capability for an already-complete happy path,
+    -- not a failure eraser. The later client deletes the exact input
+    -- and output objects before calling this function; a failed or
+    -- timed-out test leaves durable rows available for diagnosis.
+    CREATE OR REPLACE FUNCTION public.clouddsp_adtof_worker_smoke_cleanup()
+    RETURNS BOOLEAN
+    LANGUAGE plpgsql
+    SECURITY DEFINER
+    SET search_path = pg_catalog, public
+    AS $adtof_smoke_cleanup$
+    DECLARE
+      did_delete BOOLEAN;
+    BEGIN
+      DELETE FROM public.jobs AS job
+      WHERE job.job_id = '8d94ca4d-8f27-4d78-a01f-73ee0fb8c6bc'::uuid
+        AND job.owner_sub = 'clouddsp-adtof-worker-smoke'
+        AND job.status = 'failed'
+        AND job.error_message = 'The processing pipeline produced an incomplete stem set.'
+        AND EXISTS (
+          SELECT 1
+          FROM public.outbox_events AS event
+          WHERE event.event_id = '0b37b59f-3634-47de-97f0-5a1f3e27ea2f'::uuid
+            AND event.job_id = job.job_id
+            AND event.stage = 'adtof'
+            AND event.stem_name = 'drums'
+            AND event.event_type = 'adtof.requested'
+            AND event.publication_status = 'published'
+        )
+        AND EXISTS (
+          SELECT 1
+          FROM public.processing_tasks AS task
+          WHERE task.job_id = job.job_id
+            AND task.stage = 'adtof'
+            AND task.stem_name = 'drums'
+            AND task.status = 'succeeded'
+            AND task.attempt_count = 1
+            AND task.lease_token IS NULL
+            AND task.lease_expires_at IS NULL
+            AND task.completed_at IS NOT NULL
+        )
+        AND (SELECT COUNT(*) FROM public.processing_tasks AS task
+             WHERE task.job_id = job.job_id) = 1
+      RETURNING TRUE INTO did_delete;
+      RETURN COALESCE(did_delete, FALSE);
+    END;
+    $adtof_smoke_cleanup$;
+    REVOKE ALL ON FUNCTION public.clouddsp_adtof_worker_smoke_observe() FROM PUBLIC;
+    REVOKE ALL ON FUNCTION public.clouddsp_adtof_worker_smoke_cleanup() FROM PUBLIC;
+    GRANT EXECUTE ON FUNCTION public.clouddsp_adtof_worker_smoke_observe() TO "clouddsp-adtof-worker-smoke";
+    GRANT EXECUTE ON FUNCTION public.clouddsp_adtof_worker_smoke_cleanup() TO "clouddsp-adtof-worker-smoke";
+    COMMIT;

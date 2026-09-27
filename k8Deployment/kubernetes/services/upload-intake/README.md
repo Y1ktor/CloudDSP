@@ -263,13 +263,17 @@ event to RabbitMQ according to the versioned
 [`demucs.requested` contract](../dispatcher/README.md).
 
 The rolled-out upload-intake Deployment now uses the reviewed ARM64 image that
-contains this source change. A later update must repeat the same digest-pinned
-build, manifest review, and explicit rollout rather than changing a mutable tag.
+contains this source change. It is owned by the dedicated
+[`../../helm/upload-intake/`](../../helm/upload-intake/README.md) Helm release.
+Adoption preserved its Deployment UID, Pod UID, and running digest; the raw
+manifest is now a comparison baseline and must not be reapplied. A later
+update must repeat the same digest-pinned build, chart review, and explicit
+rollout rather than changing a mutable tag.
 
-## Prepared source-to-outbox integration smoke
+## Source-to-outbox integration smoke
 
 [`../../tests/source-intake-smoke/source-to-outbox-smoke-job.yaml`](../../tests/source-intake-smoke/source-to-outbox-smoke-job.yaml)
-is a prepared, one-time end-to-end assertion for the rolled-out worker. It
+is a one-time end-to-end assertion for the rolled-out worker. It
 creates a temporary Keycloak direct-grant client/user, calls the normal
 authenticated Job API `POST /jobs` route, posts a minimal valid WAV through the
 returned presigned form to private MinIO, and polls the owner-bound Job API
@@ -283,7 +287,18 @@ already-scoped data-namespace administrator Secrets. It never prints those
 values, the temporary token, presigned form, object key, job ID, or SQL rows.
 On either success or failure it removes only the object/job/outbox row and
 Keycloak client/user it created. It does not create a dispatcher, a Demucs
-queue, a worker Pod, or a browser-facing endpoint.
+queue, a worker Pod, or a browser-facing endpoint. The
+[`smoke runbook`](../../tests/source-intake-smoke/README.md) pauses both
+dispatcher Helm releases during the pending-row assertion and restores them
+after the test's cleanup.
+
+On 2026-09-26, the first run reached the duplicate notification but RabbitMQ's
+NetworkPolicy blocked the test Pod from the management port. A fixed-name,
+label-constrained exception was added to the versioned policy. The retry
+passed: the native notification caused `source_uploaded` and one pending
+Demucs outbox event, and the deliberate duplicate did not create a second.
+The test cleaned up its temporary resources; both dispatchers were restored
+to one replica and source/Demucs queues were empty afterward.
 
 ## Reconciliation is mandatory
 

@@ -1,0 +1,212 @@
+# A StatefulSet manages RabbitMQ as a stateful broker rather than an
+# interchangeable Deployment Pod.  It guarantees a predictable Pod name
+# (`clouddsp-rabbitmq-0`) and a PersistentVolumeClaim bound to that identity.
+# RabbitMQ's node name and durable queue metadata depend on this stability.
+#
+# This local foundation intentionally runs one broker only.  Increasing
+# `replicas` is not a safe high-availability switch: a multi-node RabbitMQ
+# design needs peer discovery, a stable shared Erlang cookie, quorum-queue
+# placement, an odd node count, disruption rules, and recovery testing.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: clouddsp-rabbitmq
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: rabbitmq
+    app.kubernetes.io/instance: clouddsp-rabbitmq
+    app.kubernetes.io/component: message-broker
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: Helm
+    clouddsp.io/environment: local
+spec:
+  # The governing headless Service must exist first.  StatefulSet DNS combines
+  # this Service with the Pod ordinal to make the broker hostname stable.
+  serviceName: clouddsp-rabbitmq-headless
+  replicas: 1
+
+  # A broker replacement waits for ordinal 0 to be Ready before another ordinal
+  # could be started.  This conservative policy fits a stateful message store.
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+
+  # Claims generated below outlive a StatefulSet deletion or future scale-down.
+  # This prevents a controller change from silently discarding durable messages.
+  # It is not a backup: deliberately deleting the retained PVC still allows the
+  # `local-path` StorageClass to remove its associated local PV data.
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+
+  # This selector is immutable after creation.  It must match both the Pod
+  # template labels below and the governing headless Service selector exactly.
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rabbitmq
+      app.kubernetes.io/instance: clouddsp-rabbitmq
+      app.kubernetes.io/component: message-broker
+
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rabbitmq
+        app.kubernetes.io/instance: clouddsp-rabbitmq
+        app.kubernetes.io/component: message-broker
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      # The one-broker profile does not call the Kubernetes API.  In particular,
+      # it does not enable Kubernetes peer discovery, so it receives no default
+      # ServiceAccount token.  A future clustering task would add narrowly
+      # scoped RBAC only if its chosen discovery mechanism truly required it.
+      automountServiceAccountToken: false
+      # Give RabbitMQ time to close listener connections and flush its durable
+      # state during a controlled termination.  This grace period is not a
+      # substitute for persistence, backups, or multi-node availability.
+      terminationGracePeriodSeconds: 120
+      securityContext:
+        # The reviewed RabbitMQ image includes the `rabbitmq` account at
+        # UID/GID 999.  `fsGroup` lets that non-root process write to the
+        # dynamically provisioned PVC without a privileged init container.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        # Avoid an unnecessary recursive ownership walk each time the retained
+        # data volume is mounted by an ordinary replacement Pod.
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: rabbitmq
+          # This immutable management-image reference is copied from
+          # `../../images.lock.yaml`.  Never use a mutable `rabbitmq:management`
+          # tag in a broker StatefulSet.
+          image: {{ .Values.image.reference }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: amqp
+              containerPort: 5672
+              protocol: TCP
+            - name: management
+              containerPort: 15672
+              protocol: TCP
+            # Erlang Port Mapper Daemon helps RabbitMQ nodes and CLI tools
+            # discover node endpoints.  It is only relevant to the future
+            # multi-node design, not normal application message publishing.
+            - name: epmd
+              containerPort: 4369
+              protocol: TCP
+            # Erlang distribution traffic is used for peer replication and
+            # broker/CLI communication in a multi-node cluster.
+            - name: cluster
+              containerPort: 25672
+              protocol: TCP
+          env:
+            # The official image reads these only while initializing an empty
+            # RabbitMQ data directory.  Updating this Secret later does not
+            # rename or reset an already-created broker account; use RabbitMQ
+            # administration commands for a credential migration instead.
+            - name: RABBITMQ_DEFAULT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_USER
+            - name: RABBITMQ_DEFAULT_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_PASS
+          resources:
+            # These are modest development defaults for a single broker.  They
+            # keep message storage and Erlang runtime use visible to the local
+            # scheduler while preventing this foundation service from consuming
+            # all laptop capacity needed later by DSP workloads.
+            requests:
+              cpu: 250m
+              memory: 512Mi
+              ephemeral-storage: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+              ephemeral-storage: 1Gi
+          securityContext:
+            # The official entrypoint needs ordinary ephemeral filesystem paths
+            # during broker startup, so this manifest does not force a read-only
+            # root filesystem yet.  It still prevents privilege escalation and
+            # drops all ambient Linux capabilities; hardening those writable
+            # paths with explicit `emptyDir` mounts is a separate task.
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            # RabbitMQ stores its Khepri/Mnesia metadata, durable-message data,
+            # and generated Erlang cookie under this directory.  The generated
+            # PVC name for ordinal 0 will be `rabbitmq-data-clouddsp-rabbitmq-0`.
+            - name: rabbitmq-data
+              mountPath: /var/lib/rabbitmq
+          # A startup probe prevents liveness restarts while RabbitMQ creates
+          # its initial durable store.  `ping` succeeds only when the Erlang
+          # runtime is running and the local diagnostics client can authenticate.
+          startupProbe:
+            exec:
+              command:
+                - rabbitmq-diagnostics
+                - -q
+                - ping
+            periodSeconds: 5
+            failureThreshold: 36
+            timeoutSeconds: 5
+          # A ready broker has a running RabbitMQ application and no local
+          # resource alarm.  The upcoming AMQP ClusterIP Service therefore
+          # sends application traffic only to a broker that can accept work.
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -ec
+                - rabbitmq-diagnostics -q check_running && rabbitmq-diagnostics -q check_local_alarms
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5
+          # Liveness intentionally asks only whether the local runtime remains
+          # reachable.  Using the stricter alarm check here could restart a
+          # broker under memory/disk pressure instead of surfacing that condition.
+          livenessProbe:
+            exec:
+              command:
+                - rabbitmq-diagnostics
+                - -q
+                - ping
+            periodSeconds: 20
+            failureThreshold: 3
+            timeoutSeconds: 5
+
+  volumeClaimTemplates:
+    - metadata:
+        # Kubernetes adds the StatefulSet name and Pod ordinal to this claim.
+        # Each future broker replica would therefore receive an isolated data
+        # directory—not an unsafe shared writable RabbitMQ data volume.
+        name: rabbitmq-data
+        labels:
+          app.kubernetes.io/name: rabbitmq
+          app.kubernetes.io/instance: clouddsp-rabbitmq
+          app.kubernetes.io/component: message-broker
+          app.kubernetes.io/part-of: clouddsp
+          clouddsp.io/environment: local
+      spec:
+        # The local PVC is mounted read/write by one node.  Client applications
+        # publish/consume through AMQP rather than mounting broker filesystems.
+        accessModes:
+          - ReadWriteOnce
+        # K3s's `local-path` provisioner waits until this Pod is scheduled, then
+        # creates node-local data on that selected k3d node.
+        storageClassName: local-path
+        resources:
+          requests:
+            # A 5 GiB local development capacity guardrail is sufficient for
+            # topology and small-message tests.  It is not a physical macOS
+            # reservation or a production retention/throughput design.
+            storage: 5Gi

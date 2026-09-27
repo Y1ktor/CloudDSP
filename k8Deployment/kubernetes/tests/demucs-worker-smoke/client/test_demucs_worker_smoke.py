@@ -112,7 +112,7 @@ def observation_row(**overrides: object) -> dict[str, object]:
         "demucs_task_attempt_count": 1,
         "demucs_task_lease_is_clear": True,
         "demucs_task_completed_at": datetime.now(timezone.utc),
-        "job_status": "midi_processing",
+        "job_status": "completed",
         "stem_count": 2,
         "downstream_event_count": 2,
         "downstream_published_count": 2,
@@ -156,7 +156,8 @@ class DemucsWorkerSmokeTests(unittest.TestCase):
                                   demucs_task_attempt_count=None, demucs_task_lease_is_clear=False,
                                   demucs_task_completed_at=None, job_status="source_uploaded",
                                   stem_count=0, downstream_event_count=0)
-        connection = Connection([pending, observation_row()])
+        # Stage success must be observable before downstream finalization.
+        connection = Connection([pending, observation_row(job_status="midi_processing")])
         ticks = iter((0.0, 0.0, 1.0, 1.0))
         result = smoke.wait_for_demucs_completion(
             connection,
@@ -169,8 +170,18 @@ class DemucsWorkerSmokeTests(unittest.TestCase):
 
     def test_wait_for_demucs_completion_preserves_terminal_failure_evidence(self) -> None:
         connection = Connection([observation_row(demucs_task_status="failed")])
-        with self.assertRaisesRegex(smoke.DemucsWorkerSmokeAssertionError, "terminal task failure"):
+        with self.assertRaisesRegex(smoke.DemucsWorkerSmokeAssertionError, "terminal task or Job failure"):
             smoke.wait_for_demucs_completion(connection, timeout_seconds=5, sleep_function=lambda _: None)
+
+    def test_downstream_cleanup_waits_for_completed_parent(self) -> None:
+        """Two child successes alone cannot erase a parent still finalizing."""
+
+        self.assertFalse(smoke._downstream_cleanup_is_safe(
+            smoke._observation_from_row(observation_row(job_status="midi_processing"))
+        ))
+        self.assertTrue(smoke._downstream_cleanup_is_safe(
+            smoke._observation_from_row(observation_row(job_status="completed"))
+        ))
 
     def test_stem_verification_requires_current_task_metadata_and_stream_hash(self) -> None:
         client = RecordingS3()

@@ -5,8 +5,9 @@
 #
 # A ClusterIP Service has no port on the Mac and no Traefik Ingress route. It is
 # therefore not browser- or LAN-reachable. ClusterIP alone is *not* authorization:
-# the paired NetworkPolicy isolates the broker's port 15672 to KEDA and the
-# narrowly labelled, short-lived broker bootstrap Jobs.
+# the paired NetworkPolicy isolates port 15672 to KEDA, narrowly labelled
+# broker bootstrap Jobs, the fixed source-to-outbox smoke Job, and the finite
+# six-stem test observer. Normal application Pods remain excluded.
 apiVersion: v1
 kind: Service
 metadata:

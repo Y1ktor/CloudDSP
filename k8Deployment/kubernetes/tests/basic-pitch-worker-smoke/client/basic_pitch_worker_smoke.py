@@ -440,7 +440,11 @@ def _worker_completed(observation: TaskObservation) -> bool:
         and observation.task_attempt_count == 1
         and observation.task_lease_is_clear
         and observation.task_completed_at is not None
-        and observation.job_status == "midi_processing"
+        # The fixture contains only vocals for a two-stem parent. The active
+        # PostgreSQL finalizer correctly fails that parent once this one real
+        # worker task succeeds. The restricted observe function emits this
+        # marker only when its exact expected finalization error is present.
+        and observation.job_status == "failed_incomplete_stem_fixture"
     )
 
 
@@ -460,6 +464,8 @@ def wait_for_worker_completion(
         observation = read_observation(connection)
         if _worker_completed(observation):
             return observation
+        if observation.job_status in {"failed", "completed"}:
+            raise BasicPitchWorkerSmokeAssertionError("Smoke parent Job reached an unexpected terminal state.")
         sleep_function(1)
     raise BasicPitchWorkerSmokeAssertionError("Timed out waiting for the Basic Pitch worker completion.")
 

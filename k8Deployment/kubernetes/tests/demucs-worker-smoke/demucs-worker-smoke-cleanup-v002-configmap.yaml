@@ -1,0 +1,82 @@
+# Immutable repair input for the existing restricted Demucs smoke role.
+# It changes no application schema, runtime Secret, Demucs worker, or parent
+# finalizer. The paired Job executes it once through the private DB Service.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: demucs-worker-smoke-cleanup-v002
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: demucs-worker-smoke-cleanup-v002
+    app.kubernetes.io/component: integration-test-database-repair
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+immutable: true
+data:
+  cleanup.sql: |
+    -- Version 2 changes only the fixed-coordinate smoke cleanup function.
+    -- Migration v008 can complete this two-stem Job after both Basic Pitch tasks.
+    -- The original bootstrap Job holds the same definition for fresh clusters.
+    BEGIN;
+    CREATE OR REPLACE FUNCTION public.clouddsp_demucs_worker_smoke_cleanup()
+    RETURNS BOOLEAN
+    LANGUAGE plpgsql
+    SECURITY DEFINER
+    SET search_path = pg_catalog, public
+    AS $smoke_cleanup$
+    DECLARE
+      did_delete BOOLEAN;
+    BEGIN
+      DELETE FROM public.jobs AS job
+      WHERE job.job_id = '12139966-5891-4d53-a817-f3ce1f264c61'::uuid
+        AND job.owner_sub = 'clouddsp-demucs-worker-smoke'
+        AND job.status = 'completed'
+        AND EXISTS (
+          SELECT 1 FROM public.outbox_events AS source_event
+          WHERE source_event.event_id = 'e20cf942-ef7b-478e-89c4-f4795ed801ec'::uuid
+            AND source_event.job_id = job.job_id
+            AND source_event.stage = 'demucs'
+            AND source_event.stem_name = ''
+            AND source_event.event_type = 'demucs.requested'
+            AND source_event.publication_status = 'published'
+        )
+        AND EXISTS (
+          SELECT 1 FROM public.processing_tasks AS demucs_task
+          WHERE demucs_task.job_id = job.job_id
+            AND demucs_task.stage = 'demucs'
+            AND demucs_task.stem_name = ''
+            AND demucs_task.status = 'succeeded'
+            AND demucs_task.attempt_count = 1
+            AND demucs_task.lease_token IS NULL
+            AND demucs_task.lease_expires_at IS NULL
+            AND demucs_task.completed_at IS NOT NULL
+        )
+        AND 2 = (
+          SELECT count(*)
+          FROM public.outbox_events AS downstream_event
+          WHERE downstream_event.job_id = job.job_id
+            AND downstream_event.stage = 'basic-pitch'
+            AND downstream_event.stem_name IN ('vocals', 'no_vocals')
+            AND downstream_event.event_type = 'basic-pitch.requested'
+            AND downstream_event.publication_status = 'published'
+        )
+        AND 2 = (
+          SELECT count(*)
+          FROM public.processing_tasks AS downstream_task
+          WHERE downstream_task.job_id = job.job_id
+            AND downstream_task.stage = 'basic-pitch'
+            AND downstream_task.stem_name IN ('vocals', 'no_vocals')
+            AND downstream_task.status = 'succeeded'
+            AND downstream_task.attempt_count = 1
+            AND downstream_task.lease_token IS NULL
+            AND downstream_task.lease_expires_at IS NULL
+            AND downstream_task.completed_at IS NOT NULL
+        )
+      RETURNING TRUE INTO did_delete;
+      RETURN COALESCE(did_delete, FALSE);
+    END;
+    $smoke_cleanup$;
+    REVOKE ALL ON FUNCTION public.clouddsp_demucs_worker_smoke_cleanup() FROM PUBLIC;
+    GRANT EXECUTE ON FUNCTION public.clouddsp_demucs_worker_smoke_cleanup() TO "clouddsp-demucs-worker-smoke";
+    COMMIT;

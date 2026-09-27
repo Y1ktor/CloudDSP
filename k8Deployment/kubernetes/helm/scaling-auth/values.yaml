@@ -1,0 +1,3 @@
+# Deliberately no user-supplied values: credential Secret names and keys are
+# fixed in the reviewed templates. Secret values never enter Helm history.
+{}

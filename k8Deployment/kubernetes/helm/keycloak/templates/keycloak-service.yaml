@@ -1,0 +1,43 @@
+# This ClusterIP Service gives other Pods one stable DNS name for Keycloak.
+# It is intentionally separate from the Deployment: the Service keeps the
+# address `clouddsp-keycloak` while Deployment Pods are replaced during a
+# restart or update.  Kubernetes updates the Service's EndpointSlices to point
+# only at ready Pods selected by the labels below.
+apiVersion: v1
+kind: Service
+metadata:
+  name: clouddsp-keycloak
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: keycloak
+    app.kubernetes.io/instance: clouddsp-keycloak
+    app.kubernetes.io/component: identity-provider
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    clouddsp.io/environment: local
+spec:
+  # ClusterIP is Kubernetes' internal-only Service type.  It receives a stable
+  # virtual IP and DNS record but does not open a port on the Mac or publish
+  # Keycloak directly to the browser.  Traefik Ingress is the reviewed
+  # browser-access path.
+  type: ClusterIP
+  # This label query must match the Keycloak Deployment Pod template exactly.
+  # If a required label is missing or differs, the Service has no ready
+  # endpoints and in-cluster clients will receive connection failures.
+  selector:
+    app.kubernetes.io/name: keycloak
+    app.kubernetes.io/instance: clouddsp-keycloak
+    app.kubernetes.io/component: identity-provider
+  ports:
+    # A caller in this namespace connects to `clouddsp-keycloak:8080`; callers
+    # elsewhere can use `clouddsp-keycloak.clouddsp-data.svc.cluster.local`.
+    # The named target port resolves to the Deployment container port named
+    # `http`, avoiding a duplicated numeric Pod-port contract here.
+    - name: http
+      protocol: TCP
+      port: 8080
+      targetPort: http
+  # Do not add Keycloak's management port 9000 here.  Kubernetes probes reach
+  # that port directly on the Pod; keeping it out of this Service prevents
+  # application Pods and the future Traefik Ingress from treating health and
+  # metrics endpoints as public identity-service APIs.

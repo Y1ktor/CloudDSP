@@ -1,0 +1,11 @@
+# Copy only images.keycloak.immutableReference from the reviewed image lock.
+# The official image is a multi-platform index; a node may report a different
+# arm64 child digest as imageID even while using this exact locked reference.
+image:
+  reference: quay.io/keycloak/keycloak@sha256:ff4257d0d64efbe99ed1ddfaf07765cc3c36dc7518bf8324d41961327f441c54
+
+# Keep the public issuer and browser Ingress paired. OIDC tokens, discovery,
+# and frontend configuration already use this exact local HTTP origin.
+publicBaseUrl: http://keycloak.localhost:8080
+ingress:
+  host: keycloak.localhost

@@ -45,6 +45,98 @@ browser route were preserved. The versioned SMTP capture smoke passed. This
 does not change the baseline observation or authorize adoption of other
 components without their own review.
 
+The next stateless trial on the same date adopted
+[frontend](helm/frontend/README.md) as release `clouddsp-frontend` in
+`clouddsp-app`. Its three resource UIDs, Service IP, Pod UID, OIDC redirect
+host, and browser route were preserved. The app shell, CSP header, and built
+JavaScript/CSS assets passed the route smoke check. The remaining components
+still require separate adoption checks.
+
+The legacy [dispatcher](helm/dispatcher/README.md) was then adopted as release
+`clouddsp-dispatcher` in `clouddsp-app`, with its Deployment UID, Pod UID, and
+Demucs-only image digest unchanged. It is an internal publisher with no HTTP
+route; Pod readiness and image identity do not replace the separate
+outbox-to-RabbitMQ message-path smoke. The generic dispatcher remains outside
+this release.
+
+The route-aware [generic dispatcher](helm/generic-dispatcher/README.md) was
+then adopted as the separate `clouddsp-generic-dispatcher` release. Its
+Deployment UID, Pod UID, generic runtime command, and locked image digest
+were preserved. Both dispatchers remain at one replica. The controlled Basic
+Pitch routing smoke subsequently passed: its synthetic outbox event was
+published to the intended queue, acknowledged, and cleaned up. Scaling down
+the legacy controller remains a separate rollout decision.
+
+The [Job API](helm/job-api/README.md) was then adopted as the separate
+`clouddsp-job-api` release. Its three resource UIDs, Service IP, Pod UID, and
+image digest were preserved. Both same-origin protected paths still return
+HTTP 401 to unauthenticated callers. Its authenticated-read smoke subsequently
+passed using a disposable Keycloak user and client: `/auth/me` returned the
+user's subject, `/jobs` returned an empty owner-bound list, and both temporary
+identities and the completed test Job were removed. Upload and job lifecycle
+smokes remain separate checks.
+
+The outbound [upload-intake](helm/upload-intake/README.md) Deployment was then
+adopted as the `clouddsp-upload-intake` release. Its Deployment UID, Pod UID,
+and locked image digest were preserved. Its separate source-to-outbox
+integration test subsequently passed. Its test image was aligned with the
+reviewed Job API digest, and the fixed test Pod received a narrow RabbitMQ
+management-port NetworkPolicy exception after the first attempt exposed that
+missing route. Both dispatcher Helm releases were paused during the pending
+outbox assertion and restored to one replica afterward; their current Helm
+revisions are 3. The disposable test Job and its synthetic resources were
+cleaned up, and the source and Demucs queues were empty.
+
+The [Keycloak](helm/keycloak/README.md) Deployment, Service, and Ingress were
+then adopted as the separate `clouddsp-keycloak` identity release in
+`clouddsp-data`. All three resource UIDs, the Pod UID, Service IP, public OIDC
+issuer, and existing database/administrator Secret references were preserved.
+The browser discovery route, internal discovery/issuer smoke, React PKCE
+authorization login-form smoke, verification-email delivery to Mailpit, and
+a real temporary-user token followed by protected Job API reads all passed.
+PostgreSQL, runtime Secrets, and realm/client/SMTP bootstrap Jobs remain
+outside this long-lived release.
+
+The first protected data-service trial adopted
+[PostgreSQL](helm/postgresql/README.md) as `clouddsp-postgresql` revision 1.
+Immediately before takeover, a full logical backup of four databases and
+fourteen login roles restored successfully in an isolated no-network Docker
+instance; the owner-only backup remains under ignored `k8Deployment/.local/`.
+The chart preserved the StatefulSet, both Services, running Pod, normal
+Service IP, and bound PVC/PV identities. The ClusterIP read/write smoke
+created, read, and dropped its disposable table, then its Job was removed.
+Database contents, credentials, migrations, and bootstrap Jobs remain outside
+the long-lived Helm release.
+
+The next protected data-service trial adopted
+[MinIO](helm/minio/README.md) as `clouddsp-minio` revision 1. A stopped-volume
+archive restored into a disposable MinIO server with matching AMQP target
+configuration; two buckets, 489 current objects, object versions,
+notifications, and a downloaded object's bytes matched. The adoption kept
+the StatefulSet, two Services, Ingress, post-backup Pod, Service IPs, and
+bound PVC/PV identities. Both the in-cluster S3 create/read/delete smoke and
+the restricted Job API access smoke passed. Bucket data, IAM, credentials,
+and bootstrap Jobs remain outside the release.
+
+The final protected data-service trial adopted
+[RabbitMQ](helm/rabbitmq/README.md) as `clouddsp-rabbitmq` revision 1. A
+stopped-volume archive restored into a no-network broker with the same node
+name; two vhosts, 12 queues, full definitions, and queue depths matched.
+Five resource UIDs, the post-backup Pod UID, all Service IPs, and the bound
+PVC/PV identities remained stable. The in-cluster AMQP
+publish/consume/acknowledge smoke passed and its disposable Job was removed.
+The queues held no ready or unacknowledged messages at snapshot time, so the
+restore rehearsal did not exercise saved-message replay.
+
+The two shared KEDA authentication resources were then adopted as the
+independent [scaling-auth release](helm/scaling-auth/README.md), revision 1.
+Both TriggerAuthentication UIDs, spec generations, and finalizers stayed
+stable; all three dependent ScaledObjects remained Ready, and their HPA and
+worker Deployment UIDs were unchanged. Runtime Secret values were not read or
+placed in Helm. Basic Pitch, ADTOF, and Demucs have since received separate
+worker releases and processing smoke trials; see the validation record below
+for each outcome.
+
 ## Deployment model
 
 Use **independent Helm releases** for components with distinct upgrade and
@@ -59,10 +151,11 @@ and the frontend one indivisible release.
 | k3d topology, registry, packaged Traefik | Existing `cluster.sh` and k3s configuration | Host / `kube-system` | Do not take ownership of packaged Traefik. Never recreate an existing cluster during reconcile. |
 | Project namespaces | Versioned cluster manifest and script | Cluster | Keep existing namespace ownership outside application releases. |
 | KEDA | Existing pinned `install-keda.sh` release | `keda` | Verify operator/webhook readiness and CRDs before scaling resources. |
+| Shared scaler authentication | Independent `clouddsp-scaling-auth` release | `clouddsp-app` | Own only the two existing TriggerAuthentications; refer to existing app-namespace Secrets by name/key. |
 | PostgreSQL, MinIO, RabbitMQ | One CloudDSP Helm release per data service | `clouddsp-data` | Stateful adoption occurs after stateless components and data-safety checks. |
 | Keycloak, Mailpit | Separate releases | `clouddsp-data` | Keycloak depends on PostgreSQL and its database bootstrap. |
-| Job API, upload-intake, dispatcher, generic dispatcher, frontend | Separate app releases, or one release per tightly coupled app boundary after review | `clouddsp-app` | Keep the two dispatcher Deployments distinct even if they share one parameterized chart and image recipe. |
-| Demucs, Basic Pitch, ADTOF | One worker release each | `clouddsp-app` | Worker chart owns its Deployment; add its `ScaledObject` only after the worker and KEDA prerequisites pass. |
+| Job API, upload-intake, dispatcher, generic dispatcher, frontend | Separate app releases | `clouddsp-app` | The two dispatcher Deployments have separate charts, releases, and image locks despite sharing one image repository. |
+| Demucs, Basic Pitch, ADTOF | One worker release each | `clouddsp-app` | Adopt each existing Deployment and ScaledObject together after KEDA and scaler authentication; preserve the scaler's worker target. |
 | Bootstrap jobs and database migrations | Versioned manifests invoked by narrowly scoped scripts | `clouddsp-data` / `clouddsp-app` | These are state transitions with durable results, not continuously reconciled workloads. |
 | Runtime and temporary bootstrap Secrets | Ignored local files consumed by scripts | Relevant namespace | Charts reference existing Secret names; secret values never enter chart values or Helm release history. |
 
@@ -84,7 +177,7 @@ kubernetes/
     postgresql/ minio/ rabbitmq/   # CloudDSP data-service charts
     keycloak/ mailpit/             # identity and local email charts
     job-api/ upload-intake/        # application charts
-    dispatcher/ frontend/
+    dispatcher/ generic-dispatcher/ frontend/
     demucs/ basic-pitch/ adtof/    # worker charts
     values/local.yaml              # non-secret local profile, if useful
     values/gpu.yaml                # separate native Linux GPU profile
@@ -253,10 +346,20 @@ external effect disappeared. Therefore:
    checks, rendering, ownership diff, and a redacted stage report.
 3. **One stateless chart and adoption trial — completed for Mailpit.** Its
    release preserved object and Pod identity, routing, and SMTP capture.
-4. **Remaining stateless charts.** Migrate each app/support component
-   independently, retaining existing names and runtime Secret references.
-5. **Data-service charts and protected adoption.** Add backups, immutable-field
-   comparisons, and one-at-a-time StatefulSet ownership changes.
+4. **Remaining stateless charts — completed.** Frontend, both dispatcher
+   controllers, Job API, upload-intake, Keycloak, and Mailpit are separate
+   Helm releases. Each adopted component retained its existing resource
+   identity and runtime Secret references.
+5. **Data-service charts and protected adoption — completed for PostgreSQL,
+   MinIO, and RabbitMQ.** Each backup and isolated restore passed before its
+   one-time StatefulSet takeover. The bound PVCs remain outside Helm.
+   The shared `scaling-auth` release was then adopted before worker releases.
+   Basic Pitch, ADTOF, and Demucs are now separate worker releases, each
+   preserving its Deployment, ScaledObject, generated HPA, and zero-replica
+   KEDA state. All three worker smokes passed. The Demucs trial exposed a
+   Basic Pitch scale-down during an active lease and a Numba illegal
+   instruction in its tempo step; the dual-trigger scaler, six-minute
+   scale-down window, and portable Numba CPU setting resolved both issues.
 6. **Bootstrap/migration stage runners.** Implement ledger checks and external
    state verification before allowing one-command `bootstrap` or `reconcile`.
 7. **Root orchestrator and verification.** Wire the stages together; test a

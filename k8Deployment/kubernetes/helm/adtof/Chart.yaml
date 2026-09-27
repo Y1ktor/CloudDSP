@@ -1,0 +1,8 @@
+# One worker ownership boundary: the existing Deployment and queue scaler.
+# Shared authentication, KEDA itself, Secrets, and generated HPA stay separate.
+apiVersion: v2
+name: adtof
+description: CloudDSP local ADTOF worker and KEDA queue scaler
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
