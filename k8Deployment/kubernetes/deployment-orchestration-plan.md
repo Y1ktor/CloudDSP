@@ -265,6 +265,10 @@ this small, explicit interface:
   or an existing fixed-name Job has an ambiguous result.
 - `verify`: read-only health and release report plus explicit, separately
   selected smoke checks that may create test jobs or test data.
+- `cleanup`: delete the fixed CloudDSP k3d cluster and its dedicated registry.
+  This removes the project's Kubernetes resources, PVC-backed local data, and
+  registry images. The command succeeds when both targets are already absent;
+  ignored host configuration remains available for the next fresh deploy.
 
 Every cluster command must pass `--context k3d-clouddsp-local` or Helm's
 equivalent. Output should identify stage, release, namespace, pinned image,
@@ -341,8 +345,9 @@ external effect disappeared. Therefore:
 - Before a data-service chart adoption or risky upgrade, capture and test a
   PostgreSQL backup plus a recovery method for MinIO objects and RabbitMQ
   state. Local-path PVCs are development storage, not a backup mechanism.
-- No automatic `helm uninstall`, namespace deletion, PVC deletion, cluster
-  deletion, or credential rotation in `deploy-local.sh`.
+- `plan`, `bootstrap`, `reconcile`, and `verify` must not delete releases,
+  namespaces, PVCs, or the cluster. Only the explicit `cleanup` mode deletes
+  the fixed local cluster and registry; credential rotation remains separate.
 - Treat Kubernetes resource rollback and external data rollback separately.
   Schema changes should be forward-compatible with the previous application
   release whenever practical.

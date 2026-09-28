@@ -11,6 +11,7 @@ its own location and does not depend on the current working directory.
 ./k8Deployment/kubernetes/scripts/deploy-local.sh plan
 ./k8Deployment/kubernetes/scripts/deploy-local.sh verify
 ./k8Deployment/kubernetes/scripts/deploy-local.sh reconcile
+./k8Deployment/kubernetes/scripts/deploy-local.sh cleanup
 ```
 
 The `plan` mode is the first stage of the
@@ -906,7 +907,7 @@ kubectl --context k3d-clouddsp-local delete \
 ## Delete the local cluster
 
 ```bash
-./k8Deployment/kubernetes/scripts/cleanup-cluster.sh --confirm
+./k8Deployment/kubernetes/scripts/deploy-local.sh cleanup
 ```
 
 This is destructive. It removes exactly the `clouddsp-local` k3d cluster and
@@ -914,6 +915,10 @@ the `clouddsp-registry.localhost` image registry. It also destroys workloads,
 the K3s node containers, and any future PVC-backed local development data or
 images stored in that dedicated registry. It does not use `--all` and does not
 delete other k3d clusters, Docker containers, images, networks, or registries.
+It delegates to `cleanup-cluster.sh --confirm`. Running it again when the
+cluster and registry are absent succeeds without creating or deleting anything.
+Ignored local configuration files stay on disk; they are inputs, not cluster
+resources.
 
 Use `--help` with any script to print its supported command form without
 changing local resources:
