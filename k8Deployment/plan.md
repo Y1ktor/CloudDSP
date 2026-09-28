@@ -4437,4 +4437,8 @@ state gate. Existing-cluster `reconcile` can remove a leftover temporary
 Secret only after it matches the ignored source and the IAM state is exact;
 it does not create or change a user or policy. The running cluster had such a
 leftover Secret from earlier manual setup, with matching values and complete
-IAM; its cleanup is recorded by the stage and verified separately.
+IAM. The committed `reconcile` stage removed only that Secret; a second run
+was a no-op. All 33 root read-only gates then passed. The restricted Job API
+MinIO smoke again confirmed permitted uploads-prefix read/write and denied
+out-of-prefix write and deletion; its disposable Kubernetes Job was removed.
+The fresh IAM Job sequence has not been trialed on an empty cluster.
