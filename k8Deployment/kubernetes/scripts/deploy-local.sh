@@ -3,8 +3,9 @@
 #
 # `plan` reports the source/live preflight. `prepare` creates only the fresh
 # foundation and mirrors its locked images. `bootstrap-mailpit` adds the first
-# fresh Helm release. `bootstrap-postgresql` and `bootstrap-rabbitmq` each
-# prepare one stateful data service. `verify` checks each reviewed component
+# fresh Helm release. `bootstrap-postgresql` and `bootstrap-rabbitmq` prepare
+# individual stateful services; `bootstrap-minio` composes broker and object
+# storage prerequisites. `verify` checks each reviewed component
 # and bootstrap stage. `reconcile` changes only the five bootstrap stages with
 # audited idempotent runners; existing Helm releases are verified
 # and must already match their charts. `cleanup` removes the k3d cluster while
@@ -15,7 +16,7 @@ readonly SCRIPT_DIRECTORY="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
   cat <<'USAGE'
-Usage: ./k8Deployment/kubernetes/scripts/deploy-local.sh plan|prepare|bootstrap-mailpit|bootstrap-postgresql|bootstrap-rabbitmq|verify|reconcile|cleanup|purge-registry
+Usage: ./k8Deployment/kubernetes/scripts/deploy-local.sh plan|prepare|bootstrap-mailpit|bootstrap-postgresql|bootstrap-rabbitmq|bootstrap-minio|verify|reconcile|cleanup|purge-registry
 
 plan: Read-only preflight for the explicit k3d-clouddsp-local context.
 prepare: On an absent cluster, create the foundation and mirror the locked
@@ -28,6 +29,10 @@ bootstrap-postgresql: On an absent cluster, run prepare, create the PostgreSQL
 bootstrap-rabbitmq: On an absent cluster, run prepare, create the RabbitMQ
          credential Secret, install the StatefulSet, and verify the bound PVC.
          This is a partial application bootstrap.
+bootstrap-minio: On an absent cluster, prepare and install RabbitMQ, create
+         MinIO and upload-intake broker Secrets, bootstrap restricted broker
+         source-intake state, then install and verify MinIO. Buckets and IAM
+         are later stages; this is a partial application bootstrap.
 verify: Run that preflight, then the reviewed read-only Helm, KEDA, and
         bootstrap gates in dependency order. Stop at the first failed gate.
 reconcile: On an existing cluster, run the same ordered gates and reconcile
@@ -46,7 +51,7 @@ if [[ "$#" -eq 1 && ( "$1" == "-h" || "$1" == "--help" || "$1" == "help" ) ]]; t
   exit 0
 fi
 
-if [[ "$#" -ne 1 || ( "$1" != "plan" && "$1" != "prepare" && "$1" != "bootstrap-mailpit" && "$1" != "bootstrap-postgresql" && "$1" != "bootstrap-rabbitmq" && "$1" != "verify" && "$1" != "reconcile" && "$1" != "cleanup" && "$1" != "purge-registry" ) ]]; then
+if [[ "$#" -ne 1 || ( "$1" != "plan" && "$1" != "prepare" && "$1" != "bootstrap-mailpit" && "$1" != "bootstrap-postgresql" && "$1" != "bootstrap-rabbitmq" && "$1" != "bootstrap-minio" && "$1" != "verify" && "$1" != "reconcile" && "$1" != "cleanup" && "$1" != "purge-registry" ) ]]; then
   usage >&2
   exit 2
 fi
@@ -72,6 +77,7 @@ case "$1" in
   bootstrap-mailpit) exec ruby "${SCRIPT_DIRECTORY}/deploy-local-mailpit.rb" ;;
   bootstrap-postgresql) exec ruby "${SCRIPT_DIRECTORY}/deploy-local-postgresql.rb" ;;
   bootstrap-rabbitmq) exec ruby "${SCRIPT_DIRECTORY}/deploy-local-rabbitmq.rb" ;;
+  bootstrap-minio) exec ruby "${SCRIPT_DIRECTORY}/deploy-local-minio.rb" ;;
   verify) exec ruby "${SCRIPT_DIRECTORY}/deploy-local-verify.rb" ;;
   reconcile) exec ruby "${SCRIPT_DIRECTORY}/deploy-local-reconcile.rb" ;;
 esac

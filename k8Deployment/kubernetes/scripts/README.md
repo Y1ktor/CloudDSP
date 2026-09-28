@@ -13,6 +13,7 @@ its own location and does not depend on the current working directory.
 ./k8Deployment/kubernetes/scripts/deploy-local.sh bootstrap-mailpit
 ./k8Deployment/kubernetes/scripts/deploy-local.sh bootstrap-postgresql
 ./k8Deployment/kubernetes/scripts/deploy-local.sh bootstrap-rabbitmq
+./k8Deployment/kubernetes/scripts/deploy-local.sh bootstrap-minio
 ./k8Deployment/kubernetes/scripts/deploy-local.sh verify
 ./k8Deployment/kubernetes/scripts/deploy-local.sh reconcile
 ./k8Deployment/kubernetes/scripts/deploy-local.sh cleanup
@@ -83,6 +84,18 @@ bound PVC. Each child must succeed before the next starts. This command also
 requires an absent cluster, so it is an alternative clean-cluster trial to
 the Mailpit and PostgreSQL partial commands. The eventual full `bootstrap`
 will run these component stages together in dependency order.
+
+`bootstrap-minio` composes the broker and object-storage slice from an absent
+cluster. It reuses `bootstrap-rabbitmq` for foundation, images, administrator
+Secret, and broker Helm install. It then creates the MinIO root/AMQP and
+upload-intake RabbitMQ runtime Secrets, reconciles and verifies the restricted
+source-intake broker users and topology, and only then installs and verifies
+MinIO. The broker runner manages its temporary bootstrap Secret and removes
+it after successful user verification. A failed stage leaves partial state
+for inspection. This is an alternative partial trial to the other
+`bootstrap-*` commands, not a command to run after them on the same cluster.
+It does not create MinIO buckets, IAM policy/users, or application releases.
+The full root `bootstrap` will compose those remaining stages later.
 
 ## Docker Hub image source and local mirror
 

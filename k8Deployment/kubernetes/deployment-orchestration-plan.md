@@ -523,6 +523,12 @@ external effect disappeared. Therefore:
     them. Root verification checks it before source-intake broker topology.
     Root composition can now order the existing broker bootstrap with this
     credential stage before the MinIO install.
+22. **Broker-to-MinIO root composition implemented.** `bootstrap-minio`
+    starts with the guarded RabbitMQ partial bootstrap, creates the three
+    required runtime Secrets, reconciles and verifies source-intake broker
+    users/topology, then installs and verifies MinIO. It starts only from an
+    absent cluster. A clean-cluster trial, MinIO bucket/IAM creation, and full
+    root composition remain pending.
 
 Each task needs its own review and validation. This document authorizes no
 cluster mutation by itself.

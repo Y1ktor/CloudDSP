@@ -4360,3 +4360,19 @@ broker state. The live runtime Secret passed `verify` and blocked a fresh
 `bootstrap`. Root fresh MinIO composition remains to be implemented.
 The RabbitMQ AMQP publish/consume/acknowledge smoke and all 31 root read-only
 verification gates passed with this new Secret gate in place.
+
+### Root broker-to-MinIO bootstrap slice (2026-09-28)
+
+`kubernetes/scripts/deploy-local.sh bootstrap-minio` now composes the fresh
+RabbitMQ foundation/release bootstrap with guarded MinIO root and AMQP
+credential creation, upload-intake RabbitMQ runtime Secret creation, the
+existing source-intake broker topology/user reconciliation and verification,
+then guarded MinIO Helm installation and PVC/S3 route verification. It stops
+at the first failed child without deleting partial broker state or storage.
+Isolated tests cover the exact order and every failure boundary. This command
+requires an absent cluster; the retained live cluster has not been removed
+for a clean-cluster trial. Buckets, IAM, and remaining application releases
+are outside this partial command and remain for the full root `bootstrap`.
+The live cluster rejected `bootstrap-minio` at the nested foundation plan
+before any Secret, broker, or Helm write. The MinIO S3 create/read/delete
+smoke and all 31 root read-only verification gates passed afterward.
