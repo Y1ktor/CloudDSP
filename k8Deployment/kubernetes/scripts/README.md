@@ -90,13 +90,14 @@ cluster. It reuses `bootstrap-rabbitmq` for foundation, images, administrator
 Secret, and broker Helm install. It then creates the MinIO root/AMQP and
 upload-intake RabbitMQ runtime Secrets, reconciles and verifies the restricted
 source-intake broker users and topology, and only then installs and verifies
-MinIO. It then creates and checks the two initially private MinIO buckets.
+MinIO. It then creates and checks the two initially private MinIO buckets,
+mirrors 461 hash-locked shared MIDI samples, and grants their bucket a narrow
+anonymous browser-read policy.
 The broker runner manages its temporary bootstrap Secret and removes it after
 successful user verification. A failed stage leaves partial state
 for inspection. This is an alternative partial trial to the other
 `bootstrap-*` commands, not a command to run after them on the same cluster.
-It does not mirror shared sample assets, configure IAM policy/users, or
-install application releases.
+It does not configure MinIO IAM policy/users or install application releases.
 The full root `bootstrap` will compose those remaining stages later.
 
 ## Docker Hub image source and local mirror
@@ -461,7 +462,29 @@ creation leaves the first bucket in place for inspection, and a repeat
 bootstrap is refused. `verify` checks this initial boundary without requiring
 sample content or IAM. The existing-cluster reconciler above remains the
 read-only/missing-policy path and never creates buckets. The sample mirror
-must later upload all 461 locked assets before granting anonymous `GetObject`.
+uploads all 461 locked assets before granting anonymous `GetObject` in the
+next stage.
+
+## Fresh shared MIDI sample mirror
+
+```bash
+ruby ./k8Deployment/kubernetes/scripts/minio-fresh-samples-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/minio-fresh-samples-stage.rb bootstrap
+ruby ./k8Deployment/kubernetes/scripts/minio-fresh-samples-stage.rb verify
+```
+
+The root `bootstrap-minio` runs this stage after creating both buckets. The
+fresh mode requires exactly those buckets, no current sample objects, no
+sample policy, and no sample notifications. Its Python mirror reads 461 fixed
+keys and reviewed upstream URLs from the committed lock without local
+frontend dependencies, downloads each file, checks every SHA-256 and size,
+and repeats the empty/private bucket check just before uploading. It grants
+anonymous `GetObject` on shared samples only after upload and inventory verification.
+The final stage verifies the exact locked key/size catalog and public policy.
+A failed mirror can leave some private sample objects in place; inspect them
+before a fresh retry. The mirror needs network access to the reviewed sample
+origins and AWS CLI access to MinIO. The separate catalog inspection mode
+still derives sample names from the pinned frontend package during updates.
 
 The [MinIO chart](../helm/minio/README.md) owns its existing StatefulSet,
 normal and headless Services, and S3 Ingress. Its script checks exact

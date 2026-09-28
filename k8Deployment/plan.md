@@ -4388,5 +4388,20 @@ fill a missing partner on retry. `deploy-local.sh bootstrap-minio` runs this
 stage and its read-only verification after MinIO installation. Isolated tests
 cover the order, pre-existing and partial inventories, missing release, and
 second-bucket failure. The retained live cluster has not been replaced for a
-fresh trial. Shared MIDI sample mirroring, MinIO IAM, and application releases
-still await their own bootstrap stages.
+fresh trial. MinIO IAM and application releases still await their own
+bootstrap stages.
+
+### Fresh shared MIDI sample mirror (2026-09-28)
+
+`kubernetes/scripts/minio-fresh-samples-stage.rb` now follows fresh bucket
+creation in `bootstrap-minio`. It requires the exact two-bucket inventory and
+an empty private sample bucket before calling the existing sample mirror in
+`--fresh-bootstrap` mode. That mode reads reviewed URLs from the committed
+asset lock without requiring local frontend dependencies, then checks the
+same boundary again after downloading and hashing 461 files, just
+before its first upload. The public policy remains absent until the upload
+inventory matches; final verification checks the locked keys/sizes and the
+single anonymous `GetObject` grant. Existing partial objects block a repeat
+fresh mirror for inspection. The retained live cluster has not been replaced
+for the clean-cluster trial. IAM identities and other application stages
+remain pending.

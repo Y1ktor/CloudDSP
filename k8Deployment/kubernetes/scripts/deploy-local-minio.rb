@@ -5,9 +5,10 @@
 # precede the source-intake broker Job, which creates restricted users and
 # topology. Only after that broker state verifies may Helm create MinIO's
 # StatefulSet and generated PVC. Only then can the fresh bucket stage create
-# the private uploads and shared-sample boundaries. A failed child leaves all
-# partial state for inspection; this runner never retries by taking ownership
-# or deleting data.
+# the private uploads and shared-sample boundaries. The shared samples are
+# mirrored and made read-only to browsers only after their checked-in hashes
+# match. A failed child leaves all partial state for inspection; this runner
+# never retries by taking ownership or deleting data.
 require 'rbconfig'
 
 class CloudDSPBootstrapMinio
@@ -22,7 +23,9 @@ class CloudDSPBootstrapMinio
     ['fresh MinIO Helm install', 'minio-release.rb', 'install'],
     ['MinIO Helm, PVC, and S3 route verification', 'minio-release.rb', 'verify'],
     ['fresh MinIO bucket boundaries', 'minio-fresh-buckets-stage.rb', 'bootstrap'],
-    ['MinIO bucket boundary verification', 'minio-fresh-buckets-stage.rb', 'verify']
+    ['MinIO bucket boundary verification', 'minio-fresh-buckets-stage.rb', 'verify'],
+    ['fresh shared MIDI sample mirror', 'minio-fresh-samples-stage.rb', 'bootstrap'],
+    ['shared MIDI sample and browser policy verification', 'minio-fresh-samples-stage.rb', 'verify']
   ].freeze
 
   def initialize(run_command: method(:system), output: $stdout, error: $stderr)
@@ -40,7 +43,7 @@ class CloudDSPBootstrapMinio
       @error.puts "CloudDSP bootstrap-minio stopped at #{label}; inspect that stage before retrying."
       return 1
     end
-    @output.puts 'CloudDSP bootstrap-minio complete: broker, MinIO release, and two private buckets ready; sample assets, IAM, and applications remain pending.'
+    @output.puts 'CloudDSP bootstrap-minio complete: broker, MinIO, and 461 locked shared samples ready; IAM and applications remain pending.'
     0
   end
 end

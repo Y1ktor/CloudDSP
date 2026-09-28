@@ -2,10 +2,11 @@
 """Mirror the exact MIDI playback banks used by the local React frontend.
 
 This is a *bootstrap* command run on the Mac while online, not a runtime
-dependency of the site. It derives the piano sample names from the installed,
-lockfile-pinned smplr package rather than maintaining a second handwritten
-note list. It then verifies every downloaded byte against a checked-in SHA-256
-catalog before uploading anything to a dedicated MinIO bucket.
+dependency of the site. Catalog review derives piano names from the installed,
+lockfile-pinned smplr package. Fresh bootstrap uses the committed catalog so
+the target machine needs no local frontend packages. Both paths verify every
+downloaded byte against the checked-in SHA-256 lock before uploading anything
+to a dedicated MinIO bucket.
 
 Only this bucket receives an anonymous GetObject policy. The private uploads
 bucket, MinIO administrator API, and write permissions are not exposed.
@@ -85,6 +86,52 @@ def catalog() -> dict[str, str]:
     return dict(sorted(assets.items()))
 
 
+def sources_from_lock(lock: dict) -> dict[str, str]:
+    """Use committed assets on a clean machine without frontend node_modules.
+
+    The images and lock are reviewed together. URL construction remains fixed
+    to the three source trees; a lock edit cannot redirect downloads to an
+    unreviewed host or move an object outside its public sample key prefix.
+    """
+    if not isinstance(lock, dict) or lock.get("bucket") != BUCKET or lock.get("asset_count") != 461:
+        raise RuntimeError("Reviewed sample asset lock has a changed bucket or count")
+    assets = lock.get("assets")
+    if not isinstance(assets, dict) or len(assets) != 461:
+        raise RuntimeError("Reviewed sample asset lock has an invalid catalog")
+    sources = {}
+    for key, item in assets.items():
+        if not isinstance(key, str) or not isinstance(item, dict):
+            raise RuntimeError("Reviewed sample asset lock has an invalid entry")
+        if key.startswith("piano/"):
+            name = key.removeprefix("piano/")
+            if not name or "/" in name or not name.endswith((".ogg", ".m4a")):
+                raise RuntimeError("Reviewed piano sample key is invalid")
+            expected_url = f"{PIANO_SOURCE}/{quote(name.rsplit('.', 1)[0])}.{name.rsplit('.', 1)[1]}"
+        elif key.startswith("soundfonts/FluidR3_GM/"):
+            name = key.removeprefix("soundfonts/FluidR3_GM/")
+            if name not in {
+                f"{instrument}-{format_name}.js"
+                for instrument in ("acoustic_bass", "acoustic_guitar_nylon")
+                for format_name in ("ogg", "mp3")
+            }:
+                raise RuntimeError("Reviewed soundfont key is invalid")
+            expected_url = f"{SOUNDFONT_SOURCE}/{name}"
+        elif key.startswith("drums/"):
+            name = key.removeprefix("drums/")
+            if name not in DRUM_FILES:
+                raise RuntimeError("Reviewed drum sample key is invalid")
+            expected_url = f"{DRUM_SOURCE}/{name}"
+        else:
+            raise RuntimeError("Reviewed sample key has an unexpected prefix")
+        if (item.get("source") != expected_url
+                or type(item.get("bytes")) is not int or item["bytes"] <= 0
+                or not isinstance(item.get("sha256"), str) or len(item["sha256"]) != 64
+                or any(char not in "0123456789abcdef" for char in item["sha256"])):
+            raise RuntimeError("Reviewed sample asset metadata is invalid")
+        sources[key] = expected_url
+    return dict(sorted(sources.items()))
+
+
 def download_one(key: str, url: str, directory: Path) -> tuple[str, str, int]:
     # Request the bytes once and retain their SHA-256. Missing/HTML error pages
     # fail closed; otherwise a short GitHub Pages outage could poison the bank.
@@ -132,6 +179,39 @@ def ensure_bucket(env: dict[str, str]) -> None:
         aws(env, "s3api", "create-bucket", "--bucket", BUCKET)
 
 
+def require_fresh_bucket(env: dict[str, str]) -> None:
+    """Keep a fresh bootstrap from filling a partial or previously used server.
+
+    The root command already created both buckets. Check again after the
+    potentially long download, immediately before the first S3 upload, so a
+    changed bucket cannot silently receive a replacement sample catalog.
+    """
+    listing = json.loads(aws(env, "s3api", "list-buckets", "--output", "json"))
+    names = sorted(item["Name"] for item in listing["Buckets"])
+    if names != sorted(("clouddsp-uploads", BUCKET)):
+        raise RuntimeError("Fresh sample mirror requires exactly the two new CloudDSP buckets")
+    aws(env, "s3api", "head-bucket", "--bucket", BUCKET)
+    objects = json.loads(aws(env, "s3api", "list-objects-v2", "--bucket", BUCKET, "--output", "json"))
+    if objects.get("Contents") or objects.get("IsTruncated"):
+        raise RuntimeError("Fresh sample mirror requires an empty sample bucket")
+    try:
+        aws(env, "s3api", "get-bucket-policy", "--bucket", BUCKET)
+    except subprocess.CalledProcessError as exc:
+        if "NoSuchBucketPolicy" not in (exc.stderr or ""):
+            raise RuntimeError("Fresh sample mirror could not verify the private sample policy") from None
+    else:
+        raise RuntimeError("Fresh sample mirror refuses a pre-existing sample policy")
+
+
+def verify_uploaded_inventory(env: dict[str, str], expected: dict[str, int]) -> None:
+    """Require the exact public sample set before allowing anonymous reads."""
+    listing = json.loads(aws(env, "s3api", "list-objects-v2", "--bucket", BUCKET, "--output", "json"))
+    contents = listing.get("Contents", [])
+    uploaded = {item["Key"]: item["Size"] for item in contents}
+    if listing.get("IsTruncated") or len(uploaded) != len(contents) or uploaded != expected:
+        raise RuntimeError("MinIO object listing does not match the exact reviewed sample catalog")
+
+
 def publish_read_only_policy(env: dict[str, str], directory: Path) -> None:
     policy = {
         "Version": "2012-10-17",
@@ -158,17 +238,28 @@ def main() -> int:
         "--catalog-only", action="store_true",
         help="inspect required object count without network access or MinIO writes",
     )
+    parser.add_argument(
+        "--fresh-bootstrap", action="store_true",
+        help="mirror only into two existing buckets with an empty, private sample bucket",
+    )
     args = parser.parse_args()
-    sources = catalog()
-    print(f"Pinned smplr requires {len(sources)} local playback objects", flush=True)
+    if args.fresh_bootstrap and args.record_lock:
+        parser.error("--fresh-bootstrap cannot update the reviewed asset lock")
+    existing_lock = json.loads(LOCK_PATH.read_text()) if LOCK_PATH.exists() else None
+    sources = sources_from_lock(existing_lock) if args.fresh_bootstrap else catalog()
+    catalog_label = "Reviewed sample lock" if args.fresh_bootstrap else "Pinned smplr"
+    print(f"{catalog_label} requires {len(sources)} local playback objects", flush=True)
     if args.catalog_only:
         return 0
 
-    existing_lock = json.loads(LOCK_PATH.read_text()) if LOCK_PATH.exists() else None
     if not args.record_lock and existing_lock is None:
         raise RuntimeError("Sample SHA-256 lock is absent; run with --record-lock after source review")
     if existing_lock and set(existing_lock["assets"]) != set(sources):
         raise RuntimeError("Sample set changed; review smplr update and intentionally refresh the lock")
+
+    env = minio_environment() if args.fresh_bootstrap else None
+    if env is not None:
+        require_fresh_bucket(env)
 
     with tempfile.TemporaryDirectory(prefix="clouddsp-midi-samples-") as temp_name:
         directory = Path(temp_name)
@@ -192,16 +283,16 @@ def main() -> int:
             LOCK_PATH.write_text(json.dumps(lock, indent=2, sort_keys=True) + "\n")
             print(f"Recorded reviewed SHA-256 catalog: {LOCK_PATH}", flush=True)
 
-        env = minio_environment()
-        ensure_bucket(env)
+        env = env or minio_environment()
+        if args.fresh_bootstrap:
+            require_fresh_bucket(env)
+        else:
+            ensure_bucket(env)
         # S3 sync preserves original filenames (including #); the browser's
         # smplr storage adapter percent-encodes # in HTTP URLs when fetching.
         aws(env, "s3", "sync", str(download_directory), f"s3://{BUCKET}/", "--no-progress", "--only-show-errors")
-        listing = json.loads(aws(env, "s3api", "list-objects-v2", "--bucket", BUCKET, "--output", "json"))
-        uploaded = {item["Key"]: item["Size"] for item in listing.get("Contents", [])}
         expected = {key: item["bytes"] for key, item in hashes.items()}
-        if any(uploaded.get(key) != size for key, size in expected.items()):
-            raise RuntimeError("MinIO object listing did not match all expected sample sizes; bucket remains private")
+        verify_uploaded_inventory(env, expected)
         publish_read_only_policy(env, directory)
 
     # The anonymous route must work from an ordinary browser without S3

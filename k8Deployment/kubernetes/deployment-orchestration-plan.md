@@ -446,8 +446,8 @@ external effect disappeared. Therefore:
    [source-intake broker runner](scripts/rabbitmq-source-intake-bootstrap.rb)
    audits its separate topology and restricted MinIO/upload-intake users,
    including credential authentication, before a fresh import. Other service
-   roles, remaining RabbitMQ identities, and MinIO bucket creation/IAM and
-   Keycloak write-capable bootstrap runners still need review before
+   roles, remaining RabbitMQ identities, MinIO IAM, and Keycloak
+   write-capable bootstrap runners still need review before
    one-command `bootstrap` or `reconcile`.
 7. **Root orchestrator and verification — existing-cluster slice implemented.**
    `deploy-local.sh verify` runs preflight, fourteen Helm release verifiers,
@@ -458,8 +458,7 @@ external effect disappeared. Therefore:
    shared-sample policy and source-upload notification stages to their
    idempotent write paths;
    Helm releases remain verify-only, and the first failure stops later stages.
-   Add fresh-cluster MinIO bucket creation, IAM and Keycloak write
-   reconciliation, and the remaining
+   Add MinIO IAM and Keycloak write reconciliation, and the remaining
    bootstrap/release runners before fresh-cluster deployment;
    then test a disposable cluster, repeated reconcile, and the product smoke
    suite.
@@ -533,8 +532,14 @@ external effect disappeared. Therefore:
     runs the absent-only bucket stage after MinIO release verification. The
     stage requires a zero-bucket S3 inventory before creating the private
     uploads and shared-sample buckets. It verifies both endpoints and refuses
-    any partial inventory on repeat. Shared sample mirroring, IAM identities,
-    and the complete root bootstrap are separate tasks.
+    any partial inventory on repeat. IAM identities and the complete root
+    bootstrap are separate tasks.
+24. **Fresh shared-sample mirror stage implemented.** After fresh bucket
+    creation, `bootstrap-minio` mirrors the 461 SHA-256-locked MIDI playback
+    objects and grants only anonymous object reads on their separate bucket.
+    The mirror checks its private empty destination before and after download;
+    partial uploads remain private for inspection. The existing-cluster
+    bucket verifier confirms the final object inventory and policy.
 
 Each task needs its own review and validation. This document authorizes no
 cluster mutation by itself.
