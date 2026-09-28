@@ -405,17 +405,28 @@ absence; `bootstrap` performs a server dry run, creates only the absent
 Secret, then checks its live encoded values without displaying them. Root
 `verify` and existing-cluster `reconcile` use its read-only `verify` mode
 before the MinIO release. The restricted broker user and topology are checked
-by the separate source-intake RabbitMQ runner. A fresh MinIO Helm install and
-bucket/IAM creation remain separate tasks.
+by the separate source-intake RabbitMQ runner. The fresh MinIO Helm install
+is described below; bucket/IAM creation remains a separate task.
 
-## MinIO protected Helm adoption and verification
+## MinIO fresh Helm install, protected adoption, and verification
 
 ```bash
+./k8Deployment/kubernetes/scripts/minio-release.rb install
 ./k8Deployment/kubernetes/scripts/minio-release.rb plan
 ./k8Deployment/kubernetes/scripts/minio-release.rb adopt
 ./k8Deployment/kubernetes/scripts/minio-release.rb verify
 ./k8Deployment/kubernetes/scripts/minio-release.rb smoke
 ```
+
+For a fresh namespace, create both MinIO Secrets with their guarded stages
+before `install`. The release runner requires the release, four chart objects,
+generated PVC, and matching Pod to be absent. It verifies both Secrets before
+an ordinary Helm install, then checks the Ready Pod, bound PVC/PV, locked
+image digest, and S3 health route. A partial install stops future `install`
+attempts for inspection. The protected adoption backup runs only for `adopt`.
+This path has not been trialed on an empty cluster; the existing live cluster
+is retained. Source-intake broker state and MinIO bucket/IAM bootstrap remain
+separate stages.
 
 The [MinIO chart](../helm/minio/README.md) owns its existing StatefulSet,
 normal and headless Services, and S3 Ingress. Its script checks exact

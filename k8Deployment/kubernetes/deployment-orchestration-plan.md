@@ -510,8 +510,13 @@ external effect disappeared. Therefore:
 19. **MinIO AMQP notification credential prerequisite implemented.** The
     absent-only Secret stage validates its broker URL and credential pairing,
     then checks exact live data. Root verification checks it before the MinIO
-    release. Broker user/topology bootstrap and fresh MinIO Helm install are
-    separate steps.
+    release. Broker user/topology bootstrap is separate; the fresh MinIO Helm
+    install is recorded below.
+20. **MinIO fresh Helm install implemented.** The release runner requires the
+    release, four chart resources, generated claim, and matching Pod to be
+    absent. Both Secret gates precede Helm; install waits for a Ready Pod and
+    verifies the bound PVC and S3 route. A clean-cluster trial and root
+    composition remain separate work.
 
 Each task needs its own review and validation. This document authorizes no
 cluster mutation by itself.

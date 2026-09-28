@@ -1,8 +1,9 @@
 #!/usr/bin/env ruby
-# Adopt only the running MinIO StatefulSet, both stable Services, and the S3
-# Ingress. A fresh stopped-volume snapshot and isolated S3 restore test gates
-# Helm ownership; buckets, IAM state, PVC/PV, Secrets, and bootstrap Jobs stay
-# outside the release and are never deleted by this script.
+# Helm owns the MinIO StatefulSet, both stable Services, and the S3 Ingress.
+# Existing-resource adoption requires a stopped-volume snapshot and isolated
+# S3 restore. Fresh creation instead requires an absent release, objects,
+# generated claim, and Pod plus verified root and AMQP Secrets. Buckets, IAM,
+# PVC/PV, Secrets, and bootstrap Jobs remain outside this Helm release.
 require_relative 'stateless-release'
 
 StatelessRelease.new(
@@ -15,6 +16,12 @@ StatelessRelease.new(
   workload_kind: 'StatefulSet',
   pvc_name: 'minio-data-clouddsp-minio-0',
   before_adopt: [StatelessRelease::ROOT.join('scripts', 'minio-backup-and-restore-test.py').to_s],
+  allow_fresh_install: true,
+  before_install: [
+    ['ruby', StatelessRelease::ROOT.join('scripts', 'minio-root-secret-stage.rb').to_s, 'verify'],
+    ['ruby', StatelessRelease::ROOT.join('scripts', 'minio-amqp-secret-stage.rb').to_s, 'verify']
+  ],
+  fresh_install_timeout: '5m',
   verify_running_digest: true,
   health_host: 'minio.localhost',
   health_path: '/minio/health/ready',

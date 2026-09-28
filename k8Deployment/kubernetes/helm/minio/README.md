@@ -36,7 +36,28 @@ ignored source without displaying them. The AMQP stage also checks that its
 URL names the reviewed broker and vhost and decodes to the same restricted
 username and password. The existing source-intake RabbitMQ bootstrap stage
 must create the matching broker user and topology in a fresh deployment. A
-guarded fresh MinIO Helm install remains separate work.
+guarded fresh MinIO Helm install is described below.
+
+## Fresh Helm install
+
+After both credential Secrets exist and before any MinIO release, workload,
+or claim is created, run:
+
+```bash
+./k8Deployment/kubernetes/scripts/minio-release.rb install
+./k8Deployment/kubernetes/scripts/minio-release.rb verify
+./k8Deployment/kubernetes/scripts/minio-release.rb smoke
+```
+
+The install guard requires the Helm release, four chart resources, generated
+PVC, and matching Pod to be absent. It then checks both Secrets without
+displaying their values, performs an ordinary Helm install with a five-minute
+readiness wait, and verifies the bound claim, running image digest, and S3
+health route. It does not run the protected adoption backup or use takeover
+flags. A partial attempt remains for inspection and blocks another `install`.
+The source-intake broker bootstrap and MinIO bucket/IAM setup have separate
+stages. The current live cluster is retained, so an empty-cluster install
+trial remains pending.
 
 ## Protected adoption and checks
 

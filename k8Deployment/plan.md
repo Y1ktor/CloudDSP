@@ -4327,3 +4327,19 @@ install, and bucket/IAM creation remain to be composed.
 
 The MinIO S3 create/read/delete smoke and all 30 root read-only verification
 gates passed with this Secret check in place.
+
+### MinIO fresh Helm install path (2026-09-28)
+
+`kubernetes/scripts/minio-release.rb install` now requires the Helm release,
+four chart resources, generated claim, and matching Pod to be absent. It
+checks the root and AMQP credential Secrets against their ignored sources
+before the Helm write. Ordinary Helm install waits for the single StatefulSet
+Pod; the existing release verifier then checks ownership, source spec,
+Ready Pod, bound PVC/PV, locked running image digest, and S3 health route.
+The fresh path never runs the protected adoption backup or takeover flags.
+Isolated tests cover successful ordering and existing release, object, PVC,
+orphan Pod, and either missing credential gate. The retained live cluster
+correctly blocked `install` on the existing release, so an empty-cluster
+creation trial and root composition remain pending.
+The MinIO S3 create/read/delete smoke and all 30 root read-only verification
+gates passed after enabling this install mode.

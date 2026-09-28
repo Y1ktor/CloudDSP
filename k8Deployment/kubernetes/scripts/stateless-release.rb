@@ -104,10 +104,15 @@ class StatelessRelease
       # failed earlier release. Fresh creation and adoption have different
       # recovery rules, so their preconditions must stay separate.
       check_fresh_install_boundary
-      # A StatefulSet's referenced administrator Secret is installed outside
-      # Helm. Its component-specific read-only gate must pass before the first
-      # Helm write; an absent or changed Secret must never create a broken Pod.
-      command(*@before_install) if @before_install
+      # StatefulSet Secrets are installed outside Helm. Each component's
+      # read-only prerequisite gate must pass before the first Helm write;
+      # MinIO has both root and AMQP Secrets, while earlier callers have one.
+      # Preserve the one-command form for those callers and accept an ordered
+      # list of command arrays when a component has several prerequisites.
+      if @before_install
+        prerequisites = @before_install.first.is_a?(Array) ? @before_install : [@before_install]
+        prerequisites.each { |arguments| command(*arguments) }
+      end
       puts "Installing fresh #{@component} Helm release..."
       @fresh_install_started = true
       output = command('helm', 'install', @release, @chart.to_s,
