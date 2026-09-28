@@ -24,6 +24,7 @@ readonly CLUSTER_CONFIG="${KUBERNETES_DIRECTORY}/cluster/k3d.yaml"
 # kubectl context.
 readonly CLUSTER_NAME="clouddsp-local"
 readonly KUBECTL_CONTEXT="k3d-${CLUSTER_NAME}"
+readonly REGISTRY_NAME="clouddsp-registry.localhost"
 
 usage() {
   cat <<'USAGE'
@@ -49,6 +50,7 @@ require_prerequisites() {
   require_command docker
   require_command k3d
   require_command kubectl
+  require_command ruby
 
   # k3d creates K3s server/agent containers through Docker.  Checking the
   # daemon before creation distinguishes a stopped Docker Desktop instance
@@ -70,6 +72,35 @@ cluster_exists() {
   # as `clouddsp-local-test` is never treated as this project cluster.
   k3d cluster list "${CLUSTER_NAME}" --no-headers | awk -v name="${CLUSTER_NAME}" '$1 == name { found = 1 } END { exit !found }'
 }
+
+registry_exists() {
+  # The registry is independent of the cluster after normal cleanup. Match
+  # only this project's exact name when deciding whether to attach or create.
+  k3d registry list "${REGISTRY_NAME}" --no-headers |
+    awk -v name="${REGISTRY_NAME}" '$1 == name { found = 1 } END { exit !found }'
+}
+
+create_with_retained_registry() (
+  # k3d's checked-in config creates a registry on a completely clean machine.
+  # For a second cluster, generate a temporary copy replacing only that
+  # registry action with `use`. This keeps the reviewed node, port, and label
+  # settings identical while attaching the surviving image registry.
+  local temporary_config
+  temporary_config="$(mktemp "${TMPDIR:-/tmp}/clouddsp-k3d.XXXXXXXX")"
+  trap 'rm -f -- "${temporary_config}"' EXIT
+
+  ruby -ryaml -e '
+    config = YAML.load_file(ARGV.fetch(0))
+    registry = config.fetch("registries")
+    expected = {"name" => "clouddsp-registry.localhost", "host" => "127.0.0.1", "hostPort" => "5001"}
+    abort "Reviewed registry configuration changed" unless registry.fetch("create") == expected
+    registry.delete("create")
+    registry["use"] = ["clouddsp-registry.localhost:5001"]
+    File.write(ARGV.fetch(1), YAML.dump(config))
+  ' "${CLUSTER_CONFIG}" "${temporary_config}"
+
+  k3d cluster create --config "${temporary_config}"
+)
 
 show_status() {
   if ! cluster_exists; then
@@ -108,10 +139,14 @@ main() {
         # later tasks.
         printf 'Cluster %q already exists; leaving it unchanged.\n' "${CLUSTER_NAME}"
       else
-        # The config contains the version, topology, ingress port mappings, and
-        # local registry definition.  Keeping them there avoids hidden CLI
-        # flags and ensures manual and scripted creation use the same cluster.
-        k3d cluster create --config "${CLUSTER_CONFIG}"
+        # A first install lets the versioned config create the registry. After
+        # ordinary cleanup, reuse its surviving Docker container so every
+        # pinned image remains available to the replacement K3s nodes.
+        if registry_exists; then
+          create_with_retained_registry
+        else
+          k3d cluster create --config "${CLUSTER_CONFIG}"
+        fi
       fi
       show_status
       ;;

@@ -12,6 +12,7 @@ its own location and does not depend on the current working directory.
 ./k8Deployment/kubernetes/scripts/deploy-local.sh verify
 ./k8Deployment/kubernetes/scripts/deploy-local.sh reconcile
 ./k8Deployment/kubernetes/scripts/deploy-local.sh cleanup
+./k8Deployment/kubernetes/scripts/deploy-local.sh purge-registry
 ```
 
 The `plan` mode is the first stage of the
@@ -34,13 +35,14 @@ ruby ./k8Deployment/kubernetes/scripts/deploy-local-foundation.rb verify
 ```
 
 This standalone first stage validates the pinned k3d topology and three
-versioned Namespace definitions. `plan` succeeds only when both the target
-cluster and its local registry are absent. `bootstrap` uses the existing
+versioned Namespace definitions. `plan` succeeds when the target cluster is
+absent and either a healthy retained registry exists or a new one can be
+created. `bootstrap` uses the existing
 `cluster.sh create` command, waits for all nodes to become Ready, then creates
 the namespaces after a Kubernetes server dry run. It verifies the exact node
 roles, registry endpoint, namespace labels, and packaged CoreDNS, Traefik,
-and local-path provisioner Deployments. An existing cluster or orphan registry
-stops before mutation; a failure after cluster creation leaves that cluster
+and local-path provisioner Deployments. An existing cluster stops before
+mutation; a failure after cluster creation leaves that cluster
 for explicit inspection rather than deleting it. On the current deployed
 cluster, `verify` passes and `plan` correctly refuses fresh creation.
 
@@ -910,15 +912,30 @@ kubectl --context k3d-clouddsp-local delete \
 ./k8Deployment/kubernetes/scripts/deploy-local.sh cleanup
 ```
 
-This is destructive. It removes exactly the `clouddsp-local` k3d cluster and
-the `clouddsp-registry.localhost` image registry. It also destroys workloads,
-the K3s node containers, and any future PVC-backed local development data or
-images stored in that dedicated registry. It does not use `--all` and does not
-delete other k3d clusters, Docker containers, images, networks, or registries.
-It delegates to `cleanup-cluster.sh --confirm`. Running it again when the
-cluster and registry are absent succeeds without creating or deleting anything.
-Ignored local configuration files stay on disk; they are inputs, not cluster
-resources.
+This removes exactly the `clouddsp-local` k3d cluster, its workloads, node
+containers, and PVC-backed local data. It retains the separate
+`clouddsp-registry.localhost` container and its images for the next cluster.
+`cluster.sh create` attaches that registry to the replacement cluster; on a
+clean machine it creates the registry from the checked-in k3d configuration.
+Before deleting the current k3d cluster, cleanup connects its registry to the
+fixed `clouddsp-registry-hold` Docker network. k3d then disconnects its own
+cluster network and keeps the registry; the separate purge removes that hold
+network after deleting the registry.
+The command delegates to `cleanup-cluster.sh --confirm` and succeeds if the
+cluster is already absent. Ignored host configuration files also remain.
+
+To remove the dedicated registry and every image stored only there, first
+clean up the cluster, then run the separate command:
+
+```bash
+./k8Deployment/kubernetes/scripts/deploy-local.sh purge-registry
+```
+
+`purge-registry` refuses to run while the CloudDSP cluster exists and succeeds
+if the registry is already absent. No command removes unrelated Docker
+resources. Until the Docker Hub image source and digest checks are implemented,
+do not purge the existing registry: some locked image revisions have no complete
+rebuild path in the current scripts.
 
 Use `--help` with any script to print its supported command form without
 changing local resources:
@@ -926,6 +943,7 @@ changing local resources:
 ```bash
 ./k8Deployment/kubernetes/scripts/cluster.sh --help
 ./k8Deployment/kubernetes/scripts/cleanup-cluster.sh --help
+./k8Deployment/kubernetes/scripts/purge-registry.sh --help
 ./k8Deployment/kubernetes/scripts/verify-registry.sh --help
 ./k8Deployment/kubernetes/scripts/verify-http-routing.sh --help
 ```

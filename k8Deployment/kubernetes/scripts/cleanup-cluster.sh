@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
-# This script removes only the local resources created for the CloudDSP k3d
-# profile.  It is deliberately separate from cluster.sh: creation/status is a
-# routine operation, whereas cleanup destroys the Kubernetes nodes, workloads,
-# local PersistentVolumeClaim data, and locally pushed CloudDSP images.
+# This script removes only the CloudDSP k3d cluster. The dedicated registry is
+# retained so a new cluster can pull the same digest-pinned images. Use the
+# separate purge-registry.sh only when its stored images should also be erased.
 
 # Exit on a failed command, on an unset variable, and on a failed command in a
 # pipeline.  Cleanup must stop and report an error rather than quietly leaving
-# an ambiguous mixture of old cluster and registry resources behind.
+# an ambiguous mixture of old cluster resources behind.
 set -euo pipefail
 
 # These names must match the k3d cluster configuration.  They are fixed
@@ -14,14 +13,15 @@ set -euo pipefail
 # unrelated k3d cluster or local registry owned by another project.
 readonly CLUSTER_NAME="clouddsp-local"
 readonly REGISTRY_NAME="clouddsp-registry.localhost"
+readonly RETENTION_NETWORK="clouddsp-registry-hold"
+readonly RETENTION_OWNER="registry-hold"
 
 usage() {
   cat <<'USAGE'
 Usage: ./k8Deployment/kubernetes/scripts/cleanup-cluster.sh --confirm
 
-Deletes only the CloudDSP local k3d cluster and its dedicated local registry.
-This removes cluster workloads, PVC-backed development data, and images stored
-in clouddsp-registry.localhost. It does not delete unrelated Docker resources.
+Deletes only the CloudDSP local k3d cluster and its Kubernetes resources,
+including PVC-backed development data. The dedicated image registry remains.
 USAGE
 }
 
@@ -55,10 +55,37 @@ cluster_exists() {
 }
 
 registry_exists() {
-  # The registry is a separate Docker container managed by k3d.  Deleting a
-  # cluster does not serve as a safe assumption that an explicitly named
-  # registry was removed, so the script checks and deletes this exact one.
-  k3d registry list "${REGISTRY_NAME}" --no-headers | awk -v name="${REGISTRY_NAME}" '$1 == name { found = 1 } END { exit !found }'
+  local listing
+  listing="$(k3d registry list "${REGISTRY_NAME}" --no-headers)" || {
+    printf 'Could not inspect the CloudDSP registry; cleanup stopped.\n' >&2
+    exit 1
+  }
+  printf '%s\n' "${listing}" |
+    awk -v name="${REGISTRY_NAME}" '$1 == name { found = 1 } END { exit !found }'
+}
+
+ensure_registry_retention() {
+  # k3d v5.9 deletes a registry connected only to its cluster network and
+  # Docker's default bridge when deleting that cluster. A second, dedicated
+  # network tells k3d that this registry has an independent lifecycle. k3d
+  # disconnects the old cluster network while leaving the registry running.
+  if ! docker network inspect "${RETENTION_NETWORK}" >/dev/null 2>&1; then
+    docker network create --driver bridge \
+      --label "clouddsp.io/owner=${RETENTION_OWNER}" \
+      "${RETENTION_NETWORK}" >/dev/null
+  fi
+  local owner
+  owner="$(docker network inspect "${RETENTION_NETWORK}" \
+    --format '{{index .Labels "clouddsp.io/owner"}}')"
+  if [[ "${owner}" != "${RETENTION_OWNER}" ]]; then
+    printf 'Registry retention network exists but is not owned by CloudDSP.\n' >&2
+    exit 1
+  fi
+  if ! docker network inspect "${RETENTION_NETWORK}" \
+    --format '{{range .Containers}}{{.Name}}{{"\n"}}{{end}}' |
+    awk -v name="${REGISTRY_NAME}" '$1 == name { found = 1 } END { exit !found }'; then
+    docker network connect "${RETENTION_NETWORK}" "${REGISTRY_NAME}"
+  fi
 }
 
 main() {
@@ -77,37 +104,36 @@ main() {
 
   require_prerequisites
 
-  if ! cluster_exists && ! registry_exists; then
-    printf 'CloudDSP local cluster and registry are already absent; no changes made.\n'
+  if ! cluster_exists; then
+    printf 'CloudDSP local cluster is already absent; registry left unchanged.\n'
     exit 0
   fi
 
-  printf 'Deleting CloudDSP cluster %q and registry %q.\n' "${CLUSTER_NAME}" "${REGISTRY_NAME}"
+  printf 'Deleting CloudDSP cluster %q; registry remains available.\n' "${CLUSTER_NAME}"
 
-  if cluster_exists; then
-    # k3d removes the K3s server/agent containers, their Docker network, and
-    # storage held inside the disposable local nodes.  Kubernetes PVCs backed
-    # by the K3s local-path provisioner are therefore not recoverable after
-    # this operation unless a separate backup task exported their data first.
-    k3d cluster delete "${CLUSTER_NAME}"
-  fi
-
+  local retained_registry=0
   if registry_exists; then
-    # The registry stores locally built images separately from the cluster's
-    # Kubernetes objects.  Delete it only after the cluster so no running Pod
-    # depends on an image service that is about to disappear.
-    k3d registry delete "${REGISTRY_NAME}"
+    ensure_registry_retention
+    retained_registry=1
   fi
+
+  # k3d removes K3s nodes, their network, and local-path PVC data. The
+  # retention network above prevents k3d from deleting the image registry.
+  k3d cluster delete "${CLUSTER_NAME}"
 
   # Confirm the exact targets are gone.  This is a postcondition check, not a
   # broad Docker cleanup; unrelated images, containers, networks, and clusters
   # remain outside this script's authority.
-  if cluster_exists || registry_exists; then
-    printf 'Cleanup did not finish: CloudDSP cluster or registry still exists.\n' >&2
+  if cluster_exists; then
+    printf 'Cleanup did not finish: CloudDSP cluster still exists.\n' >&2
+    exit 1
+  fi
+  if [[ "${retained_registry}" -eq 1 ]] && ! registry_exists; then
+    printf 'Cleanup removed the registry unexpectedly; image retention failed.\n' >&2
     exit 1
   fi
 
-  printf 'CloudDSP local cluster and registry cleanup completed.\n'
+  printf 'CloudDSP local cluster cleanup completed; registry retained.\n'
 }
 
 main "$@"

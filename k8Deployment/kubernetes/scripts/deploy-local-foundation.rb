@@ -44,13 +44,14 @@ class CloudDSPFoundation
       return 0
     end
 
-    # k3d cluster and registry are separate Docker resources. A leftover of
-    # either means this is not a clean fresh-cluster attempt; inspection is
-    # safer than treating the other half as a new installation.
+    # A fresh cluster may attach to the registry retained by normal cleanup.
+    # Existing Kubernetes nodes still stop bootstrap, because their resources
+    # need the reviewed reconcile path rather than a second cluster creation.
     ensure_true(!cluster_exists?, 'target k3d cluster already exists; use verify or existing-cluster reconcile')
-    ensure_true(!registry_exists?, 'target k3d registry already exists without the cluster')
+    retained_registry = registry_exists?
+    command('retained registry HTTP readiness', 'curl', '--fail', '--silent', '--show-error', REGISTRY_URL) if retained_registry
     if mode == 'plan'
-      @output.puts 'CloudDSP foundation plan: target cluster and registry absent; fresh creation eligible'
+      @output.puts "CloudDSP foundation plan: target cluster absent; #{retained_registry ? 'retained registry reusable' : 'new registry required'}"
       return 0
     end
 

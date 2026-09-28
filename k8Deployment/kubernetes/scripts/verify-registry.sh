@@ -7,7 +7,7 @@
 # creates the versioned registry-smoke Job, then prints the Job's Pod events
 # and logs.  The completed Job and Pod remain visible until Kubernetes's
 # five-minute TTL cleanup. The pushed test image also remains in the dedicated
-# local registry; cleanup-cluster.sh removes the whole registry when desired.
+# local registry; the explicit purge-registry.sh removes it when desired.
 
 # Exit on command errors, unset variables, and failures inside pipelines so a
 # failed push, pull, or Job cannot be reported as a successful verification.

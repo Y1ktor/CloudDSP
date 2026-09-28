@@ -4143,3 +4143,26 @@ passed the read-only verifier; a fresh `plan` correctly refused it. The
 Namespace manifest passed Kubernetes server dry-run validation. This stage
 does not install KEDA, images, Secrets, Helm releases, or external bootstrap;
 root `deploy-local.sh bootstrap` remains pending those later stages.
+
+### Registry lifecycle separated from cluster cleanup (2026-09-28)
+
+Normal `deploy-local.sh cleanup` now removes only the fixed CloudDSP k3d
+cluster, its workloads, and local PVC data. It retains the dedicated image
+registry by connecting it to the owned `clouddsp-registry-hold` network before
+k3d deletion (k3d v5.9 otherwise deletes a registry connected only to the
+cluster and Docker's default network). A separate
+`deploy-local.sh purge-registry` refuses an active cluster
+and removes that exact registry and its hold network after cluster cleanup. `cluster.sh create`
+uses the checked-in registry-create configuration on a clean machine; when the
+registry remains from an earlier cluster, it generates a temporary equivalent
+configuration with `registries.use` and attaches it to the new nodes. The
+standalone foundation stage accepts either fresh creation or healthy registry
+reuse. Isolated tests cover the two cluster creation paths, normal cleanup,
+registry purge, and the active-cluster guard. The existing live cluster was
+not deleted to test these destructive paths.
+
+The next image-availability stage will publish the reviewed CloudDSP images to
+the public `y1ktor/clouddsp` Docker Hub repository and repopulate an empty
+local registry from those published digests before Helm installs workloads.
+The image bytes are not yet in Docker Hub, so the registry must not be purged
+until publishing and a clean-machine pull trial succeed.

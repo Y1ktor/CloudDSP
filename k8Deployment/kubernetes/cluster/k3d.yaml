@@ -50,8 +50,11 @@ ports:
 
 registries:
   create:
-    # k3d creates a Docker Registry container alongside the cluster and
-    # configures K3s/containerd to pull from it.  `.localhost` is reserved for
+    # On the first creation, k3d creates this Docker Registry container beside
+    # the cluster and configures K3s/containerd to pull from it. A replacement
+    # cluster uses the same reviewed config with this `create` action converted
+    # temporarily to `use`, retaining all existing image content. `.localhost`
+    # is reserved for
     # the loopback address, so image build/push commands on this Mac can use a
     # stable name such as `clouddsp-registry.localhost:5001/frontend:dev`.
     name: clouddsp-registry.localhost

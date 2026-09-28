@@ -115,15 +115,21 @@ class DeployLocalFoundationTest < Minitest::Test
     assert_equal 0, foundation(commands).run('verify')
   end
 
-  def test_existing_cluster_or_orphan_registry_stops_before_mutation
+  def test_existing_cluster_stops_before_mutation
     existing = FakeCommands.new(cluster: true, registry: true, namespaces: true)
-    orphan = FakeCommands.new(registry: true)
 
     assert_equal 1, foundation(existing).run('bootstrap')
-    assert_equal 1, foundation(orphan).run('bootstrap')
-    [existing, orphan].each do |commands|
-      refute commands.calls.any? { |argv| argv.first.end_with?('/cluster.sh') || argv.include?('create') }
-    end
+    refute existing.calls.any? { |argv| argv.first.end_with?('/cluster.sh') || argv.include?('create') }
+  end
+
+  def test_retained_registry_is_reused_for_fresh_cluster
+    commands = FakeCommands.new(registry: true)
+
+    assert_equal 0, foundation(commands).run('plan')
+    assert_equal 0, foundation(commands).run('bootstrap')
+    assert commands.calls.any? { |argv| argv.first.end_with?('/cluster.sh') && argv.last == 'create' }
+    assert commands.cluster
+    assert commands.registry
   end
 
   def test_partial_namespace_failure_remains_for_explicit_inspection

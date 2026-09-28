@@ -204,8 +204,8 @@ failure.
 | Stage | Action | Completion gate |
 | --- | --- | --- |
 | 0. Preflight | Confirm Docker/k3d/kubectl/Helm, explicit context, cluster identity when present, chart locks, reviewed image digests/build inputs, and required ignored Secret files. Inventory existing Helm and Kubernetes ownership when a cluster exists. | Inputs are valid; no unexpected ownership or immutable-field change on an existing cluster. Print a redacted plan before mutation. |
-| 1. Cluster foundation | For a fresh install only, call `cluster.sh create`. Apply versioned namespaces. Leave existing k3d cluster and PVCs intact on reconcile. | Nodes Ready; project namespaces Active; local registry reachable. |
-| 1a. Image availability | After the registry exists, verify every required pinned image digest can be pulled by the cluster. If a fresh registry is empty, run the existing versioned build/push procedure for locally built images and verify the resulting digests against the reviewed lock; stop on a mismatch. | Each required image is present at the reviewed digest before its workload is installed. The script never rewrites the lock automatically. |
+| 1. Cluster foundation | For a fresh install only, call `cluster.sh create`. Create the dedicated registry on a clean machine or attach a healthy retained registry after normal cluster cleanup. Apply versioned namespaces. | Nodes Ready; project namespaces Active; local registry reachable. |
+| 1a. Image availability | Verify every required pinned image digest in the local registry. When absent, fetch the published CloudDSP image from the public `y1ktor/clouddsp` Docker Hub repository, copy it to the local registry, and verify the resulting immutable digest before installation. Stop on missing or mismatched images; never rewrite the lock automatically. | Each required local image is available at its reviewed digest before its workload is installed. |
 | 2. Data services | Reconcile PostgreSQL, RabbitMQ, and MinIO independently. | StatefulSets Ready; PVCs Bound; service-level health checks pass. A StatefulSet being Ready alone is insufficient to prove its bootstrap state. |
 | 3. Data bootstrap | Create/verify databases and least-privilege roles; apply PostgreSQL migrations in numeric order; import RabbitMQ topology and identities; create/verify MinIO buckets, policies, and source notification. | Durable schema migration ledger and service-specific verification match the versioned inputs. Temporary bootstrap credentials are removed only after successful verification. |
 | 4. Identity and local email | Reconcile Mailpit, then Keycloak after its database exists. Run versioned realm/client/audience/SMTP configuration steps. | Mailpit and Keycloak Ready; OIDC discovery, realm/client settings, and local SMTP routing verified. |
@@ -216,8 +216,8 @@ failure.
 
 The standalone [fresh-cluster foundation stage](scripts/deploy-local-foundation.rb)
 now implements stage 1's cluster and namespace creation guard. It requires the
-target k3d cluster and registry to be absent, invokes the pinned `cluster.sh`
-topology, creates the three versioned namespaces, and verifies nodes, registry,
+target k3d cluster to be absent, creates or reuses the dedicated registry,
+creates the three versioned namespaces, and verifies nodes, registry,
 and packaged system controllers. It is not yet the root `bootstrap` command;
 image availability, releases, and external-state stages still need fresh-path
 orchestration.
@@ -265,10 +265,13 @@ this small, explicit interface:
   or an existing fixed-name Job has an ambiguous result.
 - `verify`: read-only health and release report plus explicit, separately
   selected smoke checks that may create test jobs or test data.
-- `cleanup`: delete the fixed CloudDSP k3d cluster and its dedicated registry.
-  This removes the project's Kubernetes resources, PVC-backed local data, and
-  registry images. The command succeeds when both targets are already absent;
-  ignored host configuration remains available for the next fresh deploy.
+- `cleanup`: delete the fixed CloudDSP k3d cluster and its Kubernetes resources,
+  including PVC-backed local data. Keep the dedicated registry and its images
+  for the next fresh cluster by connecting it to a fixed, owned Docker hold
+  network before k3d deletes the cluster. The command succeeds when the
+  cluster is absent.
+- `purge-registry`: separately remove the dedicated registry and its images,
+  only after the target cluster is absent. Remove its hold network too.
 
 Every cluster command must pass `--context k3d-clouddsp-local` or Helm's
 equivalent. Output should identify stage, release, namespace, pinned image,
@@ -346,8 +349,9 @@ external effect disappeared. Therefore:
   PostgreSQL backup plus a recovery method for MinIO objects and RabbitMQ
   state. Local-path PVCs are development storage, not a backup mechanism.
 - `plan`, `bootstrap`, `reconcile`, and `verify` must not delete releases,
-  namespaces, PVCs, or the cluster. Only the explicit `cleanup` mode deletes
-  the fixed local cluster and registry; credential rotation remains separate.
+  namespaces, PVCs, or the cluster. Only explicit `cleanup` deletes the fixed
+  local cluster; `purge-registry` deletes the image registry separately.
+  Credential rotation remains separate.
 - Treat Kubernetes resource rollback and external data rollback separately.
   Schema changes should be forward-compatible with the previous application
   release whenever practical.
@@ -410,7 +414,8 @@ external effect disappeared. Therefore:
    suite.
 8. **Fresh-cluster foundation — standalone stage implemented.** The
    [foundation runner](scripts/deploy-local-foundation.rb) strictly refuses an
-   existing cluster or orphan registry, creates the reviewed k3d topology and
+   existing cluster, creates the reviewed k3d topology with a new or retained
+   registry, and creates the
    project namespaces, and verifies three Ready nodes, registry access, and
    packaged controllers. The creation branch is covered by an isolated runner;
    the current cluster passed read-only verification and correctly blocked a

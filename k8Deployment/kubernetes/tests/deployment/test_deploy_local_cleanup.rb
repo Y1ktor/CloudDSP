@@ -10,7 +10,34 @@ class DeployLocalCleanupTest < Minitest::Test
       # The fake tools model only the fixed targets. Any different k3d or
       # Docker operation fails, so the test catches a widened deletion scope.
       docker = File.join(directory, 'docker')
-      File.write(docker, "#!/bin/sh\n[ \"$1\" = info ] || exit 9\n")
+      File.write(docker, <<~'SCRIPT')
+        #!/bin/sh
+        set -eu
+        case "$1 ${2:-}" in
+          'info ') ;;
+          'network inspect')
+            [ "$3" = clouddsp-registry-hold ] || exit 9
+            [ -f "$FAKE_HOLD" ] || exit 1
+            case "${5:-}" in
+              *Labels*) printf 'registry-hold\n' ;;
+              *Containers*)
+                if [ -f "$FAKE_CONNECTED" ]; then printf 'clouddsp-registry.localhost\n'; fi ;;
+            esac ;;
+          'network create')
+            [ "$7" = clouddsp-registry-hold ] || exit 9
+            touch "$FAKE_HOLD"
+            printf 'network-create\n' >> "$FAKE_CALLS" ;;
+          'network connect')
+            [ "$3 $4" = 'clouddsp-registry-hold clouddsp-registry.localhost' ] || exit 9
+            touch "$FAKE_CONNECTED"
+            printf 'network-connect\n' >> "$FAKE_CALLS" ;;
+          'network rm')
+            [ "$3" = clouddsp-registry-hold ] || exit 9
+            rm -- "$FAKE_HOLD" "$FAKE_CONNECTED"
+            printf 'network-remove\n' >> "$FAKE_CALLS" ;;
+          *) exit 9 ;;
+        esac
+      SCRIPT
       File.chmod(0o755, docker)
 
       k3d = File.join(directory, 'k3d')
@@ -28,7 +55,10 @@ class DeployLocalCleanupTest < Minitest::Test
             fi ;;
           'cluster delete clouddsp-local')
             printf 'cluster\n' >> "$FAKE_CALLS"
-            rm -- "$FAKE_CLUSTER" ;;
+            rm -- "$FAKE_CLUSTER"
+            # Model k3d v5.9: a registry on only the cluster/default networks
+            # is deleted as part of cluster deletion.
+            if [ ! -f "$FAKE_CONNECTED" ]; then rm -f -- "$FAKE_REGISTRY"; fi ;;
           'registry delete clouddsp-registry.localhost')
             printf 'registry\n' >> "$FAKE_CALLS"
             rm -- "$FAKE_REGISTRY" ;;
@@ -41,13 +71,15 @@ class DeployLocalCleanupTest < Minitest::Test
         'PATH' => "#{directory}:#{ENV.fetch('PATH')}",
         'FAKE_CLUSTER' => File.join(directory, 'cluster-present'),
         'FAKE_REGISTRY' => File.join(directory, 'registry-present'),
+        'FAKE_HOLD' => File.join(directory, 'retention-network-present'),
+        'FAKE_CONNECTED' => File.join(directory, 'registry-connected'),
         'FAKE_CALLS' => File.join(directory, 'calls')
       }
       yield environment
     end
   end
 
-  def test_root_cleanup_deletes_only_cluster_then_registry
+  def test_root_cleanup_deletes_cluster_and_retains_registry
     with_fake_k3d do |environment|
       File.write(environment.fetch('FAKE_CLUSTER'), '')
       File.write(environment.fetch('FAKE_REGISTRY'), '')
@@ -56,19 +88,50 @@ class DeployLocalCleanupTest < Minitest::Test
 
       assert status.success?, error
       assert_includes output, 'cleanup completed'
-      assert_equal %w[cluster registry], File.readlines(environment.fetch('FAKE_CALLS'), chomp: true)
+      assert_equal %w[network-create network-connect cluster], File.readlines(environment.fetch('FAKE_CALLS'), chomp: true)
       refute File.exist?(environment.fetch('FAKE_CLUSTER'))
-      refute File.exist?(environment.fetch('FAKE_REGISTRY'))
+      assert File.exist?(environment.fetch('FAKE_REGISTRY'))
+      assert File.exist?(environment.fetch('FAKE_HOLD'))
     end
   end
 
-  def test_root_cleanup_is_successful_when_both_targets_are_absent
+  def test_root_cleanup_is_successful_when_cluster_is_absent
     with_fake_k3d do |environment|
       output, error, status = Open3.capture3(environment, ENTRYPOINT, 'cleanup')
 
       assert status.success?, error
       assert_includes output, 'already absent'
       refute File.exist?(environment.fetch('FAKE_CALLS'))
+    end
+  end
+
+  def test_registry_purge_refuses_an_active_cluster
+    with_fake_k3d do |environment|
+      File.write(environment.fetch('FAKE_CLUSTER'), '')
+      File.write(environment.fetch('FAKE_REGISTRY'), '')
+
+      _output, error, status = Open3.capture3(environment, ENTRYPOINT, 'purge-registry')
+
+      refute status.success?
+      assert_includes error, 'cluster still exists'
+      assert File.exist?(environment.fetch('FAKE_REGISTRY'))
+      refute File.exist?(environment.fetch('FAKE_CALLS'))
+    end
+  end
+
+  def test_registry_purge_deletes_only_the_fixed_registry_after_cleanup
+    with_fake_k3d do |environment|
+      File.write(environment.fetch('FAKE_REGISTRY'), '')
+      File.write(environment.fetch('FAKE_HOLD'), '')
+      File.write(environment.fetch('FAKE_CONNECTED'), '')
+
+      output, error, status = Open3.capture3(environment, ENTRYPOINT, 'purge-registry')
+
+      assert status.success?, error
+      assert_includes output, 'purge completed'
+      assert_equal %w[registry network-remove], File.readlines(environment.fetch('FAKE_CALLS'), chomp: true)
+      refute File.exist?(environment.fetch('FAKE_REGISTRY'))
+      refute File.exist?(environment.fetch('FAKE_HOLD'))
     end
   end
 end
