@@ -4,8 +4,10 @@
 # MinIO's root and AMQP Secrets plus the upload-intake runtime Secret must
 # precede the source-intake broker Job, which creates restricted users and
 # topology. Only after that broker state verifies may Helm create MinIO's
-# StatefulSet and generated PVC. A failed child leaves all partial state for
-# inspection; this runner never retries by taking ownership or deleting data.
+# StatefulSet and generated PVC. Only then can the fresh bucket stage create
+# the private uploads and shared-sample boundaries. A failed child leaves all
+# partial state for inspection; this runner never retries by taking ownership
+# or deleting data.
 require 'rbconfig'
 
 class CloudDSPBootstrapMinio
@@ -18,7 +20,9 @@ class CloudDSPBootstrapMinio
     ['RabbitMQ source-intake topology and restricted users', 'rabbitmq-source-intake-bootstrap.rb', 'reconcile'],
     ['RabbitMQ source-intake verification', 'rabbitmq-source-intake-bootstrap.rb', 'verify'],
     ['fresh MinIO Helm install', 'minio-release.rb', 'install'],
-    ['MinIO Helm, PVC, and S3 route verification', 'minio-release.rb', 'verify']
+    ['MinIO Helm, PVC, and S3 route verification', 'minio-release.rb', 'verify'],
+    ['fresh MinIO bucket boundaries', 'minio-fresh-buckets-stage.rb', 'bootstrap'],
+    ['MinIO bucket boundary verification', 'minio-fresh-buckets-stage.rb', 'verify']
   ].freeze
 
   def initialize(run_command: method(:system), output: $stdout, error: $stderr)
@@ -36,7 +40,7 @@ class CloudDSPBootstrapMinio
       @error.puts "CloudDSP bootstrap-minio stopped at #{label}; inspect that stage before retrying."
       return 1
     end
-    @output.puts 'CloudDSP bootstrap-minio complete: broker source-intake state and MinIO release ready; remaining application and bucket/IAM stages are pending.'
+    @output.puts 'CloudDSP bootstrap-minio complete: broker, MinIO release, and two private buckets ready; sample assets, IAM, and applications remain pending.'
     0
   end
 end

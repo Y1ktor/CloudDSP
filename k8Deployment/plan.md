@@ -4376,3 +4376,17 @@ are outside this partial command and remain for the full root `bootstrap`.
 The live cluster rejected `bootstrap-minio` at the nested foundation plan
 before any Secret, broker, or Helm write. The MinIO S3 create/read/delete
 smoke and all 31 root read-only verification gates passed afterward.
+
+### Fresh MinIO bucket boundary bootstrap (2026-09-28)
+
+`kubernetes/scripts/minio-fresh-buckets-stage.rb` now creates the two named
+MinIO buckets after the fresh Helm release verifies. It first requires an
+empty bucket listing, then creates private `clouddsp-uploads` and
+`clouddsp-midi-samples` and checks both bucket endpoints and policy
+boundaries. A partial creation is left for inspection; the stage will not
+fill a missing partner on retry. `deploy-local.sh bootstrap-minio` runs this
+stage and its read-only verification after MinIO installation. Isolated tests
+cover the order, pre-existing and partial inventories, missing release, and
+second-bucket failure. The retained live cluster has not been replaced for a
+fresh trial. Shared MIDI sample mirroring, MinIO IAM, and application releases
+still await their own bootstrap stages.

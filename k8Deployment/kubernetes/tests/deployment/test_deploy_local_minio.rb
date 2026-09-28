@@ -12,7 +12,9 @@ class DeployLocalMinioTest < Minitest::Test
     %w[rabbitmq-source-intake-bootstrap.rb reconcile],
     %w[rabbitmq-source-intake-bootstrap.rb verify],
     %w[minio-release.rb install],
-    %w[minio-release.rb verify]
+    %w[minio-release.rb verify],
+    %w[minio-fresh-buckets-stage.rb bootstrap],
+    %w[minio-fresh-buckets-stage.rb verify]
   ].freeze
 
   def setup
@@ -36,7 +38,9 @@ class DeployLocalMinioTest < Minitest::Test
     assert_equal EXPECTED_CALLS, @calls
     assert_operator @calls.index(%w[rabbitmq-source-intake-bootstrap.rb verify]), :<,
                     @calls.index(%w[minio-release.rb install])
-    assert_includes @output.string, 'remaining application and bucket/IAM stages are pending'
+    assert_operator @calls.index(%w[minio-release.rb verify]), :<,
+                    @calls.index(%w[minio-fresh-buckets-stage.rb bootstrap])
+    assert_includes @output.string, 'sample assets, IAM, and applications remain pending'
     assert_empty @error.string
   end
 

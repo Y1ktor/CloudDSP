@@ -5,7 +5,7 @@
 # foundation and mirrors its locked images. `bootstrap-mailpit` adds the first
 # fresh Helm release. `bootstrap-postgresql` and `bootstrap-rabbitmq` prepare
 # individual stateful services; `bootstrap-minio` composes broker and object
-# storage prerequisites. `verify` checks each reviewed component
+# storage prerequisites and two fresh buckets. `verify` checks each reviewed component
 # and bootstrap stage. `reconcile` changes only the five bootstrap stages with
 # audited idempotent runners; existing Helm releases are verified
 # and must already match their charts. `cleanup` removes the k3d cluster while
@@ -31,8 +31,8 @@ bootstrap-rabbitmq: On an absent cluster, run prepare, create the RabbitMQ
          This is a partial application bootstrap.
 bootstrap-minio: On an absent cluster, prepare and install RabbitMQ, create
          MinIO and upload-intake broker Secrets, bootstrap restricted broker
-         source-intake state, then install and verify MinIO. Buckets and IAM
-         are later stages; this is a partial application bootstrap.
+         source-intake state, then install MinIO and create its two private
+         buckets. Shared sample assets and IAM are later stages.
 verify: Run that preflight, then the reviewed read-only Helm, KEDA, and
         bootstrap gates in dependency order. Stop at the first failed gate.
 reconcile: On an existing cluster, run the same ordered gates and reconcile

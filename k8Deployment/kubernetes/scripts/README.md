@@ -90,11 +90,13 @@ cluster. It reuses `bootstrap-rabbitmq` for foundation, images, administrator
 Secret, and broker Helm install. It then creates the MinIO root/AMQP and
 upload-intake RabbitMQ runtime Secrets, reconciles and verifies the restricted
 source-intake broker users and topology, and only then installs and verifies
-MinIO. The broker runner manages its temporary bootstrap Secret and removes
-it after successful user verification. A failed stage leaves partial state
+MinIO. It then creates and checks the two initially private MinIO buckets.
+The broker runner manages its temporary bootstrap Secret and removes it after
+successful user verification. A failed stage leaves partial state
 for inspection. This is an alternative partial trial to the other
 `bootstrap-*` commands, not a command to run after them on the same cluster.
-It does not create MinIO buckets, IAM policy/users, or application releases.
+It does not mirror shared sample assets, configure IAM policy/users, or
+install application releases.
 The full root `bootstrap` will compose those remaining stages later.
 
 ## Docker Hub image source and local mirror
@@ -202,7 +204,7 @@ shared-sample bucket, and any sample key or size outside the reviewed lock.
 Only a wholly absent shared-sample policy can be restored. The write uses the
 committed anonymous `GetObject` policy and then verifies its S3 metadata.
 It never creates an empty replacement for a potentially lost bucket; sample
-content hashes and a fresh-cluster bucket bootstrap remain separate work.
+content hashes and the fresh-cluster bucket stage remain separate work.
 
 For a focused notification stage, run one of:
 
@@ -420,7 +422,7 @@ Secret, then checks its live encoded values without displaying them. Root
 `verify` and existing-cluster `reconcile` use its read-only `verify` mode
 before the MinIO release. The restricted broker user and topology are checked
 by the separate source-intake RabbitMQ runner. The fresh MinIO Helm install
-is described below; bucket/IAM creation remains a separate task.
+is described below; bucket and IAM creation use separate stages.
 
 ## MinIO fresh Helm install, protected adoption, and verification
 
@@ -439,8 +441,27 @@ an ordinary Helm install, then checks the Ready Pod, bound PVC/PV, locked
 image digest, and S3 health route. A partial install stops future `install`
 attempts for inspection. The protected adoption backup runs only for `adopt`.
 This path has not been trialed on an empty cluster; the existing live cluster
-is retained. Source-intake broker state and MinIO bucket/IAM bootstrap remain
-separate stages.
+is retained. The root `bootstrap-minio` composes source-intake broker state
+and the fresh bucket stage around this release. IAM remains separate.
+
+## Fresh MinIO bucket boundaries
+
+```bash
+ruby ./k8Deployment/kubernetes/scripts/minio-fresh-buckets-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/minio-fresh-buckets-stage.rb bootstrap
+ruby ./k8Deployment/kubernetes/scripts/minio-fresh-buckets-stage.rb verify
+```
+
+Use `bootstrap` only as part of a new `bootstrap-minio` run that started with
+an absent cluster. It requires the MinIO Helm release to verify and the server
+to have **zero** buckets; one existing bucket or an unexpected bucket stops
+before a write. It creates `clouddsp-uploads` and `clouddsp-midi-samples`
+private, then checks both S3 endpoints and policy boundaries. A failed second
+creation leaves the first bucket in place for inspection, and a repeat
+bootstrap is refused. `verify` checks this initial boundary without requiring
+sample content or IAM. The existing-cluster reconciler above remains the
+read-only/missing-policy path and never creates buckets. The sample mirror
+must later upload all 461 locked assets before granting anonymous `GetObject`.
 
 The [MinIO chart](../helm/minio/README.md) owns its existing StatefulSet,
 normal and headless Services, and S3 Ingress. Its script checks exact

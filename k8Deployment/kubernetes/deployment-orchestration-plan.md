@@ -527,8 +527,14 @@ external effect disappeared. Therefore:
     starts with the guarded RabbitMQ partial bootstrap, creates the three
     required runtime Secrets, reconciles and verifies source-intake broker
     users/topology, then installs and verifies MinIO. It starts only from an
-    absent cluster. A clean-cluster trial, MinIO bucket/IAM creation, and full
-    root composition remain pending.
+    absent cluster. A clean-cluster trial and full root composition remain
+    pending.
+23. **Fresh MinIO bucket boundary stage implemented.** `bootstrap-minio` now
+    runs the absent-only bucket stage after MinIO release verification. The
+    stage requires a zero-bucket S3 inventory before creating the private
+    uploads and shared-sample buckets. It verifies both endpoints and refuses
+    any partial inventory on repeat. Shared sample mirroring, IAM identities,
+    and the complete root bootstrap are separate tasks.
 
 Each task needs its own review and validation. This document authorizes no
 cluster mutation by itself.
