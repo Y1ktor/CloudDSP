@@ -1,0 +1,75 @@
+require 'minitest/autorun'
+require 'stringio'
+
+require_relative '../../scripts/deploy-local-verify'
+
+class DeployLocalReconcileTest < Minitest::Test
+  FakeStatus = Struct.new(:exitstatus) do
+    def success?
+      exitstatus.zero?
+    end
+  end
+
+  def test_only_reviewed_external_state_stages_reconcile
+    calls = []
+    runner = lambda do |*command|
+      calls << command
+      ['', '', FakeStatus.new(0)]
+    end
+    output = StringIO.new
+    result = CloudDSPLocalVerify.new(mode: 'reconcile', runner: runner, output: output, error: StringIO.new).run
+
+    assert_equal 0, result
+    assert_equal CloudDSPLocalVerify::STAGES.length, calls.length
+    reconciled = calls.select { |command| command.last == 'reconcile' }
+    assert_equal CloudDSPLocalVerify::RECONCILABLE.sort,
+                 reconciled.map { |command| File.basename(command[1]) }.sort
+    keycloak_gate = calls.find { |command| File.basename(command[1]) == 'keycloak-config-verify.rb' }
+    assert_equal 'verify', keycloak_gate.last
+    assert_operator calls.index(keycloak_gate), :<,
+                    calls.index { |command| File.basename(command[1]) == 'job-api-release.rb' }
+    minio_gate = calls.find { |command| File.basename(command[1]) == 'minio-notification-stage.rb' }
+    assert_equal 'reconcile', minio_gate.last
+    bucket_gate = calls.find { |command| File.basename(command[1]) == 'minio-buckets-stage.rb' }
+    assert_equal 'reconcile', bucket_gate.last
+    assert_operator calls.index { |command| File.basename(command[1]) == 'rabbitmq-source-intake-bootstrap.rb' },
+                    :<, calls.index(bucket_gate)
+    assert_operator calls.index(bucket_gate), :<, calls.index(minio_gate)
+    assert_operator calls.index(minio_gate), :<,
+                    calls.index { |command| File.basename(command[1]) == 'mailpit-release.rb' }
+    assert calls.all? { |command| (command & %w[adopt upgrade install delete apply smoke]).empty? }
+    assert_includes output.string, 'Helm releases, MinIO IAM, and Keycloak state verified'
+  end
+
+  def test_release_failure_prevents_any_bootstrap_write
+    calls = []
+    runner = lambda do |*command|
+      calls << command
+      ['', '', FakeStatus.new(calls.length == 4 ? 1 : 0)]
+    end
+    errors = StringIO.new
+    result = CloudDSPLocalVerify.new(mode: 'reconcile', runner: runner, output: StringIO.new, error: errors).run
+
+    assert_equal 1, result
+    assert_equal 4, calls.length
+    refute calls.any? { |command| command.last == 'reconcile' }
+    assert_includes errors.string, 'MinIO release'
+  end
+
+  def test_bootstrap_failure_stops_later_stages_and_hides_child_output
+    calls = []
+    runner = lambda do |*command|
+      calls << command
+      calls.length == 5 ? ['sensitive child output', 'sensitive child error', FakeStatus.new(1)] : ['', '', FakeStatus.new(0)]
+    end
+    output = StringIO.new
+    errors = StringIO.new
+    result = CloudDSPLocalVerify.new(mode: 'reconcile', runner: runner, output: output, error: errors).run
+
+    assert_equal 1, result
+    assert_equal 5, calls.length
+    assert_equal 'reconcile', calls.last.last
+    refute_includes output.string + errors.string, 'sensitive child'
+    refute_includes output.string, 'RabbitMQ processing topology'
+  end
+end

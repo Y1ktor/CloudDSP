@@ -7,7 +7,10 @@ versioned, non-interactive entry point. The entry point should install a fresh
 local cluster in dependency order, reconcile an existing cluster without
 discarding data, and report which stage failed. It will manage only the local
 Kubernetes track under `k8Deployment/kubernetes/`; the AWS deployment remains
-independent. This is a plan, not an implemented deploy command.
+independent. Root `plan` and read-only `verify` are implemented. An
+existing-cluster `reconcile` now covers the audited PostgreSQL and RabbitMQ
+external-state stages; fresh-cluster bootstrap and full release reconciliation
+remain planned.
 
 Follow [the Kubernetes instructions](../AGENTS.md),
 [the local implementation plan](../plan.md), and the existing
@@ -211,6 +214,14 @@ failure.
 | 7. Browser route | Reconcile frontend after public Keycloak/API/MinIO configuration is checked; verify ingress resources. | Frontend Ready; authenticated browser/API routing check passes. |
 | 8. Verification | Run a small non-destructive smoke first, then the reviewed end-to-end suite. | Login, direct upload, processing to terminal state, MIDI/artifact access, polling recovery, and selected failure/idempotency checks pass. Record report and release revisions. |
 
+The standalone [fresh-cluster foundation stage](scripts/deploy-local-foundation.rb)
+now implements stage 1's cluster and namespace creation guard. It requires the
+target k3d cluster and registry to be absent, invokes the pinned `cluster.sh`
+topology, creates the three versioned namespaces, and verifies nodes, registry,
+and packaged system controllers. It is not yet the root `bootstrap` command;
+image availability, releases, and external-state stages still need fresh-path
+orchestration.
+
 The exact order *within* stage 3 must be recorded as a dependency graph,
 because RabbitMQ topology, MinIO notifications, database permissions, and
 worker identities cross service directories. For example, MinIO's source
@@ -360,11 +371,45 @@ external effect disappeared. Therefore:
    Basic Pitch scale-down during an active lease and a Numba illegal
    instruction in its tempo step; the dual-trigger scaler, six-minute
    scale-down window, and portable Numba CPU setting resolved both issues.
-6. **Bootstrap/migration stage runners.** Implement ledger checks and external
-   state verification before allowing one-command `bootstrap` or `reconcile`.
-7. **Root orchestrator and verification.** Wire the stages together; test a
-   fresh disposable cluster and a repeated reconcile against the existing
-   cluster, then run the required product smoke suite.
+6. **Bootstrap/migration stage runners — Job API PostgreSQL slice implemented.**
+   The [combined stage](scripts/job-api-postgresql-stage.rb) orders database
+   bootstrap before schema migrations for `plan`, `verify`, and `reconcile`.
+   The [database bootstrap runner](scripts/job-api-database-bootstrap.rb)
+   verifies the isolated database, restricted role, owner, and grants before
+   creating its versioned Job when both are absent. The
+   [migration runner](scripts/job-api-migrations.rb) then audits the exact
+   PostgreSQL ledger prefix and immutable SQL ConfigMaps, running only missing
+   versioned Jobs in numeric order. The
+   [RabbitMQ processing-topology runner](scripts/rabbitmq-processing-topology.rb)
+   audits the broker's actual v001/v002 exchanges, queue arguments, and
+   bindings before it imports an entirely absent version. The
+   [source-intake broker runner](scripts/rabbitmq-source-intake-bootstrap.rb)
+   audits its separate topology and restricted MinIO/upload-intake users,
+   including credential authentication, before a fresh import. Other service
+   roles, remaining RabbitMQ identities, and MinIO bucket creation/IAM and
+   Keycloak write-capable bootstrap runners still need review before
+   one-command `bootstrap` or `reconcile`.
+7. **Root orchestrator and verification — existing-cluster slice implemented.**
+   `deploy-local.sh verify` runs preflight, fourteen Helm release verifiers,
+   the implemented Job API PostgreSQL and RabbitMQ bootstrap verifiers, the
+   MinIO bucket boundary, IAM/notification, and Keycloak realm/client verifiers,
+   and KEDA controller and CRD readiness in dependency order. `reconcile` switches
+   only those three audited bootstrap runners plus the absent-only MinIO
+   shared-sample policy and source-upload notification stages to their
+   idempotent write paths;
+   Helm releases remain verify-only, and the first failure stops later stages.
+   Add fresh-cluster MinIO bucket creation, IAM and Keycloak write
+   reconciliation, and the remaining
+   bootstrap/release runners before fresh-cluster deployment;
+   then test a disposable cluster, repeated reconcile, and the product smoke
+   suite.
+8. **Fresh-cluster foundation — standalone stage implemented.** The
+   [foundation runner](scripts/deploy-local-foundation.rb) strictly refuses an
+   existing cluster or orphan registry, creates the reviewed k3d topology and
+   project namespaces, and verifies three Ready nodes, registry access, and
+   packaged controllers. The creation branch is covered by an isolated runner;
+   the current cluster passed read-only verification and correctly blocked a
+   fresh `plan`. Wire later fresh stages only after their own guards exist.
 
 Each task needs its own review and validation. This document authorizes no
 cluster mutation by itself.

@@ -72,6 +72,20 @@ roles, or access Keycloak's separate database. The bootstrap Job temporarily
 uses the administrator credential only to create this restricted identity, then
 authenticates as the restricted identity to prove the future API can connect.
 
+The versioned
+[`job-api-database-bootstrap.rb`](../../scripts/job-api-database-bootstrap.rb)
+stage checks the live PostgreSQL database/role/schema metadata before running
+that fixed-name Job. Its `reconcile` mode creates the Job only when both the
+database and role are absent, compares ignored local credentials with the live
+runtime Secret before doing so, then removes the temporary bootstrap Secret
+after PostgreSQL confirms the expected owner and grants. Existing drift needs
+inspection or a separate password-rotation procedure.
+
+For deployment, [`job-api-postgresql-stage.rb`](../../scripts/job-api-postgresql-stage.rb)
+runs this bootstrap before the versioned schema migrations. A fresh-cluster
+`plan` defers ledger inspection until the database exists; `reconcile` starts
+migrations only after the database runner verifies the owner and grants.
+
 ## MinIO source-upload foundation
 
 The prepared (not yet applied) MinIO manifests establish a separate storage

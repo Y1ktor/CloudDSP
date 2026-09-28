@@ -5,13 +5,15 @@ declared in [`../cluster/k3d.yaml`](../cluster/k3d.yaml). Run the commands from
 the repository root, or change into this directory first; each script resolves
 its own location and does not depend on the current working directory.
 
-## Read-only deployment plan
+## Root deployment plan
 
 ```bash
 ./k8Deployment/kubernetes/scripts/deploy-local.sh plan
+./k8Deployment/kubernetes/scripts/deploy-local.sh verify
+./k8Deployment/kubernetes/scripts/deploy-local.sh reconcile
 ```
 
-This is the first stage of the proposed
+The `plan` mode is the first stage of the
 [deployment orchestrator](../deployment-orchestration-plan.md). It reads the
 versioned workload manifests and lock files, then queries only the explicit
 `k3d-clouddsp-local` context. It checks namespace and Helm ownership,
@@ -22,7 +24,120 @@ values. The command makes no cluster changes and returns nonzero when a
 blocking inconsistency is found; warnings identify work needed before a fresh
 bootstrap. Ruby's standard YAML/JSON libraries are required on the host.
 
-This general command reports resource ownership and source/live identity but
+## Fresh-cluster foundation stage
+
+```bash
+ruby ./k8Deployment/kubernetes/scripts/deploy-local-foundation.rb plan
+ruby ./k8Deployment/kubernetes/scripts/deploy-local-foundation.rb bootstrap
+ruby ./k8Deployment/kubernetes/scripts/deploy-local-foundation.rb verify
+```
+
+This standalone first stage validates the pinned k3d topology and three
+versioned Namespace definitions. `plan` succeeds only when both the target
+cluster and its local registry are absent. `bootstrap` uses the existing
+`cluster.sh create` command, waits for all nodes to become Ready, then creates
+the namespaces after a Kubernetes server dry run. It verifies the exact node
+roles, registry endpoint, namespace labels, and packaged CoreDNS, Traefik,
+and local-path provisioner Deployments. An existing cluster or orphan registry
+stops before mutation; a failure after cluster creation leaves that cluster
+for explicit inspection rather than deleting it. On the current deployed
+cluster, `verify` passes and `plan` correctly refuses fresh creation.
+
+This is the foundation only. It does not install KEDA, build or load images,
+create runtime Secrets, install Helm releases, or bootstrap external state.
+The root `deploy-local.sh bootstrap` mode will be added after those stages
+have reviewed fresh-cluster paths.
+
+## Root verification and existing-cluster reconcile
+
+`verify` first runs that same preflight, then checks the fourteen adopted
+CloudDSP Helm releases, the implemented Job API PostgreSQL and RabbitMQ
+bootstrap stages, the [Keycloak realm/client state](keycloak-config-verify.rb),
+the [MinIO bucket stage](minio-buckets-stage.rb) and
+[IAM/notification state](minio-notification-stage.rb),
+and the KEDA controller Deployments and CRDs in dependency order.
+It stops at the first failed gate and names the component command to run for
+focused diagnosis. It invokes no adopt, reconcile, bootstrap, or smoke mode;
+therefore it does not create test Jobs or alter the live cluster. The Keycloak
+gate reads the committed bootstrap Job payloads and checks realm
+registration, SMTP, the public React PKCE client, Job API resource client,
+access-token audience mapper, password registration form, and public issuer
+through the live Admin API. The MinIO gate compares source and live immutable
+policy ConfigMaps, both bucket boundaries, the prefix-limited AMQP notification,
+IAM policy documents and attachments, and the five restricted users. It uses
+the pinned local `mc` image in a transient container with credentials sent over
+stdin and a temporary in-memory config directory. Both gates are read-only
+and suppress credential-bearing client output on failure.
+
+`reconcile` is currently for an already deployed cluster. It runs the same
+preflight and ordered gates, but calls `reconcile` for exactly five audited
+external-state runners: Job API PostgreSQL database/migrations, RabbitMQ
+processing topology, RabbitMQ source-intake topology/users, the MinIO shared
+sample policy, and the MinIO source-upload notification. Each runner
+creates only wholly missing versioned bootstrap state and verifies its durable
+result; partial state and drift stop the command. All fourteen Helm releases
+remain in read-only `verify` mode, so a chart change, missing release, or
+unexpected owner fails rather than triggering an unsafe takeover or revision.
+This mode does not create a fresh cluster, install/upgrade Helm releases,
+recreate missing MinIO buckets, reconcile MinIO IAM or Keycloak realm state,
+or run product smoke tests; it
+fails if either read-only gate finds drift. The initial
+existing-cluster trial passed 23 gates twice; the repeated run left
+all fourteen Helm release revisions and retained bootstrap ConfigMaps unchanged
+and created no bootstrap Job.
+With the versioned Keycloak state check added, both root `verify` and
+existing-cluster `reconcile` passed all 24 gates on the current cluster.
+With the versioned MinIO state check added, both passed all 25 gates.
+The MinIO notification stage now allows a wholly absent source-upload rule to
+be restored through its fixed-name versioned Job. The existing-cluster trial
+passed all 25 gates with the rule already present, so it made no MinIO write.
+The shared-sample bucket stage adds a 26th gate. Its existing-cluster trial
+found both bucket boundaries and all 461 locked sample keys and sizes already
+correct, so it made no MinIO write.
+
+For focused MinIO diagnosis, run:
+
+```bash
+ruby ./k8Deployment/kubernetes/scripts/minio-state-verify.rb verify
+```
+
+This checks metadata and IAM configuration without uploading, reading, or
+deleting objects. It requires the existing local k3d server node, its cached
+pinned `mc` image, `kubectl`, Docker, and the AWS CLI. It does not validate
+delivery of a new notification message to a consumer or the secret half of an
+application user's access key.
+
+For the focused bucket boundary stage, run one of:
+
+```bash
+ruby ./k8Deployment/kubernetes/scripts/minio-buckets-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/minio-buckets-stage.rb verify
+ruby ./k8Deployment/kubernetes/scripts/minio-buckets-stage.rb reconcile
+```
+
+This stage requires both expected buckets to exist. It refuses an extra or
+missing bucket, any bucket policy on private uploads, notifications on the
+shared-sample bucket, and any sample key or size outside the reviewed lock.
+Only a wholly absent shared-sample policy can be restored. The write uses the
+committed anonymous `GetObject` policy and then verifies its S3 metadata.
+It never creates an empty replacement for a potentially lost bucket; sample
+content hashes and a fresh-cluster bucket bootstrap remain separate work.
+
+For a focused notification stage, run one of:
+
+```bash
+ruby ./k8Deployment/kubernetes/scripts/minio-notification-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/minio-notification-stage.rb verify
+ruby ./k8Deployment/kubernetes/scripts/minio-notification-stage.rb reconcile
+```
+
+An absent rule and absent fixed-name Job permit exactly one
+versioned bootstrap Job after MinIO release and RabbitMQ source-intake checks.
+An existing Job, partial rule, or changed target/event/prefix stops the stage
+for inspection. The completed Job is retained until Kubernetes TTL removes
+it; the S3 notification metadata is the durable success check.
+
+The general `plan` reports resource ownership and source/live identity but
 does not render a chart diff. The separate
 [Mailpit](mailpit-release.rb), [Keycloak](keycloak-release.rb),
 [PostgreSQL](postgresql-release.rb),
@@ -38,9 +153,8 @@ does not render a chart diff. The separate
 [Job API](job-api-release.rb), and
 [upload-intake](upload-intake-release.rb) release
 scripts perform component-specific render and live-spec comparisons. The
-general command does not
-install, adopt, migrate, bootstrap, or clean up anything. The
-[resource ownership map](../resource-ownership-map.md) records the full
+`plan` and `verify` do not install, adopt, migrate, bootstrap, or clean up
+anything. The [resource ownership map](../resource-ownership-map.md) records the full
 versioned/live snapshot and proposed boundaries.
 
 ## Mailpit Helm adoption and verification
@@ -81,6 +195,74 @@ Adoption preserved resource and Pod UIDs, Service IPs, and PVC/PV identity.
 `smoke` ran the versioned read/write Job through the ordinary Service and
 removed its disposable table and Job. The generated PVC, database contents,
 Secret, migrations, and bootstrap Jobs remain outside Helm ownership.
+
+## Job API PostgreSQL bootstrap and migration order
+
+```bash
+./k8Deployment/kubernetes/scripts/job-api-postgresql-stage.rb plan
+./k8Deployment/kubernetes/scripts/job-api-postgresql-stage.rb verify
+./k8Deployment/kubernetes/scripts/job-api-postgresql-stage.rb reconcile
+```
+
+This narrow combined command runs the database/role stage first and the schema
+migration stage second. On a fresh cluster, `plan` reports the pending
+database bootstrap and defers migration inspection until the database exists.
+`verify` fails if either stage is incomplete. `reconcile` waits for the
+database bootstrap and its metadata checks to finish before starting missing
+schema migrations; a failure in either stage stops the command. The same two
+stages remain independently runnable for diagnosis. This command assumes the
+PostgreSQL StatefulSet and the ignored runtime credentials are available; it
+does not install other services or Helm releases.
+
+## Job API database and schema-owner bootstrap stage
+
+```bash
+./k8Deployment/kubernetes/scripts/job-api-database-bootstrap.rb plan
+./k8Deployment/kubernetes/scripts/job-api-database-bootstrap.rb verify
+./k8Deployment/kubernetes/scripts/job-api-database-bootstrap.rb reconcile
+```
+
+This stage runs after PostgreSQL is Ready and before the Job API schema
+migrations below. It reads only PostgreSQL catalog metadata to verify the
+`clouddsp_job_api` database, restricted `clouddsp-job-api` login, database
+owner, `public` schema owner, and reviewed grants. A complete match makes
+`reconcile` a no-op. One-sided or drifted state, an unexplained bootstrap Job,
+or a lingering temporary Secret stops the stage for inspection.
+
+When both database and role are absent, `reconcile` checks the ignored local
+bootstrap and runtime Secret files against each other and the live app Secret
+without printing their values. It creates the versioned bootstrap Job and its
+temporary data-namespace Secret, waits for Job completion, verifies the
+database catalog state, then removes that temporary Secret. A Job failure
+retains the Job and temporary Secret for diagnosis. Password rotation is a
+separate reviewed operation; catalog metadata alone cannot prove an existing
+role's password matches a subsequently changed runtime Secret.
+
+## Job API PostgreSQL migration stage
+
+```bash
+./k8Deployment/kubernetes/scripts/job-api-migrations.rb plan
+./k8Deployment/kubernetes/scripts/job-api-migrations.rb verify
+./k8Deployment/kubernetes/scripts/job-api-migrations.rb reconcile
+```
+
+This standalone bootstrap stage runner requires PostgreSQL, the
+`clouddsp_job_api` database, and the app-namespace Job API schema-owner Secret
+must exist before a pending migration can run. `plan` reads only the database's
+`schema_migrations` ledger and immutable SQL ConfigMaps; `verify` additionally
+requires every versioned migration to be applied. The script reads the ledger
+through the existing PostgreSQL Pod and its Secret-backed environment. It does
+not fetch Secret values to the host or query application data.
+
+`reconcile` accepts only an exact prefix of the v001–v009 migration IDs and
+descriptions extracted from versioned SQL. It checks each applied SQL
+ConfigMap against the live immutable copy and refuses a pending fixed-name
+Job that still exists without a ledger row. For a missing migration, it
+validates and creates its versioned ConfigMap/Job, waits for completion, and
+checks the next ledger row before advancing. A failed or ambiguous Job is
+left in place for inspection. Repeated reconcile on a complete ledger is a
+read-only no-op. Use the [combined PostgreSQL stage](job-api-postgresql-stage.rb)
+to run this after database and schema-owner bootstrap in one command.
 
 ## MinIO protected Helm adoption and verification
 
@@ -125,6 +307,46 @@ preserved five resource UIDs, post-backup Pod UID, Service IPs, and bound
 PVC/PV identity. `smoke` passed a real AMQP publish/consume/acknowledge round
 trip through the normal Service and removed its Job. Broker state, runtime
 Secrets, bootstrap Jobs, and KEDA resources remain outside this release.
+
+## RabbitMQ processing topology bootstrap
+
+```bash
+./k8Deployment/kubernetes/scripts/rabbitmq-processing-topology.rb plan
+./k8Deployment/kubernetes/scripts/rabbitmq-processing-topology.rb verify
+./k8Deployment/kubernetes/scripts/rabbitmq-processing-topology.rb reconcile
+```
+
+This stage runs after RabbitMQ is Ready and before processing publishers or
+workers depend on its routes. It compares the broker's live `/clouddsp`
+exchanges, quorum queue arguments, and bindings with the immutable v001
+Demucs and v002 Basic Pitch/ADTOF definitions. Broker state is the durable
+completion evidence even after a bootstrap Job's TTL removes that Job.
+`plan` is read-only, `verify` requires both versions, and `reconcile` imports
+only an entirely absent version, in order, through its existing versioned
+ConfigMap and one-shot Job. Partial state, drift, a changed ConfigMap, or a
+fixed-name Job without complete broker state stops the run for inspection.
+This runner reads no broker credentials or message contents and does not
+manage source-intake topology or RabbitMQ users.
+
+## RabbitMQ source-intake topology and users
+
+```bash
+./k8Deployment/kubernetes/scripts/rabbitmq-source-intake-bootstrap.rb plan
+./k8Deployment/kubernetes/scripts/rabbitmq-source-intake-bootstrap.rb verify
+./k8Deployment/kubernetes/scripts/rabbitmq-source-intake-bootstrap.rb reconcile
+```
+
+This independent stage checks the immutable source-intake v001 exchanges,
+quorum queues, and bindings plus the MinIO publisher and upload-intake
+consumer accounts. It requires their exact restricted permission regexes and
+checks both passwords against the ignored local and live runtime Secrets
+without printing values. `plan` reads the broker and Secrets; `verify` requires
+complete state; `reconcile` creates the versioned ConfigMap and fixed-name Job
+only when the topology and both users are entirely absent. A fresh run creates
+the temporary data-namespace consumer Secret, verifies broker state and both
+logins after Job completion, then removes that Secret. Partial state, drift,
+or an unexplained Job stops for inspection. This stage does not configure
+MinIO notifications or run upload-intake.
 
 ## Shared KEDA scaling authentication adoption
 

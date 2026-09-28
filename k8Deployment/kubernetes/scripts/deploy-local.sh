@@ -1,22 +1,26 @@
 #!/usr/bin/env bash
-# Entry point for CloudDSP's eventual local deployment orchestrator.
+# Entry point for CloudDSP's incremental local deployment orchestrator.
 #
-# Only `plan` exists today. It runs the read-only preflight in Ruby, which uses
-# the Ruby YAML/JSON standard libraries to inspect versioned manifests and
-# sanitized Kubernetes metadata. This wrapper intentionally contains no
-# install, apply, upgrade, delete, or bootstrap path: adding any mutating mode
-# requires a separate review after the plan's ownership gates are reliable.
+# `plan` reports the source/live preflight. `verify` checks each reviewed
+# component and bootstrap stage. `reconcile` changes only the five bootstrap
+# stages with audited idempotent runners; existing Helm releases are verified
+# and must already match their charts. It never upgrades or adopts a release.
 set -euo pipefail
 
 readonly SCRIPT_DIRECTORY="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
   cat <<'USAGE'
-Usage: ./k8Deployment/kubernetes/scripts/deploy-local.sh plan
+Usage: ./k8Deployment/kubernetes/scripts/deploy-local.sh plan|verify|reconcile
 
-Read-only preflight for the explicit k3d-clouddsp-local context. Reports
-manifest ownership, required Secret names, image-lock consistency, and
-StatefulSet/PVC identity. No Kubernetes or Helm resource is changed.
+plan: Read-only preflight for the explicit k3d-clouddsp-local context.
+verify: Run that preflight, then the reviewed read-only Helm, KEDA, and
+        bootstrap gates in dependency order. Stop at the first failed gate.
+reconcile: On an existing cluster, run the same ordered gates and reconcile
+           the Job API PostgreSQL, RabbitMQ, and narrow MinIO bucket and
+           notification stages. Existing Helm releases must verify; this mode
+           does not install/upgrade them.
+plan and verify do not change Kubernetes or Helm resources.
 USAGE
 }
 
@@ -25,14 +29,18 @@ if [[ "$#" -eq 1 && ( "$1" == "-h" || "$1" == "--help" || "$1" == "help" ) ]]; t
   exit 0
 fi
 
-if [[ "$#" -ne 1 || "$1" != "plan" ]]; then
+if [[ "$#" -ne 1 || ( "$1" != "plan" && "$1" != "verify" && "$1" != "reconcile" ) ]]; then
   usage >&2
   exit 2
 fi
 
 if ! command -v ruby >/dev/null 2>&1; then
-  printf 'Ruby is required for read-only YAML and JSON parsing.\n' >&2
+  printf 'Ruby is required for local deployment planning and verification.\n' >&2
   exit 1
 fi
 
-exec ruby "${SCRIPT_DIRECTORY}/deploy-local-plan.rb"
+case "$1" in
+  plan) exec ruby "${SCRIPT_DIRECTORY}/deploy-local-plan.rb" ;;
+  verify) exec ruby "${SCRIPT_DIRECTORY}/deploy-local-verify.rb" ;;
+  reconcile) exec ruby "${SCRIPT_DIRECTORY}/deploy-local-reconcile.rb" ;;
+esac

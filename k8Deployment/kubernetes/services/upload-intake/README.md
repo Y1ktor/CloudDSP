@@ -680,3 +680,10 @@ matched the already-applied `clouddsp-app` runtime Secret because Kubernetes
 prohibits the Job from mounting that application-namespace Secret directly.
 The temporary Secret was deleted after the completed Job verified the
 topology; only the runtime Secret remains.
+
+The versioned
+[`rabbitmq-source-intake-bootstrap.rb`](../../scripts/rabbitmq-source-intake-bootstrap.rb)
+runner now verifies that durable broker topology, both least-privilege users,
+their permissions, and their live credentials. Its fresh-cluster reconcile
+creates the temporary Secret and fixed-name Job only when both topology and
+users are absent, then removes the temporary Secret after verification.

@@ -3944,3 +3944,202 @@ full Demucs smoke then passed: first-attempt Demucs completion, verified
 private stems, both downstream Basic Pitch task successes, completed parent,
 and fixed-coordinate cleanup. The disposable smoke Job was removed. This
 validates the local ARM64 CPU path, not NVIDIA GPU throughput.
+
+### First deployment bootstrap stage runner (2026-09-27)
+
+`kubernetes/scripts/job-api-migrations.rb` now handles the versioned Job API
+PostgreSQL schema stage independently of Helm. Its read-only `plan` compares
+the applied `schema_migrations` ledger with the v001–v009 IDs and descriptions
+in committed SQL and checks each live immutable ConfigMap's SQL bytes.
+`verify` requires a complete ledger. `reconcile` creates only missing
+versioned ConfigMaps and fixed-name migration Jobs in numeric order, waits
+for each Job, and requires its exact ledger row before continuing. A ledger
+gap, description drift, SQL drift, or pending Job with no ledger row blocks
+all writes. It relies on the already-bootstrapped database/schema-owner
+identity; at this point the preceding bootstrap and other external-service
+runners remained separate work.
+On the current cluster, nine matching migrations are applied, so reconcile
+is an idempotent no-op.
+
+### Job API database and role bootstrap stage (2026-09-27)
+
+`kubernetes/scripts/job-api-database-bootstrap.rb` adds the preceding
+PostgreSQL identity stage. It queries only catalog metadata for the dedicated
+database, non-admin login, owner, schema owner, and public grants. Both must
+be absent for `reconcile` to create the committed fixed-name bootstrap Job;
+partial state, privilege drift, a pending Job, or a leftover temporary Secret
+blocks any write. Before a fresh bootstrap, it compares the ignored local
+bootstrap/runtime credentials and live runtime Secret in memory, never
+printing their values. After the Job completes and metadata matches, it
+removes the temporary Secret. The current local cluster already has the exact
+database/role state, so its live reconcile is a no-op. Credential rotation and
+other service database roles remain separate work.
+
+### Job API PostgreSQL stage ordering (2026-09-27)
+
+`kubernetes/scripts/job-api-postgresql-stage.rb` now composes the two narrow
+Job API database stages in dependency order for `plan`, `verify`, and
+`reconcile`. A fresh-cluster plan defers migration ledger inspection until
+database bootstrap exists. Reconcile continues to schema migrations only
+after the database runner reports verified role, database, owner, schema, and
+grants; an error stops the later stage. The component runners remain available
+for diagnosis, and other service bootstrap remains outside this slice. The
+combined `plan`, `verify`, and `reconcile` passed against the current k3d
+cluster with all nine migrations applied; `reconcile` performed no writes.
+The temporary bootstrap Job and Secret were absent after the trial.
+
+### RabbitMQ processing-topology stage (2026-09-27)
+
+`kubernetes/scripts/rabbitmq-processing-topology.rb` adds a separate
+RabbitMQ broker-state gate for the immutable v001 Demucs and v002 Basic
+Pitch/ADTOF processing definitions. It reads only vhost names and the
+exchanges, quorum queue properties/arguments, and bindings declared by those
+sources. It treats broker state as durable completion evidence because
+bootstrap Jobs have a TTL; a partial import, argument drift, missing applied
+ConfigMap, or an ambiguous fixed-name Job blocks writes. Reconcile imports
+only an entirely absent version with its existing versioned ConfigMap and Job,
+then rechecks the broker before advancing. Source-intake topology and broker
+users remain separate because that Job creates restricted credentials. The
+runner's local unit suite passed, both versioned Jobs passed Kubernetes server
+dry-run validation, and live `plan`, `verify`, and `reconcile` passed with no
+pending broker changes. The existing AMQP publish/consume/acknowledge smoke
+passed and removed its disposable test Job.
+
+### RabbitMQ source-intake bootstrap stage (2026-09-27)
+
+`kubernetes/scripts/rabbitmq-source-intake-bootstrap.rb` verifies the
+source-intake v001 broker topology and the two restricted MinIO publisher and
+upload-intake consumer users as one durable external-state stage. It compares
+their exact permission regexes and authenticates both live credentials using
+standard input to the broker Pod without logging values. Ignored local
+bootstrap/runtime Secrets must match their live runtime copies, including
+MinIO's encoded AMQP URL. Fresh reconcile creates the versioned ConfigMap and
+Job only when topology and both users are entirely absent; it creates and
+removes the temporary cross-namespace Secret around that Job. Partial state,
+permission or credential drift, a lingering temporary Secret, or a fixed-name
+Job without complete broker state stops the runner. Seven isolated tests pass;
+the live `plan`, `verify`, and `reconcile` modes passed as no-ops because the
+broker and both users already match. The Job and ignored temporary Secret
+passed Kubernetes server dry-run validation, and neither temporary resource
+was created by this trial.
+
+### Root read-only deployment verification (2026-09-27)
+
+`kubernetes/scripts/deploy-local.sh verify` now composes the existing
+preflight, fourteen adopted Helm release verifiers, the Job API PostgreSQL and
+RabbitMQ external-state runners, and the KEDA controller/CRD readiness checks
+in a fixed dependency order. It stops at the first failing stage, reports the
+specific component command for diagnosis, and does not forward child output
+that might contain sensitive external-client details. Four isolated tests cover
+the fixed read-only command set, ordering, failure isolation, and missing
+command handling. The full root verify passed all 23 stages against the
+current k3d cluster without creating or changing cluster resources. Durable
+MinIO and Keycloak external-state verifiers and the remaining bootstrap
+runners were still prerequisites for full-cluster reconciliation at this point.
+
+### Root existing-cluster reconcile (2026-09-27)
+
+`kubernetes/scripts/deploy-local.sh reconcile` uses the same fixed stage order
+as root verification. It changes only the three previously audited external
+state stages: Job API PostgreSQL bootstrap/migrations, RabbitMQ processing
+topology, and RabbitMQ source-intake topology/users. All Helm releases and
+KEDA dependencies are checked read-only; unexpected ownership or spec drift
+blocks the run rather than causing implicit adoption or upgrade. Each
+bootstrap runner itself refuses partial external state and confirms durable
+completion before the root moves on. This is an existing-cluster stage, not
+fresh-cluster installation or full Helm/MinIO/Keycloak reconciliation.
+The live command passed all 23 ordered gates twice. A before/after comparison
+for the repeated run found the same revisions for all fourteen CloudDSP Helm
+releases, no new bootstrap Jobs, and unchanged identities/resource versions
+for the three retained bootstrap ConfigMaps.
+
+### Keycloak external-state verification gate (2026-09-27)
+
+`kubernetes/scripts/keycloak-config-verify.rb verify` now loads the exact
+non-secret desired payloads from the six versioned Keycloak bootstrap Jobs,
+checks their local-only security invariants, and compares them with the live
+Admin API. The gate covers realm enablement and registration, Mailpit SMTP,
+the public React PKCE client and exact redirects, the Job API resource client,
+the access-token-only audience mapper, the registration password form, and
+the browser issuer. It reads administrator credentials in memory from the
+existing Secret and never logs tokens, passwords, or full Admin responses.
+Four isolated tests cover source payloads, Keycloak's omitted false client
+field, safe drift labels, and safe HTTP error handling. The standalone gate
+and both 24-stage root `verify` and `reconcile` runs passed on the local
+cluster. This gate is read-only; versioned Keycloak write reconciliation and
+MinIO external-state automation remain separate work.
+
+### MinIO external-state verification gate (2026-09-27)
+
+`kubernetes/scripts/minio-state-verify.rb verify` checks the MinIO state left
+outside the Helm release. It compares all six committed versioned IAM policy
+ConfigMaps with their live immutable data and the Admin API policy documents,
+verifies exact user-to-policy mappings and enabled users, and checks that the
+runtime Secrets carry the expected access-key identities. It also verifies
+the two-bucket inventory, the private uploads bucket's lack of a bucket policy,
+the narrow anonymous `GetObject` policy on shared MIDI samples, and the one
+`uploads/` ObjectCreated AMQP notification. The MinIO admin client uses the
+pinned cached image in a transient read-only container with a tmpfs config;
+its credentials arrive over stdin and client output is suppressed on failure.
+The S3 metadata checks use the existing local Ingress and root Secret. No
+objects or notification messages are created by this gate. Six isolated
+tests cover the versioned source set, policy normalization, ephemeral client
+security, safe failure messages, and notification drift. The standalone gate
+and both 25-stage root `verify` and `reconcile` runs passed against the current
+local cluster.
+This is a read-only gate; MinIO write reconciliation and full notification
+delivery testing remain separate work.
+
+### MinIO source-upload notification reconciliation (2026-09-27)
+
+`kubernetes/scripts/minio-notification-stage.rb` adds a bounded write path
+for the `uploads/` ObjectCreated AMQP rule. `plan` and `verify` read MinIO's
+durable S3 metadata alongside the bucket, IAM, policy ConfigMap, and runtime
+identity checks. `reconcile` creates the reviewed fixed-name notification Job
+only when the notification is wholly absent and that Job does not already
+exist. It validates the Job's pinned client image, credential references,
+ordered commands, security settings, and ephemeral config mount, then checks
+the MinIO release and RabbitMQ source-intake prerequisites before the write.
+After Job completion, the exact notification metadata must be present.
+Unrelated or partial notification state, an existing Job, or failed
+prerequisites stop the stage without cleanup or replacement. Five isolated
+tests passed, the Job passed Kubernetes server dry-run validation, and live
+`plan` and `reconcile` passed as no-ops because the correct rule was already
+present. Root `verify` and `reconcile` retain 25 stages; only this notification
+stage now has a MinIO write path. Bucket creation, IAM user/policy repair, and
+notification delivery smoke remain separate tasks.
+
+### MinIO bucket boundary and shared-sample policy stage (2026-09-27)
+
+`kubernetes/scripts/minio-buckets-stage.rb` adds a separate existing-cluster
+gate before the MinIO notification stage. It requires exactly the private
+uploads and shared MIDI sample buckets, no uploads bucket policy, and no
+shared-sample notifications. It compares all 461 sample keys and sizes with
+the committed lock before checking the narrow anonymous `GetObject` policy.
+Only a wholly absent shared-sample policy can be restored; a changed policy,
+extra object, or missing bucket stops without a write. In particular, the
+runner will not hide possible private data loss by recreating an empty uploads
+bucket. Five isolated tests passed and the live read-only `plan` found the
+bucket boundaries and locked inventory already correct. Root `verify` and
+existing-cluster `reconcile` each passed all 26 stages. Anonymous HTTP smoke
+returned 200 for a shared drum sample and 403 for the private uploads bucket.
+Fresh-cluster bucket creation, sample content hash verification, and IAM
+reconciliation remain separate tasks.
+
+### Fresh-cluster foundation stage (2026-09-27)
+
+`kubernetes/scripts/deploy-local-foundation.rb` is the first standalone
+fresh-bootstrap stage. It validates the pinned one-server/two-agent k3d
+topology, loopback API/registry/ingress ports, and three versioned project
+Namespace definitions before any write. `plan` requires both the target
+cluster and registry to be absent; `bootstrap` calls the existing `cluster.sh`
+creator only after those guards, waits for Ready nodes, server-validates and
+creates the namespaces, then verifies registry access, exact node roles,
+namespace labels, and packaged CoreDNS, Traefik, and local-path provisioner
+rollouts. A failure leaves the partial cluster for inspection rather than
+deleting it. Five isolated tests cover source contracts, absence guards,
+ordered creation, verification, and partial failure. The current cluster
+passed the read-only verifier; a fresh `plan` correctly refused it. The
+Namespace manifest passed Kubernetes server dry-run validation. This stage
+does not install KEDA, images, Secrets, Helm releases, or external bootstrap;
+root `deploy-local.sh bootstrap` remains pending those later stages.
