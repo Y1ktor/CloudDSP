@@ -400,16 +400,27 @@ absence; `bootstrap` performs a server dry run, creates only the absent
 Secret, then verifies live data without displaying credentials. An existing
 Secret stops creation, even if matching. `verify` is read-only and now runs
 before the RabbitMQ release in root `verify` and `reconcile`. The fresh
-RabbitMQ StatefulSet Helm install remains a separate task.
+RabbitMQ StatefulSet Helm install uses the stage's read-only `verify` mode
+again immediately before the Helm write.
 
-## RabbitMQ protected Helm adoption and verification
+## RabbitMQ fresh Helm install, protected adoption, and verification
 
 ```bash
+./k8Deployment/kubernetes/scripts/rabbitmq-release.rb install
 ./k8Deployment/kubernetes/scripts/rabbitmq-release.rb plan
 ./k8Deployment/kubernetes/scripts/rabbitmq-release.rb adopt
 ./k8Deployment/kubernetes/scripts/rabbitmq-release.rb verify
 ./k8Deployment/kubernetes/scripts/rabbitmq-release.rb smoke
 ```
+
+For a fresh namespace, run the Secret stage's `bootstrap` first, then
+`install`. It requires the Helm release, all five named resources, generated
+PVC, and matching broker Pod to be absent. It checks the Secret without
+printing its values, runs ordinary Helm install with a five-minute readiness
+wait, and verifies the bound claim and running image. A partial install stops
+future `install` attempts for inspection. This path does not run the adoption
+backup or take ownership of existing objects. It has not been trialed on an
+empty cluster; the existing live cluster is retained.
 
 The [RabbitMQ chart](../helm/rabbitmq/README.md) owns the existing broker
 StatefulSet, AMQP, headless and management Services, and its ingress

@@ -29,7 +29,24 @@ ruby ./k8Deployment/kubernetes/scripts/rabbitmq-secret-stage.rb verify
 
 The populated manifest stays under ignored `.local/` configuration. The
 stage refuses to replace an existing Secret and suppresses credential values.
-A guarded fresh StatefulSet Helm install is the next release step.
+
+## Fresh Helm install
+
+After creating the credential Secret in an otherwise empty namespace, run:
+
+```bash
+./k8Deployment/kubernetes/scripts/rabbitmq-release.rb install
+./k8Deployment/kubernetes/scripts/rabbitmq-release.rb verify
+./k8Deployment/kubernetes/scripts/rabbitmq-release.rb smoke
+```
+
+The install guard checks that the Helm release, five chart resources,
+generated PVC, and matching Pod are all absent. It verifies the credential
+Secret before an ordinary Helm install, waits up to five minutes for the
+broker, and verifies the bound claim and running image digest. A partial or
+failed install is left for inspection; rerunning `install` does not adopt or
+replace it. The fresh path does not run the protected adoption backup. The
+current live cluster is retained, so an empty-cluster trial remains pending.
 
 ## Protected adoption and checks
 

@@ -487,7 +487,11 @@ external effect disappeared. Therefore:
 15. **RabbitMQ fresh credential prerequisite implemented.** The guarded
     Secret stage creates only the absent administrator Secret. Root
     verification checks it before the broker release; fresh Helm install
-    remains separate work.
+    is recorded below.
+16. **RabbitMQ fresh Helm install implemented.** The release runner requires
+    the release, broker objects, generated claim, and matching Pod to be
+    absent, verifies the administrator Secret, and then waits for Helm and
+    PVC readiness. An empty-cluster trial and root composition remain.
 
 Each task needs its own review and validation. This document authorizes no
 cluster mutation by itself.

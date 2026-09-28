@@ -4267,4 +4267,17 @@ compares the live data with local values in memory without displaying them.
 The current live Secret passed read-only verification. Root `verify` and
 existing-cluster `reconcile` now check it before the RabbitMQ release.
 Isolated tests cover absent creation, existing-resource refusal, invalid
-source, and drift. The fresh broker Helm install remains the next task.
+source, and drift. The fresh broker Helm install is recorded below.
+
+### RabbitMQ fresh Helm install path (2026-09-28)
+
+`kubernetes/scripts/rabbitmq-release.rb install` now checks that the Helm
+release, five broker objects, generated claim, and matching Pod are absent.
+It then verifies the administrator Secret against ignored local configuration
+before an ordinary Helm install with a five-minute readiness wait. The
+existing release verifier checks ownership, source spec, Ready Pod, bound
+PVC/PV, and running image digest after installation. The fresh path never
+runs the protected adoption backup or takeover flags. Isolated tests cover
+success ordering and existing release, object, PVC, orphan Pod, and invalid
+credential boundaries. The retained live cluster has not been deleted for an
+empty-cluster trial; root composition remains a separate task.

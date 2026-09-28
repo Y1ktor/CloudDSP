@@ -1,8 +1,9 @@
 #!/usr/bin/env ruby
-# Adopt only the running broker StatefulSet, its three stable Services, and
-# its ingress NetworkPolicy. A stopped-volume backup and isolated broker
-# restore gate Helm ownership; the generated PVC/PV, messages, credentials,
-# topology bootstrap Jobs, and KEDA resources remain outside this release.
+# Helm owns the broker StatefulSet, its three stable Services, and its ingress
+# NetworkPolicy. Existing broker adoption requires a stopped-volume backup and
+# isolated restore; fresh installation instead requires absent resources,
+# generated storage, and Pod plus a verified administrator Secret. The PVC/PV,
+# messages, credentials, topology Jobs, and KEDA remain outside this release.
 require_relative 'stateless-release'
 
 StatelessRelease.new(
@@ -15,6 +16,9 @@ StatelessRelease.new(
   workload_kind: 'StatefulSet',
   pvc_name: 'rabbitmq-data-clouddsp-rabbitmq-0',
   before_adopt: [StatelessRelease::ROOT.join('scripts', 'rabbitmq-backup-and-restore-test.py').to_s],
+  allow_fresh_install: true,
+  before_install: ['ruby', StatelessRelease::ROOT.join('scripts', 'rabbitmq-secret-stage.rb').to_s, 'verify'],
+  fresh_install_timeout: '5m',
   verify_running_digest: true,
   smoke_job: {
     name: 'rabbitmq-amqp-smoke',
