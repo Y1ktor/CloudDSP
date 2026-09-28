@@ -506,8 +506,12 @@ external effect disappeared. Therefore:
 18. **MinIO root credential prerequisite implemented.** The absent-only
     Secret stage verifies the ignored local source and live values without
     printing them. Root verification checks it before the MinIO release.
-    RabbitMQ notification credentials, fresh MinIO Helm install, and external
-    bucket/IAM bootstraps remain separate work.
+    Fresh MinIO Helm install and external bucket/IAM bootstraps remain separate.
+19. **MinIO AMQP notification credential prerequisite implemented.** The
+    absent-only Secret stage validates its broker URL and credential pairing,
+    then checks exact live data. Root verification checks it before the MinIO
+    release. Broker user/topology bootstrap and fresh MinIO Helm install are
+    separate steps.
 
 Each task needs its own review and validation. This document authorizes no
 cluster mutation by itself.

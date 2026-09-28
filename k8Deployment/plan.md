@@ -4306,7 +4306,24 @@ after a server dry run, and compares live values with local values in memory
 without displaying them. Root `verify` and existing-cluster `reconcile` now
 run its read-only check before the MinIO release. The current live Secret
 passed `verify` and correctly blocked a fresh `bootstrap`. The separate
-RabbitMQ notification Secret and identity, fresh MinIO Helm install, and
-bucket/IAM creation still need their own stages.
+RabbitMQ notification Secret stage is recorded below; fresh MinIO Helm install
+and bucket/IAM creation still need their own stages.
+
 The MinIO S3 create/read/delete smoke and all 29 root read-only verification
 gates passed with the new Secret check in place.
+
+### MinIO RabbitMQ notification credential prerequisite (2026-09-28)
+
+`kubernetes/scripts/minio-amqp-secret-stage.rb` now offers guarded `plan`,
+`bootstrap`, and `verify` modes for the ignored MinIO notification Secret.
+It validates the committed identity, labels, exact key set, fixed broker and
+vhost, and agreement between the restricted username/password fields and
+their percent-encoded AMQP URL. It creates only an absent Secret after a
+server dry run and compares live values without displaying the URL or
+password. Root `verify` and existing-cluster `reconcile` check it before the
+MinIO release. The live Secret passed `verify` and blocked a fresh
+`bootstrap`. The separate RabbitMQ user/topology stage, fresh MinIO Helm
+install, and bucket/IAM creation remain to be composed.
+
+The MinIO S3 create/read/delete smoke and all 30 root read-only verification
+gates passed with this Secret check in place.

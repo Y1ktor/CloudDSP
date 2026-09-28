@@ -116,7 +116,7 @@ registry in the meantime.
 ## Root verification and existing-cluster reconcile
 
 `verify` first runs that same preflight, checks the PostgreSQL, RabbitMQ, and
-MinIO root credential Secrets against their ignored local sources without
+both MinIO credential Secrets against their ignored local sources without
 printing values, then checks the fourteen adopted CloudDSP Helm releases, the
 implemented Job API PostgreSQL and RabbitMQ bootstrap stages, the
 [Keycloak realm/client state](keycloak-config-verify.rb),
@@ -384,10 +384,29 @@ For a fresh namespace, populate the ignored
 example, replacing both placeholders. `plan` requires the Secret to be
 absent; `bootstrap` validates it with a server dry run, creates only an
 absent Secret, and compares the live result with the local values in memory.
-`verify` is read-only and now gates the MinIO release in root `verify` and
+`verify` is read-only and gates the MinIO release in root `verify` and
 existing-cluster `reconcile`. This stage does not create MinIO's separate
-RabbitMQ notification Secret, broker identity, buckets, or IAM state. The
-fresh MinIO Helm install remains a separate task.
+RabbitMQ notification Secret, broker identity, buckets, or IAM state.
+
+## MinIO RabbitMQ notification credential Secret stage
+
+```bash
+ruby ./k8Deployment/kubernetes/scripts/minio-amqp-secret-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/minio-amqp-secret-stage.rb bootstrap
+ruby ./k8Deployment/kubernetes/scripts/minio-amqp-secret-stage.rb verify
+```
+
+Populate the ignored
+`k8Deployment/.local/minio-source-intake-rabbitmq-credentials.secret.yaml`
+from its committed example. The stage checks that its AMQP URL uses the
+reviewed broker, `/clouddsp` vhost, and restricted username, and that its
+percent-decoded password matches the separate password field. `plan` requires
+absence; `bootstrap` performs a server dry run, creates only the absent
+Secret, then checks its live encoded values without displaying them. Root
+`verify` and existing-cluster `reconcile` use its read-only `verify` mode
+before the MinIO release. The restricted broker user and topology are checked
+by the separate source-intake RabbitMQ runner. A fresh MinIO Helm install and
+bucket/IAM creation remain separate tasks.
 
 ## MinIO protected Helm adoption and verification
 

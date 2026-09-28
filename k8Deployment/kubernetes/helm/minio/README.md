@@ -15,22 +15,28 @@ configuration, Secret references, and probes. The
 [`source manifests`](../../services/minio/) remain comparison baselines; do
 not apply them over Helm-owned objects.
 
-## Fresh-cluster root credential prerequisite
+## Fresh-cluster credential prerequisites
 
-The chart references but does not own the root administrator Secret. After
-the fresh foundation creates `clouddsp-data`, populate the ignored `.local/`
-manifest from the committed example, then run:
+The chart references but does not own its root administrator or RabbitMQ
+notification Secrets. After the fresh foundation creates `clouddsp-data`,
+populate both ignored `.local/` manifests from their committed examples, then
+run:
 
 ```bash
 ruby ./k8Deployment/kubernetes/scripts/minio-root-secret-stage.rb plan
 ruby ./k8Deployment/kubernetes/scripts/minio-root-secret-stage.rb bootstrap
 ruby ./k8Deployment/kubernetes/scripts/minio-root-secret-stage.rb verify
+ruby ./k8Deployment/kubernetes/scripts/minio-amqp-secret-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/minio-amqp-secret-stage.rb bootstrap
+ruby ./k8Deployment/kubernetes/scripts/minio-amqp-secret-stage.rb verify
 ```
 
-The stage creates only an absent Secret and checks live values against the
-ignored source without displaying them. A separate RabbitMQ notification
-Secret and broker identity are also required by the StatefulSet. Those and a
-guarded fresh MinIO Helm install remain later deployment steps.
+Each stage creates only an absent Secret and checks live values against the
+ignored source without displaying them. The AMQP stage also checks that its
+URL names the reviewed broker and vhost and decodes to the same restricted
+username and password. The existing source-intake RabbitMQ bootstrap stage
+must create the matching broker user and topology in a fresh deployment. A
+guarded fresh MinIO Helm install remains separate work.
 
 ## Protected adoption and checks
 
