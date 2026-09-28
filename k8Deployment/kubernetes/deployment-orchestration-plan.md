@@ -567,6 +567,15 @@ external effect disappeared. Therefore:
     Secret after the full result verifies. Worker IAM identities remain.
     The retained cluster passed 35 read-only gates and the source-to-outbox
     smoke; the clean-cluster IAM Job creation path remains untrialed.
+29. **Demucs MinIO runtime Secret stage implemented.** The absent-only stage
+    validates matching ignored worker and temporary provisioning sources,
+    creates only the application namespace Secret in fresh bootstrap, and
+    compares live values in root read-only verification. The temporary
+    provisioning Secret, policy, and MinIO user remain for the Demucs IAM
+    stage.
+    The retained cluster passed the new gate and all 36 root read-only gates;
+    fresh Secret creation remains covered by focused tests until an empty
+    cluster trial.
 
 Each task needs its own review and validation. This document authorizes no
 cluster mutation by itself.

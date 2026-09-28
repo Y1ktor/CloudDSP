@@ -4477,3 +4477,19 @@ authenticated upload, upload-intake transition, and duplicate notification
 checks; its disposable Job was removed. Both dispatcher Helm releases were
 restored to their reviewed values at revision 5, their release verifiers
 passed, and RabbitMQ queues were empty afterward.
+
+### Demucs MinIO runtime Secret preparation (2026-09-28)
+
+`kubernetes/scripts/demucs-minio-secret-stage.rb` validates the ignored
+worker and temporary provisioning Secret sources together. It checks their
+fixed identity, labels, keys, and matching non-placeholder secret key without
+printing credentials. Fresh `bootstrap-minio` creates only the absent
+`clouddsp-app` runtime Secret after a server dry run; the temporary
+`clouddsp-data` Secret and worker IAM Job are separate work. Root read-only
+verification compares the live Secret with the ignored source before bucket
+and IAM checks. The retained cluster remains in place, so fresh creation is
+covered by focused unit tests rather than a live empty-cluster trial.
+The existing-cluster read-only Secret check and all 36 root verification
+gates passed. Fresh `plan` refused the existing Secret, and an API-server dry
+run validated the ignored runtime Secret without persisting it. No Demucs
+worker Job was started for this credential-only stage.

@@ -90,8 +90,8 @@ cluster. It reuses `bootstrap-rabbitmq` for foundation, images, administrator
 Secret, and broker Helm install. It then creates the MinIO root/AMQP and
 upload-intake RabbitMQ runtime Secrets, reconciles and verifies the restricted
 source-intake broker users and topology, and only then installs and verifies
-MinIO. It creates the Job API and upload-intake runtime MinIO Secrets and the
-two initially private MinIO buckets, mirrors 461 hash-locked shared MIDI
+MinIO. It creates the Job API, upload-intake, and Demucs runtime MinIO Secrets
+and the two initially private MinIO buckets, mirrors 461 hash-locked shared MIDI
 samples, and grants their bucket a narrow anonymous browser-read policy. It
 then provisions the restricted Job API user with two policies and the
 upload-intake user with its source-read policy.
@@ -99,8 +99,9 @@ The broker runner manages its temporary bootstrap Secret and removes it after
 successful user verification. A failed stage leaves partial state
 for inspection. This is an alternative partial trial to the other
 `bootstrap-*` commands, not a command to run after them on the same cluster.
-It configures both the Job API and upload-intake MinIO identities. Worker IAM
-users and application releases remain for later stages.
+It configures both the Job API and upload-intake MinIO identities and prepares
+the Demucs runtime credential. Worker IAM users and application releases
+remain for later stages.
 The full root `bootstrap` will compose those remaining stages later.
 
 ## Docker Hub image source and local mirror
@@ -135,7 +136,7 @@ registry in the meantime.
 ## Root verification and existing-cluster reconcile
 
 `verify` first runs that same preflight, checks the PostgreSQL, RabbitMQ,
-MinIO, Job API MinIO, and upload-intake RabbitMQ/MinIO credential Secrets
+MinIO, Job API MinIO, upload-intake RabbitMQ/MinIO, and Demucs MinIO Secrets
 against their ignored local sources without printing values, then checks the
 fourteen adopted CloudDSP Helm releases, the implemented Job API PostgreSQL
 and RabbitMQ bootstrap stages, the
@@ -469,6 +470,25 @@ belongs to the later upload-intake IAM Job stage. Read-only `verify` compares
 the live Secret with the ignored source in memory and suppresses credentials
 from output. Root `bootstrap-minio` stages it after the MinIO release; root
 `verify` checks it before the bucket and IAM gates.
+
+## Demucs MinIO runtime credential Secret stage
+
+```bash
+ruby ./k8Deployment/kubernetes/scripts/demucs-minio-secret-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/demucs-minio-secret-stage.rb bootstrap
+ruby ./k8Deployment/kubernetes/scripts/demucs-minio-secret-stage.rb verify
+```
+
+Populate the ignored `k8Deployment/.local/demucs-minio-credentials.secret.yaml`
+and `k8Deployment/.local/demucs-minio-bootstrap-credentials.secret.yaml` from
+their committed templates with the same restricted key. The stage checks
+both Kubernetes Secret contracts and the matching non-placeholder MinIO key.
+Fresh `bootstrap` creates only the absent `clouddsp-app` runtime Secret after
+a server dry run. The temporary `clouddsp-data` Secret and artifacts policy
+belong to a later IAM Job stage. Read-only `verify` compares the live encoded
+values with the ignored runtime source in memory without printing credentials.
+Root `bootstrap-minio` stages this Secret before the bucket work; root `verify`
+checks it before the MinIO IAM gates.
 
 ## Job API MinIO IAM bootstrap and temporary Secret cleanup
 
