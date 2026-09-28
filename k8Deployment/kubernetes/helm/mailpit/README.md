@@ -59,8 +59,15 @@ still need their own charts and adoption checks.
 
 ## Fresh-cluster install
 
-After the guarded foundation and image preparation stage has created the
-`clouddsp-data` namespace, run:
+On an empty target cluster, the root partial bootstrap runs preparation,
+Mailpit installation, and Mailpit verification in one command:
+
+```bash
+./k8Deployment/kubernetes/scripts/deploy-local.sh bootstrap-mailpit
+```
+
+After a separate guarded foundation and image preparation stage has created
+the `clouddsp-data` namespace, the equivalent component commands are:
 
 ```bash
 ./k8Deployment/kubernetes/scripts/mailpit-release.rb install

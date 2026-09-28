@@ -10,6 +10,7 @@ its own location and does not depend on the current working directory.
 ```bash
 ./k8Deployment/kubernetes/scripts/deploy-local.sh plan
 ./k8Deployment/kubernetes/scripts/deploy-local.sh prepare
+./k8Deployment/kubernetes/scripts/deploy-local.sh bootstrap-mailpit
 ./k8Deployment/kubernetes/scripts/deploy-local.sh verify
 ./k8Deployment/kubernetes/scripts/deploy-local.sh reconcile
 ./k8Deployment/kubernetes/scripts/deploy-local.sh cleanup
@@ -55,6 +56,14 @@ for inspection. `prepare` does not install KEDA, create runtime Secrets,
 install Helm releases, or bootstrap external state. The full root
 `deploy-local.sh bootstrap` mode will be added after those stages have
 reviewed fresh-cluster paths.
+
+`bootstrap-mailpit` is the first root composition beyond `prepare`. On an
+absent cluster it runs foundation and image preparation, the guarded Mailpit
+`install`, and Mailpit `verify` in that order. A failure stops later stages
+and leaves created resources for inspection. It does not install the remaining
+CloudDSP releases or bootstrap application data; the full root `bootstrap`
+mode remains pending. Use the separate Mailpit smoke command below when SMTP
+capture needs a functional check.
 
 ## Docker Hub image source and local mirror
 

@@ -4204,5 +4204,17 @@ absent. Ordinary Helm install waits for readiness; the runner then checks
 release ownership, manifest parity, Pod readiness, and the HTTP ingress.
 This path never uses adoption takeover flags and stops on a partial prior
 attempt. Isolated tests cover the ordered success path and both absence
-guards. A fresh-cluster trial and root orchestration of this mode remain to
-be done without deleting the current working cluster.
+guards. A fresh-cluster trial remains to be done without deleting the
+current working cluster.
+
+### Root Mailpit bootstrap slice (2026-09-28)
+
+`kubernetes/scripts/deploy-local.sh bootstrap-mailpit` now composes the
+guarded foundation/image preparation, fresh Mailpit Helm installation, and
+Mailpit release verification in one command. The runner stops at the first
+failure and names the failed stage. This is deliberately a partial bootstrap;
+the data services, identity, app services, workers, and frontend still need
+fresh install and bootstrap paths before the final one-command `bootstrap`.
+Isolated tests cover ordered execution and both stop boundaries. The running
+cluster is retained, so the clean-cluster branch still needs a disposable
+trial.
