@@ -20,6 +20,8 @@ class DeployLocalVerifyTest < Minitest::Test
                     commands.index(['ruby', 'minio-buckets-stage.rb', 'verify'])
     assert_operator commands.index(['ruby', 'demucs-minio-secret-stage.rb', 'verify']), :<,
                     commands.index(['ruby', 'minio-buckets-stage.rb', 'verify'])
+    assert_operator commands.index(['ruby', 'basic-pitch-minio-secret-stage.rb', 'verify']), :<,
+                    commands.index(['ruby', 'minio-buckets-stage.rb', 'verify'])
     assert_operator commands.index(['ruby', 'minio-buckets-stage.rb', 'verify']), :<,
                     commands.index(['ruby', 'minio-job-api-iam-stage.rb', 'verify'])
     assert_operator commands.index(['ruby', 'minio-job-api-iam-stage.rb', 'verify']), :<,

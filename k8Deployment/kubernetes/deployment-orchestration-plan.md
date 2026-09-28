@@ -585,6 +585,14 @@ external effect disappeared. Therefore:
     IAM check succeeds. Basic Pitch and ADTOF IAM identities remain.
     The retained cluster passed 37 read-only gates and a focused Demucs S3
     permission smoke; the fresh provisioning Job path remains untrialed.
+31. **Basic Pitch MinIO runtime Secret stage implemented.** The absent-only
+    stage validates the matching ignored worker and provisioning sources,
+    creates only the application namespace Secret during fresh bootstrap,
+    and compares live values in root read-only verification. The temporary
+    provisioning Secret, artifacts policy, and MinIO user remain for the
+    Basic Pitch IAM stage.
+    The retained cluster passed all 38 root read-only gates; fresh Secret
+    creation remains covered by focused tests until an empty-cluster trial.
 
 Each task needs its own review and validation. This document authorizes no
 cluster mutation by itself.

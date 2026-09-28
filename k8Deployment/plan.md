@@ -4513,3 +4513,18 @@ runtime identity to put/get one unique private stem probe while confirming
 MIDI writes, deletion, and bucket listing were denied; it cleaned the probe
 with the ignored MinIO administrator key. Narrow reconcile found no temporary
 Secret and made no change. All 37 root read-only gates passed.
+
+### Basic Pitch MinIO runtime Secret preparation (2026-09-28)
+
+`kubernetes/scripts/basic-pitch-minio-secret-stage.rb` validates the ignored
+worker and temporary provisioning Secret sources together, including fixed
+identity, labels, keys, and matching non-placeholder secret keys. Fresh
+`bootstrap-minio` creates only the absent `clouddsp-app` runtime Secret after
+a server dry run; the temporary `clouddsp-data` Secret and Basic Pitch IAM
+Job remain separate work. Root read-only verification checks the live Secret
+against the ignored source before bucket and IAM gates. The retained cluster
+has not been replaced for a fresh creation trial.
+The live runtime Secret matched its ignored source, fresh `plan` refused the
+existing Secret, and an API-server dry run accepted the source without
+persisting it. All 38 root read-only gates passed. No Basic Pitch worker Job
+was started for this credential-only stage.

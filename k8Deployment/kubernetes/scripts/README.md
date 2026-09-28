@@ -90,18 +90,20 @@ cluster. It reuses `bootstrap-rabbitmq` for foundation, images, administrator
 Secret, and broker Helm install. It then creates the MinIO root/AMQP and
 upload-intake RabbitMQ runtime Secrets, reconciles and verifies the restricted
 source-intake broker users and topology, and only then installs and verifies
-MinIO. It creates the Job API, upload-intake, and Demucs runtime MinIO Secrets
-and the two initially private MinIO buckets, mirrors 461 hash-locked shared MIDI
-samples, and grants their bucket a narrow anonymous browser-read policy. It
-then provisions the restricted Job API user with two policies, the
-upload-intake user with its source-read policy, and the Demucs worker with its
+MinIO. It creates the Job API, upload-intake, Demucs, and Basic Pitch runtime
+MinIO Secrets and the two initially private MinIO buckets, mirrors 461
+hash-locked shared MIDI samples, and grants their bucket a narrow anonymous
+browser-read policy. It then provisions the restricted Job API user with two
+policies, the upload-intake user with its source-read policy, and the Demucs
+worker with its
 private source-read and stem-write policy.
 The broker runner manages its temporary bootstrap Secret and removes it after
 successful user verification. A failed stage leaves partial state
 for inspection. This is an alternative partial trial to the other
 `bootstrap-*` commands, not a command to run after them on the same cluster.
-It configures the Job API, upload-intake, and Demucs MinIO identities. Basic
-Pitch/ADTOF IAM users and application releases remain for later stages.
+It configures the Job API, upload-intake, and Demucs MinIO identities and
+prepares the Basic Pitch runtime credential. Basic Pitch/ADTOF IAM users and
+application releases remain for later stages.
 The full root `bootstrap` will compose those remaining stages later.
 
 ## Docker Hub image source and local mirror
@@ -136,8 +138,9 @@ registry in the meantime.
 ## Root verification and existing-cluster reconcile
 
 `verify` first runs that same preflight, checks the PostgreSQL, RabbitMQ,
-MinIO, Job API MinIO, upload-intake RabbitMQ/MinIO, and Demucs MinIO Secrets
-against their ignored local sources without printing values, then checks the
+MinIO, Job API MinIO, upload-intake RabbitMQ/MinIO, Demucs MinIO, and Basic
+Pitch MinIO Secrets against their ignored local sources without printing
+values, then checks the
 fourteen adopted CloudDSP Helm releases, the implemented Job API PostgreSQL
 and RabbitMQ bootstrap stages, the
 [Keycloak realm/client state](keycloak-config-verify.rb),
@@ -489,6 +492,27 @@ a server dry run. The temporary `clouddsp-data` Secret and artifacts policy
 belong to a later IAM Job stage. Read-only `verify` compares the live encoded
 values with the ignored runtime source in memory without printing credentials.
 Root `bootstrap-minio` stages this Secret before the bucket work; root `verify`
+checks it before the MinIO IAM gates.
+
+## Basic Pitch MinIO runtime credential Secret stage
+
+```bash
+ruby ./k8Deployment/kubernetes/scripts/basic-pitch-minio-secret-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/basic-pitch-minio-secret-stage.rb bootstrap
+ruby ./k8Deployment/kubernetes/scripts/basic-pitch-minio-secret-stage.rb verify
+```
+
+Populate the ignored
+`k8Deployment/.local/basic-pitch-minio-credentials.secret.yaml` and
+`k8Deployment/.local/basic-pitch-minio-bootstrap-credentials.secret.yaml`
+from their committed templates with one restricted key pair. The stage checks
+both Secret contracts, fixed MinIO access-key identity, and matching
+non-placeholder secret keys. Fresh `bootstrap` creates only the absent
+`clouddsp-app` runtime Secret after a server dry run. Its temporary
+`clouddsp-data` counterpart and artifacts policy belong to the later Basic
+Pitch IAM Job stage. Read-only `verify` checks the live encoded values against
+the ignored source in memory without printing credentials. Root
+`bootstrap-minio` stages the Secret before bucket creation; root `verify`
 checks it before the MinIO IAM gates.
 
 ## Job API MinIO IAM bootstrap and temporary Secret cleanup
