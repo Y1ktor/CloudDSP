@@ -5,10 +5,10 @@
 # foundation and mirrors its locked images. `bootstrap-mailpit` adds the first
 # fresh Helm release. `bootstrap-postgresql` and `bootstrap-rabbitmq` prepare
 # individual stateful services; `bootstrap-minio` composes broker and object
-# storage prerequisites, buckets, and locked samples. `verify` checks each reviewed component
-# and bootstrap stage. `reconcile` changes only the five bootstrap stages with
-# audited idempotent runners; existing Helm releases are verified
-# and must already match their charts. `cleanup` removes the k3d cluster while
+# storage prerequisites, buckets, locked samples, and restricted IAM users.
+# `verify` checks each reviewed component and bootstrap stage. `reconcile`
+# changes only audited external state through versioned runners; existing Helm
+# releases are verified and must already match their charts. `cleanup` removes the k3d cluster while
 # retaining images; `purge-registry` is the separate explicit image deletion.
 set -euo pipefail
 
@@ -33,14 +33,14 @@ bootstrap-minio: On an absent cluster, prepare and install RabbitMQ, create
          MinIO and upload-intake broker Secrets, bootstrap restricted broker
          source-intake state, install MinIO, create Job API runtime credentials
          and upload-intake MinIO runtime credentials and buckets, mirror 461
-         hash-locked MIDI samples, then create the Job API MinIO user and two
-         policies. Other IAM identities come later.
+         hash-locked MIDI samples, then create Job API and upload-intake MinIO
+         users with their reviewed policies. Worker IAM identities come later.
 verify: Run that preflight, then the reviewed read-only Helm, KEDA, and
         bootstrap gates in dependency order. Stop at the first failed gate.
 reconcile: On an existing cluster, run the same ordered gates and reconcile
-           the Job API PostgreSQL, RabbitMQ, and narrow MinIO bucket, Job API
-           IAM cleanup, and notification stages. Existing Helm releases must
-           verify; this mode does not install/upgrade them.
+           Job API PostgreSQL, RabbitMQ, narrow MinIO bucket and notification
+           state, plus matching leftover Job API/upload-intake IAM Secrets.
+           Existing Helm releases must verify; this mode does not upgrade them.
 cleanup: Delete the fixed CloudDSP k3d cluster and its Kubernetes resources,
          including PVC data. Keep the dedicated local image registry.
 purge-registry: Delete that registry and its images after cluster cleanup.

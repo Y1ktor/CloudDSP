@@ -55,11 +55,15 @@ class DeployLocalReconcileTest < Minitest::Test
     assert_equal 'reconcile', bucket_gate.last
     job_api_iam_gate = calls.find { |command| File.basename(command[1]) == 'minio-job-api-iam-stage.rb' }
     assert_equal 'reconcile', job_api_iam_gate.last
+    upload_intake_iam_gate = calls.find { |command| File.basename(command[1]) == 'minio-upload-intake-iam-stage.rb' }
+    assert_equal 'reconcile', upload_intake_iam_gate.last
     assert_operator calls.index { |command| File.basename(command[1]) == 'rabbitmq-source-intake-bootstrap.rb' },
                     :<, calls.index(bucket_gate)
     assert_operator calls.index(bucket_gate), :<, calls.index(minio_gate)
     assert_operator calls.index(bucket_gate), :<, calls.index(job_api_iam_gate)
     assert_operator calls.index(job_api_iam_gate), :<, calls.index(minio_gate)
+    assert_operator calls.index(job_api_iam_gate), :<, calls.index(upload_intake_iam_gate)
+    assert_operator calls.index(upload_intake_iam_gate), :<, calls.index(minio_gate)
     assert_operator calls.index(minio_gate), :<,
                     calls.index { |command| File.basename(command[1]) == 'mailpit-release.rb' }
     assert calls.all? { |command| (command & %w[adopt upgrade install delete apply smoke]).empty? }

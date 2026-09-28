@@ -7,9 +7,9 @@
 # StatefulSet and generated PVC. Only then can the fresh bucket stage create
 # the private uploads and shared-sample boundaries. The shared samples are
 # mirrored and made read-only to browsers only after their checked-in hashes
-# match. Two fixed Jobs then provision the Job API's restricted MinIO IAM.
-# The upload-intake runtime credential is staged for its later IAM Job. A
-# failed child leaves all partial state for inspection; this runner never
+# match. Two fixed Jobs provision the Job API's restricted MinIO IAM, then a
+# separate Job provisions upload-intake's source-read identity. A failed child
+# leaves all partial state for inspection; this runner never
 # retries by taking ownership or deleting data.
 require 'rbconfig'
 
@@ -31,7 +31,9 @@ class CloudDSPBootstrapMinio
     ['fresh shared MIDI sample mirror', 'minio-fresh-samples-stage.rb', 'bootstrap'],
     ['shared MIDI sample and browser policy verification', 'minio-fresh-samples-stage.rb', 'verify'],
     ['fresh Job API MinIO IAM user and policies', 'minio-job-api-iam-stage.rb', 'bootstrap'],
-    ['Job API MinIO IAM verification', 'minio-job-api-iam-stage.rb', 'verify']
+    ['Job API MinIO IAM verification', 'minio-job-api-iam-stage.rb', 'verify'],
+    ['fresh upload-intake MinIO IAM user and policy', 'minio-upload-intake-iam-stage.rb', 'bootstrap'],
+    ['upload-intake MinIO IAM verification', 'minio-upload-intake-iam-stage.rb', 'verify']
   ].freeze
 
   def initialize(run_command: method(:system), output: $stdout, error: $stderr)
@@ -49,7 +51,7 @@ class CloudDSPBootstrapMinio
       @error.puts "CloudDSP bootstrap-minio stopped at #{label}; inspect that stage before retrying."
       return 1
     end
-    @output.puts 'CloudDSP bootstrap-minio complete: broker, MinIO, shared samples, and Job API IAM ready; other IAM identities and applications remain pending.'
+    @output.puts 'CloudDSP bootstrap-minio complete: broker, MinIO, shared samples, Job API IAM, and upload-intake IAM ready; worker IAM identities and applications remain pending.'
     0
   end
 end

@@ -4455,3 +4455,25 @@ Secret against the ignored source without printing credentials. The committed
 runtime template's purpose label now matches the existing live Secret and
 ignored local source. The retained live cluster passed all 34 root read-only
 gates; the fresh-cluster creation path remains untrialed.
+
+### upload-intake MinIO IAM fresh bootstrap (2026-09-28)
+
+`kubernetes/scripts/minio-upload-intake-iam-stage.rb` uses the committed
+source-read policy ConfigMap and one-shot Job to provision the restricted
+upload-intake identity after MinIO buckets and its runtime Secret verify. It
+requires the user, policy, ConfigMap, Job, and temporary Secret to be absent
+before writing; server dry runs precede every create. After Job completion it
+verifies the exact policy and user attachment, then deletes the temporary
+Secret. Partial state stops for inspection. Root `bootstrap-minio` and the
+read-only root verifier include the stage. Existing-cluster `reconcile` can
+remove only a matching temporary Secret after the durable IAM state verifies;
+it cannot create or change the user or policy. The running cluster's exact IAM
+state verified. The fresh Job path has not been trialed on an empty cluster.
+The live fresh `plan` refused the existing policy ConfigMap, while the
+read-only IAM gate and all 35 root verification gates passed. API-server dry
+run accepted the committed policy ConfigMap and Job. Narrow reconcile found no
+temporary Secret and made no change. The source-to-outbox smoke passed its
+authenticated upload, upload-intake transition, and duplicate notification
+checks; its disposable Job was removed. Both dispatcher Helm releases were
+restored to their reviewed values at revision 5, their release verifiers
+passed, and RabbitMQ queues were empty afterward.

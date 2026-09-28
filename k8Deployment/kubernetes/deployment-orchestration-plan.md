@@ -558,6 +558,15 @@ external effect disappeared. Therefore:
     the live values with the ignored source without printing credentials. The
     temporary Secret, source-read policy, and MinIO user remain for the next
     IAM Job stage.
+28. **upload-intake MinIO IAM stage implemented.** After the Job API IAM Job,
+    `bootstrap-minio` now creates the temporary provisioning Secret, immutable
+    source-read policy ConfigMap, and fixed Job only from absent state. It
+    verifies the exact policy and user attachment before deleting the
+    temporary Secret. Read-only root verification checks the durable result;
+    existing-cluster reconcile may remove only a matching leftover temporary
+    Secret after the full result verifies. Worker IAM identities remain.
+    The retained cluster passed 35 read-only gates and the source-to-outbox
+    smoke; the clean-cluster IAM Job creation path remains untrialed.
 
 Each task needs its own review and validation. This document authorizes no
 cluster mutation by itself.

@@ -23,6 +23,7 @@ class CloudDSPLocalVerify
     rabbitmq-source-intake-bootstrap.rb
     minio-buckets-stage.rb
     minio-job-api-iam-stage.rb
+    minio-upload-intake-iam-stage.rb
     minio-notification-stage.rb
   ].freeze
   Stage = Struct.new(:name, :command, keyword_init: true)
@@ -31,9 +32,9 @@ class CloudDSPLocalVerify
   # from reporting secondary symptoms as if they were independent failures.
   # The external-state list is intentionally limited to versioned runners that
   # already have a read-only verify mode. The MinIO bucket stage restores only
-  # an absent shared-sample policy, the Job API IAM stage removes only a
-  # matching leftover temporary Secret after full IAM verification, and the
-  # notification stage restores only an absent upload rule. Other MinIO IAM
+  # an absent shared-sample policy, the Job API and upload-intake IAM stages
+  # remove only matching leftover temporary Secrets after full IAM verification,
+  # and the notification stage restores only an absent upload rule. Other MinIO IAM
   # identities and Keycloak state need separate reviewed write paths.
   STAGES = [
     Stage.new(name: 'preflight', command: ['ruby', 'deploy-local-plan.rb']),
@@ -52,6 +53,7 @@ class CloudDSPLocalVerify
     Stage.new(name: 'RabbitMQ source-intake topology and users', command: ['ruby', 'rabbitmq-source-intake-bootstrap.rb', 'verify']),
     Stage.new(name: 'MinIO bucket boundaries and shared samples', command: ['ruby', 'minio-buckets-stage.rb', 'verify']),
     Stage.new(name: 'Job API MinIO policies and user', command: ['ruby', 'minio-job-api-iam-stage.rb', 'verify']),
+    Stage.new(name: 'upload-intake MinIO policy and user', command: ['ruby', 'minio-upload-intake-iam-stage.rb', 'verify']),
     Stage.new(name: 'MinIO buckets/IAM verification and upload notification', command: ['ruby', 'minio-notification-stage.rb', 'verify']),
     Stage.new(name: 'Mailpit release', command: ['ruby', 'mailpit-release.rb', 'verify']),
     Stage.new(name: 'Keycloak release', command: ['ruby', 'keycloak-release.rb', 'verify']),
