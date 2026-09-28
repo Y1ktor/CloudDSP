@@ -4218,3 +4218,16 @@ fresh install and bootstrap paths before the final one-command `bootstrap`.
 Isolated tests cover ordered execution and both stop boundaries. The running
 cluster is retained, so the clean-cluster branch still needs a disposable
 trial.
+
+### PostgreSQL fresh credential prerequisite (2026-09-28)
+
+`kubernetes/scripts/postgresql-secret-stage.rb` adds a guarded `plan`,
+`bootstrap`, and `verify` path for the PostgreSQL runtime Secret needed before
+its StatefulSet can start on a clean cluster. It validates the ignored local
+manifest against the committed resource/key contract, rejects the placeholder
+password, performs a server dry run, creates only an absent Secret, and then
+compares live and local values in memory without displaying them. The existing
+cluster passed read-only `verify`. Root `verify` and `reconcile` now include
+that read-only gate. Isolated tests cover absent creation, existing-resource
+refusal, placeholder rejection, and drift detection. The StatefulSet's fresh
+Helm install path and root installation order remain separate tasks.

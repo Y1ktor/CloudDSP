@@ -14,6 +14,22 @@ one-replica rollout behavior, Secret references, and probes from the
 [`source manifests`](../../services/postgresql/). The source manifests remain
 comparison baselines and must not be reapplied to Helm-owned resources.
 
+## Fresh-cluster credential prerequisite
+
+The PostgreSQL chart does not own its administrator Secret. After the fresh
+foundation has created `clouddsp-data`, run the versioned credential stage
+before installing the StatefulSet:
+
+```bash
+ruby ./k8Deployment/kubernetes/scripts/postgresql-secret-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/postgresql-secret-stage.rb bootstrap
+ruby ./k8Deployment/kubernetes/scripts/postgresql-secret-stage.rb verify
+```
+
+The populated manifest remains under ignored `.local/` configuration. The
+stage refuses an existing Secret and never displays its values. A fresh
+StatefulSet Helm install path is still pending.
+
 ## Protected adoption and checks
 
 From the repository root:

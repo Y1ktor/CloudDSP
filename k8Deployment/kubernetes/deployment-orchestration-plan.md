@@ -241,6 +241,12 @@ has isolated tests but not a live empty-cluster trial. The partial root
 `bootstrap-mailpit` mode now runs preparation, Mailpit install, and Mailpit
 verification in order; the full application `bootstrap` remains open.
 
+The PostgreSQL credential stage now validates the ignored local Secret
+contract, creates the fixed runtime Secret only when absent, and compares the
+live data with its local source without printing credentials. Root `verify`
+and existing-cluster `reconcile` use its read-only check before the PostgreSQL
+release gate. The StatefulSet's fresh Helm install remains the next boundary.
+
 The exact order *within* stage 3 must be recorded as a dependency graph,
 because RabbitMQ topology, MinIO notifications, database permissions, and
 worker identities cross service directories. For example, MinIO's source
@@ -450,6 +456,9 @@ external effect disappeared. Therefore:
 11. **First root Helm composition — Mailpit stage implemented.** The
     `bootstrap-mailpit` command chains guarded preparation and release
     installation/verification. A disposable-cluster creation trial remains.
+12. **PostgreSQL fresh credential prerequisite implemented.** The guarded
+    Secret stage creates only the absent runtime Secret. Root verification
+    checks it; a fresh StatefulSet Helm install remains separate work.
 
 Each task needs its own review and validation. This document authorizes no
 cluster mutation by itself.

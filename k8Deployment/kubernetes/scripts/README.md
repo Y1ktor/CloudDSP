@@ -96,9 +96,11 @@ registry in the meantime.
 
 ## Root verification and existing-cluster reconcile
 
-`verify` first runs that same preflight, then checks the fourteen adopted
-CloudDSP Helm releases, the implemented Job API PostgreSQL and RabbitMQ
-bootstrap stages, the [Keycloak realm/client state](keycloak-config-verify.rb),
+`verify` first runs that same preflight, checks the PostgreSQL credential
+Secret against its ignored local source without printing values, then checks
+the fourteen adopted CloudDSP Helm releases, the implemented Job API
+PostgreSQL and RabbitMQ bootstrap stages, the
+[Keycloak realm/client state](keycloak-config-verify.rb),
 the [MinIO bucket stage](minio-buckets-stage.rb) and
 [IAM/notification state](minio-notification-stage.rb),
 and the KEDA controller Deployments and CRDs in dependency order.
@@ -230,6 +232,25 @@ the installed manifest, live objects, Pod, and ingress route. A failed install
 is left for inspection; rerunning `install` against an existing release or a
 partial set of objects stops before another Helm write. This standalone
 Mailpit path does not yet make `prepare` a complete application bootstrap.
+
+## PostgreSQL credential Secret stage
+
+```bash
+ruby ./k8Deployment/kubernetes/scripts/postgresql-secret-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/postgresql-secret-stage.rb bootstrap
+ruby ./k8Deployment/kubernetes/scripts/postgresql-secret-stage.rb verify
+```
+
+This fresh-cluster prerequisite uses the ignored
+`k8Deployment/.local/postgresql-credentials.secret.yaml` file. It checks the
+committed example's Secret identity, labels, type, and required keys, rejects
+its placeholder password, and keeps all populated values out of output.
+`plan` requires the Secret to be absent. `bootstrap` performs a Kubernetes
+server dry run, creates that one Secret only when absent, then compares the
+live encoded data with the ignored source in memory. It refuses an existing
+Secret, even if matching; `verify` checks an existing Secret read-only and is
+now also part of root `verify` and `reconcile`. A fresh PostgreSQL StatefulSet
+Helm install and root bootstrap wiring remain separate work.
 
 ## PostgreSQL protected Helm adoption and verification
 
