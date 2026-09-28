@@ -4405,3 +4405,19 @@ single anonymous `GetObject` grant. Existing partial objects block a repeat
 fresh mirror for inspection. The retained live cluster has not been replaced
 for the clean-cluster trial. IAM identities and other application stages
 remain pending.
+
+### Job API MinIO runtime Secret preparation (2026-09-28)
+
+`kubernetes/scripts/job-api-minio-secret-stage.rb` now validates the ignored
+Job API runtime and temporary MinIO bootstrap Secret sources together. It
+requires the fixed restricted access key and an identical non-placeholder
+secret key, then creates only the absent `clouddsp-app` runtime Secret after a
+server dry run. Its read-only mode compares the live encoded values with the
+ignored local source without printing credentials. `bootstrap-minio` runs the
+fresh creation after the MinIO release verifies, and root `verify` now checks
+this Secret before its MinIO bucket/IAM gates. The temporary `clouddsp-data`
+Secret and the two versioned Job API MinIO IAM Jobs remain separate work.
+The existing-cluster read-only root verification passed all 32 gates with
+this new Secret check. The restricted Job API MinIO smoke Job used that Secret
+to read/write its fixed uploads marker, confirmed out-of-prefix writes and
+deletion were denied, then the disposable Job was removed.

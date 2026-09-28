@@ -540,6 +540,12 @@ external effect disappeared. Therefore:
     The mirror checks its private empty destination before and after download;
     partial uploads remain private for inspection. The existing-cluster
     bucket verifier confirms the final object inventory and policy.
+25. **Job API MinIO runtime Secret stage implemented.** The absent-only stage
+    validates the ignored Job API runtime and temporary IAM bootstrap sources
+    have the same restricted key. `bootstrap-minio` creates only the runtime
+    Secret in `clouddsp-app`; root `verify` compares live values with the
+    ignored source. The temporary Secret, two policies, and Job API user still
+    await their guarded IAM Job bootstrap stage.
 
 Each task needs its own review and validation. This document authorizes no
 cluster mutation by itself.

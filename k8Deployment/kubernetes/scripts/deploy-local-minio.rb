@@ -22,6 +22,7 @@ class CloudDSPBootstrapMinio
     ['RabbitMQ source-intake verification', 'rabbitmq-source-intake-bootstrap.rb', 'verify'],
     ['fresh MinIO Helm install', 'minio-release.rb', 'install'],
     ['MinIO Helm, PVC, and S3 route verification', 'minio-release.rb', 'verify'],
+    ['Job API MinIO runtime credential Secret', 'job-api-minio-secret-stage.rb', 'bootstrap'],
     ['fresh MinIO bucket boundaries', 'minio-fresh-buckets-stage.rb', 'bootstrap'],
     ['MinIO bucket boundary verification', 'minio-fresh-buckets-stage.rb', 'verify'],
     ['fresh shared MIDI sample mirror', 'minio-fresh-samples-stage.rb', 'bootstrap'],
@@ -43,7 +44,7 @@ class CloudDSPBootstrapMinio
       @error.puts "CloudDSP bootstrap-minio stopped at #{label}; inspect that stage before retrying."
       return 1
     end
-    @output.puts 'CloudDSP bootstrap-minio complete: broker, MinIO, and 461 locked shared samples ready; IAM and applications remain pending.'
+    @output.puts 'CloudDSP bootstrap-minio complete: broker, MinIO, shared samples, and Job API runtime credentials ready; IAM and applications remain pending.'
     0
   end
 end

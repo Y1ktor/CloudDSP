@@ -90,9 +90,9 @@ cluster. It reuses `bootstrap-rabbitmq` for foundation, images, administrator
 Secret, and broker Helm install. It then creates the MinIO root/AMQP and
 upload-intake RabbitMQ runtime Secrets, reconciles and verifies the restricted
 source-intake broker users and topology, and only then installs and verifies
-MinIO. It then creates and checks the two initially private MinIO buckets,
-mirrors 461 hash-locked shared MIDI samples, and grants their bucket a narrow
-anonymous browser-read policy.
+MinIO. It creates the Job API runtime MinIO Secret and the two initially
+private MinIO buckets, mirrors 461 hash-locked shared MIDI samples, and grants
+their bucket a narrow anonymous browser-read policy.
 The broker runner manages its temporary bootstrap Secret and removes it after
 successful user verification. A failed stage leaves partial state
 for inspection. This is an alternative partial trial to the other
@@ -424,6 +424,24 @@ Secret, then checks its live encoded values without displaying them. Root
 before the MinIO release. The restricted broker user and topology are checked
 by the separate source-intake RabbitMQ runner. The fresh MinIO Helm install
 is described below; bucket and IAM creation use separate stages.
+
+## Job API MinIO runtime credential Secret stage
+
+```bash
+ruby ./k8Deployment/kubernetes/scripts/job-api-minio-secret-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/job-api-minio-secret-stage.rb bootstrap
+ruby ./k8Deployment/kubernetes/scripts/job-api-minio-secret-stage.rb verify
+```
+
+Populate the ignored `k8Deployment/.local/job-api-minio-credentials.secret.yaml`
+and `k8Deployment/.local/job-api-minio-bootstrap-credentials.secret.yaml` from
+their committed examples with the same restricted secret key. The stage checks
+both source contracts and matching values. Fresh `bootstrap` creates only the
+`clouddsp-app` runtime Secret after a server dry run; the temporary
+`clouddsp-data` bootstrap Secret remains for the later IAM Job stage to create
+and remove. `verify` compares live runtime values with the ignored source in
+memory without printing the key. Root `bootstrap-minio` runs the create step
+after MinIO install; root `verify` checks it before the bucket and IAM gates.
 
 ## MinIO fresh Helm install, protected adoption, and verification
 

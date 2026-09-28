@@ -14,6 +14,8 @@ class DeployLocalVerifyTest < Minitest::Test
     commands = CloudDSPLocalVerify::STAGES.map(&:command)
     assert_equal ['ruby', 'deploy-local-plan.rb'], commands.first
     assert_equal ['ruby', 'frontend-release.rb', 'verify'], commands.last
+    assert_operator commands.index(['ruby', 'job-api-minio-secret-stage.rb', 'verify']), :<,
+                    commands.index(['ruby', 'minio-buckets-stage.rb', 'verify'])
     commands.each do |command|
       if command.first == 'ruby'
         assert command.length == 2 || command.last == 'verify', command.inspect
