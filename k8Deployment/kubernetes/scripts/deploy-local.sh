@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Entry point for CloudDSP's incremental local deployment orchestrator.
 #
-# `plan` reports the source/live preflight. `verify` checks each reviewed
+# `plan` reports the source/live preflight. `prepare` creates only the fresh
+# foundation and mirrors its locked images. `verify` checks each reviewed
 # component and bootstrap stage. `reconcile` changes only the five bootstrap
 # stages with audited idempotent runners; existing Helm releases are verified
 # and must already match their charts. `cleanup` removes the k3d cluster while
@@ -12,9 +13,11 @@ readonly SCRIPT_DIRECTORY="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
   cat <<'USAGE'
-Usage: ./k8Deployment/kubernetes/scripts/deploy-local.sh plan|verify|reconcile|cleanup|purge-registry
+Usage: ./k8Deployment/kubernetes/scripts/deploy-local.sh plan|prepare|verify|reconcile|cleanup|purge-registry
 
 plan: Read-only preflight for the explicit k3d-clouddsp-local context.
+prepare: On an absent cluster, create the foundation and mirror the locked
+         public images. Helm releases and external state are not installed.
 verify: Run that preflight, then the reviewed read-only Helm, KEDA, and
         bootstrap gates in dependency order. Stop at the first failed gate.
 reconcile: On an existing cluster, run the same ordered gates and reconcile
@@ -33,7 +36,7 @@ if [[ "$#" -eq 1 && ( "$1" == "-h" || "$1" == "--help" || "$1" == "help" ) ]]; t
   exit 0
 fi
 
-if [[ "$#" -ne 1 || ( "$1" != "plan" && "$1" != "verify" && "$1" != "reconcile" && "$1" != "cleanup" && "$1" != "purge-registry" ) ]]; then
+if [[ "$#" -ne 1 || ( "$1" != "plan" && "$1" != "prepare" && "$1" != "verify" && "$1" != "reconcile" && "$1" != "cleanup" && "$1" != "purge-registry" ) ]]; then
   usage >&2
   exit 2
 fi
@@ -55,6 +58,7 @@ fi
 
 case "$1" in
   plan) exec ruby "${SCRIPT_DIRECTORY}/deploy-local-plan.rb" ;;
+  prepare) exec ruby "${SCRIPT_DIRECTORY}/deploy-local-prepare.rb" ;;
   verify) exec ruby "${SCRIPT_DIRECTORY}/deploy-local-verify.rb" ;;
   reconcile) exec ruby "${SCRIPT_DIRECTORY}/deploy-local-reconcile.rb" ;;
 esac

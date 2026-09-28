@@ -9,6 +9,7 @@ its own location and does not depend on the current working directory.
 
 ```bash
 ./k8Deployment/kubernetes/scripts/deploy-local.sh plan
+./k8Deployment/kubernetes/scripts/deploy-local.sh prepare
 ./k8Deployment/kubernetes/scripts/deploy-local.sh verify
 ./k8Deployment/kubernetes/scripts/deploy-local.sh reconcile
 ./k8Deployment/kubernetes/scripts/deploy-local.sh cleanup
@@ -46,15 +47,20 @@ mutation; a failure after cluster creation leaves that cluster
 for explicit inspection rather than deleting it. On the current deployed
 cluster, `verify` passes and `plan` correctly refuses fresh creation.
 
-This is the foundation only. It does not install KEDA, build or load images,
-create runtime Secrets, install Helm releases, or bootstrap external state.
-The root `deploy-local.sh bootstrap` mode will be added after those stages
-have reviewed fresh-cluster paths.
+The root `prepare` command now composes this foundation with the image mirror.
+It first refuses an existing cluster, validates every published Docker Hub
+digest, creates the foundation, mirrors any missing locked images, then checks
+both registries. It stops on the first failure and leaves a created cluster
+for inspection. `prepare` does not install KEDA, create runtime Secrets,
+install Helm releases, or bootstrap external state. The full root
+`deploy-local.sh bootstrap` mode will be added after those stages have
+reviewed fresh-cluster paths.
 
 ## Docker Hub image source and local mirror
 
 ```bash
 ./k8Deployment/kubernetes/scripts/image-registry-stage.rb plan
+./k8Deployment/kubernetes/scripts/image-registry-stage.rb verify-source
 ./k8Deployment/kubernetes/scripts/image-registry-stage.rb publish
 ./k8Deployment/kubernetes/scripts/image-registry-stage.rb mirror
 ./k8Deployment/kubernetes/scripts/image-registry-stage.rb verify
@@ -64,16 +70,18 @@ The public [`y1ktor/clouddsp`](https://hub.docker.com/r/y1ktor/clouddsp)
 repository holds one tag per locally built image in `images.lock.yaml`.
 `publish` copies the reviewed local image into that Docker Hub tag using the
 saved Docker CLI login; it stops if either side has a different digest.
-`mirror` works in the other direction after the local registry exists. It
-pulls a public Docker Hub image by its immutable digest, pushes it into the
-matching local repository, and checks that the digest was preserved. Existing
-matching local images are skipped. `verify` checks both registries without
-writing. The lock remains the authority; none of these modes rewrites it.
+`verify-source` checks anonymous Docker Hub access and all locked public
+digests before a fresh cluster is created; it does not contact the local
+registry. `mirror` works in the other direction after the local registry
+exists. It pulls a public Docker Hub image by its immutable digest, pushes it
+into the matching local repository, and checks that the digest was preserved.
+Existing matching local images are skipped. `verify` checks both registries
+without writing. The lock remains the authority; none of these modes rewrites it.
 
 All 18 current local images target Linux ARM64. The public repository and
 every tag were verified by anonymous manifest requests. A Job API image was
 pulled from Docker Hub and pushed to a disposable empty `.localhost` registry
-with its digest unchanged. A complete fresh-registry `mirror` run and root
+with its digest unchanged. A complete fresh-registry `mirror` run and full root
 `bootstrap` wiring are still pending; normal `cleanup` retains the populated
 registry in the meantime.
 

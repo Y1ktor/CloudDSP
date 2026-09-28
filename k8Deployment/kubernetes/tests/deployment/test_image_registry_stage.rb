@@ -62,4 +62,17 @@ class ImageRegistryStageTest < Minitest::Test
 
     assert_equal [[:mirror, entry.fetch(:key)]], stage.actions
   end
+
+  def test_public_source_verification_does_not_require_local_registry
+    stage = FakeStage.new
+    entry = stage.send(:load_entries).first
+    stage.hub_digest = entry.fetch(:digest)
+    stage.local_digest = nil
+
+    stage.send(:process, 'verify-source', entry)
+    assert_empty stage.actions
+
+    stage.hub_digest = nil
+    assert_raises(RuntimeError) { stage.send(:process, 'verify-source', entry) }
+  end
 end

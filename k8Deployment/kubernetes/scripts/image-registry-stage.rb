@@ -33,7 +33,8 @@ class CloudDSPImageRegistryStage
   end
 
   def run(mode)
-    raise 'use plan, publish, mirror, or verify' unless %w[plan publish mirror verify].include?(mode)
+    raise 'use plan, verify-source, publish, mirror, or verify' unless
+      %w[plan verify-source publish mirror verify].include?(mode)
 
     entries = load_entries
     if mode == 'plan'
@@ -83,6 +84,15 @@ class CloudDSPImageRegistryStage
 
   def process(mode, entry)
     expected = entry.fetch(:digest)
+    # Fresh-cluster preparation checks every public source before it creates
+    # a cluster. The local registry may not exist yet, so this mode must not
+    # query it or require Docker credentials.
+    if mode == 'verify-source'
+      raise "#{entry.fetch(:key)} is absent from Docker Hub or differs from lock" unless
+        hub_manifest_digest(entry.fetch(:hub_tag)) == expected
+      return
+    end
+
     local = local_manifest_digest(entry.fetch(:local_repo), expected)
     remote = hub_manifest_digest(entry.fetch(:hub_tag))
     raise "#{entry.fetch(:key)} local digest differs from lock" if local && local != expected
@@ -183,6 +193,6 @@ class CloudDSPImageRegistryStage
 end
 
 if $PROGRAM_NAME == __FILE__
-  abort 'Usage: image-registry-stage.rb plan|publish|mirror|verify' unless ARGV.length == 1
+  abort 'Usage: image-registry-stage.rb plan|verify-source|publish|mirror|verify' unless ARGV.length == 1
   exit CloudDSPImageRegistryStage.new.run(ARGV.first)
 end

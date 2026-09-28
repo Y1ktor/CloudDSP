@@ -228,7 +228,10 @@ verification for all 18 Linux ARM64 local images. It can mirror missing
 digest-pinned images from public `y1ktor/clouddsp` into the local registry.
 Publication and anonymous remote verification passed for every current image;
 the reverse path preserved the Job API digest in a disposable empty registry.
-The full empty-registry mirror and root bootstrap composition remain to trial.
+The root `prepare` command now composes the foundation and image stages only.
+It checks the public locked digests before cluster creation, then mirrors and
+verifies images after the registry exists. Its creation path still needs a
+disposable-cluster trial; full application `bootstrap` remains later work.
 
 The exact order *within* stage 3 must be recorded as a dependency graph,
 because RabbitMQ topology, MinIO notifications, database permissions, and
@@ -428,6 +431,11 @@ external effect disappeared. Therefore:
    packaged controllers. The creation branch is covered by an isolated runner;
    the current cluster passed read-only verification and correctly blocked a
    fresh `plan`. Wire later fresh stages only after their own guards exist.
+9. **Fresh-cluster image preparation — root slice implemented.**
+   `deploy-local.sh prepare` composes the guarded foundation with public
+   Docker Hub digest checks and the local image mirror. It stops before Helm
+   installation and preserves a partial cluster for inspection on failure.
+   The actual empty-cluster run is pending a disposable-cluster trial.
 
 Each task needs its own review and validation. This document authorizes no
 cluster mutation by itself.

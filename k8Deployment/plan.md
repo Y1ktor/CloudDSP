@@ -4181,3 +4181,15 @@ image was anonymously pulled from Docker Hub and pushed to a disposable empty
 was removed. Isolated tests cover unique tag mapping, mismatch rejection,
 and the missing-local-image mirror branch. A complete empty-registry mirror
 run and integration with one-command fresh bootstrap remain to be done.
+
+### Fresh-cluster foundation and image preparation (2026-09-28)
+
+`kubernetes/scripts/deploy-local.sh prepare` composes the existing guarded
+foundation and image stages. It requires an absent target cluster, verifies
+the 18 public Docker Hub image digests before creation, creates the reviewed
+k3d topology and namespaces, mirrors missing images into the local registry,
+and verifies both registries. The ordered runner stops on a failed stage and
+does not claim Helm release or external-state installation. Isolated tests
+cover the order, pre-creation source failure, and mirror failure. The live
+cluster was not deleted for a fresh-path trial; an empty disposable-cluster
+trial and the later full `bootstrap` remain outstanding.
