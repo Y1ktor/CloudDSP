@@ -27,8 +27,20 @@ ruby ./k8Deployment/kubernetes/scripts/postgresql-secret-stage.rb verify
 ```
 
 The populated manifest remains under ignored `.local/` configuration. The
-stage refuses an existing Secret and never displays its values. A fresh
-StatefulSet Helm install path is still pending.
+stage refuses an existing Secret and never displays its values. After this
+credential stage, the fresh release path is:
+
+```bash
+./k8Deployment/kubernetes/scripts/postgresql-release.rb install
+./k8Deployment/kubernetes/scripts/postgresql-release.rb verify
+```
+
+`install` requires an absent Helm release, StatefulSet, both Services, the
+generated PVC, and matching Pod. It rechecks the credential Secret, uses
+ordinary Helm install without takeover flags, waits for the StatefulSet,
+and verifies its Pod and bound claim. It does not run the adoption backup
+gate because this path starts without a data claim. A failed or partial
+install is retained for inspection; a clean-cluster trial remains pending.
 
 ## Protected adoption and checks
 

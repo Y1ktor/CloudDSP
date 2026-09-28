@@ -4231,3 +4231,16 @@ cluster passed read-only `verify`. Root `verify` and `reconcile` now include
 that read-only gate. Isolated tests cover absent creation, existing-resource
 refusal, placeholder rejection, and drift detection. The StatefulSet's fresh
 Helm install path and root installation order remain separate tasks.
+
+### PostgreSQL fresh Helm install path (2026-09-28)
+
+The PostgreSQL release runner now opts into a guarded `install` mode. It
+requires the Helm release, StatefulSet, both Services, generated claim, and
+matching Pod to be absent, then verifies the ignored/local versus live
+credential Secret before the Helm write. Ordinary Helm install waits for the
+single StatefulSet Pod; the existing release verifier then checks chart and
+live parity plus the bound PVC and PV identity. This fresh path does not run
+the protected adoption backup gate or use takeover flags. Isolated tests
+cover successful ordering and existing release, PVC, orphan Pod, and missing
+credential stops. A clean-cluster install trial and root command composition
+remain outstanding.

@@ -1,6 +1,8 @@
 #!/usr/bin/env ruby
 # Adopt one existing StatefulSet and its two stable Services only after exact
 # source/render/live parity and an isolated restore of a fresh logical backup.
+# A separate fresh install path requires the Secret and all StatefulSet/PVC
+# identities to pass absence checks; it never reuses a retained data claim.
 # Generated PVC/PV data, administrator Secret, schemas, roles, migrations, and
 # bootstrap Jobs remain outside the Helm release and are never deleted here.
 require_relative 'stateless-release'
@@ -15,6 +17,9 @@ StatelessRelease.new(
   workload_kind: 'StatefulSet',
   pvc_name: 'postgres-data-clouddsp-postgresql-0',
   before_adopt: [StatelessRelease::ROOT.join('scripts', 'postgresql-backup-and-restore-test.sh').to_s],
+  allow_fresh_install: true,
+  before_install: ['ruby', StatelessRelease::ROOT.join('scripts', 'postgresql-secret-stage.rb').to_s, 'verify'],
+  fresh_install_timeout: '5m',
   smoke_job: {
     name: 'postgresql-read-write-smoke',
     manifest: 'tests/postgresql-smoke/postgresql-read-write-smoke-job.yaml'

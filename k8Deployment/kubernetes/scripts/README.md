@@ -257,6 +257,7 @@ Helm install and root bootstrap wiring remain separate work.
 ```bash
 ./k8Deployment/kubernetes/scripts/postgresql-release.rb plan
 ./k8Deployment/kubernetes/scripts/postgresql-release.rb adopt
+./k8Deployment/kubernetes/scripts/postgresql-release.rb install
 ./k8Deployment/kubernetes/scripts/postgresql-release.rb verify
 ./k8Deployment/kubernetes/scripts/postgresql-release.rb smoke
 ```
@@ -272,6 +273,16 @@ Adoption preserved resource and Pod UIDs, Service IPs, and PVC/PV identity.
 `smoke` ran the versioned read/write Job through the ordinary Service and
 removed its disposable table and Job. The generated PVC, database contents,
 Secret, migrations, and bootstrap Jobs remain outside Helm ownership.
+
+On a fresh prepared cluster, first run the credential Secret stage above,
+then use `postgresql-release.rb install`. This mode requires the release,
+StatefulSet, both Services, generated PVC, and matching Pod to be absent. It
+verifies the credential Secret before ordinary Helm install, waits up to five
+minutes for the single StatefulSet Pod, then checks Helm ownership, the
+reviewed manifest, Ready Pod, and bound PVC contract. It never calls the
+adoption backup gate or passes takeover flags. Any partial prior release or
+retained claim stops before installation; this path has isolated guard tests
+but still needs a clean-cluster trial.
 
 ## Job API PostgreSQL bootstrap and migration order
 

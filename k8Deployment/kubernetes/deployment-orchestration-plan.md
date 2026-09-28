@@ -247,6 +247,12 @@ live data with its local source without printing credentials. Root `verify`
 and existing-cluster `reconcile` use its read-only check before the PostgreSQL
 release gate. The StatefulSet's fresh Helm install remains the next boundary.
 
+The PostgreSQL release runner now has a guarded fresh `install` mode. It
+requires the release, three chart objects, generated claim, and matching Pod
+to be absent, verifies the credential Secret, then installs and checks the
+bound PVC and Ready Pod. The existing live release correctly blocks the mode;
+root bootstrap wiring and an empty-cluster trial remain open.
+
 The exact order *within* stage 3 must be recorded as a dependency graph,
 because RabbitMQ topology, MinIO notifications, database permissions, and
 worker identities cross service directories. For example, MinIO's source
@@ -458,7 +464,11 @@ external effect disappeared. Therefore:
     installation/verification. A disposable-cluster creation trial remains.
 12. **PostgreSQL fresh credential prerequisite implemented.** The guarded
     Secret stage creates only the absent runtime Secret. Root verification
-    checks it; a fresh StatefulSet Helm install remains separate work.
+    checks it.
+13. **PostgreSQL fresh Helm install implemented.** The release runner checks
+    absence of the release, resources, generated claim, and Pod before
+    installing. It verifies credentials and the bound claim, but has not yet
+    been composed into a root fresh command or tried on an empty cluster.
 
 Each task needs its own review and validation. This document authorizes no
 cluster mutation by itself.

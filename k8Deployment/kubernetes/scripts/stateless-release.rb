@@ -24,7 +24,8 @@ class StatelessRelease
                  health_status: '200', additional_http_checks: [], smoke_job: nil, browser_shell: false,
                  workload_kind: 'Deployment', pvc_name: nil, before_adopt: nil,
                  expected_replicas: 1, smoke_timeout_seconds: 150,
-                 allow_fresh_install: false)
+                 allow_fresh_install: false, before_install: nil,
+                 fresh_install_timeout: '3m')
     @component = component
     @namespace = namespace
     @release = release
@@ -46,6 +47,8 @@ class StatelessRelease
     @expected_replicas = expected_replicas
     @smoke_timeout_seconds = smoke_timeout_seconds
     @allow_fresh_install = allow_fresh_install
+    @before_install = before_install
+    @fresh_install_timeout = fresh_install_timeout
     @fresh_install_started = false
     @chart = ROOT.join('helm', component)
   end
@@ -101,11 +104,15 @@ class StatelessRelease
       # failed earlier release. Fresh creation and adoption have different
       # recovery rules, so their preconditions must stay separate.
       check_fresh_install_boundary
+      # A StatefulSet's referenced administrator Secret is installed outside
+      # Helm. Its component-specific read-only gate must pass before the first
+      # Helm write; an absent or changed Secret must never create a broken Pod.
+      command(*@before_install) if @before_install
       puts "Installing fresh #{@component} Helm release..."
       @fresh_install_started = true
       output = command('helm', 'install', @release, @chart.to_s,
                        '--kube-context', CONTEXT, '--namespace', @namespace,
-                       '--wait', '--timeout', '3m')
+                       '--wait', '--timeout', @fresh_install_timeout)
       puts output.lines.grep(/^(NAME|NAMESPACE|STATUS|REVISION):/)
       check_cluster('Helm')
       verify_http_route if @health_host
@@ -261,11 +268,13 @@ class StatelessRelease
   end
 
   def check_fresh_install_boundary
-    # The first fresh path is intentionally limited to a one-Pod Deployment
-    # without PVC data. A later service must opt in only after its own storage
-    # and bootstrap dependencies have an equally explicit creation path.
-    ensure_true(@workload_kind == 'Deployment' && @expected_replicas == 1 && @pvc_name.nil?,
-                "fresh #{@component} install requires a stateless Deployment")
+    # A single-Pod Deployment has no generated data. A single-Pod StatefulSet
+    # must also prove its generated claim and any orphan Pod are absent before
+    # Helm can create storage. PVC data is never reused by an implicit install.
+    stateless = @workload_kind == 'Deployment' && @pvc_name.nil?
+    stateful = @workload_kind == 'StatefulSet' && !@pvc_name.nil?
+    ensure_true(@expected_replicas == 1 && (stateless || stateful),
+                "fresh #{@component} install requires a one-Pod Deployment or guarded StatefulSet")
     ensure_true(release_record.nil?, "#{@component} Helm release already exists; use verify or inspect it")
     @resources.each do |resource|
       # Explicit names plus --ignore-not-found distinguish an empty namespace
@@ -273,6 +282,15 @@ class StatelessRelease
       present = kubectl('get', resource, '--ignore-not-found', '--output', 'name').strip
       ensure_true(present.empty?, "#{@component} #{resource} already exists; inspect it before install")
     end
+    return unless stateful
+
+    claim = @source.fetch(['StatefulSet', @namespace, @release]).fetch('spec').fetch('volumeClaimTemplates').fetch(0)
+    expected_claim = "#{claim.fetch('metadata').fetch('name')}-#{@release}-0"
+    ensure_true(@pvc_name == expected_claim, "#{@component} generated PVC name differs from reviewed claim template")
+    present_claim = kubectl('get', "pvc/#{@pvc_name}", '--ignore-not-found', '--output', 'name').strip
+    ensure_true(present_claim.empty?, "#{@component} PVC #{@pvc_name} already exists; inspect its data before install")
+    pods = JSON.parse(kubectl('get', 'pods', '--selector', @pod_selector, '--output', 'json')).fetch('items')
+    ensure_true(pods.empty?, "#{@component} Pod already exists without its StatefulSet; inspect it before install")
   end
 
   def live_objects
