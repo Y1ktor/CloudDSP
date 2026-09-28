@@ -604,6 +604,13 @@ external effect disappeared. Therefore:
     narrow reconcile, and all 39 read-only root gates; the fresh provisioning
     Job path awaits an empty-cluster trial. ADTOF IAM remains the next
     object-storage identity.
+33. **ADTOF MinIO runtime Secret stage implemented.** The absent-only stage
+    validates the matching ignored worker and temporary provisioning sources,
+    creates only the application namespace Secret during fresh bootstrap,
+    and compares live values in root read-only verification. The temporary
+    provisioning Secret, artifacts policy, and MinIO user remain for the
+    ADTOF IAM stage. The retained cluster passed all 40 root read-only gates;
+    fresh Secret creation awaits an empty-cluster trial.
 
 Each task needs its own review and validation. This document authorizes no
 cluster mutation by itself.

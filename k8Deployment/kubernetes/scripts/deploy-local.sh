@@ -32,7 +32,7 @@ bootstrap-rabbitmq: On an absent cluster, run prepare, create the RabbitMQ
 bootstrap-minio: On an absent cluster, prepare and install RabbitMQ, create
          MinIO and upload-intake broker Secrets, bootstrap restricted broker
          source-intake state, install MinIO, and stage Job API, upload-intake,
-         Demucs, and Basic Pitch MinIO runtime credentials. It creates buckets,
+         Demucs, Basic Pitch, and ADTOF MinIO runtime credentials. It creates buckets,
          mirrors 461 locked MIDI samples, and provisions Job API, upload-intake,
          Demucs, and Basic Pitch MinIO users. ADTOF IAM comes later.
 verify: Run that preflight, then the reviewed read-only Helm, KEDA, and

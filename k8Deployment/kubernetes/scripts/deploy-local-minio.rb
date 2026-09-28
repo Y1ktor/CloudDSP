@@ -10,7 +10,8 @@
 # match. Two fixed Jobs provision the Job API's restricted MinIO IAM, then a
 # separate Job provisions upload-intake's source-read identity. A final fixed
 # Job provisions Demucs artifact IAM, followed by the Basic Pitch artifact
-# IAM Job. A failed child leaves partial state for
+# IAM Job. The ADTOF app credential is staged for its later provisioning Job.
+# A failed child leaves partial state for
 # inspection; this runner never retries by taking ownership or deleting data.
 require 'rbconfig'
 
@@ -29,6 +30,7 @@ class CloudDSPBootstrapMinio
     ['upload-intake MinIO runtime credential Secret', 'upload-intake-minio-secret-stage.rb', 'bootstrap'],
     ['Demucs MinIO runtime credential Secret', 'demucs-minio-secret-stage.rb', 'bootstrap'],
     ['Basic Pitch MinIO runtime credential Secret', 'basic-pitch-minio-secret-stage.rb', 'bootstrap'],
+    ['ADTOF MinIO runtime credential Secret', 'adtof-minio-secret-stage.rb', 'bootstrap'],
     ['fresh MinIO bucket boundaries', 'minio-fresh-buckets-stage.rb', 'bootstrap'],
     ['MinIO bucket boundary verification', 'minio-fresh-buckets-stage.rb', 'verify'],
     ['fresh shared MIDI sample mirror', 'minio-fresh-samples-stage.rb', 'bootstrap'],

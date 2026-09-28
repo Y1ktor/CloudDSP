@@ -4550,3 +4550,20 @@ deletion, and bucket listing returned AccessDenied. It removed its own probes
 and sent no upload notification. Fresh Job creation still awaits an empty
 cluster trial. Narrow reconcile found no temporary Secret and made no change;
 all 39 root read-only gates passed.
+
+### ADTOF MinIO runtime Secret preparation (2026-09-28)
+
+`kubernetes/scripts/adtof-minio-secret-stage.rb` validates the ignored worker
+and temporary provisioning Secret sources together, including their fixed
+identity, Kubernetes labels, exact data keys, and matching non-placeholder
+secret keys. Fresh `bootstrap-minio` creates only the absent `clouddsp-app`
+runtime Secret after a server dry run; the temporary `clouddsp-data` Secret
+and ADTOF IAM Job remain separate work. Root read-only verification compares
+the live Secret with the ignored source before bucket and IAM gates. The
+retained cluster has not been replaced for a fresh creation trial.
+
+The live runtime Secret matched its ignored source. Fresh `plan` refused the
+existing Secret, while an API-server apply dry run accepted the source without
+persisting it. A create dry run reported `AlreadyExists` because the retained
+cluster already has that Secret. No ADTOF worker Job was started for this
+credential-only stage. All 40 root read-only gates passed.

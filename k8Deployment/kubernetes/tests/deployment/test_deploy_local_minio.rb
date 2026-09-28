@@ -17,6 +17,7 @@ class DeployLocalMinioTest < Minitest::Test
     %w[upload-intake-minio-secret-stage.rb bootstrap],
     %w[demucs-minio-secret-stage.rb bootstrap],
     %w[basic-pitch-minio-secret-stage.rb bootstrap],
+    %w[adtof-minio-secret-stage.rb bootstrap],
     %w[minio-fresh-buckets-stage.rb bootstrap],
     %w[minio-fresh-buckets-stage.rb verify],
     %w[minio-fresh-samples-stage.rb bootstrap],
@@ -61,6 +62,8 @@ class DeployLocalMinioTest < Minitest::Test
     assert_operator @calls.index(%w[demucs-minio-secret-stage.rb bootstrap]), :<,
                     @calls.index(%w[minio-fresh-buckets-stage.rb bootstrap])
     assert_operator @calls.index(%w[basic-pitch-minio-secret-stage.rb bootstrap]), :<,
+                    @calls.index(%w[minio-fresh-buckets-stage.rb bootstrap])
+    assert_operator @calls.index(%w[adtof-minio-secret-stage.rb bootstrap]), :<,
                     @calls.index(%w[minio-fresh-buckets-stage.rb bootstrap])
     assert_operator @calls.index(%w[minio-fresh-buckets-stage.rb verify]), :<,
                     @calls.index(%w[minio-fresh-samples-stage.rb bootstrap])

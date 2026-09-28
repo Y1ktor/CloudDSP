@@ -90,8 +90,8 @@ cluster. It reuses `bootstrap-rabbitmq` for foundation, images, administrator
 Secret, and broker Helm install. It then creates the MinIO root/AMQP and
 upload-intake RabbitMQ runtime Secrets, reconciles and verifies the restricted
 source-intake broker users and topology, and only then installs and verifies
-MinIO. It creates the Job API, upload-intake, Demucs, and Basic Pitch runtime
-MinIO Secrets and the two initially private MinIO buckets, mirrors 461
+MinIO. It creates the Job API, upload-intake, Demucs, Basic Pitch, and ADTOF
+runtime MinIO Secrets and the two initially private MinIO buckets, mirrors 461
 hash-locked shared MIDI samples, and grants their bucket a narrow anonymous
 browser-read policy. It then provisions the restricted Job API user with two
 policies, the upload-intake user with its source-read policy, the Demucs worker
@@ -138,8 +138,8 @@ registry in the meantime.
 ## Root verification and existing-cluster reconcile
 
 `verify` first runs that same preflight, checks the PostgreSQL, RabbitMQ,
-MinIO, Job API MinIO, upload-intake RabbitMQ/MinIO, Demucs MinIO, and Basic
-Pitch MinIO Secrets against their ignored local sources without printing
+MinIO, Job API MinIO, upload-intake RabbitMQ/MinIO, Demucs MinIO, Basic Pitch
+MinIO, and ADTOF MinIO Secrets against their ignored local sources without printing
 values, then checks the
 fourteen adopted CloudDSP Helm releases, the implemented Job API PostgreSQL
 and RabbitMQ bootstrap stages, the
@@ -515,6 +515,26 @@ Pitch IAM Job stage. Read-only `verify` checks the live encoded values against
 the ignored source in memory without printing credentials. Root
 `bootstrap-minio` stages the Secret before bucket creation; root `verify`
 checks it before the MinIO IAM gates.
+
+## ADTOF MinIO runtime credential Secret stage
+
+```bash
+ruby ./k8Deployment/kubernetes/scripts/adtof-minio-secret-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/adtof-minio-secret-stage.rb bootstrap
+ruby ./k8Deployment/kubernetes/scripts/adtof-minio-secret-stage.rb verify
+```
+
+Populate the ignored `k8Deployment/.local/adtof-minio-credentials.secret.yaml`
+and `k8Deployment/.local/adtof-minio-bootstrap-credentials.secret.yaml` from
+their committed ADTOF templates with the same restricted key pair. The stage
+checks both Secret contracts, the fixed `clouddsp-adtof` access-key identity,
+and matching non-placeholder secret keys. Fresh `bootstrap` creates only the
+absent `clouddsp-app` runtime Secret after a server dry run. The temporary
+`clouddsp-data` provisioning Secret and artifacts policy belong to the later
+ADTOF IAM Job stage. Read-only `verify` compares live encoded values with the
+ignored runtime source without printing credentials. Root `bootstrap-minio`
+stages the runtime Secret before bucket creation; root `verify` checks it
+before MinIO IAM gates.
 
 ## Job API MinIO IAM bootstrap and temporary Secret cleanup
 
