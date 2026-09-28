@@ -43,6 +43,7 @@ class CloudDSPLocalVerify
     Stage.new(name: 'preflight', command: ['ruby', 'deploy-local-plan.rb']),
     Stage.new(name: 'PostgreSQL credential Secret', command: ['ruby', 'postgresql-secret-stage.rb', 'verify']),
     Stage.new(name: 'PostgreSQL release', command: ['ruby', 'postgresql-release.rb', 'verify']),
+    Stage.new(name: 'Job API PostgreSQL runtime Secret', command: ['ruby', 'job-api-database-secret-stage.rb', 'verify']),
     Stage.new(name: 'RabbitMQ credential Secret', command: ['ruby', 'rabbitmq-secret-stage.rb', 'verify']),
     Stage.new(name: 'RabbitMQ release', command: ['ruby', 'rabbitmq-release.rb', 'verify']),
     Stage.new(name: 'MinIO root credential Secret', command: ['ruby', 'minio-root-secret-stage.rb', 'verify']),

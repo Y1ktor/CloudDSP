@@ -14,6 +14,8 @@ class DeployLocalVerifyTest < Minitest::Test
     commands = CloudDSPLocalVerify::STAGES.map(&:command)
     assert_equal ['ruby', 'deploy-local-plan.rb'], commands.first
     assert_equal ['ruby', 'frontend-release.rb', 'verify'], commands.last
+    assert_operator commands.index(['ruby', 'job-api-database-secret-stage.rb', 'verify']), :<,
+                    commands.index(['ruby', 'job-api-postgresql-stage.rb', 'verify'])
     assert_operator commands.index(['ruby', 'job-api-minio-secret-stage.rb', 'verify']), :<,
                     commands.index(['ruby', 'minio-buckets-stage.rb', 'verify'])
     assert_operator commands.index(['ruby', 'upload-intake-minio-secret-stage.rb', 'verify']), :<,
@@ -69,16 +71,17 @@ class DeployLocalVerifyTest < Minitest::Test
 
   def test_failure_stops_before_later_stages_and_hides_child_output
     calls = []
+    failure_at = CloudDSPLocalVerify::STAGES.index { |stage| stage.name == 'RabbitMQ release' } + 1
     runner = lambda do |*command|
       calls << command
-      calls.length == 5 ? ['sensitive child output', 'sensitive child error', FakeStatus.new(1)] : ['', '', FakeStatus.new(0)]
+      calls.length == failure_at ? ['sensitive child output', 'sensitive child error', FakeStatus.new(1)] : ['', '', FakeStatus.new(0)]
     end
     output = StringIO.new
     errors = StringIO.new
     result = CloudDSPLocalVerify.new(runner: runner, output: output, error: errors).run
 
     assert_equal 1, result
-    assert_equal 5, calls.length
+    assert_equal failure_at, calls.length
     assert_includes errors.string, 'RabbitMQ release'
     refute_includes(output.string + errors.string, 'sensitive child')
     refute_includes output.string, 'MinIO release'

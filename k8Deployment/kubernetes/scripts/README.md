@@ -8,19 +8,22 @@ its own location and does not depend on the current working directory.
 ## Root deployment plan
 
 ```bash
+./k8Deployment/kubernetes/scripts/deploy-local.sh stages
 ./k8Deployment/kubernetes/scripts/deploy-local.sh plan
 ./k8Deployment/kubernetes/scripts/deploy-local.sh prepare
 ./k8Deployment/kubernetes/scripts/deploy-local.sh bootstrap-mailpit
 ./k8Deployment/kubernetes/scripts/deploy-local.sh bootstrap-postgresql
 ./k8Deployment/kubernetes/scripts/deploy-local.sh bootstrap-rabbitmq
 ./k8Deployment/kubernetes/scripts/deploy-local.sh bootstrap-minio
+./k8Deployment/kubernetes/scripts/deploy-local.sh bootstrap-platform
 ./k8Deployment/kubernetes/scripts/deploy-local.sh verify
 ./k8Deployment/kubernetes/scripts/deploy-local.sh reconcile
 ./k8Deployment/kubernetes/scripts/deploy-local.sh cleanup
 ./k8Deployment/kubernetes/scripts/deploy-local.sh purge-registry
 ```
 
-The `plan` mode is the first stage of the
+`stages` prints the exact 40 ordered steps currently wired into
+`bootstrap-platform` without contacting the cluster. The `plan` mode is the first stage of the
 [deployment orchestrator](../deployment-orchestration-plan.md). It reads the
 versioned workload manifests and lock files, then queries only the explicit
 `k3d-clouddsp-local` context. It checks namespace and Helm ownership,
@@ -105,6 +108,22 @@ for inspection. This is an alternative partial trial to the other
 It configures the Job API, upload-intake, Demucs, Basic Pitch, and ADTOF MinIO
 identities. Application releases remain for later fresh bootstrap stages.
 The full root `bootstrap` will compose those remaining stages later.
+
+`bootstrap-platform` combines the already guarded fresh PostgreSQL, RabbitMQ,
+and MinIO child steps once, then installs and verifies Mailpit. It creates the
+Job API PostgreSQL runtime Secret, runs the reviewed Job API role/migration
+reconciler, and imports/verifies the RabbitMQ processing topology. Every step
+stops at the first error and leaves a partial cluster for inspection. This is
+an alternative absent-cluster command, not one to run after a partial
+bootstrap. The retained cluster passed read-only verification; the fresh
+sequence has not been trialed on an empty cluster.
+
+The full `bootstrap` command still needs guarded fresh paths for Keycloak
+database/realm/client state, remaining application database and RabbitMQ
+roles, their runtime Secrets, KEDA authentication, and the app/worker Helm
+releases. The existing app release runners currently support adoption of live
+objects, not a fresh install. Those dependencies must be implemented and
+verified before the full browser-to-worker command can safely run.
 
 ## Docker Hub image source and local mirror
 
@@ -301,8 +320,8 @@ its placeholder password, and keeps all populated values out of output.
 server dry run, creates that one Secret only when absent, then compares the
 live encoded data with the ignored source in memory. It refuses an existing
 Secret, even if matching; `verify` checks an existing Secret read-only and is
-now also part of root `verify` and `reconcile`. A fresh PostgreSQL StatefulSet
-Helm install and root bootstrap wiring remain separate work.
+also part of root `verify` and `reconcile`. The guarded fresh PostgreSQL Helm
+install and `bootstrap-platform` run this stage in dependency order.
 
 ## PostgreSQL protected Helm adoption and verification
 
@@ -335,6 +354,25 @@ reviewed manifest, Ready Pod, and bound PVC contract. It never calls the
 adoption backup gate or passes takeover flags. Any partial prior release or
 retained claim stops before installation; this path has isolated guard tests
 but still needs a clean-cluster trial.
+
+## Job API PostgreSQL runtime credential Secret stage
+
+```bash
+ruby ./k8Deployment/kubernetes/scripts/job-api-database-secret-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/job-api-database-secret-stage.rb bootstrap
+ruby ./k8Deployment/kubernetes/scripts/job-api-database-secret-stage.rb verify
+```
+
+Populate the ignored `k8Deployment/.local/job-api-database-credentials.secret.yaml`
+and `k8Deployment/.local/job-api-database-bootstrap-credentials.secret.yaml`
+from their committed API templates with the same restricted database, role,
+and password. The stage checks both Secret contracts and rejects a placeholder
+password. Fresh `bootstrap` creates only the absent `clouddsp-app` runtime
+Secret after a server dry run; the data-namespace duplicate is created and
+removed by the separate database-role Job runner. Read-only `verify` compares
+the live encoded values with the ignored source without printing the password.
+`bootstrap-platform` runs this stage before Job API PostgreSQL reconciliation,
+and root `verify` checks it before the database/migration gate.
 
 ## Job API PostgreSQL bootstrap and migration order
 

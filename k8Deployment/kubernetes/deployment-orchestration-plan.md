@@ -620,6 +620,20 @@ external effect disappeared. Therefore:
     leftover temporary Secret after complete IAM verification. The retained
     cluster passed the focused ADTOF S3 smoke, narrow reconcile, and all 41
     root read-only gates; fresh Job creation awaits an empty-cluster trial.
+35. **Job API PostgreSQL runtime Secret stage implemented.** The absent-only
+    stage checks ignored runtime and temporary role-bootstrap sources against
+    their committed Secret contracts and matching role credentials. Fresh
+    bootstrap creates only the application namespace Secret; read-only root
+    verification compares its live values without printing them.
+36. **Fresh platform composition implemented.** `bootstrap-platform` combines
+    the existing guarded foundation, PostgreSQL, RabbitMQ, and MinIO steps
+    without repeating cluster preparation. It then installs Mailpit, creates
+    the Job API PostgreSQL runtime Secret, reconciles and verifies the Job API
+    role/migrations, and reconciles and verifies RabbitMQ processing topology.
+    `stages` lists all 40 ordered child steps without contacting the cluster.
+    This partial command still awaits an empty-cluster trial. Keycloak and
+    remaining application/worker credential, bootstrap, KEDA, and fresh Helm
+    install stages remain before a full browser-to-worker `bootstrap` command.
 
 Each task needs its own review and validation. This document authorizes no
 cluster mutation by itself.

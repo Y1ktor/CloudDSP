@@ -4592,3 +4592,25 @@ deletion, and bucket listing returned AccessDenied. All unique probes were
 removed without sending an upload notification. Fresh Job creation still
 awaits an empty-cluster trial. Narrow reconcile found no temporary Secret
 and made no change; all 41 root read-only gates passed.
+
+### Fresh platform composition and Job API database Secret (2026-09-28)
+
+`kubernetes/scripts/job-api-database-secret-stage.rb` now guards the ignored
+Job API runtime and temporary database-role credential sources. It checks
+their fixed database/role identity, Secret metadata, exact keys, and matching
+non-placeholder password. Fresh `bootstrap` creates only the absent app-
+namespace runtime Secret after a server dry run; the separate role Job owns
+the short-lived data-namespace copy. Read-only `verify` compares the live
+Secret with its ignored source without printing values.
+
+The new `deploy-local.sh bootstrap-platform` command composes the already
+guarded PostgreSQL, RabbitMQ, and MinIO child stages once. It then installs
+Mailpit and orders the Job API runtime database Secret before the reviewed
+role/migration reconciler, followed by RabbitMQ processing topology. Every
+child must verify before the next runs. `deploy-local.sh stages` prints all
+40 current stage names without touching Kubernetes. The retained cluster's
+Job API Secret matched its ignored source, fresh `plan` refused the existing
+Secret, and API-server dry run accepted the source. The clean-cluster platform
+path has not been executed. Application identity, remaining service roles
+and Secrets, KEDA authentication, and app/worker fresh Helm installers are
+still needed before a full one-command browser-to-worker deployment.
