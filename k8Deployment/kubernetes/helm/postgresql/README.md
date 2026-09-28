@@ -14,11 +14,20 @@ one-replica rollout behavior, Secret references, and probes from the
 [`source manifests`](../../services/postgresql/). The source manifests remain
 comparison baselines and must not be reapplied to Helm-owned resources.
 
-## Fresh-cluster credential prerequisite
+## Fresh-cluster installation
 
-The PostgreSQL chart does not own its administrator Secret. After the fresh
-foundation has created `clouddsp-data`, run the versioned credential stage
-before installing the StatefulSet:
+On an absent target cluster, this partial root command runs foundation and
+image preparation, credential creation, PostgreSQL install, and verification:
+
+```bash
+./k8Deployment/kubernetes/scripts/deploy-local.sh bootstrap-postgresql
+```
+
+### Credential prerequisite
+
+The PostgreSQL chart does not own its administrator Secret. If the fresh
+foundation has already created `clouddsp-data`, run the versioned credential
+stage before installing the StatefulSet:
 
 ```bash
 ruby ./k8Deployment/kubernetes/scripts/postgresql-secret-stage.rb plan

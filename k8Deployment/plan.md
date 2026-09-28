@@ -4229,8 +4229,8 @@ password, performs a server dry run, creates only an absent Secret, and then
 compares live and local values in memory without displaying them. The existing
 cluster passed read-only `verify`. Root `verify` and `reconcile` now include
 that read-only gate. Isolated tests cover absent creation, existing-resource
-refusal, placeholder rejection, and drift detection. The StatefulSet's fresh
-Helm install path and root installation order remain separate tasks.
+refusal, placeholder rejection, and drift detection. The subsequent
+StatefulSet install and partial root composition are recorded below.
 
 ### PostgreSQL fresh Helm install path (2026-09-28)
 
@@ -4242,5 +4242,16 @@ single StatefulSet Pod; the existing release verifier then checks chart and
 live parity plus the bound PVC and PV identity. This fresh path does not run
 the protected adoption backup gate or use takeover flags. Isolated tests
 cover successful ordering and existing release, PVC, orphan Pod, and missing
-credential stops. A clean-cluster install trial and root command composition
-remain outstanding.
+credential stops. A clean-cluster install trial remains outstanding.
+
+### Root PostgreSQL bootstrap slice (2026-09-28)
+
+`kubernetes/scripts/deploy-local.sh bootstrap-postgresql` now runs the
+fresh foundation and image preparation, guarded PostgreSQL credential Secret
+creation, fresh StatefulSet Helm install, and release/PVC verification in one
+ordered command. It stops at the first failed stage without implicitly
+replacing partial resources. Isolated tests cover the success sequence and
+stops after preparation, credential, and Helm failures. This command is an
+alternative partial trial to `bootstrap-mailpit`: both require an absent
+cluster. The final root `bootstrap` will compose component stages together;
+an actual empty-cluster creation trial remains to be done.

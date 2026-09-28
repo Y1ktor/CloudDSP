@@ -11,6 +11,7 @@ its own location and does not depend on the current working directory.
 ./k8Deployment/kubernetes/scripts/deploy-local.sh plan
 ./k8Deployment/kubernetes/scripts/deploy-local.sh prepare
 ./k8Deployment/kubernetes/scripts/deploy-local.sh bootstrap-mailpit
+./k8Deployment/kubernetes/scripts/deploy-local.sh bootstrap-postgresql
 ./k8Deployment/kubernetes/scripts/deploy-local.sh verify
 ./k8Deployment/kubernetes/scripts/deploy-local.sh reconcile
 ./k8Deployment/kubernetes/scripts/deploy-local.sh cleanup
@@ -64,6 +65,15 @@ and leaves created resources for inspection. It does not install the remaining
 CloudDSP releases or bootstrap application data; the full root `bootstrap`
 mode remains pending. Use the separate Mailpit smoke command below when SMTP
 capture needs a functional check.
+
+`bootstrap-postgresql` is the parallel root slice for the first data service.
+It runs `prepare`, creates and verifies the ignored PostgreSQL credential
+Secret, installs the PostgreSQL Helm release, then verifies its Ready Pod and
+bound PVC. A failure stops later stages and leaves the partial cluster or
+release for inspection. The Mailpit and PostgreSQL partial commands each
+start from an absent cluster; they are alternative trials, not sequential
+commands to run against the same cluster. The eventual full `bootstrap` will
+compose their component stages in one dependency order.
 
 ## Docker Hub image source and local mirror
 

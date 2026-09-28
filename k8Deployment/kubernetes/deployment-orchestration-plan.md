@@ -245,13 +245,19 @@ The PostgreSQL credential stage now validates the ignored local Secret
 contract, creates the fixed runtime Secret only when absent, and compares the
 live data with its local source without printing credentials. Root `verify`
 and existing-cluster `reconcile` use its read-only check before the PostgreSQL
-release gate. The StatefulSet's fresh Helm install remains the next boundary.
+release gate. This prerequisite now precedes the fresh release install path.
 
 The PostgreSQL release runner now has a guarded fresh `install` mode. It
 requires the release, three chart objects, generated claim, and matching Pod
 to be absent, verifies the credential Secret, then installs and checks the
 bound PVC and Ready Pod. The existing live release correctly blocks the mode;
-root bootstrap wiring and an empty-cluster trial remain open.
+full root bootstrap wiring and an empty-cluster trial remain open.
+
+The partial root `bootstrap-postgresql` command now composes fresh
+foundation/image preparation, guarded credential creation, PostgreSQL Helm
+install, and release/PVC verification. Like `bootstrap-mailpit`, it requires
+an absent cluster; these partial commands are alternative trials. The final
+root `bootstrap` will call the component stages in one dependency order.
 
 The exact order *within* stage 3 must be recorded as a dependency graph,
 because RabbitMQ topology, MinIO notifications, database permissions, and
@@ -467,8 +473,11 @@ external effect disappeared. Therefore:
     checks it.
 13. **PostgreSQL fresh Helm install implemented.** The release runner checks
     absence of the release, resources, generated claim, and Pod before
-    installing. It verifies credentials and the bound claim, but has not yet
-    been composed into a root fresh command or tried on an empty cluster.
+    installing. It verifies credentials and the bound claim; an empty-cluster
+    trial remains.
+14. **PostgreSQL root composition implemented.** `bootstrap-postgresql`
+    chains preparation, credential creation, Helm install, and PVC verification.
+    A clean-cluster trial and full root composition remain pending.
 
 Each task needs its own review and validation. This document authorizes no
 cluster mutation by itself.
