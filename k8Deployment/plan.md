@@ -4164,5 +4164,20 @@ not deleted to test these destructive paths.
 The next image-availability stage will publish the reviewed CloudDSP images to
 the public `y1ktor/clouddsp` Docker Hub repository and repopulate an empty
 local registry from those published digests before Helm installs workloads.
-The image bytes are not yet in Docker Hub, so the registry must not be purged
-until publishing and a clean-machine pull trial succeed.
+At this stage the image bytes were not yet in Docker Hub, so the registry was
+kept until publication and a clean-machine pull trial could be checked.
+
+### Public Docker Hub image source (2026-09-28)
+
+The public `y1ktor/clouddsp` repository was created in the requested Docker
+Hub namespace. `kubernetes/scripts/image-registry-stage.rb` derives one Hub
+tag for each of the 18 local Linux ARM64 image-lock entries and supports
+`plan`, `publish`, `mirror`, and `verify`. Publication of all 18 images
+succeeded, including the older Demucs-only dispatcher generation and optional
+smoke clients. Anonymous Docker Hub manifest requests and local registry
+requests returned the same locked SHA-256 digest for every tag. A Job API
+image was anonymously pulled from Docker Hub and pushed to a disposable empty
+`.localhost` registry without changing its digest. The disposable registry
+was removed. Isolated tests cover unique tag mapping, mismatch rejection,
+and the missing-local-image mirror branch. A complete empty-registry mirror
+run and integration with one-command fresh bootstrap remain to be done.

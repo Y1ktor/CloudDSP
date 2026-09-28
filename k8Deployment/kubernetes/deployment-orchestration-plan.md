@@ -222,6 +222,14 @@ and packaged system controllers. It is not yet the root `bootstrap` command;
 image availability, releases, and external-state stages still need fresh-path
 orchestration.
 
+The standalone [image registry stage](scripts/image-registry-stage.rb) now
+implements stage 1a's source-to-Docker-Hub publication and read-only digest
+verification for all 18 Linux ARM64 local images. It can mirror missing
+digest-pinned images from public `y1ktor/clouddsp` into the local registry.
+Publication and anonymous remote verification passed for every current image;
+the reverse path preserved the Job API digest in a disposable empty registry.
+The full empty-registry mirror and root bootstrap composition remain to trial.
+
 The exact order *within* stage 3 must be recorded as a dependency graph,
 because RabbitMQ topology, MinIO notifications, database permissions, and
 worker identities cross service directories. For example, MinIO's source

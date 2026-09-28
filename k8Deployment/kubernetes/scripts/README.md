@@ -51,6 +51,32 @@ create runtime Secrets, install Helm releases, or bootstrap external state.
 The root `deploy-local.sh bootstrap` mode will be added after those stages
 have reviewed fresh-cluster paths.
 
+## Docker Hub image source and local mirror
+
+```bash
+./k8Deployment/kubernetes/scripts/image-registry-stage.rb plan
+./k8Deployment/kubernetes/scripts/image-registry-stage.rb publish
+./k8Deployment/kubernetes/scripts/image-registry-stage.rb mirror
+./k8Deployment/kubernetes/scripts/image-registry-stage.rb verify
+```
+
+The public [`y1ktor/clouddsp`](https://hub.docker.com/r/y1ktor/clouddsp)
+repository holds one tag per locally built image in `images.lock.yaml`.
+`publish` copies the reviewed local image into that Docker Hub tag using the
+saved Docker CLI login; it stops if either side has a different digest.
+`mirror` works in the other direction after the local registry exists. It
+pulls a public Docker Hub image by its immutable digest, pushes it into the
+matching local repository, and checks that the digest was preserved. Existing
+matching local images are skipped. `verify` checks both registries without
+writing. The lock remains the authority; none of these modes rewrites it.
+
+All 18 current local images target Linux ARM64. The public repository and
+every tag were verified by anonymous manifest requests. A Job API image was
+pulled from Docker Hub and pushed to a disposable empty `.localhost` registry
+with its digest unchanged. A complete fresh-registry `mirror` run and root
+`bootstrap` wiring are still pending; normal `cleanup` retains the populated
+registry in the meantime.
+
 ## Root verification and existing-cluster reconcile
 
 `verify` first runs that same preflight, then checks the fourteen adopted
