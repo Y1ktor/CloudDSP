@@ -51,14 +51,14 @@ class DeployLocalVerifyTest < Minitest::Test
     calls = []
     runner = lambda do |*command|
       calls << command
-      calls.length == 4 ? ['sensitive child output', 'sensitive child error', FakeStatus.new(1)] : ['', '', FakeStatus.new(0)]
+      calls.length == 5 ? ['sensitive child output', 'sensitive child error', FakeStatus.new(1)] : ['', '', FakeStatus.new(0)]
     end
     output = StringIO.new
     errors = StringIO.new
     result = CloudDSPLocalVerify.new(runner: runner, output: output, error: errors).run
 
     assert_equal 1, result
-    assert_equal 4, calls.length
+    assert_equal 5, calls.length
     assert_includes errors.string, 'RabbitMQ release'
     refute_includes(output.string + errors.string, 'sensitive child')
     refute_includes output.string, 'MinIO release'

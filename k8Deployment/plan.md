@@ -4255,3 +4255,16 @@ stops after preparation, credential, and Helm failures. This command is an
 alternative partial trial to `bootstrap-mailpit`: both require an absent
 cluster. The final root `bootstrap` will compose component stages together;
 an actual empty-cluster creation trial remains to be done.
+
+### RabbitMQ fresh credential prerequisite (2026-09-28)
+
+`kubernetes/scripts/rabbitmq-secret-stage.rb` now offers guarded `plan`,
+`bootstrap`, and `verify` modes for the broker administrator Secret needed by
+its fresh StatefulSet. It validates the ignored local manifest against the
+committed identity/key contract, rejects placeholders and the reserved
+`guest` account, creates only an absent Secret after a server dry run, and
+compares the live data with local values in memory without displaying them.
+The current live Secret passed read-only verification. Root `verify` and
+existing-cluster `reconcile` now check it before the RabbitMQ release.
+Isolated tests cover absent creation, existing-resource refusal, invalid
+source, and drift. The fresh broker Helm install remains the next task.

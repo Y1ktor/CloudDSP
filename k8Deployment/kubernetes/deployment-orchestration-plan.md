@@ -259,6 +259,12 @@ install, and release/PVC verification. Like `bootstrap-mailpit`, it requires
 an absent cluster; these partial commands are alternative trials. The final
 root `bootstrap` will call the component stages in one dependency order.
 
+The RabbitMQ credential stage now guards its separate administrator Secret.
+It validates the ignored local manifest, creates only an absent Secret, and
+compares live values in memory without displaying them. Root `verify` and
+existing-cluster `reconcile` run this read-only gate before the RabbitMQ
+release. A fresh broker StatefulSet install remains the next boundary.
+
 The exact order *within* stage 3 must be recorded as a dependency graph,
 because RabbitMQ topology, MinIO notifications, database permissions, and
 worker identities cross service directories. For example, MinIO's source
@@ -478,6 +484,10 @@ external effect disappeared. Therefore:
 14. **PostgreSQL root composition implemented.** `bootstrap-postgresql`
     chains preparation, credential creation, Helm install, and PVC verification.
     A clean-cluster trial and full root composition remain pending.
+15. **RabbitMQ fresh credential prerequisite implemented.** The guarded
+    Secret stage creates only the absent administrator Secret. Root
+    verification checks it before the broker release; fresh Helm install
+    remains separate work.
 
 Each task needs its own review and validation. This document authorizes no
 cluster mutation by itself.

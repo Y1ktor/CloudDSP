@@ -106,10 +106,10 @@ registry in the meantime.
 
 ## Root verification and existing-cluster reconcile
 
-`verify` first runs that same preflight, checks the PostgreSQL credential
-Secret against its ignored local source without printing values, then checks
-the fourteen adopted CloudDSP Helm releases, the implemented Job API
-PostgreSQL and RabbitMQ bootstrap stages, the
+`verify` first runs that same preflight, checks the PostgreSQL and RabbitMQ
+credential Secrets against their ignored local sources without printing
+values, then checks the fourteen adopted CloudDSP Helm releases, the
+implemented Job API PostgreSQL and RabbitMQ bootstrap stages, the
 [Keycloak realm/client state](keycloak-config-verify.rb),
 the [MinIO bucket stage](minio-buckets-stage.rb) and
 [IAM/notification state](minio-notification-stage.rb),
@@ -383,6 +383,24 @@ Pod UID, Service IPs, and bound PVC/PV. `smoke` passed the S3 API
 create/read/delete test through the normal Service and removed its Job. The
 separate restricted Job API identity smoke passed and its Job was removed.
 Bucket data, IAM, Secrets, and bootstrap Jobs remain outside this release.
+
+## RabbitMQ credential Secret stage
+
+```bash
+ruby ./k8Deployment/kubernetes/scripts/rabbitmq-secret-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/rabbitmq-secret-stage.rb bootstrap
+ruby ./k8Deployment/kubernetes/scripts/rabbitmq-secret-stage.rb verify
+```
+
+This fresh-cluster prerequisite validates the ignored
+`k8Deployment/.local/rabbitmq-credentials.secret.yaml` against the committed
+Secret identity, labels, type, and exact key contract. It rejects both
+placeholder credentials and the reserved `guest` account. `plan` requires
+absence; `bootstrap` performs a server dry run, creates only the absent
+Secret, then verifies live data without displaying credentials. An existing
+Secret stops creation, even if matching. `verify` is read-only and now runs
+before the RabbitMQ release in root `verify` and `reconcile`. The fresh
+RabbitMQ StatefulSet Helm install remains a separate task.
 
 ## RabbitMQ protected Helm adoption and verification
 

@@ -16,6 +16,21 @@ contracts, Secret references, probes, and management ingress rules. The
 [`source manifests`](../../services/rabbitmq/) remain comparison baselines;
 do not apply them over Helm-owned objects.
 
+## Fresh-cluster credential prerequisite
+
+The Helm chart references but does not own the administrator Secret. After
+the fresh foundation creates `clouddsp-data`, run:
+
+```bash
+ruby ./k8Deployment/kubernetes/scripts/rabbitmq-secret-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/rabbitmq-secret-stage.rb bootstrap
+ruby ./k8Deployment/kubernetes/scripts/rabbitmq-secret-stage.rb verify
+```
+
+The populated manifest stays under ignored `.local/` configuration. The
+stage refuses to replace an existing Secret and suppresses credential values.
+A guarded fresh StatefulSet Helm install is the next release step.
+
 ## Protected adoption and checks
 
 From the repository root:
