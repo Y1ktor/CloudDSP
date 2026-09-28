@@ -93,15 +93,15 @@ source-intake broker users and topology, and only then installs and verifies
 MinIO. It creates the Job API, upload-intake, and Demucs runtime MinIO Secrets
 and the two initially private MinIO buckets, mirrors 461 hash-locked shared MIDI
 samples, and grants their bucket a narrow anonymous browser-read policy. It
-then provisions the restricted Job API user with two policies and the
-upload-intake user with its source-read policy.
+then provisions the restricted Job API user with two policies, the
+upload-intake user with its source-read policy, and the Demucs worker with its
+private source-read and stem-write policy.
 The broker runner manages its temporary bootstrap Secret and removes it after
 successful user verification. A failed stage leaves partial state
 for inspection. This is an alternative partial trial to the other
 `bootstrap-*` commands, not a command to run after them on the same cluster.
-It configures both the Job API and upload-intake MinIO identities and prepares
-the Demucs runtime credential. Worker IAM users and application releases
-remain for later stages.
+It configures the Job API, upload-intake, and Demucs MinIO identities. Basic
+Pitch/ADTOF IAM users and application releases remain for later stages.
 The full root `bootstrap` will compose those remaining stages later.
 
 ## Docker Hub image source and local mirror
@@ -143,7 +143,8 @@ and RabbitMQ bootstrap stages, the
 [Keycloak realm/client state](keycloak-config-verify.rb),
 the [MinIO bucket stage](minio-buckets-stage.rb), the
 [Job API IAM stage](minio-job-api-iam-stage.rb), the
-[upload-intake IAM stage](minio-upload-intake-iam-stage.rb), and
+[upload-intake IAM stage](minio-upload-intake-iam-stage.rb), the
+[Demucs IAM stage](minio-demucs-iam-stage.rb), and
 [IAM/notification state](minio-notification-stage.rb),
 and the KEDA controller Deployments and CRDs in dependency order.
 It stops at the first failed gate and names the component command to run for
@@ -160,11 +161,11 @@ stdin and a temporary in-memory config directory. Both gates are read-only
 and suppress credential-bearing client output on failure.
 
 `reconcile` is currently for an already deployed cluster. It runs the same
-preflight and ordered gates, but calls `reconcile` for seven audited
+preflight and ordered gates, but calls `reconcile` for eight audited
 external-state runners: Job API PostgreSQL database/migrations, RabbitMQ
 processing topology, RabbitMQ source-intake topology/users, the MinIO shared
-sample policy, Job API and upload-intake MinIO temporary Secret cleanup, and
-the MinIO source-upload notification. Each IAM stage deletes only a matching
+sample policy, Job API, upload-intake, and Demucs MinIO temporary Secret
+cleanup, and the MinIO source-upload notification. Each IAM stage deletes only a matching
 temporary Secret after its exact user and policy state verifies. Other runners
 create only wholly missing versioned bootstrap state and verify its durable
 result; partial state and drift stop the command. All fourteen Helm releases
@@ -535,6 +536,31 @@ inspection. `verify` is read-only and requires that Secret to be absent.
 Existing-cluster `reconcile` deletes only a leftover temporary Secret whose
 values match the ignored source, after all durable IAM state verifies. It
 never creates or changes the existing MinIO user or policy.
+
+## Demucs MinIO IAM bootstrap and temporary Secret cleanup
+
+```bash
+ruby ./k8Deployment/kubernetes/scripts/minio-demucs-iam-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/minio-demucs-iam-stage.rb bootstrap
+ruby ./k8Deployment/kubernetes/scripts/minio-demucs-iam-stage.rb verify
+ruby ./k8Deployment/kubernetes/scripts/minio-demucs-iam-stage.rb reconcile
+ruby ./k8Deployment/kubernetes/tests/minio-smoke/demucs-iam-smoke.rb
+```
+
+Fresh `bootstrap` requires the MinIO release, private bucket boundaries, and
+Demucs runtime Secret to verify. It refuses an existing Demucs user, policy,
+temporary Secret, policy ConfigMap, or Job. After server dry runs, it creates
+the ignored temporary restricted Secret in `clouddsp-data`, the immutable
+artifacts policy ConfigMap, and the fixed provisioning Job. It waits for the
+Job and checks the exact source-read/stem-write policy document, user, and
+attachment before deleting the temporary Secret. A partial run remains for
+inspection. Read-only `verify` requires that Secret to be absent. Existing
+cluster `reconcile` removes only a matching leftover temporary Secret after
+complete IAM state verifies; it never recreates or rotates the user or policy.
+The focused S3 smoke uses the Demucs runtime key to put/get one unique private
+stem probe and requires MIDI writes, deletion, and bucket listing to be denied.
+It uses the ignored local MinIO root key only to remove that probe object;
+it never creates an `uploads/` object or a processing message.
 
 ## MinIO fresh Helm install, protected adoption, and verification
 

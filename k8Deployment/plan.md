@@ -4493,3 +4493,23 @@ The existing-cluster read-only Secret check and all 36 root verification
 gates passed. Fresh `plan` refused the existing Secret, and an API-server dry
 run validated the ignored runtime Secret without persisting it. No Demucs
 worker Job was started for this credential-only stage.
+
+### Demucs MinIO IAM fresh bootstrap (2026-09-28)
+
+`kubernetes/scripts/minio-demucs-iam-stage.rb` now guards the committed
+artifacts policy ConfigMap and one-shot Job. It requires the Demucs MinIO
+user, policy, ConfigMap, Job, and temporary Secret to be absent before any
+write, server-validates all three manifests, and checks the exact source-read
+and stem-write policy attachment before deleting the temporary Secret. A
+partial run remains for inspection. Root `bootstrap-minio` includes the
+fresh stage and root read-only verification checks its durable IAM result.
+Existing-cluster `reconcile` can remove only a matching leftover temporary
+Secret after full IAM verification; it never creates or rotates the user or
+policy. The retained live cluster passed the narrow IAM verifier. Fresh Job
+creation remains untrialed until an empty-cluster test.
+Fresh `plan` refused the existing policy ConfigMap, and API-server dry run
+accepted the committed policy and Job. The focused S3 smoke used the Demucs
+runtime identity to put/get one unique private stem probe while confirming
+MIDI writes, deletion, and bucket listing were denied; it cleaned the probe
+with the ignored MinIO administrator key. Narrow reconcile found no temporary
+Secret and made no change. All 37 root read-only gates passed.

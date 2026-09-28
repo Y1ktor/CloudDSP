@@ -576,6 +576,15 @@ external effect disappeared. Therefore:
     The retained cluster passed the new gate and all 36 root read-only gates;
     fresh Secret creation remains covered by focused tests until an empty
     cluster trial.
+30. **Demucs MinIO IAM stage implemented.** After the upload-intake IAM Job,
+    `bootstrap-minio` runs the committed Demucs artifacts policy Job from a
+    wholly absent IAM and Kubernetes state. It checks the restricted user and
+    exact policy attachment before removing the temporary data-namespace
+    Secret. Root verification checks the durable result; existing-cluster
+    reconcile can remove only a matching leftover temporary Secret after the
+    IAM check succeeds. Basic Pitch and ADTOF IAM identities remain.
+    The retained cluster passed 37 read-only gates and a focused Demucs S3
+    permission smoke; the fresh provisioning Job path remains untrialed.
 
 Each task needs its own review and validation. This document authorizes no
 cluster mutation by itself.

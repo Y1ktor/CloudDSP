@@ -8,9 +8,9 @@
 # the private uploads and shared-sample boundaries. The shared samples are
 # mirrored and made read-only to browsers only after their checked-in hashes
 # match. Two fixed Jobs provision the Job API's restricted MinIO IAM, then a
-# separate Job provisions upload-intake's source-read identity. A failed child
-# leaves all partial state for inspection; this runner never retries by taking
-# ownership or deleting data. The Demucs runtime key is staged for later IAM.
+# separate Job provisions upload-intake's source-read identity. A final fixed
+# Job provisions Demucs artifact IAM. A failed child leaves partial state for
+# inspection; this runner never retries by taking ownership or deleting data.
 require 'rbconfig'
 
 class CloudDSPBootstrapMinio
@@ -34,7 +34,9 @@ class CloudDSPBootstrapMinio
     ['fresh Job API MinIO IAM user and policies', 'minio-job-api-iam-stage.rb', 'bootstrap'],
     ['Job API MinIO IAM verification', 'minio-job-api-iam-stage.rb', 'verify'],
     ['fresh upload-intake MinIO IAM user and policy', 'minio-upload-intake-iam-stage.rb', 'bootstrap'],
-    ['upload-intake MinIO IAM verification', 'minio-upload-intake-iam-stage.rb', 'verify']
+    ['upload-intake MinIO IAM verification', 'minio-upload-intake-iam-stage.rb', 'verify'],
+    ['fresh Demucs MinIO IAM user and policy', 'minio-demucs-iam-stage.rb', 'bootstrap'],
+    ['Demucs MinIO IAM verification', 'minio-demucs-iam-stage.rb', 'verify']
   ].freeze
 
   def initialize(run_command: method(:system), output: $stdout, error: $stderr)
@@ -52,7 +54,7 @@ class CloudDSPBootstrapMinio
       @error.puts "CloudDSP bootstrap-minio stopped at #{label}; inspect that stage before retrying."
       return 1
     end
-    @output.puts 'CloudDSP bootstrap-minio complete: broker, MinIO, shared samples, Job API IAM, and upload-intake IAM ready; worker IAM identities and applications remain pending.'
+    @output.puts 'CloudDSP bootstrap-minio complete: broker, MinIO, shared samples, Job API IAM, upload-intake IAM, and Demucs IAM ready; Basic Pitch/ADTOF IAM and applications remain pending.'
     0
   end
 end
