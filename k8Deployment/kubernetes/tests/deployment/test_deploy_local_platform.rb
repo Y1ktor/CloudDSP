@@ -25,6 +25,8 @@ class DeployLocalPlatformTest < Minitest::Test
       *CloudDSPBootstrapPostgresql::STEPS,
       *CloudDSPBootstrapRabbitmq::STEPS.drop(1),
       *CloudDSPBootstrapMinio::STEPS.drop(1),
+      ['Keycloak PostgreSQL database and credentials', 'keycloak-database-stage.rb', 'bootstrap'],
+      ['Keycloak PostgreSQL database verification', 'keycloak-database-stage.rb', 'verify'],
       ['fresh Mailpit Helm install', 'mailpit-release.rb', 'install'],
       ['Mailpit Helm verification', 'mailpit-release.rb', 'verify'],
       ['Job API PostgreSQL runtime credential Secret', 'job-api-database-secret-stage.rb', 'bootstrap'],
@@ -42,6 +44,8 @@ class DeployLocalPlatformTest < Minitest::Test
     assert_operator @calls.index(%w[postgresql-release.rb verify]), :<,
                     @calls.index(%w[rabbitmq-release.rb install])
     assert_operator @calls.index(%w[minio-adtof-iam-stage.rb verify]), :<,
+                    @calls.index(%w[keycloak-database-stage.rb bootstrap])
+    assert_operator @calls.index(%w[keycloak-database-stage.rb verify]), :<,
                     @calls.index(%w[mailpit-release.rb install])
     assert_operator @calls.index(%w[job-api-database-secret-stage.rb bootstrap]), :<,
                     @calls.index(%w[job-api-postgresql-stage.rb reconcile])

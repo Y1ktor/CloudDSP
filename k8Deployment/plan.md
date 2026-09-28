@@ -4614,3 +4614,22 @@ Secret, and API-server dry run accepted the source. The clean-cluster platform
 path has not been executed. Application identity, remaining service roles
 and Secrets, KEDA authentication, and app/worker fresh Helm installers are
 still needed before a full one-command browser-to-worker deployment.
+
+### Keycloak PostgreSQL fresh bootstrap stage (2026-09-28)
+
+`kubernetes/scripts/keycloak-database-stage.rb` now validates the ignored
+Keycloak database credential Secret and the committed one-shot Job. On a fresh
+cluster it creates the Secret and Job only if the database and role are both
+absent, checks both manifests with API-server dry runs, waits for Job
+completion, and verifies the database owner, isolated login, public privilege
+boundary, schema grants, live Secret, and dedicated-role login. Its `plan` and
+`verify` modes are read-only; partial or drifted state stops before mutation. The Job is allowed
+to expire after five minutes because PostgreSQL metadata is the durable
+completion record. The retained cluster passed the new read-only stage.
+
+`bootstrap-platform` now runs Keycloak database creation and verification
+after the data services, before Mailpit. The stage list has 42 steps. The
+retained cluster was not bootstrapped again; the fresh creation path remains
+covered by isolated fake-cluster tests until an empty-cluster trial. The
+Keycloak Helm release, admin Secret, and realm/client configuration still
+need their own fresh deployment stages.

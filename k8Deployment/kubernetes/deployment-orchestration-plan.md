@@ -634,6 +634,16 @@ external effect disappeared. Therefore:
     This partial command still awaits an empty-cluster trial. Keycloak and
     remaining application/worker credential, bootstrap, KEDA, and fresh Helm
     install stages remain before a full browser-to-worker `bootstrap` command.
+37. **Keycloak PostgreSQL fresh stage implemented.** The guarded stage checks
+    the ignored Keycloak credential Secret and versioned one-shot Job, then
+    creates both only when the dedicated role and database are wholly absent.
+    PostgreSQL catalog metadata verifies ownership, privilege boundaries, and
+    the `public` schema after the Job runs. Root read-only `verify` checks this
+    durable state, the live Secret, and database-login authentication. The
+    platform composition now includes its create and verify steps before
+    Mailpit, for 42 listed child stages.
+    A fresh-cluster Job trial remains pending; Keycloak's Helm release, admin
+    Secret, and realm/client bootstrap still need fresh paths.
 
 Each task needs its own review and validation. This document authorizes no
 cluster mutation by itself.

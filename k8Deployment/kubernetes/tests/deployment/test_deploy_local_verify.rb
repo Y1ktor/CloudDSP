@@ -14,6 +14,10 @@ class DeployLocalVerifyTest < Minitest::Test
     commands = CloudDSPLocalVerify::STAGES.map(&:command)
     assert_equal ['ruby', 'deploy-local-plan.rb'], commands.first
     assert_equal ['ruby', 'frontend-release.rb', 'verify'], commands.last
+    assert_operator commands.index(['ruby', 'postgresql-release.rb', 'verify']), :<,
+                    commands.index(['ruby', 'keycloak-database-stage.rb', 'verify'])
+    assert_operator commands.index(['ruby', 'keycloak-database-stage.rb', 'verify']), :<,
+                    commands.index(['ruby', 'keycloak-release.rb', 'verify'])
     assert_operator commands.index(['ruby', 'job-api-database-secret-stage.rb', 'verify']), :<,
                     commands.index(['ruby', 'job-api-postgresql-stage.rb', 'verify'])
     assert_operator commands.index(['ruby', 'job-api-minio-secret-stage.rb', 'verify']), :<,

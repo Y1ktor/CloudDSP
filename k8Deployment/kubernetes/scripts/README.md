@@ -22,7 +22,7 @@ its own location and does not depend on the current working directory.
 ./k8Deployment/kubernetes/scripts/deploy-local.sh purge-registry
 ```
 
-`stages` prints the exact 40 ordered steps currently wired into
+`stages` prints the exact 42 ordered steps currently wired into
 `bootstrap-platform` without contacting the cluster. The `plan` mode is the first stage of the
 [deployment orchestrator](../deployment-orchestration-plan.md). It reads the
 versioned workload manifests and lock files, then queries only the explicit
@@ -110,17 +110,34 @@ identities. Application releases remain for later fresh bootstrap stages.
 The full root `bootstrap` will compose those remaining stages later.
 
 `bootstrap-platform` combines the already guarded fresh PostgreSQL, RabbitMQ,
-and MinIO child steps once, then installs and verifies Mailpit. It creates the
-Job API PostgreSQL runtime Secret, runs the reviewed Job API role/migration
-reconciler, and imports/verifies the RabbitMQ processing topology. Every step
+and MinIO child steps once, then creates Keycloak's isolated PostgreSQL
+credential Secret and database using the versioned one-shot Job. It installs
+and verifies Mailpit, creates the Job API PostgreSQL runtime Secret, runs the
+reviewed Job API role/migration reconciler, and imports/verifies the RabbitMQ
+processing topology. Every step
 stops at the first error and leaves a partial cluster for inspection. This is
 an alternative absent-cluster command, not one to run after a partial
 bootstrap. The retained cluster passed read-only verification; the fresh
 sequence has not been trialed on an empty cluster.
 
-The full `bootstrap` command still needs guarded fresh paths for Keycloak
-database/realm/client state, remaining application database and RabbitMQ
-roles, their runtime Secrets, KEDA authentication, and the app/worker Helm
+For focused Keycloak database diagnosis, run:
+
+```bash
+ruby ./k8Deployment/kubernetes/scripts/keycloak-database-stage.rb verify
+```
+
+The read-only `plan` mode reports whether the dedicated role and database are
+wholly absent or already complete. The `bootstrap` mode creates the ignored
+Secret and versioned one-shot Job only for wholly absent state. It does not
+repair partial state, rotate a password, install Keycloak, or configure its
+realm. The finished Job can expire; PostgreSQL role, database, ownership, and
+grants are checked directly. Verification also authenticates with the ignored
+local password through the existing PostgreSQL Pod; the password travels on
+stdin and is never printed.
+
+The full `bootstrap` command still needs guarded fresh paths for Keycloak's
+admin Secret, Helm release, realm/client state, remaining application database
+and RabbitMQ roles, their runtime Secrets, KEDA authentication, and the app/worker Helm
 releases. The existing app release runners currently support adoption of live
 objects, not a fresh install. Those dependencies must be implemented and
 verified before the full browser-to-worker command can safely run.
@@ -156,7 +173,8 @@ registry in the meantime.
 
 ## Root verification and existing-cluster reconcile
 
-`verify` first runs that same preflight, checks the PostgreSQL, RabbitMQ,
+`verify` first runs that same preflight, checks Keycloak's database, role,
+grants, and runtime Secret after the PostgreSQL release, then checks the RabbitMQ,
 MinIO, Job API MinIO, upload-intake RabbitMQ/MinIO, Demucs MinIO, Basic Pitch
 MinIO, and ADTOF MinIO Secrets against their ignored local sources without
 printing values, then checks the
