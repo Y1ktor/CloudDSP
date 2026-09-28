@@ -34,12 +34,13 @@ bootstrap-minio: On an absent cluster, prepare and install RabbitMQ, create
          source-intake state, install MinIO, and stage Job API, upload-intake,
          Demucs, and Basic Pitch MinIO runtime credentials. It creates buckets,
          mirrors 461 locked MIDI samples, and provisions Job API, upload-intake,
-         and Demucs MinIO users. Basic Pitch/ADTOF IAM identities come later.
+         Demucs, and Basic Pitch MinIO users. ADTOF IAM comes later.
 verify: Run that preflight, then the reviewed read-only Helm, KEDA, and
         bootstrap gates in dependency order. Stop at the first failed gate.
 reconcile: On an existing cluster, run the same ordered gates and reconcile
            Job API PostgreSQL, RabbitMQ, narrow MinIO bucket and notification
-           state, plus matching leftover Job API/upload-intake/Demucs IAM Secrets.
+           state, plus matching leftover Job API/upload-intake/Demucs/Basic Pitch
+           IAM Secrets.
            Existing Helm releases must verify; this mode does not upgrade them.
 cleanup: Delete the fixed CloudDSP k3d cluster and its Kubernetes resources,
          including PVC data. Keep the dedicated local image registry.

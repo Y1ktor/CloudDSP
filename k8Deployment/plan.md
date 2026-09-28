@@ -4528,3 +4528,25 @@ The live runtime Secret matched its ignored source, fresh `plan` refused the
 existing Secret, and an API-server dry run accepted the source without
 persisting it. All 38 root read-only gates passed. No Basic Pitch worker Job
 was started for this credential-only stage.
+
+### Basic Pitch MinIO IAM fresh bootstrap (2026-09-28)
+
+`kubernetes/scripts/minio-basic-pitch-iam-stage.rb` guards the committed
+artifacts policy ConfigMap and one-shot Job. It requires the Basic Pitch user,
+policy, ConfigMap, Job, and temporary Secret to be absent before any write and
+server-validates all three manifests before creation. Once the Job completes,
+it verifies the exact stem-read/MIDI-write policy and user attachment, then
+deletes the temporary Secret. A partial run remains for inspection. Root
+`bootstrap-minio` now includes this fresh stage; root read-only `verify` checks
+the durable IAM result. Existing-cluster `reconcile` may remove only a
+matching leftover temporary Secret after full IAM verification; it cannot
+create or rotate the user or policy.
+
+The retained cluster's narrow IAM check passed, while fresh `plan` refused
+the existing policy ConfigMap as designed. API-server dry run accepted the
+policy and Job. The focused S3 smoke confirmed Basic Pitch could read a
+random private stem and put/get a random private MIDI object; stem writes,
+deletion, and bucket listing returned AccessDenied. It removed its own probes
+and sent no upload notification. Fresh Job creation still awaits an empty
+cluster trial. Narrow reconcile found no temporary Secret and made no change;
+all 39 root read-only gates passed.

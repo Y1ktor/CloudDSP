@@ -26,7 +26,9 @@ class DeployLocalMinioTest < Minitest::Test
     %w[minio-upload-intake-iam-stage.rb bootstrap],
     %w[minio-upload-intake-iam-stage.rb verify],
     %w[minio-demucs-iam-stage.rb bootstrap],
-    %w[minio-demucs-iam-stage.rb verify]
+    %w[minio-demucs-iam-stage.rb verify],
+    %w[minio-basic-pitch-iam-stage.rb bootstrap],
+    %w[minio-basic-pitch-iam-stage.rb verify]
   ].freeze
 
   def setup
@@ -68,7 +70,9 @@ class DeployLocalMinioTest < Minitest::Test
                     @calls.index(%w[minio-upload-intake-iam-stage.rb bootstrap])
     assert_operator @calls.index(%w[minio-upload-intake-iam-stage.rb verify]), :<,
                     @calls.index(%w[minio-demucs-iam-stage.rb bootstrap])
-    assert_includes @output.string, 'Basic Pitch/ADTOF IAM and applications remain pending'
+    assert_operator @calls.index(%w[minio-demucs-iam-stage.rb verify]), :<,
+                    @calls.index(%w[minio-basic-pitch-iam-stage.rb bootstrap])
+    assert_includes @output.string, 'ADTOF IAM and applications remain pending'
     assert_empty @error.string
   end
 

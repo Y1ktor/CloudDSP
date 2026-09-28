@@ -25,6 +25,7 @@ class CloudDSPLocalVerify
     minio-job-api-iam-stage.rb
     minio-upload-intake-iam-stage.rb
     minio-demucs-iam-stage.rb
+    minio-basic-pitch-iam-stage.rb
     minio-notification-stage.rb
   ].freeze
   Stage = Struct.new(:name, :command, keyword_init: true)
@@ -33,8 +34,8 @@ class CloudDSPLocalVerify
   # from reporting secondary symptoms as if they were independent failures.
   # The external-state list is intentionally limited to versioned runners that
   # already have a read-only verify mode. The MinIO bucket stage restores only
-  # an absent shared-sample policy, and the Job API, upload-intake, and Demucs
-  # IAM stages remove only matching temporary Secrets after full verification,
+  # an absent shared-sample policy, and the Job API, upload-intake, Demucs,
+  # and Basic Pitch IAM stages remove matching Secrets after full verification,
   # and the notification stage restores only an absent upload rule. Other MinIO IAM
   # identities and Keycloak state need separate reviewed write paths.
   STAGES = [
@@ -58,6 +59,7 @@ class CloudDSPLocalVerify
     Stage.new(name: 'Job API MinIO policies and user', command: ['ruby', 'minio-job-api-iam-stage.rb', 'verify']),
     Stage.new(name: 'upload-intake MinIO policy and user', command: ['ruby', 'minio-upload-intake-iam-stage.rb', 'verify']),
     Stage.new(name: 'Demucs MinIO policy and user', command: ['ruby', 'minio-demucs-iam-stage.rb', 'verify']),
+    Stage.new(name: 'Basic Pitch MinIO policy and user', command: ['ruby', 'minio-basic-pitch-iam-stage.rb', 'verify']),
     Stage.new(name: 'MinIO buckets/IAM verification and upload notification', command: ['ruby', 'minio-notification-stage.rb', 'verify']),
     Stage.new(name: 'Mailpit release', command: ['ruby', 'mailpit-release.rb', 'verify']),
     Stage.new(name: 'Keycloak release', command: ['ruby', 'keycloak-release.rb', 'verify']),

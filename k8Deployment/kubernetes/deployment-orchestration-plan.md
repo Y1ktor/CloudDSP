@@ -593,6 +593,17 @@ external effect disappeared. Therefore:
     Basic Pitch IAM stage.
     The retained cluster passed all 38 root read-only gates; fresh Secret
     creation remains covered by focused tests until an empty-cluster trial.
+32. **Basic Pitch MinIO IAM fresh bootstrap implemented.** The guarded stage
+    uses the committed artifacts policy and one-shot Job after the runtime
+    Secret and private buckets verify. It refuses any existing user, policy,
+    ConfigMap, Job, or temporary Secret before creating resources and checks
+    the exact MinIO policy attachment before removing the temporary Secret.
+    Root verification checks the durable result; existing-cluster reconcile
+    removes only a matching leftover temporary Secret after IAM verifies.
+    The retained cluster passed the focused Basic Pitch S3 permission smoke,
+    narrow reconcile, and all 39 read-only root gates; the fresh provisioning
+    Job path awaits an empty-cluster trial. ADTOF IAM remains the next
+    object-storage identity.
 
 Each task needs its own review and validation. This document authorizes no
 cluster mutation by itself.

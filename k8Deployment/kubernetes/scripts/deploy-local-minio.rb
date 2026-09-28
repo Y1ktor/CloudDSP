@@ -9,8 +9,8 @@
 # mirrored and made read-only to browsers only after their checked-in hashes
 # match. Two fixed Jobs provision the Job API's restricted MinIO IAM, then a
 # separate Job provisions upload-intake's source-read identity. A final fixed
-# Job provisions Demucs artifact IAM. The Basic Pitch runtime key is staged
-# for its later IAM Job. A failed child leaves partial state for
+# Job provisions Demucs artifact IAM, followed by the Basic Pitch artifact
+# IAM Job. A failed child leaves partial state for
 # inspection; this runner never retries by taking ownership or deleting data.
 require 'rbconfig'
 
@@ -38,7 +38,9 @@ class CloudDSPBootstrapMinio
     ['fresh upload-intake MinIO IAM user and policy', 'minio-upload-intake-iam-stage.rb', 'bootstrap'],
     ['upload-intake MinIO IAM verification', 'minio-upload-intake-iam-stage.rb', 'verify'],
     ['fresh Demucs MinIO IAM user and policy', 'minio-demucs-iam-stage.rb', 'bootstrap'],
-    ['Demucs MinIO IAM verification', 'minio-demucs-iam-stage.rb', 'verify']
+    ['Demucs MinIO IAM verification', 'minio-demucs-iam-stage.rb', 'verify'],
+    ['fresh Basic Pitch MinIO IAM user and policy', 'minio-basic-pitch-iam-stage.rb', 'bootstrap'],
+    ['Basic Pitch MinIO IAM verification', 'minio-basic-pitch-iam-stage.rb', 'verify']
   ].freeze
 
   def initialize(run_command: method(:system), output: $stdout, error: $stderr)
@@ -56,7 +58,7 @@ class CloudDSPBootstrapMinio
       @error.puts "CloudDSP bootstrap-minio stopped at #{label}; inspect that stage before retrying."
       return 1
     end
-    @output.puts 'CloudDSP bootstrap-minio complete: broker, MinIO, shared samples, Job API IAM, upload-intake IAM, and Demucs IAM ready; Basic Pitch/ADTOF IAM and applications remain pending.'
+    @output.puts 'CloudDSP bootstrap-minio complete: broker, MinIO, shared samples, Job API IAM, upload-intake IAM, Demucs IAM, and Basic Pitch IAM ready; ADTOF IAM and applications remain pending.'
     0
   end
 end
