@@ -611,6 +611,15 @@ external effect disappeared. Therefore:
     provisioning Secret, artifacts policy, and MinIO user remain for the
     ADTOF IAM stage. The retained cluster passed all 40 root read-only gates;
     fresh Secret creation awaits an empty-cluster trial.
+34. **ADTOF MinIO IAM fresh bootstrap implemented.** The guarded stage uses
+    the committed drums-read and fixed-output artifacts policy with its
+    one-shot Job after the runtime Secret and private buckets verify. It
+    refuses existing IAM or Kubernetes bootstrap resources, server-validates
+    all inputs, checks the exact user and policy attachment, then removes its
+    temporary Secret. Existing-cluster reconcile removes only a matching
+    leftover temporary Secret after complete IAM verification. The retained
+    cluster passed the focused ADTOF S3 smoke, narrow reconcile, and all 41
+    root read-only gates; fresh Job creation awaits an empty-cluster trial.
 
 Each task needs its own review and validation. This document authorizes no
 cluster mutation by itself.

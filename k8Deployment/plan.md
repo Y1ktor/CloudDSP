@@ -4567,3 +4567,28 @@ existing Secret, while an API-server apply dry run accepted the source without
 persisting it. A create dry run reported `AlreadyExists` because the retained
 cluster already has that Secret. No ADTOF worker Job was started for this
 credential-only stage. All 40 root read-only gates passed.
+
+### ADTOF MinIO IAM fresh bootstrap (2026-09-28)
+
+`kubernetes/scripts/minio-adtof-iam-stage.rb` guards the committed artifacts
+policy ConfigMap and one-shot Job. It requires the ADTOF user, policy,
+ConfigMap, Job, and temporary Secret to be absent before any write, validates
+all three manifests at the API server, and checks the exact drums-read and
+fixed MIDI/tempo-write policy attachment after Job completion. The runner
+then removes the temporary Secret. It checks the Job's 256 MiB association
+limit because an earlier ADTOF provisioning attempt exhausted a smaller
+limit. A partial run remains for inspection. Root `bootstrap-minio` includes
+this fresh stage; root read-only `verify` checks the durable IAM result.
+Existing-cluster `reconcile` may remove only a matching leftover temporary
+Secret after full IAM verification; it cannot create or rotate the user or
+policy.
+
+The retained cluster's narrow IAM check passed, while fresh `plan` refused
+the existing policy ConfigMap as designed. API-server dry run accepted the
+policy and Job. The focused S3 smoke confirmed ADTOF could read a private
+`drums.wav` but not a planted non-drum stem; it could put/get only its fixed
+`drums.mid` and `drums_bpm.json` outputs. Stem and other-MIDI writes,
+deletion, and bucket listing returned AccessDenied. All unique probes were
+removed without sending an upload notification. Fresh Job creation still
+awaits an empty-cluster trial. Narrow reconcile found no temporary Secret
+and made no change; all 41 root read-only gates passed.

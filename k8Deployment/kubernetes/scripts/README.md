@@ -95,15 +95,15 @@ runtime MinIO Secrets and the two initially private MinIO buckets, mirrors 461
 hash-locked shared MIDI samples, and grants their bucket a narrow anonymous
 browser-read policy. It then provisions the restricted Job API user with two
 policies, the upload-intake user with its source-read policy, the Demucs worker
-with its private source-read and stem-write policy, and the Basic Pitch worker
-with its stem-read and MIDI-write policy.
+with its private source-read and stem-write policy, the Basic Pitch worker
+with its stem-read and MIDI-write policy, and the ADTOF worker with its
+drums-read and fixed MIDI/tempo-write policy.
 The broker runner manages its temporary bootstrap Secret and removes it after
 successful user verification. A failed stage leaves partial state
 for inspection. This is an alternative partial trial to the other
 `bootstrap-*` commands, not a command to run after them on the same cluster.
-It configures the Job API, upload-intake, Demucs, and Basic Pitch MinIO
-identities. The ADTOF IAM identity and application releases remain for later
-stages.
+It configures the Job API, upload-intake, Demucs, Basic Pitch, and ADTOF MinIO
+identities. Application releases remain for later fresh bootstrap stages.
 The full root `bootstrap` will compose those remaining stages later.
 
 ## Docker Hub image source and local mirror
@@ -139,8 +139,8 @@ registry in the meantime.
 
 `verify` first runs that same preflight, checks the PostgreSQL, RabbitMQ,
 MinIO, Job API MinIO, upload-intake RabbitMQ/MinIO, Demucs MinIO, Basic Pitch
-MinIO, and ADTOF MinIO Secrets against their ignored local sources without printing
-values, then checks the
+MinIO, and ADTOF MinIO Secrets against their ignored local sources without
+printing values, then checks the
 fourteen adopted CloudDSP Helm releases, the implemented Job API PostgreSQL
 and RabbitMQ bootstrap stages, the
 [Keycloak realm/client state](keycloak-config-verify.rb),
@@ -148,7 +148,8 @@ the [MinIO bucket stage](minio-buckets-stage.rb), the
 [Job API IAM stage](minio-job-api-iam-stage.rb), the
 [upload-intake IAM stage](minio-upload-intake-iam-stage.rb), the
 [Demucs IAM stage](minio-demucs-iam-stage.rb), the
-[Basic Pitch IAM stage](minio-basic-pitch-iam-stage.rb), and
+[Basic Pitch IAM stage](minio-basic-pitch-iam-stage.rb), the
+[ADTOF IAM stage](minio-adtof-iam-stage.rb), and
 [IAM/notification state](minio-notification-stage.rb),
 and the KEDA controller Deployments and CRDs in dependency order.
 It stops at the first failed gate and names the component command to run for
@@ -165,12 +166,13 @@ stdin and a temporary in-memory config directory. Both gates are read-only
 and suppress credential-bearing client output on failure.
 
 `reconcile` is currently for an already deployed cluster. It runs the same
-preflight and ordered gates, but calls `reconcile` for nine audited
+preflight and ordered gates, but calls `reconcile` for ten audited
 external-state runners: Job API PostgreSQL database/migrations, RabbitMQ
 processing topology, RabbitMQ source-intake topology/users, the MinIO shared
-sample policy, Job API, upload-intake, Demucs, and Basic Pitch MinIO temporary Secret
-cleanup, and the MinIO source-upload notification. Each IAM stage deletes only a matching
-temporary Secret after its exact user and policy state verifies. Other runners
+sample policy, Job API, upload-intake, Demucs, Basic Pitch, and ADTOF MinIO
+temporary Secret cleanup, and the MinIO source-upload notification. Each IAM
+stage deletes only a matching temporary Secret after its exact user and policy
+state verifies. Other runners
 create only wholly missing versioned bootstrap state and verify its durable
 result; partial state and drift stop the command. All fourteen Helm releases
 remain in read-only `verify` mode, so a chart change, missing release, or
@@ -631,6 +633,32 @@ one random stem with the root key, verifies that Basic Pitch can read it and
 put/get a random MIDI object, and requires stem writes, deletion, and bucket
 listing to be denied. It removes those exact probes with the root key and
 never creates an `uploads/` notification or processing message.
+
+## ADTOF MinIO IAM bootstrap and temporary Secret cleanup
+
+```bash
+ruby ./k8Deployment/kubernetes/scripts/minio-adtof-iam-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/minio-adtof-iam-stage.rb bootstrap
+ruby ./k8Deployment/kubernetes/scripts/minio-adtof-iam-stage.rb verify
+ruby ./k8Deployment/kubernetes/scripts/minio-adtof-iam-stage.rb reconcile
+ruby ./k8Deployment/kubernetes/tests/minio-smoke/adtof-iam-smoke.rb
+```
+
+Fresh `bootstrap` requires the MinIO release, private buckets, and ADTOF
+runtime Secret to verify. It refuses an existing ADTOF user, policy, temporary
+Secret, policy ConfigMap, or Job. After server dry runs it creates the ignored
+temporary restricted Secret in `clouddsp-data`, the immutable artifacts policy
+ConfigMap, and the fixed provisioning Job. It waits for completion and checks
+the exact drums-read/fixed MIDI-and-tempo-write policy and user attachment
+before removing the temporary Secret. The Job's 256 MiB policy association
+limit is checked because a smaller limit previously caused an OOM. A partial
+run remains for inspection. Read-only `verify` requires the temporary Secret
+to be absent. Existing-cluster `reconcile` deletes only a matching leftover
+Secret after durable IAM state verifies; it never recreates or rotates the
+user or policy. The focused S3 smoke checks allowed `drums.wav` reads and the
+two fixed output names, plus denied other-stem reads, writes outside those
+names, deletion, and bucket listing. It uses random `stems/` and `midi/` keys,
+removes those exact probes, and never sends an upload notification.
 
 ## MinIO fresh Helm install, protected adoption, and verification
 

@@ -26,6 +26,7 @@ class CloudDSPLocalVerify
     minio-upload-intake-iam-stage.rb
     minio-demucs-iam-stage.rb
     minio-basic-pitch-iam-stage.rb
+    minio-adtof-iam-stage.rb
     minio-notification-stage.rb
   ].freeze
   Stage = Struct.new(:name, :command, keyword_init: true)
@@ -35,9 +36,9 @@ class CloudDSPLocalVerify
   # The external-state list is intentionally limited to versioned runners that
   # already have a read-only verify mode. The MinIO bucket stage restores only
   # an absent shared-sample policy, and the Job API, upload-intake, Demucs,
-  # and Basic Pitch IAM stages remove matching Secrets after full verification,
-  # and the notification stage restores only an absent upload rule. Other MinIO IAM
-  # identities and Keycloak state need separate reviewed write paths.
+  # Basic Pitch, and ADTOF IAM stages remove matching Secrets after full
+  # verification. The notification stage restores only an absent upload rule.
+  # Keycloak state still needs a separate reviewed write path.
   STAGES = [
     Stage.new(name: 'preflight', command: ['ruby', 'deploy-local-plan.rb']),
     Stage.new(name: 'PostgreSQL credential Secret', command: ['ruby', 'postgresql-secret-stage.rb', 'verify']),
@@ -61,6 +62,7 @@ class CloudDSPLocalVerify
     Stage.new(name: 'upload-intake MinIO policy and user', command: ['ruby', 'minio-upload-intake-iam-stage.rb', 'verify']),
     Stage.new(name: 'Demucs MinIO policy and user', command: ['ruby', 'minio-demucs-iam-stage.rb', 'verify']),
     Stage.new(name: 'Basic Pitch MinIO policy and user', command: ['ruby', 'minio-basic-pitch-iam-stage.rb', 'verify']),
+    Stage.new(name: 'ADTOF MinIO policy and user', command: ['ruby', 'minio-adtof-iam-stage.rb', 'verify']),
     Stage.new(name: 'MinIO buckets/IAM verification and upload notification', command: ['ruby', 'minio-notification-stage.rb', 'verify']),
     Stage.new(name: 'Mailpit release', command: ['ruby', 'mailpit-release.rb', 'verify']),
     Stage.new(name: 'Keycloak release', command: ['ruby', 'keycloak-release.rb', 'verify']),
