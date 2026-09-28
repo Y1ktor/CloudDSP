@@ -16,6 +16,8 @@ class DeployLocalVerifyTest < Minitest::Test
     assert_equal ['ruby', 'frontend-release.rb', 'verify'], commands.last
     assert_operator commands.index(['ruby', 'job-api-minio-secret-stage.rb', 'verify']), :<,
                     commands.index(['ruby', 'minio-buckets-stage.rb', 'verify'])
+    assert_operator commands.index(['ruby', 'minio-buckets-stage.rb', 'verify']), :<,
+                    commands.index(['ruby', 'minio-job-api-iam-stage.rb', 'verify'])
     commands.each do |command|
       if command.first == 'ruby'
         assert command.length == 2 || command.last == 'verify', command.inspect

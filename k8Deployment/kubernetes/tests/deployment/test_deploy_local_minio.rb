@@ -17,7 +17,9 @@ class DeployLocalMinioTest < Minitest::Test
     %w[minio-fresh-buckets-stage.rb bootstrap],
     %w[minio-fresh-buckets-stage.rb verify],
     %w[minio-fresh-samples-stage.rb bootstrap],
-    %w[minio-fresh-samples-stage.rb verify]
+    %w[minio-fresh-samples-stage.rb verify],
+    %w[minio-job-api-iam-stage.rb bootstrap],
+    %w[minio-job-api-iam-stage.rb verify]
   ].freeze
 
   def setup
@@ -47,7 +49,9 @@ class DeployLocalMinioTest < Minitest::Test
                     @calls.index(%w[minio-fresh-buckets-stage.rb bootstrap])
     assert_operator @calls.index(%w[minio-fresh-buckets-stage.rb verify]), :<,
                     @calls.index(%w[minio-fresh-samples-stage.rb bootstrap])
-    assert_includes @output.string, 'IAM and applications remain pending'
+    assert_operator @calls.index(%w[minio-fresh-samples-stage.rb verify]), :<,
+                    @calls.index(%w[minio-job-api-iam-stage.rb bootstrap])
+    assert_includes @output.string, 'other IAM identities and applications remain pending'
     assert_empty @error.string
   end
 

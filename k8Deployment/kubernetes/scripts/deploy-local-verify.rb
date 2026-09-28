@@ -8,7 +8,7 @@
 # external-state runners check the PostgreSQL, RabbitMQ, MinIO, and Keycloak
 # work implemented so far. Keep those narrow verifiers runnable for diagnosis.
 # This command never invokes an adopt, smoke, or bootstrap mode. Its companion
-# root reconcile permits only the five external-state runners listed below.
+# root reconcile permits only the reviewed external-state runners listed below.
 
 require 'open3'
 require 'pathname'
@@ -22,6 +22,7 @@ class CloudDSPLocalVerify
     rabbitmq-processing-topology.rb
     rabbitmq-source-intake-bootstrap.rb
     minio-buckets-stage.rb
+    minio-job-api-iam-stage.rb
     minio-notification-stage.rb
   ].freeze
   Stage = Struct.new(:name, :command, keyword_init: true)
@@ -30,9 +31,10 @@ class CloudDSPLocalVerify
   # from reporting secondary symptoms as if they were independent failures.
   # The external-state list is intentionally limited to versioned runners that
   # already have a read-only verify mode. The MinIO bucket stage restores only
-  # an absent shared-sample policy, and the notification stage restores only
-  # an absent upload rule. Bucket creation, MinIO IAM, and Keycloak state need
-  # separate reviewed write paths before full reconciliation.
+  # an absent shared-sample policy, the Job API IAM stage removes only a
+  # matching leftover temporary Secret after full IAM verification, and the
+  # notification stage restores only an absent upload rule. Other MinIO IAM
+  # identities and Keycloak state need separate reviewed write paths.
   STAGES = [
     Stage.new(name: 'preflight', command: ['ruby', 'deploy-local-plan.rb']),
     Stage.new(name: 'PostgreSQL credential Secret', command: ['ruby', 'postgresql-secret-stage.rb', 'verify']),
@@ -48,6 +50,7 @@ class CloudDSPLocalVerify
     Stage.new(name: 'upload-intake RabbitMQ runtime Secret', command: ['ruby', 'upload-intake-rabbitmq-secret-stage.rb', 'verify']),
     Stage.new(name: 'RabbitMQ source-intake topology and users', command: ['ruby', 'rabbitmq-source-intake-bootstrap.rb', 'verify']),
     Stage.new(name: 'MinIO bucket boundaries and shared samples', command: ['ruby', 'minio-buckets-stage.rb', 'verify']),
+    Stage.new(name: 'Job API MinIO policies and user', command: ['ruby', 'minio-job-api-iam-stage.rb', 'verify']),
     Stage.new(name: 'MinIO buckets/IAM verification and upload notification', command: ['ruby', 'minio-notification-stage.rb', 'verify']),
     Stage.new(name: 'Mailpit release', command: ['ruby', 'mailpit-release.rb', 'verify']),
     Stage.new(name: 'Keycloak release', command: ['ruby', 'keycloak-release.rb', 'verify']),

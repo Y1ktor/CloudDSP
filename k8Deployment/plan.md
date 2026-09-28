@@ -4421,3 +4421,20 @@ The existing-cluster read-only root verification passed all 32 gates with
 this new Secret check. The restricted Job API MinIO smoke Job used that Secret
 to read/write its fixed uploads marker, confirmed out-of-prefix writes and
 deletion were denied, then the disposable Job was removed.
+
+### Job API MinIO IAM fresh bootstrap (2026-09-28)
+
+`kubernetes/scripts/minio-job-api-iam-stage.rb` now orders the two committed
+Job API MinIO policy Jobs after fresh buckets and sample mirroring. It checks
+that the user, both policies, temporary Secret, policy ConfigMaps, and Jobs
+are absent before writing. Server dry runs precede the temporary Secret and
+both Jobs; each Job's durable MinIO policy attachment verifies before the
+next runs. The temporary Secret is deleted only after both exact policies and
+the restricted user verify. A partial run remains inspectable and cannot be
+restarted as a fresh bootstrap. Root `bootstrap-minio` includes this stage.
+The root read-only verifier checks it separately before the broader MinIO
+state gate. Existing-cluster `reconcile` can remove a leftover temporary
+Secret only after it matches the ignored source and the IAM state is exact;
+it does not create or change a user or policy. The running cluster had such a
+leftover Secret from earlier manual setup, with matching values and complete
+IAM; its cleanup is recorded by the stage and verified separately.

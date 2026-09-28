@@ -223,6 +223,17 @@ class MinioStateVerify
   end
 
   def mc(credentials, *arguments)
+    output, status = mc_raw(credentials, *arguments)
+    ensure_true(status.success?, "MinIO admin #{arguments.first(2).join(' ')} failed")
+    response = JSON.parse(output)
+    same('MinIO admin response status', response['status'], 'success')
+    response
+  end
+
+  # Keep the same ephemeral client boundary for narrowly checked absent-IAM
+  # probes. Callers receive raw JSON only in memory and may classify a known
+  # NoSuchUser/NoSuchPolicy code; every other failure must stop bootstrap.
+  def mc_raw(credentials, *arguments)
     encode = ->(value) { CGI.escape(value).tr('+', '%20') }
     host = "http://#{encode.call(credentials.fetch(:user))}:#{encode.call(credentials.fetch(:password))}@#{credentials.fetch(:ip)}:9000"
     input = "MC_HOST_audit=#{host}\nMC_CONFIG_DIR=/mc-config\n"
@@ -231,10 +242,7 @@ class MinioStateVerify
                '--env-file', '/dev/stdin', MC_IMAGE, "clouddsp-minio-verify-#{SecureRandom.hex(6)}",
                '/usr/bin/mc', '--json', 'admin', *arguments]
     output, _stderr, status = @command.call(*command, stdin_data: input)
-    ensure_true(status.success?, "MinIO admin #{arguments.first(2).join(' ')} failed")
-    response = JSON.parse(output)
-    same('MinIO admin response status', response['status'], 'success')
-    response
+    [output, status]
   end
 
   def verify_iam(credentials, source_policies)

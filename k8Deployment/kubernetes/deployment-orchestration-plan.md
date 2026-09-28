@@ -544,8 +544,14 @@ external effect disappeared. Therefore:
     validates the ignored Job API runtime and temporary IAM bootstrap sources
     have the same restricted key. `bootstrap-minio` creates only the runtime
     Secret in `clouddsp-app`; root `verify` compares live values with the
-    ignored source. The temporary Secret, two policies, and Job API user still
-    await their guarded IAM Job bootstrap stage.
+    ignored source. The temporary Secret, two policies, and Job API user are
+    handled by the following IAM stage.
+26. **Job API MinIO IAM stage implemented.** After the sample mirror,
+    `bootstrap-minio` now creates the temporary provisioning Secret and runs
+    the uploads/user and artifact-read policy Jobs in order. It checks the
+    MinIO user and both exact policy attachments before removing that Secret.
+    Existing-cluster `reconcile` can remove only a matching leftover Secret
+    after all IAM state verifies. Other restricted identities remain pending.
 
 Each task needs its own review and validation. This document authorizes no
 cluster mutation by itself.

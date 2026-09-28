@@ -32,14 +32,14 @@ bootstrap-rabbitmq: On an absent cluster, run prepare, create the RabbitMQ
 bootstrap-minio: On an absent cluster, prepare and install RabbitMQ, create
          MinIO and upload-intake broker Secrets, bootstrap restricted broker
          source-intake state, install MinIO, create Job API runtime credentials
-         and buckets, then mirror 461 hash-locked MIDI samples. IAM identities
-         are a later stage.
+         and buckets, mirror 461 hash-locked MIDI samples, then create the Job
+         API MinIO user and two policies. Other IAM identities come later.
 verify: Run that preflight, then the reviewed read-only Helm, KEDA, and
         bootstrap gates in dependency order. Stop at the first failed gate.
 reconcile: On an existing cluster, run the same ordered gates and reconcile
-           the Job API PostgreSQL, RabbitMQ, and narrow MinIO bucket and
-           notification stages. Existing Helm releases must verify; this mode
-           does not install/upgrade them.
+           the Job API PostgreSQL, RabbitMQ, and narrow MinIO bucket, Job API
+           IAM cleanup, and notification stages. Existing Helm releases must
+           verify; this mode does not install/upgrade them.
 cleanup: Delete the fixed CloudDSP k3d cluster and its Kubernetes resources,
          including PVC data. Keep the dedicated local image registry.
 purge-registry: Delete that registry and its images after cluster cleanup.

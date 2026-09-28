@@ -92,12 +92,14 @@ upload-intake RabbitMQ runtime Secrets, reconciles and verifies the restricted
 source-intake broker users and topology, and only then installs and verifies
 MinIO. It creates the Job API runtime MinIO Secret and the two initially
 private MinIO buckets, mirrors 461 hash-locked shared MIDI samples, and grants
-their bucket a narrow anonymous browser-read policy.
+their bucket a narrow anonymous browser-read policy. It then provisions the
+restricted Job API user and both reviewed IAM policies.
 The broker runner manages its temporary bootstrap Secret and removes it after
 successful user verification. A failed stage leaves partial state
 for inspection. This is an alternative partial trial to the other
 `bootstrap-*` commands, not a command to run after them on the same cluster.
-It does not configure MinIO IAM policy/users or install application releases.
+It configures the Job API MinIO identity, while other IAM users and application
+releases remain for later stages.
 The full root `bootstrap` will compose those remaining stages later.
 
 ## Docker Hub image source and local mirror
@@ -132,12 +134,13 @@ registry in the meantime.
 ## Root verification and existing-cluster reconcile
 
 `verify` first runs that same preflight, checks the PostgreSQL, RabbitMQ,
-MinIO, and upload-intake credential Secrets against their ignored local
-sources without printing values, then checks the fourteen adopted CloudDSP
+MinIO, Job API MinIO, and upload-intake credential Secrets against their
+ignored local sources without printing values, then checks the fourteen adopted CloudDSP
 Helm releases, the implemented Job API PostgreSQL and RabbitMQ bootstrap
 stages, the
 [Keycloak realm/client state](keycloak-config-verify.rb),
-the [MinIO bucket stage](minio-buckets-stage.rb) and
+the [MinIO bucket stage](minio-buckets-stage.rb), the
+[Job API IAM stage](minio-job-api-iam-stage.rb), and
 [IAM/notification state](minio-notification-stage.rb),
 and the KEDA controller Deployments and CRDs in dependency order.
 It stops at the first failed gate and names the component command to run for
@@ -154,16 +157,19 @@ stdin and a temporary in-memory config directory. Both gates are read-only
 and suppress credential-bearing client output on failure.
 
 `reconcile` is currently for an already deployed cluster. It runs the same
-preflight and ordered gates, but calls `reconcile` for exactly five audited
+preflight and ordered gates, but calls `reconcile` for six audited
 external-state runners: Job API PostgreSQL database/migrations, RabbitMQ
 processing topology, RabbitMQ source-intake topology/users, the MinIO shared
-sample policy, and the MinIO source-upload notification. Each runner
-creates only wholly missing versioned bootstrap state and verifies its durable
+sample policy, Job API MinIO temporary Secret cleanup, and the MinIO
+source-upload notification. The IAM stage deletes only a matching temporary
+Secret after the exact user and both policies verify. Other runners
+create only wholly missing versioned bootstrap state and verify its durable
 result; partial state and drift stop the command. All fourteen Helm releases
 remain in read-only `verify` mode, so a chart change, missing release, or
 unexpected owner fails rather than triggering an unsafe takeover or revision.
 This mode does not create a fresh cluster, install/upgrade Helm releases,
-recreate missing MinIO buckets, reconcile MinIO IAM or Keycloak realm state,
+recreate missing MinIO buckets, create or change MinIO IAM policies/users, or
+reconcile Keycloak realm state,
 or run product smoke tests; it
 fails if either read-only gate finds drift. The initial
 existing-cluster trial passed 23 gates twice; the repeated run left
@@ -442,6 +448,31 @@ both source contracts and matching values. Fresh `bootstrap` creates only the
 and remove. `verify` compares live runtime values with the ignored source in
 memory without printing the key. Root `bootstrap-minio` runs the create step
 after MinIO install; root `verify` checks it before the bucket and IAM gates.
+
+## Job API MinIO IAM bootstrap and temporary Secret cleanup
+
+```bash
+ruby ./k8Deployment/kubernetes/scripts/minio-job-api-iam-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/minio-job-api-iam-stage.rb bootstrap
+ruby ./k8Deployment/kubernetes/scripts/minio-job-api-iam-stage.rb verify
+ruby ./k8Deployment/kubernetes/scripts/minio-job-api-iam-stage.rb reconcile
+```
+
+Fresh `bootstrap` requires the MinIO release, locked shared samples, and Job
+API runtime Secret to verify. It refuses a pre-existing Job API MinIO user,
+either policy, temporary Secret, policy ConfigMap, or bootstrap Job. After
+server dry runs it creates the ignored temporary Secret in `clouddsp-data`,
+then runs the uploads policy/user Job followed by the artifact-read policy
+Job. It checks each durable MinIO policy attachment before continuing and
+removes the temporary Secret only after both policies and the user match the
+reviewed source. A failure leaves partial resources for inspection.
+
+`verify` is read-only and requires the temporary Secret to be absent. On an
+existing cluster, `reconcile` verifies the complete IAM state and compares a
+leftover temporary Secret with the ignored source before deleting only that
+Secret. It never recreates a missing user or policy. Root `bootstrap-minio`
+includes the fresh stage; root `verify` and `reconcile` include its respective
+read-only and narrow cleanup modes.
 
 ## MinIO fresh Helm install, protected adoption, and verification
 
