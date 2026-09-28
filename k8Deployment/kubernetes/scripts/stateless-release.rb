@@ -2,8 +2,9 @@
 # A thin component script supplies exact object names, a reviewed image lock,
 # and an optional HTTP health route. A StatefulSet caller also supplies a
 # bound-PVC identity check and a tested backup gate before one-time takeover.
-# The only long-lived workload mutation is `adopt`, gated by
-# source/render/live spec equality and original ownership.
+# Long-lived workload mutation is either `adopt`, gated by source/render/live
+# spec equality and original ownership, or an explicitly enabled `install`
+# that requires every intended object and the release to be absent.
 # Normal `verify` never takes ownership; a component-specific `smoke` may run
 # only a versioned disposable Job. This helper does not create namespaces,
 # change other releases, or read any Kubernetes Secret contents.
@@ -22,7 +23,8 @@ class StatelessRelease
                  source_directory: component, image_lock_key: component, verify_running_digest: false,
                  health_status: '200', additional_http_checks: [], smoke_job: nil, browser_shell: false,
                  workload_kind: 'Deployment', pvc_name: nil, before_adopt: nil,
-                 expected_replicas: 1, smoke_timeout_seconds: 150)
+                 expected_replicas: 1, smoke_timeout_seconds: 150,
+                 allow_fresh_install: false)
     @component = component
     @namespace = namespace
     @release = release
@@ -43,11 +45,14 @@ class StatelessRelease
     # Deployment manifest deliberately omits spec.replicas.
     @expected_replicas = expected_replicas
     @smoke_timeout_seconds = smoke_timeout_seconds
+    @allow_fresh_install = allow_fresh_install
+    @fresh_install_started = false
     @chart = ROOT.join('helm', component)
   end
 
   def run(mode)
     allowed_modes = %w[plan adopt verify]
+    allowed_modes << 'install' if @allow_fresh_install
     allowed_modes << 'smoke' if @smoke_job
     abort usage unless allowed_modes.include?(mode)
     check_tools
@@ -91,6 +96,20 @@ class StatelessRelease
       identity_fields += ' and Service IPs' if @resources.any? { |resource| resource.start_with?('service/') }
       identity_fields += ' and PVC identity' if @pvc_name
       puts "#{@component} adopted: release deployed; #{identity_fields} unchanged; #{runtime_detail}."
+    when 'install'
+      # This branch never takes ownership of a resource from kubectl or a
+      # failed earlier release. Fresh creation and adoption have different
+      # recovery rules, so their preconditions must stay separate.
+      check_fresh_install_boundary
+      puts "Installing fresh #{@component} Helm release..."
+      @fresh_install_started = true
+      output = command('helm', 'install', @release, @chart.to_s,
+                       '--kube-context', CONTEXT, '--namespace', @namespace,
+                       '--wait', '--timeout', '3m')
+      puts output.lines.grep(/^(NAME|NAMESPACE|STATUS|REVISION):/)
+      check_cluster('Helm')
+      verify_http_route if @health_host
+      puts "#{@component} fresh install: release deployed; #{runtime_detail} verified."
     when 'verify'
       check_cluster('Helm')
       verify_http_route if @health_host
@@ -103,14 +122,17 @@ class StatelessRelease
   rescue StandardError => error
     warn "#{@component} #{mode} stopped: #{error.message}"
     warn "If install started, inspect the release and #{@resources.length} live objects before any retry; do not uninstall an adopted release to recover." if mode == 'adopt'
+    warn "Inspect the Helm release and live objects before retrying." if mode == 'install' && @fresh_install_started
     exit 1
   end
 
   private
 
   def usage
-    modes = @smoke_job ? 'plan|adopt|verify|smoke' : 'plan|adopt|verify'
-    "Usage: ./k8Deployment/kubernetes/scripts/#{@component}-release.rb #{modes}"
+    modes = %w[plan adopt verify]
+    modes << 'install' if @allow_fresh_install
+    modes << 'smoke' if @smoke_job
+    "Usage: ./k8Deployment/kubernetes/scripts/#{@component}-release.rb #{modes.join('|')}"
   end
 
   def runtime_detail
@@ -236,6 +258,21 @@ class StatelessRelease
     # A failed or pending attempt must still block a second takeover install.
     releases = JSON.parse(helm('list', '--namespace', @namespace, '--output', 'json'))
     releases.find { |release| release['name'] == @release }
+  end
+
+  def check_fresh_install_boundary
+    # The first fresh path is intentionally limited to a one-Pod Deployment
+    # without PVC data. A later service must opt in only after its own storage
+    # and bootstrap dependencies have an equally explicit creation path.
+    ensure_true(@workload_kind == 'Deployment' && @expected_replicas == 1 && @pvc_name.nil?,
+                "fresh #{@component} install requires a stateless Deployment")
+    ensure_true(release_record.nil?, "#{@component} Helm release already exists; use verify or inspect it")
+    @resources.each do |resource|
+      # Explicit names plus --ignore-not-found distinguish an empty namespace
+      # from a partial prior attempt. Never pass --take-ownership on install.
+      present = kubectl('get', resource, '--ignore-not-found', '--output', 'name').strip
+      ensure_true(present.empty?, "#{@component} #{resource} already exists; inspect it before install")
+    end
   end
 
   def live_objects

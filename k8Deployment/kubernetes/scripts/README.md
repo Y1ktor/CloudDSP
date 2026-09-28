@@ -199,6 +199,7 @@ versioned/live snapshot and proposed boundaries.
 ```bash
 ./k8Deployment/kubernetes/scripts/mailpit-release.rb plan
 ./k8Deployment/kubernetes/scripts/mailpit-release.rb adopt
+./k8Deployment/kubernetes/scripts/mailpit-release.rb install
 ./k8Deployment/kubernetes/scripts/mailpit-release.rb verify
 ./k8Deployment/kubernetes/scripts/mailpit-release.rb smoke
 ```
@@ -211,6 +212,15 @@ versioned disposable SMTP capture Job and removes it after success. The
 script stops on unknown ownership or any rendered/source/live spec drift.
 The raw manifests under `services/mailpit/` are now an adoption baseline and
 must not be reapplied to the Helm-owned objects.
+
+For a new cluster after `deploy-local.sh prepare`, use `install` instead of
+`adopt`. It lints/renders the same chart, checks its image lock and Kubernetes
+schema, requires the Mailpit release and all four named objects to be absent,
+then installs without Helm takeover flags. It waits for readiness and checks
+the installed manifest, live objects, Pod, and ingress route. A failed install
+is left for inspection; rerunning `install` against an existing release or a
+partial set of objects stops before another Helm write. This standalone
+Mailpit path does not yet make `prepare` a complete application bootstrap.
 
 ## PostgreSQL protected Helm adoption and verification
 

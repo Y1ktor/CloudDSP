@@ -233,6 +233,13 @@ It checks the public locked digests before cluster creation, then mirrors and
 verifies images after the registry exists. Its creation path still needs a
 disposable-cluster trial; full application `bootstrap` remains later work.
 
+Mailpit now has a separately guarded fresh `install` mode in its release
+runner. It requires the release and all four chart objects to be absent and
+uses ordinary Helm install followed by the existing ownership, readiness, and
+route checks. The running cluster remains adopted, so the fresh install path
+has isolated tests but not a live empty-cluster trial. The root command does
+not call this mode yet.
+
 The exact order *within* stage 3 must be recorded as a dependency graph,
 because RabbitMQ topology, MinIO notifications, database permissions, and
 worker identities cross service directories. For example, MinIO's source
@@ -436,6 +443,9 @@ external effect disappeared. Therefore:
    Docker Hub digest checks and the local image mirror. It stops before Helm
    installation and preserves a partial cluster for inspection on failure.
    The actual empty-cluster run is pending a disposable-cluster trial.
+10. **First fresh Helm install — Mailpit runner implemented.** Its `install`
+    mode checks the empty release/resource boundary and avoids adoption flags.
+    Root stage composition and a clean-cluster trial remain separate work.
 
 Each task needs its own review and validation. This document authorizes no
 cluster mutation by itself.

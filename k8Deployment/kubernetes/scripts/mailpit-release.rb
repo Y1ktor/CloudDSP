@@ -1,7 +1,8 @@
 #!/usr/bin/env ruby
-# Mailpit's exact local adoption boundary. The shared stateless-release helper
-# validates source/chart/live parity before any Helm ownership transfer; this
-# entry point supplies only Mailpit's reviewed names, route, and smoke Job.
+# Mailpit's exact local Helm boundary. The shared helper validates
+# source/chart/live parity before adoption; its separately guarded fresh
+# install path requires an absent release and four absent objects. This entry
+# point supplies only Mailpit's reviewed names, route, and smoke Job.
 require_relative 'stateless-release'
 
 StatelessRelease.new(
@@ -13,6 +14,7 @@ StatelessRelease.new(
   pod_selector: 'app.kubernetes.io/name=mailpit,app.kubernetes.io/instance=clouddsp-mailpit,app.kubernetes.io/component=test-email',
   health_host: 'mailpit.localhost',
   health_path: '/readyz',
+  allow_fresh_install: true,
   smoke_job: {
     name: 'mailpit-smtp-capture-smoke',
     manifest: 'tests/mailpit-smoke/mailpit-smtp-capture-smoke-job.yaml'

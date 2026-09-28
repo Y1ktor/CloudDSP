@@ -57,6 +57,24 @@ returned HTTP 200 through Traefik, and passed the SMTP capture smoke test.
 This outcome covers the local Mailpit boundary only; other CloudDSP resources
 still need their own charts and adoption checks.
 
+## Fresh-cluster install
+
+After the guarded foundation and image preparation stage has created the
+`clouddsp-data` namespace, run:
+
+```bash
+./k8Deployment/kubernetes/scripts/mailpit-release.rb install
+./k8Deployment/kubernetes/scripts/mailpit-release.rb verify
+```
+
+`install` uses the same reviewed chart and image checks but requires the Helm
+release and all four Mailpit objects to be absent. It uses ordinary Helm
+install without `--take-ownership` or `--force-conflicts`, waits for readiness,
+then checks the stored release manifest and local HTTP route. A failed first
+attempt is retained for inspection and is not automatically retried over a
+partial release. This path has isolated guard tests; the current live cluster
+was retained, so a clean-cluster install trial remains outstanding.
+
 After adoption, use the chart and a separately reviewed normal Helm upgrade
 for changes to Mailpit. Do not reapply the old raw `services/mailpit/`
 manifests. Keep the namespace, KEDA, and Traefik releases with their existing

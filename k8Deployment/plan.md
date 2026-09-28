@@ -4193,3 +4193,16 @@ does not claim Helm release or external-state installation. Isolated tests
 cover the order, pre-creation source failure, and mirror failure. The live
 cluster was not deleted for a fresh-path trial; an empty disposable-cluster
 trial and the later full `bootstrap` remain outstanding.
+
+### Mailpit fresh Helm install path (2026-09-28)
+
+The Mailpit release runner now supports a guarded `install` mode for the
+first stateless Helm release after cluster and image preparation. It validates
+the reviewed chart, source manifests, image lock, and Kubernetes schema,
+then requires both the release and all four named Mailpit objects to be
+absent. Ordinary Helm install waits for readiness; the runner then checks
+release ownership, manifest parity, Pod readiness, and the HTTP ingress.
+This path never uses adoption takeover flags and stops on a partial prior
+attempt. Isolated tests cover the ordered success path and both absence
+guards. A fresh-cluster trial and root orchestration of this mode remain to
+be done without deleting the current working cluster.
