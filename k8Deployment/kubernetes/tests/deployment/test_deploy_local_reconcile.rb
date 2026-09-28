@@ -45,6 +45,10 @@ class DeployLocalReconcileTest < Minitest::Test
     assert_operator calls.index(minio_secret_gate), :<, calls.index(minio_amqp_gate)
     assert_operator calls.index(minio_amqp_gate), :<,
                     calls.index { |command| File.basename(command[1]) == 'minio-release.rb' }
+    upload_intake_secret_gate = calls.find { |command| File.basename(command[1]) == 'upload-intake-rabbitmq-secret-stage.rb' }
+    assert_equal 'verify', upload_intake_secret_gate.last
+    assert_operator calls.index(upload_intake_secret_gate), :<,
+                    calls.index { |command| File.basename(command[1]) == 'rabbitmq-source-intake-bootstrap.rb' }
     minio_gate = calls.find { |command| File.basename(command[1]) == 'minio-notification-stage.rb' }
     assert_equal 'reconcile', minio_gate.last
     bucket_gate = calls.find { |command| File.basename(command[1]) == 'minio-buckets-stage.rb' }

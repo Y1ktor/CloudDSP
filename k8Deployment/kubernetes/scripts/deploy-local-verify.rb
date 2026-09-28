@@ -2,8 +2,8 @@
 # Read-only root verification for the already-adopted local k3d deployment.
 #
 # The preflight checks context, ownership, lock files, and Secret identities.
-# PostgreSQL, RabbitMQ, and both MinIO Secret gates compare live values with
-# ignored local sources in memory, without printing or changing credentials.
+# PostgreSQL, RabbitMQ, MinIO, and upload-intake Secret gates compare live
+# values with ignored local sources without printing or changing credentials.
 # Release verifiers then compare their own rendered/source/live resources;
 # external-state runners check the PostgreSQL, RabbitMQ, MinIO, and Keycloak
 # work implemented so far. Keep those narrow verifiers runnable for diagnosis.
@@ -44,6 +44,7 @@ class CloudDSPLocalVerify
     Stage.new(name: 'MinIO release', command: ['ruby', 'minio-release.rb', 'verify']),
     Stage.new(name: 'Job API PostgreSQL bootstrap and migrations', command: ['ruby', 'job-api-postgresql-stage.rb', 'verify']),
     Stage.new(name: 'RabbitMQ processing topology', command: ['ruby', 'rabbitmq-processing-topology.rb', 'verify']),
+    Stage.new(name: 'upload-intake RabbitMQ runtime Secret', command: ['ruby', 'upload-intake-rabbitmq-secret-stage.rb', 'verify']),
     Stage.new(name: 'RabbitMQ source-intake topology and users', command: ['ruby', 'rabbitmq-source-intake-bootstrap.rb', 'verify']),
     Stage.new(name: 'MinIO bucket boundaries and shared samples', command: ['ruby', 'minio-buckets-stage.rb', 'verify']),
     Stage.new(name: 'MinIO buckets/IAM verification and upload notification', command: ['ruby', 'minio-notification-stage.rb', 'verify']),

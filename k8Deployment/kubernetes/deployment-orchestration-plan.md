@@ -517,6 +517,12 @@ external effect disappeared. Therefore:
     absent. Both Secret gates precede Helm; install waits for a Ready Pod and
     verifies the bound PVC and S3 route. A clean-cluster trial and root
     composition remain separate work.
+21. **Upload-intake RabbitMQ runtime credential prerequisite implemented.**
+    The absent-only Secret stage validates matching ignored runtime and
+    temporary bootstrap sources and verifies live values without printing
+    them. Root verification checks it before source-intake broker topology.
+    Root composition can now order the existing broker bootstrap with this
+    credential stage before the MinIO install.
 
 Each task needs its own review and validation. This document authorizes no
 cluster mutation by itself.

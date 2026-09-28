@@ -115,10 +115,11 @@ registry in the meantime.
 
 ## Root verification and existing-cluster reconcile
 
-`verify` first runs that same preflight, checks the PostgreSQL, RabbitMQ, and
-both MinIO credential Secrets against their ignored local sources without
-printing values, then checks the fourteen adopted CloudDSP Helm releases, the
-implemented Job API PostgreSQL and RabbitMQ bootstrap stages, the
+`verify` first runs that same preflight, checks the PostgreSQL, RabbitMQ,
+MinIO, and upload-intake credential Secrets against their ignored local
+sources without printing values, then checks the fourteen adopted CloudDSP
+Helm releases, the implemented Job API PostgreSQL and RabbitMQ bootstrap
+stages, the
 [Keycloak realm/client state](keycloak-config-verify.rb),
 the [MinIO bucket stage](minio-buckets-stage.rb) and
 [IAM/notification state](minio-notification-stage.rb),
@@ -511,6 +512,24 @@ ConfigMap and one-shot Job. Partial state, drift, a changed ConfigMap, or a
 fixed-name Job without complete broker state stops the run for inspection.
 This runner reads no broker credentials or message contents and does not
 manage source-intake topology or RabbitMQ users.
+
+## Upload-intake RabbitMQ runtime credential Secret stage
+
+```bash
+ruby ./k8Deployment/kubernetes/scripts/upload-intake-rabbitmq-secret-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/upload-intake-rabbitmq-secret-stage.rb bootstrap
+ruby ./k8Deployment/kubernetes/scripts/upload-intake-rabbitmq-secret-stage.rb verify
+```
+
+Populate the ignored runtime Secret in `clouddsp-app` and its temporary
+bootstrap companion source in `clouddsp-data` from their committed examples.
+This stage requires both local files to contain the same reviewed username
+and password. `plan` requires the runtime Secret to be absent; `bootstrap`
+server-validates and creates only that absent runtime Secret, then compares
+its live values with the ignored source without printing them. The temporary
+data-namespace Secret is created and removed by the source-intake broker
+bootstrap runner below. Root `verify` and existing-cluster `reconcile` use
+this stage's read-only `verify` before the broker user/topology gate.
 
 ## RabbitMQ source-intake topology and users
 

@@ -612,7 +612,15 @@ The two RabbitMQ templates must be copied into the ignored
 publisher template deliberately contains its RabbitMQ password twice: once as
 raw text for the bootstrap Job to create the broker user, and once
 percent-encoded within MinIO's required AMQP URI. They must be the same
-password in two representations. The upload-intake MinIO runtime Secret has
+password in two representations.
+
+On a fresh cluster,
+[`upload-intake-rabbitmq-secret-stage.rb`](../../scripts/upload-intake-rabbitmq-secret-stage.rb)
+creates only the absent application runtime Secret after validating its
+password against the ignored temporary bootstrap source. The broker topology
+runner creates and removes the temporary Secret when its Job runs.
+
+The upload-intake MinIO runtime Secret has
 an ignored local copy at
 `k8Deployment/.local/upload-intake-minio-credentials.secret.yaml`. It uses a
 distinct S3 secret key. Its committed

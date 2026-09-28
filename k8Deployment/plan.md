@@ -4343,3 +4343,20 @@ correctly blocked `install` on the existing release, so an empty-cluster
 creation trial and root composition remain pending.
 The MinIO S3 create/read/delete smoke and all 30 root read-only verification
 gates passed after enabling this install mode.
+
+### Upload-intake RabbitMQ runtime credential prerequisite (2026-09-28)
+
+`kubernetes/scripts/upload-intake-rabbitmq-secret-stage.rb` now provides
+guarded `plan`, `bootstrap`, and `verify` modes for the app-namespace runtime
+Secret needed by the source-intake broker bootstrap. It validates the
+committed identity, labels, and key contract for both ignored runtime and
+temporary data-namespace sources, and requires their username and password
+to match. It creates only an absent runtime Secret after a server dry run,
+then compares live values without displaying them. The existing RabbitMQ
+source-intake runner still owns creation and removal of the temporary
+bootstrap Secret and creation of the broker user/topology. Root `verify` and
+existing-cluster `reconcile` now check this runtime Secret before that
+broker state. The live runtime Secret passed `verify` and blocked a fresh
+`bootstrap`. Root fresh MinIO composition remains to be implemented.
+The RabbitMQ AMQP publish/consume/acknowledge smoke and all 31 root read-only
+verification gates passed with this new Secret gate in place.
