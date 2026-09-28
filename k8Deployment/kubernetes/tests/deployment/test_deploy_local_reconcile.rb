@@ -36,6 +36,10 @@ class DeployLocalReconcileTest < Minitest::Test
     assert_equal 'verify', rabbitmq_secret_gate.last
     assert_operator calls.index(rabbitmq_secret_gate), :<,
                     calls.index { |command| File.basename(command[1]) == 'rabbitmq-release.rb' }
+    minio_secret_gate = calls.find { |command| File.basename(command[1]) == 'minio-root-secret-stage.rb' }
+    assert_equal 'verify', minio_secret_gate.last
+    assert_operator calls.index(minio_secret_gate), :<,
+                    calls.index { |command| File.basename(command[1]) == 'minio-release.rb' }
     minio_gate = calls.find { |command| File.basename(command[1]) == 'minio-notification-stage.rb' }
     assert_equal 'reconcile', minio_gate.last
     bucket_gate = calls.find { |command| File.basename(command[1]) == 'minio-buckets-stage.rb' }
@@ -53,13 +57,13 @@ class DeployLocalReconcileTest < Minitest::Test
     calls = []
     runner = lambda do |*command|
       calls << command
-      ['', '', FakeStatus.new(calls.length == 6 ? 1 : 0)]
+      ['', '', FakeStatus.new(File.basename(command[1]) == 'minio-release.rb' ? 1 : 0)]
     end
     errors = StringIO.new
     result = CloudDSPLocalVerify.new(mode: 'reconcile', runner: runner, output: StringIO.new, error: errors).run
 
     assert_equal 1, result
-    assert_equal 6, calls.length
+    assert_equal 'minio-release.rb', File.basename(calls.last[1])
     refute calls.any? { |command| command.last == 'reconcile' }
     assert_includes errors.string, 'MinIO release'
   end
@@ -68,14 +72,18 @@ class DeployLocalReconcileTest < Minitest::Test
     calls = []
     runner = lambda do |*command|
       calls << command
-      calls.length == 7 ? ['sensitive child output', 'sensitive child error', FakeStatus.new(1)] : ['', '', FakeStatus.new(0)]
+      if File.basename(command[1]) == 'rabbitmq-processing-topology.rb'
+        ['sensitive child output', 'sensitive child error', FakeStatus.new(1)]
+      else
+        ['', '', FakeStatus.new(0)]
+      end
     end
     output = StringIO.new
     errors = StringIO.new
     result = CloudDSPLocalVerify.new(mode: 'reconcile', runner: runner, output: output, error: errors).run
 
     assert_equal 1, result
-    assert_equal 7, calls.length
+    assert_equal 'rabbitmq-processing-topology.rb', File.basename(calls.last[1])
     assert_equal 'reconcile', calls.last.last
     refute_includes output.string + errors.string, 'sensitive child'
     refute_includes output.string, 'RabbitMQ processing topology'

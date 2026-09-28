@@ -15,6 +15,23 @@ configuration, Secret references, and probes. The
 [`source manifests`](../../services/minio/) remain comparison baselines; do
 not apply them over Helm-owned objects.
 
+## Fresh-cluster root credential prerequisite
+
+The chart references but does not own the root administrator Secret. After
+the fresh foundation creates `clouddsp-data`, populate the ignored `.local/`
+manifest from the committed example, then run:
+
+```bash
+ruby ./k8Deployment/kubernetes/scripts/minio-root-secret-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/minio-root-secret-stage.rb bootstrap
+ruby ./k8Deployment/kubernetes/scripts/minio-root-secret-stage.rb verify
+```
+
+The stage creates only an absent Secret and checks live values against the
+ignored source without displaying them. A separate RabbitMQ notification
+Secret and broker identity are also required by the StatefulSet. Those and a
+guarded fresh MinIO Helm install remain later deployment steps.
+
 ## Protected adoption and checks
 
 From the repository root:

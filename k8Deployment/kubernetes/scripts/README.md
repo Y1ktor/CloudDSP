@@ -115,9 +115,9 @@ registry in the meantime.
 
 ## Root verification and existing-cluster reconcile
 
-`verify` first runs that same preflight, checks the PostgreSQL and RabbitMQ
-credential Secrets against their ignored local sources without printing
-values, then checks the fourteen adopted CloudDSP Helm releases, the
+`verify` first runs that same preflight, checks the PostgreSQL, RabbitMQ, and
+MinIO root credential Secrets against their ignored local sources without
+printing values, then checks the fourteen adopted CloudDSP Helm releases, the
 implemented Job API PostgreSQL and RabbitMQ bootstrap stages, the
 [Keycloak realm/client state](keycloak-config-verify.rb),
 the [MinIO bucket stage](minio-buckets-stage.rb) and
@@ -370,6 +370,24 @@ checks the next ledger row before advancing. A failed or ambiguous Job is
 left in place for inspection. Repeated reconcile on a complete ledger is a
 read-only no-op. Use the [combined PostgreSQL stage](job-api-postgresql-stage.rb)
 to run this after database and schema-owner bootstrap in one command.
+
+## MinIO root credential Secret stage
+
+```bash
+ruby ./k8Deployment/kubernetes/scripts/minio-root-secret-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/minio-root-secret-stage.rb bootstrap
+ruby ./k8Deployment/kubernetes/scripts/minio-root-secret-stage.rb verify
+```
+
+For a fresh namespace, populate the ignored
+`k8Deployment/.local/minio-root-credentials.secret.yaml` from the committed
+example, replacing both placeholders. `plan` requires the Secret to be
+absent; `bootstrap` validates it with a server dry run, creates only an
+absent Secret, and compares the live result with the local values in memory.
+`verify` is read-only and now gates the MinIO release in root `verify` and
+existing-cluster `reconcile`. This stage does not create MinIO's separate
+RabbitMQ notification Secret, broker identity, buckets, or IAM state. The
+fresh MinIO Helm install remains a separate task.
 
 ## MinIO protected Helm adoption and verification
 

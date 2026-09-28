@@ -503,6 +503,11 @@ external effect disappeared. Therefore:
 17. **RabbitMQ root composition implemented.** `bootstrap-rabbitmq` chains
     preparation, administrator Secret creation, Helm install, and release/PVC
     verification. A clean-cluster trial and full root composition remain.
+18. **MinIO root credential prerequisite implemented.** The absent-only
+    Secret stage verifies the ignored local source and live values without
+    printing them. Root verification checks it before the MinIO release.
+    RabbitMQ notification credentials, fresh MinIO Helm install, and external
+    bucket/IAM bootstraps remain separate work.
 
 Each task needs its own review and validation. This document authorizes no
 cluster mutation by itself.

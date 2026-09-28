@@ -4295,3 +4295,18 @@ component stages together; an empty-cluster creation trial remains pending.
 The current live cluster correctly stopped `bootstrap-rabbitmq` at the
 absent-cluster foundation plan before Secret or Helm writes. The RabbitMQ
 AMQP smoke and all 28 root read-only verification gates passed afterward.
+
+### MinIO fresh root credential prerequisite (2026-09-28)
+
+`kubernetes/scripts/minio-root-secret-stage.rb` now provides guarded `plan`,
+`bootstrap`, and `verify` modes for the ignored administrator Secret. It
+requires the versioned identity, labels, type, and exact key set, rejects
+placeholder or newline-containing credentials, creates only an absent Secret
+after a server dry run, and compares live values with local values in memory
+without displaying them. Root `verify` and existing-cluster `reconcile` now
+run its read-only check before the MinIO release. The current live Secret
+passed `verify` and correctly blocked a fresh `bootstrap`. The separate
+RabbitMQ notification Secret and identity, fresh MinIO Helm install, and
+bucket/IAM creation still need their own stages.
+The MinIO S3 create/read/delete smoke and all 29 root read-only verification
+gates passed with the new Secret check in place.
