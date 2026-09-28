@@ -3,10 +3,10 @@
 #
 # `plan` reports the source/live preflight. `prepare` creates only the fresh
 # foundation and mirrors its locked images. `bootstrap-mailpit` adds the first
-# fresh Helm release. `bootstrap-postgresql` prepares the first stateful data
-# service. `verify` checks each reviewed component and bootstrap
-# stage. `reconcile` changes only the five bootstrap
-# stages with audited idempotent runners; existing Helm releases are verified
+# fresh Helm release. `bootstrap-postgresql` and `bootstrap-rabbitmq` each
+# prepare one stateful data service. `verify` checks each reviewed component
+# and bootstrap stage. `reconcile` changes only the five bootstrap stages with
+# audited idempotent runners; existing Helm releases are verified
 # and must already match their charts. `cleanup` removes the k3d cluster while
 # retaining images; `purge-registry` is the separate explicit image deletion.
 set -euo pipefail
@@ -15,7 +15,7 @@ readonly SCRIPT_DIRECTORY="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
   cat <<'USAGE'
-Usage: ./k8Deployment/kubernetes/scripts/deploy-local.sh plan|prepare|bootstrap-mailpit|bootstrap-postgresql|verify|reconcile|cleanup|purge-registry
+Usage: ./k8Deployment/kubernetes/scripts/deploy-local.sh plan|prepare|bootstrap-mailpit|bootstrap-postgresql|bootstrap-rabbitmq|verify|reconcile|cleanup|purge-registry
 
 plan: Read-only preflight for the explicit k3d-clouddsp-local context.
 prepare: On an absent cluster, create the foundation and mirror the locked
@@ -23,6 +23,9 @@ prepare: On an absent cluster, create the foundation and mirror the locked
 bootstrap-mailpit: On an absent cluster, run prepare, install Mailpit, then
          verify that release. This is a partial application bootstrap.
 bootstrap-postgresql: On an absent cluster, run prepare, create the PostgreSQL
+         credential Secret, install the StatefulSet, and verify the bound PVC.
+         This is a partial application bootstrap.
+bootstrap-rabbitmq: On an absent cluster, run prepare, create the RabbitMQ
          credential Secret, install the StatefulSet, and verify the bound PVC.
          This is a partial application bootstrap.
 verify: Run that preflight, then the reviewed read-only Helm, KEDA, and
@@ -43,7 +46,7 @@ if [[ "$#" -eq 1 && ( "$1" == "-h" || "$1" == "--help" || "$1" == "help" ) ]]; t
   exit 0
 fi
 
-if [[ "$#" -ne 1 || ( "$1" != "plan" && "$1" != "prepare" && "$1" != "bootstrap-mailpit" && "$1" != "bootstrap-postgresql" && "$1" != "verify" && "$1" != "reconcile" && "$1" != "cleanup" && "$1" != "purge-registry" ) ]]; then
+if [[ "$#" -ne 1 || ( "$1" != "plan" && "$1" != "prepare" && "$1" != "bootstrap-mailpit" && "$1" != "bootstrap-postgresql" && "$1" != "bootstrap-rabbitmq" && "$1" != "verify" && "$1" != "reconcile" && "$1" != "cleanup" && "$1" != "purge-registry" ) ]]; then
   usage >&2
   exit 2
 fi
@@ -68,6 +71,7 @@ case "$1" in
   prepare) exec ruby "${SCRIPT_DIRECTORY}/deploy-local-prepare.rb" ;;
   bootstrap-mailpit) exec ruby "${SCRIPT_DIRECTORY}/deploy-local-mailpit.rb" ;;
   bootstrap-postgresql) exec ruby "${SCRIPT_DIRECTORY}/deploy-local-postgresql.rb" ;;
+  bootstrap-rabbitmq) exec ruby "${SCRIPT_DIRECTORY}/deploy-local-rabbitmq.rb" ;;
   verify) exec ruby "${SCRIPT_DIRECTORY}/deploy-local-verify.rb" ;;
   reconcile) exec ruby "${SCRIPT_DIRECTORY}/deploy-local-reconcile.rb" ;;
 esac

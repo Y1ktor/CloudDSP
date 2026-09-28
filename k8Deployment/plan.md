@@ -4280,4 +4280,18 @@ PVC/PV, and running image digest after installation. The fresh path never
 runs the protected adoption backup or takeover flags. Isolated tests cover
 success ordering and existing release, object, PVC, orphan Pod, and invalid
 credential boundaries. The retained live cluster has not been deleted for an
-empty-cluster trial; root composition remains a separate task.
+empty-cluster trial; root composition is recorded below.
+
+### Root RabbitMQ bootstrap slice (2026-09-28)
+
+`kubernetes/scripts/deploy-local.sh bootstrap-rabbitmq` now runs fresh
+foundation and image preparation, guarded administrator Secret creation,
+fresh RabbitMQ Helm install, and release/PVC verification in order. It stops
+at the first failed stage and leaves any partial cluster or broker release
+for inspection. Isolated tests cover successful ordering and each failure
+boundary. This partial command requires an absent cluster, like the separate
+Mailpit and PostgreSQL trials. The final root `bootstrap` will compose their
+component stages together; an empty-cluster creation trial remains pending.
+The current live cluster correctly stopped `bootstrap-rabbitmq` at the
+absent-cluster foundation plan before Secret or Helm writes. The RabbitMQ
+AMQP smoke and all 28 root read-only verification gates passed afterward.

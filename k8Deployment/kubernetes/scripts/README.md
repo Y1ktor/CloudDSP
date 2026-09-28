@@ -12,6 +12,7 @@ its own location and does not depend on the current working directory.
 ./k8Deployment/kubernetes/scripts/deploy-local.sh prepare
 ./k8Deployment/kubernetes/scripts/deploy-local.sh bootstrap-mailpit
 ./k8Deployment/kubernetes/scripts/deploy-local.sh bootstrap-postgresql
+./k8Deployment/kubernetes/scripts/deploy-local.sh bootstrap-rabbitmq
 ./k8Deployment/kubernetes/scripts/deploy-local.sh verify
 ./k8Deployment/kubernetes/scripts/deploy-local.sh reconcile
 ./k8Deployment/kubernetes/scripts/deploy-local.sh cleanup
@@ -74,6 +75,14 @@ release for inspection. The Mailpit and PostgreSQL partial commands each
 start from an absent cluster; they are alternative trials, not sequential
 commands to run against the same cluster. The eventual full `bootstrap` will
 compose their component stages in one dependency order.
+
+`bootstrap-rabbitmq` is the corresponding partial root command for the
+broker. It runs `prepare`, creates and verifies the ignored administrator
+Secret, installs the RabbitMQ Helm release, then verifies its Ready Pod and
+bound PVC. Each child must succeed before the next starts. This command also
+requires an absent cluster, so it is an alternative clean-cluster trial to
+the Mailpit and PostgreSQL partial commands. The eventual full `bootstrap`
+will run these component stages together in dependency order.
 
 ## Docker Hub image source and local mirror
 

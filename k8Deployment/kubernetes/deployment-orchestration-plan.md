@@ -251,7 +251,7 @@ The PostgreSQL release runner now has a guarded fresh `install` mode. It
 requires the release, three chart objects, generated claim, and matching Pod
 to be absent, verifies the credential Secret, then installs and checks the
 bound PVC and Ready Pod. The existing live release correctly blocks the mode;
-full root bootstrap wiring and an empty-cluster trial remain open.
+an empty-cluster trial remains open.
 
 The partial root `bootstrap-postgresql` command now composes fresh
 foundation/image preparation, guarded credential creation, PostgreSQL Helm
@@ -263,7 +263,15 @@ The RabbitMQ credential stage now guards its separate administrator Secret.
 It validates the ignored local manifest, creates only an absent Secret, and
 compares live values in memory without displaying them. Root `verify` and
 existing-cluster `reconcile` run this read-only gate before the RabbitMQ
-release. A fresh broker StatefulSet install remains the next boundary.
+release.
+
+The RabbitMQ release runner now has a guarded fresh `install` mode. It
+requires the release, five chart objects, generated claim, and matching Pod
+to be absent, then checks the credential Secret before Helm creates the
+broker. The partial root `bootstrap-rabbitmq` command composes preparation,
+credential creation, Helm installation, and release/PVC verification. Like
+the Mailpit and PostgreSQL partial commands, it requires an absent cluster;
+a clean-cluster trial and the full root `bootstrap` remain pending.
 
 The exact order *within* stage 3 must be recorded as a dependency graph,
 because RabbitMQ topology, MinIO notifications, database permissions, and
@@ -491,7 +499,10 @@ external effect disappeared. Therefore:
 16. **RabbitMQ fresh Helm install implemented.** The release runner requires
     the release, broker objects, generated claim, and matching Pod to be
     absent, verifies the administrator Secret, and then waits for Helm and
-    PVC readiness. An empty-cluster trial and root composition remain.
+    PVC readiness. An empty-cluster trial remains.
+17. **RabbitMQ root composition implemented.** `bootstrap-rabbitmq` chains
+    preparation, administrator Secret creation, Helm install, and release/PVC
+    verification. A clean-cluster trial and full root composition remain.
 
 Each task needs its own review and validation. This document authorizes no
 cluster mutation by itself.
