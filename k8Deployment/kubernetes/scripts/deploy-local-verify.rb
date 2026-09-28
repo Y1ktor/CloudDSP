@@ -45,6 +45,7 @@ class CloudDSPLocalVerify
     Stage.new(name: 'MinIO AMQP credential Secret', command: ['ruby', 'minio-amqp-secret-stage.rb', 'verify']),
     Stage.new(name: 'MinIO release', command: ['ruby', 'minio-release.rb', 'verify']),
     Stage.new(name: 'Job API MinIO runtime Secret', command: ['ruby', 'job-api-minio-secret-stage.rb', 'verify']),
+    Stage.new(name: 'upload-intake MinIO runtime Secret', command: ['ruby', 'upload-intake-minio-secret-stage.rb', 'verify']),
     Stage.new(name: 'Job API PostgreSQL bootstrap and migrations', command: ['ruby', 'job-api-postgresql-stage.rb', 'verify']),
     Stage.new(name: 'RabbitMQ processing topology', command: ['ruby', 'rabbitmq-processing-topology.rb', 'verify']),
     Stage.new(name: 'upload-intake RabbitMQ runtime Secret', command: ['ruby', 'upload-intake-rabbitmq-secret-stage.rb', 'verify']),

@@ -4442,3 +4442,16 @@ was a no-op. All 33 root read-only gates then passed. The restricted Job API
 MinIO smoke again confirmed permitted uploads-prefix read/write and denied
 out-of-prefix write and deletion; its disposable Kubernetes Job was removed.
 The fresh IAM Job sequence has not been trialed on an empty cluster.
+
+### upload-intake MinIO runtime Secret preparation (2026-09-28)
+
+`kubernetes/scripts/upload-intake-minio-secret-stage.rb` validates the ignored
+runtime and temporary bootstrap Secret sources together, including their
+restricted access-key identity and matching non-placeholder secret key. Fresh
+`bootstrap-minio` creates only the absent `clouddsp-app` runtime Secret after
+a server dry run; the temporary `clouddsp-data` Secret and source-read IAM Job
+belong to the next task. Root read-only verification checks the live runtime
+Secret against the ignored source without printing credentials. The committed
+runtime template's purpose label now matches the existing live Secret and
+ignored local source. The retained live cluster passed all 34 root read-only
+gates; the fresh-cluster creation path remains untrialed.

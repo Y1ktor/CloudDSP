@@ -32,8 +32,9 @@ bootstrap-rabbitmq: On an absent cluster, run prepare, create the RabbitMQ
 bootstrap-minio: On an absent cluster, prepare and install RabbitMQ, create
          MinIO and upload-intake broker Secrets, bootstrap restricted broker
          source-intake state, install MinIO, create Job API runtime credentials
-         and buckets, mirror 461 hash-locked MIDI samples, then create the Job
-         API MinIO user and two policies. Other IAM identities come later.
+         and upload-intake MinIO runtime credentials and buckets, mirror 461
+         hash-locked MIDI samples, then create the Job API MinIO user and two
+         policies. Other IAM identities come later.
 verify: Run that preflight, then the reviewed read-only Helm, KEDA, and
         bootstrap gates in dependency order. Stop at the first failed gate.
 reconcile: On an existing cluster, run the same ordered gates and reconcile

@@ -552,6 +552,12 @@ external effect disappeared. Therefore:
     MinIO user and both exact policy attachments before removing that Secret.
     Existing-cluster `reconcile` can remove only a matching leftover Secret
     after all IAM state verifies. Other restricted identities remain pending.
+27. **upload-intake MinIO runtime Secret stage implemented.** The absent-only
+    stage validates matching ignored runtime and temporary bootstrap sources,
+    then creates only the application namespace Secret. Root `verify` compares
+    the live values with the ignored source without printing credentials. The
+    temporary Secret, source-read policy, and MinIO user remain for the next
+    IAM Job stage.
 
 Each task needs its own review and validation. This document authorizes no
 cluster mutation by itself.

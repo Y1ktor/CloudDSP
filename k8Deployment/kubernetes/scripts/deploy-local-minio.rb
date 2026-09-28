@@ -8,7 +8,8 @@
 # the private uploads and shared-sample boundaries. The shared samples are
 # mirrored and made read-only to browsers only after their checked-in hashes
 # match. Two fixed Jobs then provision the Job API's restricted MinIO IAM.
-# A failed child leaves all partial state for inspection; this runner never
+# The upload-intake runtime credential is staged for its later IAM Job. A
+# failed child leaves all partial state for inspection; this runner never
 # retries by taking ownership or deleting data.
 require 'rbconfig'
 
@@ -24,6 +25,7 @@ class CloudDSPBootstrapMinio
     ['fresh MinIO Helm install', 'minio-release.rb', 'install'],
     ['MinIO Helm, PVC, and S3 route verification', 'minio-release.rb', 'verify'],
     ['Job API MinIO runtime credential Secret', 'job-api-minio-secret-stage.rb', 'bootstrap'],
+    ['upload-intake MinIO runtime credential Secret', 'upload-intake-minio-secret-stage.rb', 'bootstrap'],
     ['fresh MinIO bucket boundaries', 'minio-fresh-buckets-stage.rb', 'bootstrap'],
     ['MinIO bucket boundary verification', 'minio-fresh-buckets-stage.rb', 'verify'],
     ['fresh shared MIDI sample mirror', 'minio-fresh-samples-stage.rb', 'bootstrap'],
