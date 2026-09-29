@@ -38,7 +38,9 @@ class DeployLocalPlatformTest < Minitest::Test
       ['Job API PostgreSQL database and migrations', 'job-api-postgresql-stage.rb', 'reconcile'],
       ['Job API PostgreSQL verification', 'job-api-postgresql-stage.rb', 'verify'],
       ['RabbitMQ processing topology', 'rabbitmq-processing-topology.rb', 'reconcile'],
-      ['RabbitMQ processing topology verification', 'rabbitmq-processing-topology.rb', 'verify']
+      ['RabbitMQ processing topology verification', 'rabbitmq-processing-topology.rb', 'verify'],
+      ['fresh Job API Helm install', 'job-api-release.rb', 'install'],
+      ['Job API Helm verification', 'job-api-release.rb', 'verify']
     ].map { |_label, script, *arguments| [script, *arguments] }
 
     assert_equal 0, run_platform
@@ -64,6 +66,8 @@ class DeployLocalPlatformTest < Minitest::Test
                     @calls.index(%w[job-api-postgresql-stage.rb reconcile])
     assert_operator @calls.index(%w[job-api-postgresql-stage.rb verify]), :<,
                     @calls.index(%w[rabbitmq-processing-topology.rb reconcile])
+    assert_operator @calls.index(%w[rabbitmq-processing-topology.rb verify]), :<,
+                    @calls.index(%w[job-api-release.rb install])
     assert @calls.all? { |call| (call & %w[adopt upgrade smoke delete apply]).empty? }
     assert_includes @output.string, 'application bootstrap remains pending'
     assert_empty @error.string

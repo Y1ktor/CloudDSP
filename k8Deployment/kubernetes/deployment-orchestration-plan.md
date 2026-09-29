@@ -661,6 +661,13 @@ external effect disappeared. Therefore:
     inspection. The existing full Admin API verifier checks the durable final
     realm, client, audience, SMTP, and registration state. The platform list
     now has 47 stages; a fresh-cluster Job trial remains pending.
+40. **Job API fresh Helm install implemented.** The release runner now permits
+    the shared absent-release/absent-object install path and verifies its
+    PostgreSQL schema and runtime Secret, restricted MinIO Secret and IAM
+    identity, and Keycloak realm before Helm writes. `bootstrap-platform`
+    installs and verifies the Job API after broker processing topology, for
+    49 child stages. The retained cluster passed read-only release checks;
+    fresh installation still needs an empty-cluster trial.
 
 Each task needs its own review and validation. This document authorizes no
 cluster mutation by itself.

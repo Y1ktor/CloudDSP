@@ -4672,3 +4672,18 @@ before Job API state. The stage list has 47 steps. The retained cluster was
 not bootstrapped again; the new read-only modes and Kubernetes server dry runs
 validated its complete realm state and all six Job schemas. The fresh creation
 path remains covered by fake-cluster tests until an empty-cluster trial.
+
+### Job API fresh Helm install (2026-09-29)
+
+`kubernetes/scripts/job-api-release.rb` now enables the guarded fresh Helm
+install path. It refuses an existing release or any of its Deployment,
+Service, or Ingress objects, then verifies the Job API PostgreSQL runtime
+Secret and migrations, restricted MinIO runtime Secret and IAM identity, and
+Keycloak realm/client state before the Helm write. It retains the prior
+adoption and read-only verification paths. `bootstrap-platform` runs the
+install and release verification after RabbitMQ processing topology; `stages`
+now lists 49 steps.
+
+The retained cluster passed the Job API release's read-only Helm, source,
+image-digest, readiness, and protected-route checks. The fresh creation path
+is covered by fake-cluster tests until an empty-cluster trial.

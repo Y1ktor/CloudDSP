@@ -6,11 +6,11 @@
 # releases, and external state. Keycloak's isolated database, Mailpit, and the
 # identity-provider release and realm precede Job API database/migrations. The Job API
 # PostgreSQL runtime Secret must exist before its role bootstrap Job can verify
-# matching credentials and run schema migrations;
-# processing topology is then imported into the broker.
+# matching credentials and run schema migrations. Processing topology is then
+# imported into the broker before the Job API Helm release starts.
 #
 # This is a partial bootstrap. Remaining service roles and Secrets, KEDA, and
-# application Helm releases need independent fresh runners before a
+# remaining application Helm releases need independent fresh runners before a
 # full browser-to-worker bootstrap can be enabled. A failed child leaves the
 # partial cluster for inspection; this coordinator never adopts or retries it.
 require 'rbconfig'
@@ -37,7 +37,9 @@ class CloudDSPBootstrapPlatform
     ['Job API PostgreSQL database and migrations', 'job-api-postgresql-stage.rb', 'reconcile'],
     ['Job API PostgreSQL verification', 'job-api-postgresql-stage.rb', 'verify'],
     ['RabbitMQ processing topology', 'rabbitmq-processing-topology.rb', 'reconcile'],
-    ['RabbitMQ processing topology verification', 'rabbitmq-processing-topology.rb', 'verify']
+    ['RabbitMQ processing topology verification', 'rabbitmq-processing-topology.rb', 'verify'],
+    ['fresh Job API Helm install', 'job-api-release.rb', 'install'],
+    ['Job API Helm verification', 'job-api-release.rb', 'verify']
   ].freeze
 
   def initialize(run_command: method(:system), output: $stdout, error: $stderr)
@@ -55,7 +57,7 @@ class CloudDSPBootstrapPlatform
       @error.puts "CloudDSP bootstrap-platform stopped at #{label}; inspect that stage before retrying."
       return 1
     end
-    @output.puts 'CloudDSP bootstrap-platform complete: foundation, images, PostgreSQL, RabbitMQ, MinIO, Keycloak identity, Mailpit, Job API schema, and processing topology ready; application bootstrap remains pending.'
+    @output.puts 'CloudDSP bootstrap-platform complete: foundation, images, PostgreSQL, RabbitMQ, MinIO, Keycloak identity, Mailpit, Job API release, and processing topology ready; application bootstrap remains pending.'
     0
   end
 

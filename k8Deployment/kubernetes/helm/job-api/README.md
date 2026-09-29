@@ -17,13 +17,14 @@ settings, runtime Secret names, Service ports, and Ingress paths remain
 identical as Kubernetes objects. Credentials stay in pre-existing ignored
 local Secrets, outside Helm values and release history.
 
-## Adoption and verification
+## Installation, adoption, and verification
 
 From the repository root:
 
 ```bash
 ./k8Deployment/kubernetes/scripts/job-api-release.rb plan
 ./k8Deployment/kubernetes/scripts/job-api-release.rb adopt
+./k8Deployment/kubernetes/scripts/job-api-release.rb install
 ./k8Deployment/kubernetes/scripts/job-api-release.rb verify
 ```
 
@@ -32,6 +33,13 @@ spec comparison, and a Kubernetes server-side dry run. `adopt` repeats those
 gates before an explicit one-time ownership transfer, then checks that all
 three resource UIDs, the Service IP, and the API Pod UID stayed unchanged.
 It does not automatically uninstall or roll back an adopted release.
+
+`install` is the fresh-cluster path. It requires the release and all three
+named workload objects to be absent. Before Helm writes, the runner verifies
+the Job API database Secret and migrations, restricted MinIO Secret and IAM
+user, and Keycloak realm/client configuration. It installs without taking
+ownership of an existing resource. The partial `bootstrap-platform` command
+runs these prerequisites and this install in dependency order.
 
 `verify` compares Helm's stored manifest with the chart and live specs,
 checks Pod readiness and its running image digest, and requests both browser
