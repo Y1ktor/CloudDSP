@@ -137,21 +137,19 @@ pinned KEDA chart, controllers, CRDs, and Helm values. Every step
 stops at the first error and leaves a partial cluster for inspection. This is
 an alternative absent-cluster command, not one to run after a partial
 bootstrap. The earlier 53-stage path completed in an isolated Ubuntu 24.04 VM
-on September 29, 2026 after installing the AWS CLI v2. On the final trial,
-both the CloudDSP cluster
-and its local registry were absent at the start. The run anonymously verified
-and digest-mirrored all 19 locked ARM64 images, including the public MinIO
-client mirror, then completed all 53 `bootstrap-platform` stages. The MinIO
-IAM Jobs pulled and ran the client from the newly populated registry. The
-first attempt exposed that direct `ctr` calls bypass k3s registry rewriting;
-the verifier now uses the node-internal HTTP registry endpoint explicitly.
+on September 29, 2026 after installing the AWS CLI v2. It found and fixed a
+direct-`ctr` pull that bypassed k3s registry rewriting.
 
-This validates the earlier platform bootstrap, not the current 57-stage path
-or the full application deployment. The MinIO notification and KEDA fresh
-install stages were wired afterward and have read-only verification on the
-retained cluster. Their fresh creation paths await the next empty-cluster trial.
-Remaining application Secrets/releases also keep root `verify` from passing
-after the partial platform bootstrap.
+The current 57-stage path then passed in a new disposable Ubuntu 24.04 ARM64
+VM. Both the CloudDSP cluster and local registry were absent initially. The
+run anonymously verified and digest-mirrored all 19 locked images, created
+the MinIO source-upload notification from an absent rule and verified it,
+installed KEDA as Helm revision 1 at chart 2.20.2, and verified all three
+controller Deployments at 1/1 plus the committed values and six CRDs. The
+command exited 0 after stage 57/57. Independent read-only KEDA and MinIO
+notification verifiers passed before the VM was purged. This validates the
+platform bootstrap; remaining application Secrets/releases keep the full
+browser-to-worker deployment and root `verify` pending.
 
 For focused Keycloak database diagnosis, run:
 
@@ -201,9 +199,9 @@ All 19 current local images target Linux ARM64. The public repository and
 every tag were verified by anonymous manifest requests. A Job API image was
 pulled from Docker Hub and pushed to a disposable empty `.localhost` registry
 with its digest unchanged. A complete fresh-registry `mirror` run and full root
-`bootstrap-platform` run passed in the September 29 VM trial with matching
-digests in both registries. The current 57-stage path adds the notification
-and pinned KEDA release; their fresh paths await a new trial. The full
+`bootstrap-platform` run passed in the September 29 VM trials with matching
+digests in both registries. The current 57-stage path includes the fresh
+notification and pinned KEDA release, both verified in a clean VM. The full
 application `bootstrap` still needs remaining runtime Secrets and releases;
 normal `cleanup` retains the populated registry.
 
@@ -795,9 +793,10 @@ generated PVC, and matching Pod to be absent. It verifies both Secrets before
 an ordinary Helm install, then checks the Ready Pod, bound PVC/PV, locked
 image digest, and S3 health route. A partial install stops future `install`
 attempts for inspection. The protected adoption backup runs only for `adopt`.
-This path has not been trialed on an empty cluster; the existing live cluster
-is retained. The root `bootstrap-minio` composes source-intake broker state
-and the fresh bucket stage around this release. IAM remains separate.
+This path passed in the disposable fresh-cluster platform trial; the existing
+Mac cluster was retained. The root `bootstrap-minio` composes source-intake
+broker state and the fresh bucket stage around this release. IAM remains
+separate.
 
 ## Fresh MinIO bucket boundaries
 
@@ -888,8 +887,8 @@ PVC, and matching broker Pod to be absent. It checks the Secret without
 printing its values, runs ordinary Helm install with a five-minute readiness
 wait, and verifies the bound claim and running image. A partial install stops
 future `install` attempts for inspection. This path does not run the adoption
-backup or take ownership of existing objects. It has not been trialed on an
-empty cluster; the existing live cluster is retained.
+backup or take ownership of existing objects. This path passed in the
+disposable fresh-cluster platform trial; the existing Mac cluster was retained.
 
 The [RabbitMQ chart](../helm/rabbitmq/README.md) owns the existing broker
 StatefulSet, AMQP, headless and management Services, and its ingress
@@ -1248,8 +1247,8 @@ The guarded `install` path is part of `bootstrap-platform`. It requires no
 KEDA Helm release, namespace, CRD, or external metrics API registration,
 then calls the pinned installer and verifies the exact Helm values, three
 controller rollouts, six KEDA CRDs, and metrics API registration. `plan` and
-`verify` are read-only. The fresh install has not yet been trialed on an
-empty cluster; the retained cluster passed `verify`.
+`verify` are read-only. The fresh install passed as stage 56/57 in an empty
+Ubuntu VM, followed by independent read-only verification.
 
 The underlying shell command supports a separately requested install or
 upgrade of the pinned KEDA release:
@@ -1263,7 +1262,7 @@ It reads the pinned official chart release and local values from
 `k3d-clouddsp-local` context, and waits for KEDA's operator, metrics API
 server, admission webhook, and custom resource definitions to become ready.
 The three KEDA controller Pods run inside the `keda` namespace; Helm itself is
-only the short-lived Mac command that submits their manifests.
+only the short-lived host command that submits their manifests.
 
 The script creates or reconciles the KEDA platform dependency only. It does
 not create a `ScaledObject`, resize a processing worker, read a RabbitMQ

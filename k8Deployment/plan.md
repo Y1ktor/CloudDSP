@@ -4723,8 +4723,9 @@ checks its durable rule with `verify`. The fixed Job creates only the absent
 matching rule verifies without a write; partial or foreign notification state
 stops for inspection. The root stage list now has 55 steps. Ordered-runner
 tests pass, and read-only `plan` verified the retained cluster's exact rule
-after the locked MinIO client was mirrored into its registry. The next
-empty-cluster trial must validate creation and the actual MinIO event path.
+after the locked MinIO client was mirrored into its registry. The fresh trial
+below validates creation and the durable rule; upload event delivery remains
+to be smoke tested.
 
 ### Guarded KEDA platform install (2026-09-29)
 
@@ -4736,4 +4737,24 @@ committed Helm values, three Ready controller Deployments, all six KEDA CRDs,
 and the metrics API registration. `bootstrap-platform` runs install and verify
 after the Job API; `stages` lists 57 steps. The retained cluster passed the
 new read-only verifier and fake-cluster tests cover the fresh guard and order.
-An empty-cluster trial is still required for the new install path.
+The empty-cluster install trial is recorded below.
+
+### Fresh 57-stage platform trial (2026-09-29)
+
+A new Ubuntu 24.04 ARM64 Multipass VM started with no CloudDSP k3d cluster or
+local image registry. The VM installed Docker, k3d 5.9.0, kubectl 1.35.5,
+Helm 4.3.0, AWS CLI v2, and Ruby, then ran
+`deploy-local.sh bootstrap-platform` against the committed source and ignored
+local credential files. Old backup archives were excluded. All 19 public
+images matched the lock and mirrored by digest. All 57 ordered stages passed
+with exit code 0. The newly wired MinIO notification was absent, created by
+its versioned Job, and verified from durable bucket metadata. KEDA installed
+as release revision 1 at chart 2.20.2; all three controller Deployments were
+1/1 Ready, and the chart values, six CRDs, and metrics API passed verification.
+Focused KEDA and MinIO notification verifiers passed again after bootstrap.
+
+This establishes the fresh platform path. It does not exercise a worker
+ScaledObject, browser-to-worker processing, or full root `verify`, which still
+depend on remaining application Secrets and Helm release installers. The
+disposable VM was purged after the trial; the existing Mac k3d cluster was
+not replaced or cleaned up.
