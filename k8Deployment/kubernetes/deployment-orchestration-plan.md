@@ -644,6 +644,14 @@ external effect disappeared. Therefore:
     Mailpit, for 42 listed child stages.
     A fresh-cluster Job trial remains pending; Keycloak's Helm release, admin
     Secret, and realm/client bootstrap still need fresh paths.
+38. **Keycloak admin Secret and fresh Helm install implemented.** The new
+    Secret stage validates the ignored source against its committed template
+    and creates it only when absent. The Keycloak release runner now enables
+    the guarded fresh install, checks database and admin Secret verification,
+    and refuses an existing release or any of its three workload objects.
+    `bootstrap-platform` orders these steps after Mailpit for 45 child stages.
+    Root read-only `verify` compares the admin Secret with its local source.
+    Realm/client bootstrap and an empty-cluster install trial remain pending.
 
 Each task needs its own review and validation. This document authorizes no
 cluster mutation by itself.

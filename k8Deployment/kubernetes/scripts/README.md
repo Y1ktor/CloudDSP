@@ -22,7 +22,7 @@ its own location and does not depend on the current working directory.
 ./k8Deployment/kubernetes/scripts/deploy-local.sh purge-registry
 ```
 
-`stages` prints the exact 42 ordered steps currently wired into
+`stages` prints the exact 45 ordered steps currently wired into
 `bootstrap-platform` without contacting the cluster. The `plan` mode is the first stage of the
 [deployment orchestrator](../deployment-orchestration-plan.md). It reads the
 versioned workload manifests and lock files, then queries only the explicit
@@ -112,9 +112,10 @@ The full root `bootstrap` will compose those remaining stages later.
 `bootstrap-platform` combines the already guarded fresh PostgreSQL, RabbitMQ,
 and MinIO child steps once, then creates Keycloak's isolated PostgreSQL
 credential Secret and database using the versioned one-shot Job. It installs
-and verifies Mailpit, creates the Job API PostgreSQL runtime Secret, runs the
-reviewed Job API role/migration reconciler, and imports/verifies the RabbitMQ
-processing topology. Every step
+and verifies Mailpit, stages the ignored Keycloak bootstrap-admin Secret, then
+installs and verifies the Keycloak Helm release. It creates the Job API
+PostgreSQL runtime Secret, runs the reviewed Job API role/migration
+reconciler, and imports/verifies the RabbitMQ processing topology. Every step
 stops at the first error and leaves a partial cluster for inspection. This is
 an alternative absent-cluster command, not one to run after a partial
 bootstrap. The retained cluster passed read-only verification; the fresh
@@ -136,9 +137,9 @@ local password through the existing PostgreSQL Pod; the password travels on
 stdin and is never printed.
 
 The full `bootstrap` command still needs guarded fresh paths for Keycloak's
-admin Secret, Helm release, realm/client state, remaining application database
-and RabbitMQ roles, their runtime Secrets, KEDA authentication, and the app/worker Helm
-releases. The existing app release runners currently support adoption of live
+realm/client state, remaining application database and RabbitMQ roles, their
+runtime Secrets, KEDA authentication, and the app/worker Helm
+releases. Most existing app release runners currently support adoption of live
 objects, not a fresh install. Those dependencies must be implemented and
 verified before the full browser-to-worker command can safely run.
 
@@ -177,7 +178,8 @@ registry in the meantime.
 grants, and runtime Secret after the PostgreSQL release, then checks the RabbitMQ,
 MinIO, Job API MinIO, upload-intake RabbitMQ/MinIO, Demucs MinIO, Basic Pitch
 MinIO, and ADTOF MinIO Secrets against their ignored local sources without
-printing values, then checks the
+printing values. It checks Keycloak's bootstrap-admin Secret before the
+Keycloak release, then checks the
 fourteen adopted CloudDSP Helm releases, the implemented Job API PostgreSQL
 and RabbitMQ bootstrap stages, the
 [Keycloak realm/client state](keycloak-config-verify.rb),
@@ -995,6 +997,7 @@ second task; the full smoke remains failed with fixed evidence preserved.
 ```bash
 ./k8Deployment/kubernetes/scripts/keycloak-release.rb plan
 ./k8Deployment/kubernetes/scripts/keycloak-release.rb adopt
+./k8Deployment/kubernetes/scripts/keycloak-release.rb install
 ./k8Deployment/kubernetes/scripts/keycloak-release.rb verify
 ./k8Deployment/kubernetes/scripts/keycloak-release.rb smoke
 ```
@@ -1010,6 +1013,13 @@ authorization, Keycloak-to-Mailpit verification-email, and temporary-user
 authenticated-read smoke Jobs also passed and were deleted after completion.
 PostgreSQL, Secrets, and realm, client, and SMTP bootstrap remain outside this
 release.
+
+For a fresh cluster, `bootstrap-platform` creates and verifies the Keycloak
+database, installs Mailpit, then creates the ignored bootstrap-admin Secret
+before `keycloak-release.rb install`. Direct `install` refuses an existing
+Helm release or any of the three workload objects and verifies the database
+and admin Secret before Helm writes. The identity realm and clients are a
+later bootstrap stage.
 
 ## Frontend Helm adoption and verification
 

@@ -22,6 +22,7 @@ From the repository root, run:
 ```bash
 ./k8Deployment/kubernetes/scripts/keycloak-release.rb plan
 ./k8Deployment/kubernetes/scripts/keycloak-release.rb adopt
+./k8Deployment/kubernetes/scripts/keycloak-release.rb install
 ./k8Deployment/kubernetes/scripts/keycloak-release.rb verify
 ./k8Deployment/kubernetes/scripts/keycloak-release.rb smoke
 ```
@@ -36,6 +37,13 @@ discovery path through the browser Ingress. `smoke` creates the versioned,
 unauthenticated [OIDC discovery Job](../../tests/keycloak-smoke/keycloak-oidc-discovery-smoke-job.yaml),
 asserts the advertised issuer and endpoints through the ClusterIP Service,
 then deletes that exact Job after success.
+
+`install` is the fresh-cluster path. It refuses an existing release or any of
+the three named workload objects, verifies the isolated PostgreSQL database
+and ignored bootstrap-admin Secret, then performs an ordinary Helm install
+without ownership takeover. The fresh Pod can create Keycloak's initial
+master-realm administrator and run schema migrations in its dedicated database.
+The CloudDSP application realm and clients are configured separately.
 
 On 2026-09-26, adoption produced `clouddsp-keycloak` revision 1 without
 replacing those objects or the Pod. The public discovery route, internal

@@ -4,12 +4,13 @@
 # ordered child stages exactly once: preparation creates the cluster and image
 # mirror, then PostgreSQL, RabbitMQ, and MinIO receive their own Secrets,
 # releases, and external state. Keycloak's isolated database, Mailpit, and the
-# Job API database/migrations follow. The Job API PostgreSQL runtime Secret must exist before its role
-# bootstrap Job can verify matching credentials and run schema migrations;
+# identity-provider release precede Job API database/migrations. The Job API
+# PostgreSQL runtime Secret must exist before its role bootstrap Job can verify
+# matching credentials and run schema migrations;
 # processing topology is then imported into the broker.
 #
-# This is a partial bootstrap. Keycloak's Helm release and realm, remaining service roles/Secrets,
-# KEDA, and application Helm releases need independent fresh runners before a
+# This is a partial bootstrap. Keycloak's realm, remaining service roles and
+# Secrets, KEDA, and application Helm releases need independent fresh runners before a
 # full browser-to-worker bootstrap can be enabled. A failed child leaves the
 # partial cluster for inspection; this coordinator never adopts or retries it.
 require 'rbconfig'
@@ -27,6 +28,9 @@ class CloudDSPBootstrapPlatform
     ['Keycloak PostgreSQL database verification', 'keycloak-database-stage.rb', 'verify'],
     ['fresh Mailpit Helm install', 'mailpit-release.rb', 'install'],
     ['Mailpit Helm verification', 'mailpit-release.rb', 'verify'],
+    ['Keycloak bootstrap-admin credential Secret', 'keycloak-admin-secret-stage.rb', 'bootstrap'],
+    ['fresh Keycloak Helm install', 'keycloak-release.rb', 'install'],
+    ['Keycloak Helm verification', 'keycloak-release.rb', 'verify'],
     ['Job API PostgreSQL runtime credential Secret', 'job-api-database-secret-stage.rb', 'bootstrap'],
     ['Job API PostgreSQL database and migrations', 'job-api-postgresql-stage.rb', 'reconcile'],
     ['Job API PostgreSQL verification', 'job-api-postgresql-stage.rb', 'verify'],
@@ -49,7 +53,7 @@ class CloudDSPBootstrapPlatform
       @error.puts "CloudDSP bootstrap-platform stopped at #{label}; inspect that stage before retrying."
       return 1
     end
-    @output.puts 'CloudDSP bootstrap-platform complete: foundation, images, PostgreSQL, RabbitMQ, MinIO, Keycloak database, Mailpit, Job API schema, and processing topology ready; application bootstrap remains pending.'
+    @output.puts 'CloudDSP bootstrap-platform complete: foundation, images, PostgreSQL, RabbitMQ, MinIO, Keycloak database and release, Mailpit, Job API schema, and processing topology ready; application bootstrap remains pending.'
     0
   end
 

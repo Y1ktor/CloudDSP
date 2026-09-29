@@ -67,6 +67,7 @@ class CloudDSPLocalVerify
     Stage.new(name: 'ADTOF MinIO policy and user', command: ['ruby', 'minio-adtof-iam-stage.rb', 'verify']),
     Stage.new(name: 'MinIO buckets/IAM verification and upload notification', command: ['ruby', 'minio-notification-stage.rb', 'verify']),
     Stage.new(name: 'Mailpit release', command: ['ruby', 'mailpit-release.rb', 'verify']),
+    Stage.new(name: 'Keycloak bootstrap-admin Secret', command: ['ruby', 'keycloak-admin-secret-stage.rb', 'verify']),
     Stage.new(name: 'Keycloak release', command: ['ruby', 'keycloak-release.rb', 'verify']),
     Stage.new(name: 'Keycloak realm and clients', command: ['ruby', 'keycloak-config-verify.rb', 'verify']),
     Stage.new(name: 'Job API release', command: ['ruby', 'job-api-release.rb', 'verify']),

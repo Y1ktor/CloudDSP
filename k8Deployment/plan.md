@@ -4633,3 +4633,23 @@ retained cluster was not bootstrapped again; the fresh creation path remains
 covered by isolated fake-cluster tests until an empty-cluster trial. The
 Keycloak Helm release, admin Secret, and realm/client configuration still
 need their own fresh deployment stages.
+
+### Keycloak admin Secret and fresh Helm install (2026-09-28)
+
+`kubernetes/scripts/keycloak-admin-secret-stage.rb` checks the ignored
+bootstrap-admin source against its committed template, including both
+non-placeholder values, exact keys, metadata, and labels. Fresh `bootstrap`
+creates the Secret only when absent and verifies its live values without
+printing them. The retained cluster's Secret passed read-only verification.
+
+The Keycloak release runner now permits a guarded fresh `install`: it checks
+that the release and Deployment, Service, and Ingress are all absent, then
+verifies Keycloak's database and admin Secret before Helm writes. It preserves
+the prior adoption and read-only verification paths. `bootstrap-platform`
+installs Mailpit, stages the admin Secret, and installs/verifies Keycloak in
+that order; `stages` lists 45 steps. The existing cluster was not reinstalled;
+the fresh path is covered by fake-cluster tests until an empty-cluster trial.
+The CloudDSP realm and client Jobs still need a guarded fresh runner.
+The retained cluster passed all 44 root read-only gates, including the new
+admin Secret comparison. The versioned Keycloak OIDC discovery smoke Job
+passed through the ClusterIP Service and was removed after success.
