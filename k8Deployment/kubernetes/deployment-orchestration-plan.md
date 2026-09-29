@@ -652,6 +652,15 @@ external effect disappeared. Therefore:
     `bootstrap-platform` orders these steps after Mailpit for 45 child stages.
     Root read-only `verify` compares the admin Secret with its local source.
     Realm/client bootstrap and an empty-cluster install trial remain pending.
+39. **Keycloak realm and client fresh bootstrap implemented.** A guarded stage
+    checks the committed payloads and Job contracts, requires healthy Mailpit
+    and Keycloak releases plus matching database/admin credentials, and probes
+    the Admin API. It server-validates all six Jobs before any write, then
+    creates and waits for them in dependency order only when the CloudDSP realm
+    is absent. An existing incomplete realm or leftover Job stops for
+    inspection. The existing full Admin API verifier checks the durable final
+    realm, client, audience, SMTP, and registration state. The platform list
+    now has 47 stages; a fresh-cluster Job trial remains pending.
 
 Each task needs its own review and validation. This document authorizes no
 cluster mutation by itself.

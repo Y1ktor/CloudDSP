@@ -7,7 +7,7 @@
 # individual stateful services; `bootstrap-minio` composes broker and object
 # storage prerequisites, buckets, locked samples, and restricted IAM users.
 # `bootstrap-platform` reuses those guarded children once, adding PostgreSQL,
-# Keycloak's database and release, Mailpit, Job API schema, and processing
+# Keycloak's database, release, and realm, Mailpit, Job API schema, and processing
 # topology in dependency order.
 # `verify` checks each reviewed component and bootstrap stage. `reconcile`
 # changes only audited external state through versioned runners; existing Helm
@@ -43,9 +43,9 @@ bootstrap-minio: On an absent cluster, prepare and install RabbitMQ, create
 bootstrap-platform: On an absent cluster, compose the guarded PostgreSQL,
          RabbitMQ, and MinIO children once, create Keycloak's database and
          credential Secret, install Mailpit, then stage Keycloak's admin Secret
-         and install its Helm release. Bootstrap Job API PostgreSQL migrations
-         and RabbitMQ processing topology afterward. Keycloak's realm,
-         worker state, KEDA, and app releases remain.
+         and install its Helm release. Bootstrap its realm and clients before
+         Job API PostgreSQL migrations and RabbitMQ processing topology.
+         Remaining service roles, worker state, KEDA, and app releases remain.
 verify: Run that preflight, then the reviewed read-only Helm, KEDA, and
         bootstrap gates in dependency order. Stop at the first failed gate.
 reconcile: On an existing cluster, run the same ordered gates and reconcile

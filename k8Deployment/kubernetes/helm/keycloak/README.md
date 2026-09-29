@@ -43,7 +43,10 @@ the three named workload objects, verifies the isolated PostgreSQL database
 and ignored bootstrap-admin Secret, then performs an ordinary Helm install
 without ownership takeover. The fresh Pod can create Keycloak's initial
 master-realm administrator and run schema migrations in its dedicated database.
-The CloudDSP application realm and clients are configured separately.
+The CloudDSP application realm and clients are configured separately by the
+guarded [`keycloak-realm-stage.rb`](../../scripts/keycloak-realm-stage.rb)
+after Helm install. That stage runs the committed one-shot Jobs only for an
+absent realm and verifies the durable result through the Admin API.
 
 On 2026-09-26, adoption produced `clouddsp-keycloak` revision 1 without
 replacing those objects or the Pod. The public discovery route, internal

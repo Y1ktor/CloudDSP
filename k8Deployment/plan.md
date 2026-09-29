@@ -4653,3 +4653,22 @@ The CloudDSP realm and client Jobs still need a guarded fresh runner.
 The retained cluster passed all 44 root read-only gates, including the new
 admin Secret comparison. The versioned Keycloak OIDC discovery smoke Job
 passed through the ClusterIP Service and was removed after success.
+
+### Keycloak realm and client fresh bootstrap (2026-09-28)
+
+`kubernetes/scripts/keycloak-realm-stage.rb` now composes the six committed
+Keycloak Admin API Jobs in dependency order: realm creation, registration,
+Mailpit SMTP, React OIDC client, Job API audience mapper, and registration
+password form. It validates their image and Secret contracts, checks database,
+admin Secret, Mailpit, and Keycloak prerequisites, and server-validates every
+Job before any write. A fresh run requires the CloudDSP realm and all six Jobs
+to be absent; it waits for each Job before the next and uses the existing full
+Admin API verifier to check durable final state. An existing realm is accepted
+only when that verifier finds the complete reviewed configuration. Partial
+state remains for inspection without an implicit repair.
+
+`bootstrap-platform` now runs this stage after the Keycloak Helm release and
+before Job API state. The stage list has 47 steps. The retained cluster was
+not bootstrapped again; the new read-only modes and Kubernetes server dry runs
+validated its complete realm state and all six Job schemas. The fresh creation
+path remains covered by fake-cluster tests until an empty-cluster trial.

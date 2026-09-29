@@ -22,7 +22,7 @@ its own location and does not depend on the current working directory.
 ./k8Deployment/kubernetes/scripts/deploy-local.sh purge-registry
 ```
 
-`stages` prints the exact 45 ordered steps currently wired into
+`stages` prints the exact 47 ordered steps currently wired into
 `bootstrap-platform` without contacting the cluster. The `plan` mode is the first stage of the
 [deployment orchestrator](../deployment-orchestration-plan.md). It reads the
 versioned workload manifests and lock files, then queries only the explicit
@@ -113,7 +113,9 @@ The full root `bootstrap` will compose those remaining stages later.
 and MinIO child steps once, then creates Keycloak's isolated PostgreSQL
 credential Secret and database using the versioned one-shot Job. It installs
 and verifies Mailpit, stages the ignored Keycloak bootstrap-admin Secret, then
-installs and verifies the Keycloak Helm release. It creates the Job API
+installs and verifies the Keycloak Helm release. Six versioned Admin API Jobs
+then configure and verify the CloudDSP realm, SMTP, registration policies,
+React PKCE client, and Job API audience. It creates the Job API
 PostgreSQL runtime Secret, runs the reviewed Job API role/migration
 reconciler, and imports/verifies the RabbitMQ processing topology. Every step
 stops at the first error and leaves a partial cluster for inspection. This is
@@ -136,8 +138,8 @@ grants are checked directly. Verification also authenticates with the ignored
 local password through the existing PostgreSQL Pod; the password travels on
 stdin and is never printed.
 
-The full `bootstrap` command still needs guarded fresh paths for Keycloak's
-realm/client state, remaining application database and RabbitMQ roles, their
+The full `bootstrap` command still needs guarded fresh paths for remaining
+application database and RabbitMQ roles, their
 runtime Secrets, KEDA authentication, and the app/worker Helm
 releases. Most existing app release runners currently support adoption of live
 objects, not a fresh install. Those dependencies must be implemented and
@@ -1018,8 +1020,17 @@ For a fresh cluster, `bootstrap-platform` creates and verifies the Keycloak
 database, installs Mailpit, then creates the ignored bootstrap-admin Secret
 before `keycloak-release.rb install`. Direct `install` refuses an existing
 Helm release or any of the three workload objects and verifies the database
-and admin Secret before Helm writes. The identity realm and clients are a
-later bootstrap stage.
+and admin Secret before Helm writes. `keycloak-realm-stage.rb bootstrap` then
+runs the six versioned Admin API Jobs in dependency order only if the CloudDSP
+realm is absent. Its `plan` and `verify` modes are read-only; an existing but
+incomplete realm stops without applying Jobs. Final state is checked through
+the same full realm/client verifier used by root `verify`.
+
+```bash
+ruby ./k8Deployment/kubernetes/scripts/keycloak-realm-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/keycloak-realm-stage.rb bootstrap
+ruby ./k8Deployment/kubernetes/scripts/keycloak-realm-stage.rb verify
+```
 
 ## Frontend Helm adoption and verification
 

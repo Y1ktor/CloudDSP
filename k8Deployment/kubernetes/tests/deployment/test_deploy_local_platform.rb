@@ -32,6 +32,8 @@ class DeployLocalPlatformTest < Minitest::Test
       ['Keycloak bootstrap-admin credential Secret', 'keycloak-admin-secret-stage.rb', 'bootstrap'],
       ['fresh Keycloak Helm install', 'keycloak-release.rb', 'install'],
       ['Keycloak Helm verification', 'keycloak-release.rb', 'verify'],
+      ['Keycloak realm and client bootstrap', 'keycloak-realm-stage.rb', 'bootstrap'],
+      ['Keycloak realm and client verification', 'keycloak-realm-stage.rb', 'verify'],
       ['Job API PostgreSQL runtime credential Secret', 'job-api-database-secret-stage.rb', 'bootstrap'],
       ['Job API PostgreSQL database and migrations', 'job-api-postgresql-stage.rb', 'reconcile'],
       ['Job API PostgreSQL verification', 'job-api-postgresql-stage.rb', 'verify'],
@@ -55,6 +57,8 @@ class DeployLocalPlatformTest < Minitest::Test
     assert_operator @calls.index(%w[keycloak-admin-secret-stage.rb bootstrap]), :<,
                     @calls.index(%w[keycloak-release.rb install])
     assert_operator @calls.index(%w[keycloak-release.rb verify]), :<,
+                    @calls.index(%w[keycloak-realm-stage.rb bootstrap])
+    assert_operator @calls.index(%w[keycloak-realm-stage.rb verify]), :<,
                     @calls.index(%w[job-api-database-secret-stage.rb bootstrap])
     assert_operator @calls.index(%w[job-api-database-secret-stage.rb bootstrap]), :<,
                     @calls.index(%w[job-api-postgresql-stage.rb reconcile])
