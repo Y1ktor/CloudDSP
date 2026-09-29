@@ -57,7 +57,7 @@ spec:
         - name: configure-minio-root-alias
           # `mc` is MinIO's maintained administration client. Its digest is
           # already reviewed in images.lock.yaml; no package install occurs.
-          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          image: clouddsp-registry.localhost:5001/minio-mc@sha256:37d109dddbbb2c95873f5fc81ac93f37023264770fc580a7564148892087b1b7
           imagePullPolicy: IfNotPresent
           env:
             - name: MC_CONFIG_DIR
@@ -101,7 +101,7 @@ spec:
             - $(MINIO_ROOT_PASSWORD)
 
         - name: wait-for-private-minio-service
-          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          image: clouddsp-registry.localhost:5001/minio-mc@sha256:37d109dddbbb2c95873f5fc81ac93f37023264770fc580a7564148892087b1b7
           imagePullPolicy: IfNotPresent
           env:
             - name: MC_CONFIG_DIR
@@ -131,7 +131,7 @@ spec:
             - minio-admin
 
         - name: create-or-update-fixed-smoke-policy
-          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          image: clouddsp-registry.localhost:5001/minio-mc@sha256:37d109dddbbb2c95873f5fc81ac93f37023264770fc580a7564148892087b1b7
           imagePullPolicy: IfNotPresent
           env:
             - name: MC_CONFIG_DIR
@@ -168,7 +168,7 @@ spec:
             - /policy/adtof-worker-smoke-objects-policy.json
 
         - name: create-or-rotate-fixed-smoke-user
-          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          image: clouddsp-registry.localhost:5001/minio-mc@sha256:37d109dddbbb2c95873f5fc81ac93f37023264770fc580a7564148892087b1b7
           imagePullPolicy: IfNotPresent
           env:
             - name: MC_CONFIG_DIR
@@ -212,7 +212,7 @@ spec:
             - $(ADTOF_WORKER_SMOKE_S3_SECRET_KEY)
 
         - name: attach-fixed-smoke-policy
-          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          image: clouddsp-registry.localhost:5001/minio-mc@sha256:37d109dddbbb2c95873f5fc81ac93f37023264770fc580a7564148892087b1b7
           imagePullPolicy: IfNotPresent
           env:
             - name: MC_CONFIG_DIR
@@ -249,7 +249,7 @@ spec:
             - --user=$(ADTOF_WORKER_SMOKE_S3_ACCESS_KEY)
 
         - name: verify-fixed-smoke-user-policy
-          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          image: clouddsp-registry.localhost:5001/minio-mc@sha256:37d109dddbbb2c95873f5fc81ac93f37023264770fc580a7564148892087b1b7
           imagePullPolicy: IfNotPresent
           env:
             - name: MC_CONFIG_DIR
@@ -287,7 +287,7 @@ spec:
             - $(ADTOF_WORKER_SMOKE_S3_ACCESS_KEY)
 
         - name: remove-root-alias-from-temporary-config
-          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          image: clouddsp-registry.localhost:5001/minio-mc@sha256:37d109dddbbb2c95873f5fc81ac93f37023264770fc580a7564148892087b1b7
           imagePullPolicy: IfNotPresent
           env:
             - name: MC_CONFIG_DIR
@@ -318,7 +318,7 @@ spec:
             - minio-admin
       containers:
         - name: completion-marker
-          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          image: clouddsp-registry.localhost:5001/minio-mc@sha256:37d109dddbbb2c95873f5fc81ac93f37023264770fc580a7564148892087b1b7
           imagePullPolicy: IfNotPresent
           resources:
             requests:

@@ -122,8 +122,11 @@ class RabbitmqProcessingTopology
     VERSIONS.map do |version, config_name, job_name, exchanges, queues, bindings|
       config_path = SOURCE.join("#{config_name}-configmap.yaml")
       job_path = SOURCE.join("#{job_name}-job.yaml")
-      config = YAML.load_file(config_path)
-      job = YAML.load_file(job_path)
+      # The reviewed Job YAML uses anchors for repeated Kubernetes fields.
+      # Psych disables aliases by default, so permit them for these fixed,
+      # versioned local manifests while keeping object deserialization safe.
+      config = YAML.safe_load(File.read(config_path.to_s), aliases: true)
+      job = YAML.safe_load(File.read(job_path.to_s), aliases: true)
       key = "#{config_name}.json"
       ensure_true(config['kind'] == 'ConfigMap' && config.dig('metadata', 'name') == config_name &&
                   config.dig('metadata', 'namespace') == NAMESPACE && config['immutable'] == true &&

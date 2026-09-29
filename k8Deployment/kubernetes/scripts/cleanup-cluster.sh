@@ -12,6 +12,7 @@ set -euo pipefail
 # constants rather than arguments so this script cannot accidentally delete an
 # unrelated k3d cluster or local registry owned by another project.
 readonly CLUSTER_NAME="clouddsp-local"
+readonly CLUSTER_NETWORK="k3d-${CLUSTER_NAME}"
 readonly REGISTRY_NAME="clouddsp-registry.localhost"
 readonly RETENTION_NETWORK="clouddsp-registry-hold"
 readonly RETENTION_OWNER="registry-hold"
@@ -51,7 +52,8 @@ require_prerequisites() {
 cluster_exists() {
   # Match the first table column exactly, preventing a similarly named local
   # cluster (for example clouddsp-local-test) from becoming a deletion target.
-  k3d cluster list "${CLUSTER_NAME}" --no-headers | awk -v name="${CLUSTER_NAME}" '$1 == name { found = 1 } END { exit !found }'
+  # A named k3d lookup prints a placeholder row for an absent cluster.
+  k3d cluster list --no-headers | awk -v name="${CLUSTER_NAME}" '$1 == name { found = 1 } END { exit !found }'
 }
 
 registry_exists() {
@@ -88,6 +90,26 @@ ensure_registry_retention() {
   fi
 }
 
+detach_registry_from_cluster_network() {
+  # Standalone registries remain connected to the old k3d network after node
+  # deletion. Disconnect only our retained registry so k3d can remove that
+  # network, while its hold network keeps the image store available.
+  if ! docker network inspect "${CLUSTER_NETWORK}" >/dev/null 2>&1; then
+    return
+  fi
+  local owner
+  owner="$(docker network inspect "${CLUSTER_NETWORK}" --format '{{index .Labels "app"}}')"
+  if [[ "${owner}" != "k3d" ]]; then
+    printf 'Cluster network exists but is not owned by k3d; cleanup stopped.\n' >&2
+    exit 1
+  fi
+  if docker network inspect "${CLUSTER_NETWORK}" \
+    --format '{{range .Containers}}{{.Name}}{{"\n"}}{{end}}' |
+    awk -v name="${REGISTRY_NAME}" '$1 == name { found = 1 } END { exit !found }'; then
+    docker network disconnect "${CLUSTER_NETWORK}" "${REGISTRY_NAME}"
+  fi
+}
+
 main() {
   # An explicit flag keeps the script non-interactive for repeatable automation
   # while still requiring an intentional acknowledgement of data loss.  Never
@@ -105,6 +127,12 @@ main() {
   require_prerequisites
 
   if ! cluster_exists; then
+    # Also finish an earlier cleanup that left only the registry attached to
+    # the old cluster network.
+    detach_registry_from_cluster_network
+    if docker network inspect "${CLUSTER_NETWORK}" >/dev/null 2>&1; then
+      docker network rm "${CLUSTER_NETWORK}" >/dev/null
+    fi
     printf 'CloudDSP local cluster is already absent; registry left unchanged.\n'
     exit 0
   fi
@@ -114,6 +142,7 @@ main() {
   local retained_registry=0
   if registry_exists; then
     ensure_registry_retention
+    detach_registry_from_cluster_network
     retained_registry=1
   fi
 
@@ -126,6 +155,10 @@ main() {
   # remain outside this script's authority.
   if cluster_exists; then
     printf 'Cleanup did not finish: CloudDSP cluster still exists.\n' >&2
+    exit 1
+  fi
+  if docker network inspect "${CLUSTER_NETWORK}" >/dev/null 2>&1; then
+    printf 'Cleanup did not remove the CloudDSP cluster network.\n' >&2
     exit 1
   fi
   if [[ "${retained_registry}" -eq 1 ]] && ! registry_exists; then

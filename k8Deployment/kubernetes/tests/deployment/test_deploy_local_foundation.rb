@@ -18,6 +18,7 @@ class DeployLocalFoundationTest < Minitest::Test
       @cluster = cluster
       @registry = registry
       @namespaces = namespaces
+      @traefik_created = cluster
       @calls = []
       @fail_namespace_create = false
     end
@@ -25,9 +26,9 @@ class DeployLocalFoundationTest < Minitest::Test
     def call(*argv)
       @calls << argv
       output = case argv
-               when ['k3d', 'cluster', 'list', 'clouddsp-local', '--no-headers']
+               when ['k3d', 'cluster', 'list', '--no-headers']
                  @cluster ? "clouddsp-local   1/1   2/2   true\n" : ''
-               when ['k3d', 'registry', 'list', 'clouddsp-registry.localhost', '--no-headers']
+               when ['k3d', 'registry', 'list', '--no-headers']
                  @registry ? "clouddsp-registry.localhost   registry   clouddsp-local   running\n" : ''
                else
                  dispatch(argv)
@@ -50,6 +51,7 @@ class DeployLocalFoundationTest < Minitest::Test
         @namespaces = true unless argv.include?('--dry-run=server')
         ''
       elsif argv.first == 'kubectl' && argv.include?('wait')
+        @traefik_created = true if argv.include?('--for=create') && argv.include?('deployment/traefik')
         ''
       elsif argv.first == 'kubectl' && argv.include?('nodes')
         JSON.generate('items' => CloudDSPFoundation::NODE_ROLES.map do |name, role|
@@ -68,7 +70,7 @@ class DeployLocalFoundationTest < Minitest::Test
                 end
         JSON.generate('items' => items)
       elsif argv.first == 'kubectl' && argv.include?('rollout')
-        ''
+        argv.include?('deployment/traefik') && !@traefik_created ? :failure : ''
       else
         raise "unexpected fake command #{argv.first}"
       end
@@ -109,6 +111,10 @@ class DeployLocalFoundationTest < Minitest::Test
     create_namespaces = commands.calls.index { |argv| argv.first == 'kubectl' && argv.include?('create') && !argv.include?('--dry-run=server') }
     assert_operator create_cluster, :<, wait_nodes
     assert_operator wait_nodes, :<, create_namespaces
+    wait_traefik = commands.calls.index { |argv| argv.include?('--for=create') && argv.include?('deployment/traefik') }
+    rollout_traefik = commands.calls.index { |argv| argv.include?('rollout') && argv.include?('deployment/traefik') }
+    assert_operator create_namespaces, :<, wait_traefik
+    assert_operator wait_traefik, :<, rollout_traefik
     assert commands.cluster
     assert commands.registry
     assert commands.namespaces

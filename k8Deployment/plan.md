@@ -4194,6 +4194,32 @@ cover the order, pre-creation source failure, and mirror failure. The live
 cluster was not deleted for a fresh-path trial; an empty disposable-cluster
 trial and the later full `bootstrap` remain outstanding.
 
+### MinIO client mirror and fresh platform bootstrap (2026-09-29)
+
+The saved OCI archive for MinIO's official `mc` release contained only its
+Linux ARM64 image child. That exact image was published to the authorized
+public `y1ktor/clouddsp:minio-mc-release-2025-08-13` tag at digest
+`sha256:37d109dddbbb2c95873f5fc81ac93f37023264770fc580a7564148892087b1b7`.
+The `minio-mc` lock entry now targets the CloudDSP local registry and declares
+ARM64 support only; the normal image stage checks the public tag and mirrors
+the digest into a fresh local registry. MinIO bootstrap and smoke Jobs use
+that locked local reference. The read-only MinIO state verifier explicitly
+pulls the image with `ctr --plain-http` from the registry's internal `:5000`
+endpoint because direct `ctr` calls do not apply k3s's `:5001` registry
+rewrite.
+
+An isolated Ubuntu 24.04 VM trial started with the CloudDSP cluster and local
+registry absent. It anonymously verified all 19 Docker Hub digests, mirrored
+all 19 into the newly created local registry with digest checks, then completed
+all 53 `bootstrap-platform` stages. The Job API MinIO IAM bootstrap pulled
+and ran `mc` from that mirror, and all five MinIO users and policies verified.
+The first trial attempt exposed the direct-`ctr` endpoint mismatch; the clean
+rerun passed after the verifier fix. This validates the platform bootstrap,
+not the full application deployment: `deploy-local.sh verify` still stops at
+preflight while KEDA and remaining application Secrets/releases are absent,
+and the focused MinIO state verifier reports that the upload notification
+stage is not yet wired into `bootstrap-platform`.
+
 ### Mailpit fresh Helm install path (2026-09-28)
 
 The Mailpit release runner now supports a guarded `install` mode for the

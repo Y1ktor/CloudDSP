@@ -44,7 +44,8 @@ bootstrap-platform: On an absent cluster, compose the guarded PostgreSQL,
          RabbitMQ, and MinIO children once, create Keycloak's database and
          credential Secret, install Mailpit, then stage Keycloak's admin Secret
          and install its Helm release. Bootstrap its realm and clients before
-         Job API PostgreSQL migrations and RabbitMQ processing topology.
+         Job API PostgreSQL migrations v001–v006, Basic Pitch and ADTOF
+         database roles, remaining migrations, and RabbitMQ processing topology.
          Install the Job API release after those checks. Remaining service
          roles, worker state, KEDA, and app releases remain.
 verify: Run that preflight, then the reviewed read-only Helm, KEDA, and

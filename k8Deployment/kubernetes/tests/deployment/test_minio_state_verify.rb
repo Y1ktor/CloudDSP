@@ -46,18 +46,27 @@ class MinioStateVerifyTest < Minitest::Test
     verifier.send(:mc, { user: 'admin-user', password: 'sensitive-password', ip: '10.43.0.1' },
                   'policy', 'info', 'audit', 'policy-name')
 
-    argv, options = calls.fetch(0)
+    pull_argv, = calls.fetch(0)
+    assert_equal ['docker', 'exec', MinioStateVerify::NODE, 'ctr', '-n', 'k8s.io',
+                  'images', 'pull', '--plain-http', MinioStateVerify::MC_NODE_IMAGE], pull_argv
+    argv, options = calls.fetch(1)
     refute_includes argv.join(' '), 'sensitive-password'
     assert_includes options.fetch(:stdin_data), 'sensitive-password'
     assert_includes argv, '--rm'
     assert_includes argv, '--read-only'
     assert_includes argv, 'type=tmpfs,dst=/mc-config,options=rw'
-    assert_includes argv, MinioStateVerify::MC_IMAGE
+    assert_includes argv, MinioStateVerify::MC_NODE_IMAGE
   end
 
   def test_failed_admin_call_reports_only_operation_label
     command = lambda do |*_argv, **_options|
-      ['', 'sensitive-password in client stderr', FakeStatus.new(1)]
+      @calls ||= 0
+      @calls += 1
+      if @calls == 1
+        ['', '', FakeStatus.new(0)]
+      else
+        ['', 'sensitive-password in client stderr', FakeStatus.new(1)]
+      end
     end
     verifier = MinioStateVerify.new(command: command, output: StringIO.new, error: StringIO.new)
 

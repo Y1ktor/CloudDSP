@@ -3,7 +3,17 @@
 These non-interactive scripts manage only the versioned local k3d profile
 declared in [`../cluster/k3d.yaml`](../cluster/k3d.yaml). Run the commands from
 the repository root, or change into this directory first; each script resolves
-its own location and does not depend on the current working directory.
+its own location and does not depend on the current working directory. The
+platform bootstrap also requires the AWS CLI v2 because its MinIO bucket and
+sample stages use the AWS S3 API client.
+
+Docker must allow HTTP for the exact local image registry
+`clouddsp-registry.localhost:5001`. Add
+`"insecure-registries": ["clouddsp-registry.localhost:5001"]` to the Docker
+daemon configuration and restart Docker before running a fresh bootstrap.
+`cluster.sh create` checks this setting before creating resources. The registry
+is a standalone k3d container; normal `cleanup` retains its images, while
+`purge-registry` removes its container and image data volume.
 
 ## Root deployment plan
 
@@ -22,7 +32,7 @@ its own location and does not depend on the current working directory.
 ./k8Deployment/kubernetes/scripts/deploy-local.sh purge-registry
 ```
 
-`stages` prints the exact 49 ordered steps currently wired into
+`stages` prints the exact 53 ordered steps currently wired into
 `bootstrap-platform` without contacting the cluster. The `plan` mode is the first stage of the
 [deployment orchestrator](../deployment-orchestration-plan.md). It reads the
 versioned workload manifests and lock files, then queries only the explicit
@@ -116,13 +126,27 @@ and verifies Mailpit, stages the ignored Keycloak bootstrap-admin Secret, then
 installs and verifies the Keycloak Helm release. Six versioned Admin API Jobs
 then configure and verify the CloudDSP realm, SMTP, registration policies,
 React PKCE client, and Job API audience. It creates the Job API
-PostgreSQL runtime Secret, runs the reviewed Job API role/migration
-reconciler, imports/verifies the RabbitMQ processing topology, then installs
+PostgreSQL runtime Secret, bootstraps the Job API schema owner, applies schema
+migrations v001–v006, provisions the Basic Pitch and ADTOF restricted database
+roles, then applies v007–v009. It imports/verifies RabbitMQ processing topology, then installs
 and verifies the Job API Helm release. Every step
 stops at the first error and leaves a partial cluster for inspection. This is
 an alternative absent-cluster command, not one to run after a partial
 bootstrap. The retained cluster passed read-only verification; the fresh
-sequence has not been trialed on an empty cluster.
+The 53 stages completed in an isolated Ubuntu 24.04 VM on September 29, 2026
+after installing the AWS CLI v2. On the final trial, both the CloudDSP cluster
+and its local registry were absent at the start. The run anonymously verified
+and digest-mirrored all 19 locked ARM64 images, including the public MinIO
+client mirror, then completed all 53 `bootstrap-platform` stages. The MinIO
+IAM Jobs pulled and ran the client from the newly populated registry. The
+first attempt exposed that direct `ctr` calls bypass k3s registry rewriting;
+the verifier now uses the node-internal HTTP registry endpoint explicitly.
+
+This validates the platform bootstrap, not the full application deployment.
+KEDA, remaining application Secrets/releases, and the MinIO upload notification
+stage are not part of these 53 stages. As a result, root `verify` stops at its
+preflight and the focused MinIO state verifier reports the missing notification
+until those later bootstrap stages are wired.
 
 For focused Keycloak database diagnosis, run:
 
@@ -168,12 +192,14 @@ into the matching local repository, and checks that the digest was preserved.
 Existing matching local images are skipped. `verify` checks both registries
 without writing. The lock remains the authority; none of these modes rewrites it.
 
-All 18 current local images target Linux ARM64. The public repository and
+All 19 current local images target Linux ARM64. The public repository and
 every tag were verified by anonymous manifest requests. A Job API image was
 pulled from Docker Hub and pushed to a disposable empty `.localhost` registry
 with its digest unchanged. A complete fresh-registry `mirror` run and full root
-`bootstrap` wiring are still pending; normal `cleanup` retains the populated
-registry in the meantime.
+`bootstrap-platform` run passed in the September 29 VM trial with matching
+digests in both registries. The full application `bootstrap` sequence still
+needs KEDA, remaining runtime Secrets/releases, and the MinIO upload
+notification stage; normal `cleanup` retains the populated registry.
 
 ## Root verification and existing-cluster reconcile
 
@@ -205,7 +231,10 @@ policy ConfigMaps, both bucket boundaries, the prefix-limited AMQP notification,
 IAM policy documents and attachments, and the five restricted users. It uses
 the pinned local `mc` image in a transient container with credentials sent over
 stdin and a temporary in-memory config directory. Both gates are read-only
-and suppress credential-bearing client output on failure.
+and suppress credential-bearing client output on failure. Since direct
+containerd `ctr` pulls do not use k3s's configured registry rewrite, the MinIO
+state verifier pulls the same digest from the registry's node-internal HTTP
+endpoint before running the transient client.
 
 `reconcile` is currently for an already deployed cluster. It runs the same
 preflight and ordered gates, but calls `reconcile` for ten audited
@@ -406,11 +435,12 @@ and root `verify` checks it before the database/migration gate.
 ```
 
 This narrow combined command runs the database/role stage first and the schema
-migration stage second. On a fresh cluster, `plan` reports the pending
+migration stage second. It is useful for verification and for reconciliation
+after both worker roles have been provisioned. On a fresh cluster, `plan` reports the pending
 database bootstrap and defers migration inspection until the database exists.
-`verify` fails if either stage is incomplete. `reconcile` waits for the
-database bootstrap and its metadata checks to finish before starting missing
-schema migrations; a failure in either stage stops the command. The same two
+`verify` fails if either stage is incomplete. Full `reconcile` requires both
+worker roles before v007. For an empty cluster use `bootstrap-platform`, whose
+staged migration path creates the roles after v006. The same two
 stages remain independently runnable for diagnosis. This command assumes the
 PostgreSQL StatefulSet and the ignored runtime credentials are available; it
 does not install other services or Helm releases.
@@ -444,6 +474,7 @@ role's password matches a subsequently changed runtime Secret.
 ```bash
 ./k8Deployment/kubernetes/scripts/job-api-migrations.rb plan
 ./k8Deployment/kubernetes/scripts/job-api-migrations.rb verify
+./k8Deployment/kubernetes/scripts/job-api-migrations.rb reconcile-prerequisites
 ./k8Deployment/kubernetes/scripts/job-api-migrations.rb reconcile
 ```
 
@@ -455,15 +486,35 @@ requires every versioned migration to be applied. The script reads the ledger
 through the existing PostgreSQL Pod and its Secret-backed environment. It does
 not fetch Secret values to the host or query application data.
 
-`reconcile` accepts only an exact prefix of the v001–v009 migration IDs and
+`reconcile-prerequisites` applies only v001–v006, the schema required by the
+Basic Pitch and ADTOF database role Jobs. After both roles exist, `reconcile`
+applies v007–v009. Both modes accept only an exact prefix of the v001–v009 migration IDs and
 descriptions extracted from versioned SQL. It checks each applied SQL
 ConfigMap against the live immutable copy and refuses a pending fixed-name
 Job that still exists without a ledger row. For a missing migration, it
 validates and creates its versioned ConfigMap/Job, waits for completion, and
 checks the next ledger row before advancing. A failed or ambiguous Job is
 left in place for inspection. Repeated reconcile on a complete ledger is a
-read-only no-op. Use the [combined PostgreSQL stage](job-api-postgresql-stage.rb)
-to run this after database and schema-owner bootstrap in one command.
+read-only no-op.
+
+## Worker PostgreSQL role bootstrap
+
+```bash
+ruby ./k8Deployment/kubernetes/scripts/worker-database-stage.rb basic-pitch plan
+ruby ./k8Deployment/kubernetes/scripts/worker-database-stage.rb basic-pitch bootstrap
+ruby ./k8Deployment/kubernetes/scripts/worker-database-stage.rb basic-pitch verify
+ruby ./k8Deployment/kubernetes/scripts/worker-database-stage.rb adtof plan
+ruby ./k8Deployment/kubernetes/scripts/worker-database-stage.rb adtof bootstrap
+ruby ./k8Deployment/kubernetes/scripts/worker-database-stage.rb adtof verify
+```
+
+Each worker needs matching ignored runtime and bootstrap PostgreSQL Secret
+sources in `k8Deployment/.local/`. The stage requires the worker's prerequisite
+Job API migration, creates the app-namespace runtime Secret, then creates a
+temporary data-namespace copy for its versioned role/grant Job. It waits for
+completion, verifies the restricted role's catalog privileges, and removes
+the temporary Secret. A failed Job and temporary Secret remain for inspection.
+`verify` checks the live runtime Secret and role without changing them.
 
 ## MinIO root credential Secret stage
 

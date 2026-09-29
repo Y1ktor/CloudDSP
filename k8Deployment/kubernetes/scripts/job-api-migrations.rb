@@ -10,6 +10,9 @@ require 'pathname'
 require 'yaml'
 
 class JobApiMigrations
+  # The worker bootstrap Jobs need the schema through v006. Later migrations
+  # grant those worker roles function access, so a fresh install pauses here.
+  WORKER_PREREQUISITE_COUNT = 6
   CONTEXT = 'k3d-clouddsp-local'.freeze
   NAMESPACE = 'clouddsp-app'.freeze
   ROOT = Pathname.new(File.expand_path('..', __dir__)).freeze
@@ -29,7 +32,8 @@ class JobApiMigrations
   end
 
   def run(mode)
-    raise ArgumentError, 'use plan, verify, or reconcile' unless %w[plan verify reconcile].include?(mode)
+    raise ArgumentError, 'use plan, verify, reconcile-prerequisites, or reconcile' unless
+      %w[plan verify reconcile-prerequisites reconcile].include?(mode)
 
     migrations = load_sources
     rows = read_ledger
@@ -58,9 +62,12 @@ class JobApiMigrations
     puts "Job API migrations: #{applied}/#{migrations.length} applied; pending: #{pending.empty? ? 'none' : pending.map(&:id).join(', ')}"
     if mode == 'verify'
       ensure_true(pending.empty?, 'schema migration ledger is incomplete')
-    elsif mode == 'reconcile'
-      ensure_prerequisites unless pending.empty?
-      pending.each_with_index do |migration, offset|
+    elsif %w[reconcile-prerequisites reconcile].include?(mode)
+      # Never skip a ledger gap. A prerequisite pass on a later, complete
+      # cluster is read-only; on a fresh cluster it applies only v001-v006.
+      selected = mode == 'reconcile-prerequisites' ? migrations.drop(applied).take([WORKER_PREREQUISITE_COUNT - applied, 0].max) : pending
+      ensure_prerequisites unless selected.empty?
+      selected.each_with_index do |migration, offset|
         # Recheck the authoritative ledger before each write. Another runner
         # may have advanced it since the initial snapshot.
         ensure_true(audit_ledger(migrations, read_ledger) == applied + offset,

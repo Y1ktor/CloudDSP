@@ -174,10 +174,11 @@ completed successfully. Its safe MinIO evidence reports the restricted user as
 enabled with only `clouddsp-adtof-worker-smoke-objects-v001` attached; it did
 not upload or modify any smoke object.
 
-The bootstrap exposed and corrected a shared image-reference issue: the pinned
-MinIO Client digest is hosted at `quay.io/minio/mc`, not `docker.io/minio/mc`.
-Every Kubernetes MinIO Client reference and the central image lock now use the
-Quay reference while preserving the same ARM64/AMD64 manifest-list digest.
+The MinIO client originates from MinIO's official `quay.io/minio/mc` release.
+The locally available archive supplied only its ARM64 child. That image is
+published at `y1ktor/clouddsp:minio-mc-release-2025-08-13`, pinned by digest in
+the central lock, and mirrored to the local registry before Kubernetes Jobs
+use it. The current pinned client supports Linux ARM64 only.
 
 ## End-to-end client contract (source only)
 

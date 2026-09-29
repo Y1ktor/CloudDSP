@@ -40,7 +40,7 @@ fi
 
 cluster_exists() {
   local listing
-  listing="$(k3d cluster list "${CLUSTER_NAME}" --no-headers)" || {
+  listing="$(k3d cluster list --no-headers)" || {
     printf 'Could not inspect the CloudDSP cluster; registry purge stopped.\n' >&2
     exit 1
   }
@@ -50,7 +50,7 @@ cluster_exists() {
 
 registry_exists() {
   local listing
-  listing="$(k3d registry list "${REGISTRY_NAME}" --no-headers)" || {
+  listing="$(k3d registry list --no-headers)" || {
     printf 'Could not inspect the CloudDSP registry; purge stopped.\n' >&2
     exit 1
   }
@@ -62,12 +62,21 @@ if cluster_exists; then
   printf 'CloudDSP cluster still exists; run deploy-local.sh cleanup first.\n' >&2
   exit 1
 fi
+registry_volume=""
 if registry_exists; then
+  # k3d removes anonymous volumes, but a registry migrated from an older
+  # cluster may use a named mount. Capture only its /var/lib/registry volume
+  # before deleting the container so purge erases the stored images as well.
+  registry_volume="$(docker inspect "${REGISTRY_NAME}" \
+    --format '{{range .Mounts}}{{if eq .Destination "/var/lib/registry"}}{{if eq .Type "volume"}}{{.Name}}{{end}}{{end}}{{end}}')"
   k3d registry delete "${REGISTRY_NAME}"
 fi
 if registry_exists; then
   printf 'Registry purge did not finish: CloudDSP registry still exists.\n' >&2
   exit 1
+fi
+if [[ -n "${registry_volume}" ]] && docker volume inspect "${registry_volume}" >/dev/null 2>&1; then
+  docker volume rm "${registry_volume}" >/dev/null
 fi
 if docker network inspect "${RETENTION_NETWORK}" >/dev/null 2>&1; then
   owner="$(docker network inspect "${RETENTION_NETWORK}" \

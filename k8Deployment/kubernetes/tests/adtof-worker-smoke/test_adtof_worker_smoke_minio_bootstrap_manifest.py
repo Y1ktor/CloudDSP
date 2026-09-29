@@ -96,7 +96,7 @@ class ADTOFWorkerSmokeMinIOBootstrapManifestTests(unittest.TestCase):
         self.assertIn("clouddsp-adtof-worker-smoke-minio-bootstrap-credentials", source)
         self.assertIn("clouddsp-adtof-worker-smoke-objects-policy-v001", source)
         self.assertIn(
-            "quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727",
+            "clouddsp-registry.localhost:5001/minio-mc@sha256:37d109dddbbb2c95873f5fc81ac93f37023264770fc580a7564148892087b1b7",
             source,
         )
         self.assertIn("http://clouddsp-minio:9000", source)

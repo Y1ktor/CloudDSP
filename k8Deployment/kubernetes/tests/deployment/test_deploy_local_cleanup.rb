@@ -16,12 +16,22 @@ class DeployLocalCleanupTest < Minitest::Test
         case "$1 ${2:-}" in
           'info ') ;;
           'network inspect')
-            [ "$3" = clouddsp-registry-hold ] || exit 9
-            [ -f "$FAKE_HOLD" ] || exit 1
-            case "${5:-}" in
-              *Labels*) printf 'registry-hold\n' ;;
-              *Containers*)
-                if [ -f "$FAKE_CONNECTED" ]; then printf 'clouddsp-registry.localhost\n'; fi ;;
+            case "$3" in
+              clouddsp-registry-hold)
+                [ -f "$FAKE_HOLD" ] || exit 1
+                case "${5:-}" in
+                  *Labels*) printf 'registry-hold\n' ;;
+                  *Containers*)
+                    if [ -f "$FAKE_CONNECTED" ]; then printf 'clouddsp-registry.localhost\n'; fi ;;
+                esac ;;
+              k3d-clouddsp-local)
+                [ -f "$FAKE_CLUSTER_NETWORK" ] || exit 1
+                case "${5:-}" in
+                  *Labels*) printf 'k3d\n' ;;
+                  *Containers*)
+                    if [ -f "$FAKE_CLUSTER_ATTACHED" ]; then printf 'clouddsp-registry.localhost\n'; fi ;;
+                esac ;;
+              *) exit 9 ;;
             esac ;;
           'network create')
             [ "$7" = clouddsp-registry-hold ] || exit 9
@@ -31,10 +41,31 @@ class DeployLocalCleanupTest < Minitest::Test
             [ "$3 $4" = 'clouddsp-registry-hold clouddsp-registry.localhost' ] || exit 9
             touch "$FAKE_CONNECTED"
             printf 'network-connect\n' >> "$FAKE_CALLS" ;;
+          'network disconnect')
+            [ "$3 $4" = 'k3d-clouddsp-local clouddsp-registry.localhost' ] || exit 9
+            rm -- "$FAKE_CLUSTER_ATTACHED"
+            printf 'network-disconnect\n' >> "$FAKE_CALLS" ;;
           'network rm')
-            [ "$3" = clouddsp-registry-hold ] || exit 9
-            rm -- "$FAKE_HOLD" "$FAKE_CONNECTED"
-            printf 'network-remove\n' >> "$FAKE_CALLS" ;;
+            case "$3" in
+              clouddsp-registry-hold)
+                rm -- "$FAKE_HOLD" "$FAKE_CONNECTED"
+                printf 'network-remove\n' >> "$FAKE_CALLS" ;;
+              k3d-clouddsp-local)
+                [ ! -f "$FAKE_CLUSTER_ATTACHED" ] || exit 9
+                rm -- "$FAKE_CLUSTER_NETWORK"
+                printf 'cluster-network-remove\n' >> "$FAKE_CALLS" ;;
+              *) exit 9 ;;
+            esac ;;
+          'inspect clouddsp-registry.localhost')
+            [ -f "$FAKE_REGISTRY" ] || exit 9
+            printf 'clouddsp-registry-volume\n' ;;
+          'volume inspect')
+            [ "$3" = clouddsp-registry-volume ] || exit 9
+            [ -f "$FAKE_REGISTRY_VOLUME" ] ;;
+          'volume rm')
+            [ "$3" = clouddsp-registry-volume ] || exit 9
+            rm -- "$FAKE_REGISTRY_VOLUME"
+            printf 'volume-remove\n' >> "$FAKE_CALLS" ;;
           *) exit 9 ;;
         esac
       SCRIPT
@@ -48,14 +79,21 @@ class DeployLocalCleanupTest < Minitest::Test
           'cluster list clouddsp-local')
             if [ -f "$FAKE_CLUSTER" ]; then
               printf 'clouddsp-local 1/1 2/2 true\n'
+            else
+              printf 'clouddsp-local 0/0 0/0 false\n'
             fi ;;
-          'registry list clouddsp-registry.localhost')
+          'cluster list --no-headers')
+            if [ -f "$FAKE_CLUSTER" ]; then
+              printf 'clouddsp-local 1/1 2/2 true\n'
+            fi ;;
+          'registry list clouddsp-registry.localhost'|'registry list --no-headers')
             if [ -f "$FAKE_REGISTRY" ]; then
               printf 'clouddsp-registry.localhost registry running\n'
             fi ;;
           'cluster delete clouddsp-local')
             printf 'cluster\n' >> "$FAKE_CALLS"
             rm -- "$FAKE_CLUSTER"
+            if [ ! -f "$FAKE_CLUSTER_ATTACHED" ]; then rm -f -- "$FAKE_CLUSTER_NETWORK"; fi
             # Model k3d v5.9: a registry on only the cluster/default networks
             # is deleted as part of cluster deletion.
             if [ ! -f "$FAKE_CONNECTED" ]; then rm -f -- "$FAKE_REGISTRY"; fi ;;
@@ -73,6 +111,9 @@ class DeployLocalCleanupTest < Minitest::Test
         'FAKE_REGISTRY' => File.join(directory, 'registry-present'),
         'FAKE_HOLD' => File.join(directory, 'retention-network-present'),
         'FAKE_CONNECTED' => File.join(directory, 'registry-connected'),
+        'FAKE_CLUSTER_NETWORK' => File.join(directory, 'cluster-network-present'),
+        'FAKE_CLUSTER_ATTACHED' => File.join(directory, 'registry-attached-to-cluster'),
+        'FAKE_REGISTRY_VOLUME' => File.join(directory, 'registry-volume-present'),
         'FAKE_CALLS' => File.join(directory, 'calls')
       }
       yield environment
@@ -83,15 +124,18 @@ class DeployLocalCleanupTest < Minitest::Test
     with_fake_k3d do |environment|
       File.write(environment.fetch('FAKE_CLUSTER'), '')
       File.write(environment.fetch('FAKE_REGISTRY'), '')
+      File.write(environment.fetch('FAKE_CLUSTER_NETWORK'), '')
+      File.write(environment.fetch('FAKE_CLUSTER_ATTACHED'), '')
 
       output, error, status = Open3.capture3(environment, ENTRYPOINT, 'cleanup')
 
       assert status.success?, error
       assert_includes output, 'cleanup completed'
-      assert_equal %w[network-create network-connect cluster], File.readlines(environment.fetch('FAKE_CALLS'), chomp: true)
+      assert_equal %w[network-create network-connect network-disconnect cluster], File.readlines(environment.fetch('FAKE_CALLS'), chomp: true)
       refute File.exist?(environment.fetch('FAKE_CLUSTER'))
       assert File.exist?(environment.fetch('FAKE_REGISTRY'))
       assert File.exist?(environment.fetch('FAKE_HOLD'))
+      refute File.exist?(environment.fetch('FAKE_CLUSTER_NETWORK'))
     end
   end
 
@@ -102,6 +146,21 @@ class DeployLocalCleanupTest < Minitest::Test
       assert status.success?, error
       assert_includes output, 'already absent'
       refute File.exist?(environment.fetch('FAKE_CALLS'))
+    end
+  end
+
+  def test_cleanup_repairs_orphan_cluster_network_after_prior_deletion
+    with_fake_k3d do |environment|
+      File.write(environment.fetch('FAKE_REGISTRY'), '')
+      File.write(environment.fetch('FAKE_CLUSTER_NETWORK'), '')
+      File.write(environment.fetch('FAKE_CLUSTER_ATTACHED'), '')
+
+      output, error, status = Open3.capture3(environment, ENTRYPOINT, 'cleanup')
+
+      assert status.success?, error
+      assert_includes output, 'already absent'
+      assert_equal %w[network-disconnect cluster-network-remove], File.readlines(environment.fetch('FAKE_CALLS'), chomp: true)
+      refute File.exist?(environment.fetch('FAKE_CLUSTER_NETWORK'))
     end
   end
 
@@ -124,13 +183,15 @@ class DeployLocalCleanupTest < Minitest::Test
       File.write(environment.fetch('FAKE_REGISTRY'), '')
       File.write(environment.fetch('FAKE_HOLD'), '')
       File.write(environment.fetch('FAKE_CONNECTED'), '')
+      File.write(environment.fetch('FAKE_REGISTRY_VOLUME'), '')
 
       output, error, status = Open3.capture3(environment, ENTRYPOINT, 'purge-registry')
 
       assert status.success?, error
       assert_includes output, 'purge completed'
-      assert_equal %w[registry network-remove], File.readlines(environment.fetch('FAKE_CALLS'), chomp: true)
+      assert_equal %w[registry volume-remove network-remove], File.readlines(environment.fetch('FAKE_CALLS'), chomp: true)
       refute File.exist?(environment.fetch('FAKE_REGISTRY'))
+      refute File.exist?(environment.fetch('FAKE_REGISTRY_VOLUME'))
       refute File.exist?(environment.fetch('FAKE_HOLD'))
     end
   end

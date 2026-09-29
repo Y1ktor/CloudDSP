@@ -164,7 +164,9 @@ class CloudDSPDeploymentPlan
     docker = read_command('docker', 'info', '--format', '{{.ServerVersion}}')
     return unless docker
 
-    clusters = read_command('k3d', 'cluster', 'list', CLUSTER_NAME, '--no-headers')
+    # A named k3d lookup exits nonzero when the cluster is absent. An
+    # unfiltered listing lets this preflight report absence explicitly.
+    clusters = read_command('k3d', 'cluster', 'list', '--no-headers')
     return unless clusters
     unless clusters.lines.any? { |line| line.split.first == CLUSTER_NAME }
       @blockers << "k3d cluster #{CLUSTER_NAME} is absent."

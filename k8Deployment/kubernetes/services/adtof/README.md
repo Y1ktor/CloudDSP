@@ -1216,7 +1216,10 @@ applied, and the bootstrap reported the restricted user enabled with exactly
 created no object, PostgreSQL event, or broker message, so it is still distinct
 from a full worker smoke run.
 
-That bootstrap also exposed a shared image-lock correction: the verified
-MinIO-Client manifest-list digest is hosted by `quay.io/minio/mc`, not Docker
-Hub. Every Kubernetes MinIO Client manifest now uses that Quay reference while
-retaining the same pinned digest for local ARM64 and future AMD64 clusters.
+The MinIO client comes from MinIO's official `quay.io/minio/mc` release. The
+saved image archive available during local-registry migration contained only
+its ARM64 child, so that reviewed image is published at
+`y1ktor/clouddsp:minio-mc-release-2025-08-13` and pinned by digest in the image
+lock. Fresh deployment verifies the public tag, mirrors it into the local
+registry, and uses that local digest in MinIO Jobs. This lock entry currently
+supports Linux ARM64 only; it does not claim AMD64 coverage.

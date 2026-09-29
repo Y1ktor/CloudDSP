@@ -104,7 +104,10 @@ class MinioAdtofIamStage < MinioStateVerify
   end
 
   def validate_job(policy)
-    job = YAML.load_file(job_path.to_s)
+    # This reviewed Job reuses resource and security settings through YAML
+    # anchors. Psych disables aliases by default, so allow only YAML aliases
+    # while keeping object deserialization disabled.
+    job = YAML.safe_load(File.read(job_path.to_s), aliases: true)
     pod = job.dig('spec', 'template', 'spec')
     init = pod.fetch('initContainers')
     same('adtof IAM Job identity', [job['apiVersion'], job['kind'], job.dig('metadata', 'namespace'), job.dig('metadata', 'name')],

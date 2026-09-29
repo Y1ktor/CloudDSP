@@ -35,7 +35,11 @@ class DeployLocalPlatformTest < Minitest::Test
       ['Keycloak realm and client bootstrap', 'keycloak-realm-stage.rb', 'bootstrap'],
       ['Keycloak realm and client verification', 'keycloak-realm-stage.rb', 'verify'],
       ['Job API PostgreSQL runtime credential Secret', 'job-api-database-secret-stage.rb', 'bootstrap'],
-      ['Job API PostgreSQL database and migrations', 'job-api-postgresql-stage.rb', 'reconcile'],
+      ['Job API PostgreSQL database bootstrap', 'job-api-database-bootstrap.rb', 'reconcile'],
+      ['Job API prerequisite schema migrations through v006', 'job-api-migrations.rb', 'reconcile-prerequisites'],
+      ['Basic Pitch PostgreSQL role bootstrap', 'worker-database-stage.rb', 'basic-pitch', 'bootstrap'],
+      ['ADTOF PostgreSQL role bootstrap', 'worker-database-stage.rb', 'adtof', 'bootstrap'],
+      ['Job API remaining schema migrations', 'job-api-migrations.rb', 'reconcile'],
       ['Job API PostgreSQL verification', 'job-api-postgresql-stage.rb', 'verify'],
       ['RabbitMQ processing topology', 'rabbitmq-processing-topology.rb', 'reconcile'],
       ['RabbitMQ processing topology verification', 'rabbitmq-processing-topology.rb', 'verify'],
@@ -63,7 +67,11 @@ class DeployLocalPlatformTest < Minitest::Test
     assert_operator @calls.index(%w[keycloak-realm-stage.rb verify]), :<,
                     @calls.index(%w[job-api-database-secret-stage.rb bootstrap])
     assert_operator @calls.index(%w[job-api-database-secret-stage.rb bootstrap]), :<,
-                    @calls.index(%w[job-api-postgresql-stage.rb reconcile])
+                    @calls.index(%w[job-api-database-bootstrap.rb reconcile])
+    assert_operator @calls.index(%w[job-api-migrations.rb reconcile-prerequisites]), :<,
+                    @calls.index(%w[worker-database-stage.rb basic-pitch bootstrap])
+    assert_operator @calls.index(%w[worker-database-stage.rb adtof bootstrap]), :<,
+                    @calls.index(%w[job-api-migrations.rb reconcile])
     assert_operator @calls.index(%w[job-api-postgresql-stage.rb verify]), :<,
                     @calls.index(%w[rabbitmq-processing-topology.rb reconcile])
     assert_operator @calls.index(%w[rabbitmq-processing-topology.rb verify]), :<,

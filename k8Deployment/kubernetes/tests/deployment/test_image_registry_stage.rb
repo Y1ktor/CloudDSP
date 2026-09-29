@@ -35,11 +35,14 @@ class ImageRegistryStageTest < Minitest::Test
   def test_all_locked_local_images_have_distinct_public_tags
     entries = FakeStage.new.send(:load_entries)
 
-    assert_equal 18, entries.length
+    assert_equal 19, entries.length
     assert_equal entries.length, entries.map { |entry| entry.fetch(:hub_tag) }.uniq.length
     job_api = entries.find { |entry| entry.fetch(:key) == 'job-api' }
     assert_equal 'job-api-0.0.9-demucs-timeout-message', job_api.fetch(:hub_tag)
     assert_equal 'job-api', job_api.fetch(:local_repo)
+    minio_mc = entries.find { |entry| entry.fetch(:key) == 'minio-mc' }
+    assert_equal 'minio-mc-release-2025-08-13', minio_mc.fetch(:hub_tag)
+    assert_equal 'minio-mc', minio_mc.fetch(:local_repo)
   end
 
   def test_existing_hub_tag_with_wrong_digest_blocks_publish

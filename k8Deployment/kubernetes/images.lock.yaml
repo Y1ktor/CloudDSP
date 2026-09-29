@@ -707,17 +707,17 @@ images:
     # This release's image is intentionally a `scratch` image with only the
     # statically linked `mc` binary. The bootstrap Job therefore uses ordered
     # init containers instead of relying on a shell to chain admin commands.
-    # The manifest-list digest fixes the command implementation while allowing
-    # k3d on arm64 and a future native amd64 cluster to choose their matching
-    # image child.
-    repository: quay.io/minio/mc
-    sourceTag: "RELEASE.2025-08-13T08-35-41Z"
+    # The locally available OCI archive contained the ARM64 child only, so
+    # this pinned public mirror explicitly supports ARM64 until a complete
+    # multi-platform source is available. The normal image stage mirrors it
+    # from Docker Hub into the local registry before any MinIO client runs.
+    repository: clouddsp-registry.localhost:5001/minio-mc
+    sourceTag: "release-2025-08-13"
     resolvedVersion: "RELEASE.2025-08-13T08-35-41Z"
-    digest: sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
-    immutableReference: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+    digest: sha256:37d109dddbbb2c95873f5fc81ac93f37023264770fc580a7564148892087b1b7
+    immutableReference: clouddsp-registry.localhost:5001/minio-mc@sha256:37d109dddbbb2c95873f5fc81ac93f37023264770fc580a7564148892087b1b7
     supportedPlatforms:
       - linux/arm64/v8
-      - linux/amd64
     upstream: https://github.com/minio/mc/releases/tag/RELEASE.2025-08-13T08-35-41Z
     containerSource: https://github.com/minio/mc/blob/RELEASE.2025-08-13T08-35-41Z/Dockerfile
     resolvedAt: "2026-09-06"

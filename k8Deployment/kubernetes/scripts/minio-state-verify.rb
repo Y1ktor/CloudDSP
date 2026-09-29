@@ -3,11 +3,12 @@
 # boundaries, the source-intake notification, six IAM policy documents, and
 # their five restricted application identities. No object is uploaded or read.
 #
-# The host AWS CLI reads S3 metadata through the existing local Ingress. The
-# pinned, already-cached mc image runs transiently inside the k3d server node
-# for Admin API reads. Its credentials arrive over stdin, its config lives on
-# tmpfs, and `ctr run --rm` removes the client after each query. No root
-# credential enters a command argument, file, Kubernetes Job, or normal output.
+  # The host AWS CLI reads S3 metadata through the existing local Ingress. The
+  # pinned mc image is mirrored from Docker Hub into the local registry before
+  # the first transient run inside the k3d server node. Its credentials arrive
+  # over stdin, its config lives on tmpfs, and `ctr run --rm` removes the client
+  # after each query. No root credential enters a command argument, file,
+  # Kubernetes Job, or normal output.
 
 require 'base64'
 require 'cgi'
@@ -28,7 +29,12 @@ class MinioStateVerify
   UPLOAD_BUCKET = 'clouddsp-uploads'.freeze
   SAMPLE_BUCKET = 'clouddsp-midi-samples'.freeze
   NOTIFICATION_ARN = 'arn:minio:sqs::INTAKE:amqp'.freeze
-  MC_IMAGE = 'quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727'.freeze
+  MC_IMAGE = 'clouddsp-registry.localhost:5001/minio-mc@sha256:37d109dddbbb2c95873f5fc81ac93f37023264770fc580a7564148892087b1b7'.freeze
+  # k3s rewrites the public-facing :5001 registry address to the registry
+  # container's :5000 port for kubelet pulls. Direct `ctr` calls bypass that
+  # rewrite, so this verifier uses the node-internal HTTP endpoint explicitly.
+  MC_NODE_IMAGE = MC_IMAGE.sub('clouddsp-registry.localhost:5001/',
+                               'clouddsp-registry.localhost:5000/').freeze
   # Policy names are fixed, versioned MinIO IAM identities. An application
   # user may have several policies, but each policy belongs to one user only.
   POLICY_USERS = {
@@ -51,6 +57,7 @@ class MinioStateVerify
     @command = command
     @output = output
     @error = error
+    @mc_image_ready = false
   end
 
   def run
@@ -234,15 +241,29 @@ class MinioStateVerify
   # probes. Callers receive raw JSON only in memory and may classify a known
   # NoSuchUser/NoSuchPolicy code; every other failure must stop bootstrap.
   def mc_raw(credentials, *arguments)
+    ensure_mc_image
     encode = ->(value) { CGI.escape(value).tr('+', '%20') }
     host = "http://#{encode.call(credentials.fetch(:user))}:#{encode.call(credentials.fetch(:password))}@#{credentials.fetch(:ip)}:9000"
     input = "MC_HOST_audit=#{host}\nMC_CONFIG_DIR=/mc-config\n"
     command = ['docker', 'exec', '-i', NODE, 'ctr', '-n', 'k8s.io', 'run', '--rm',
                '--net-host', '--read-only', '--mount', 'type=tmpfs,dst=/mc-config,options=rw',
-               '--env-file', '/dev/stdin', MC_IMAGE, "clouddsp-minio-verify-#{SecureRandom.hex(6)}",
+               '--env-file', '/dev/stdin', MC_NODE_IMAGE, "clouddsp-minio-verify-#{SecureRandom.hex(6)}",
                '/usr/bin/mc', '--json', 'admin', *arguments]
     output, _stderr, status = @command.call(*command, stdin_data: input)
     [output, status]
+  end
+
+  # `ctr run` does not pull images. Pull the digest-pinned client into the
+  # server node's containerd namespace once, using the local registry that the
+  # root deployment stages have already populated. This keeps admin checks
+  # independent of whatever images happen to be cached on the host or node.
+  def ensure_mc_image
+    return if @mc_image_ready
+
+    _output, _stderr, status = @command.call('docker', 'exec', NODE, 'ctr', '-n', 'k8s.io',
+                                              'images', 'pull', '--plain-http', MC_NODE_IMAGE)
+    ensure_true(status.success?, 'pinned MinIO client image pull failed')
+    @mc_image_ready = true
   end
 
   def verify_iam(credentials, source_policies)

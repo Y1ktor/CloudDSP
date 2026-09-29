@@ -66,6 +66,12 @@ class CloudDSPFoundation
             '--dry-run=server', '--filename', NAMESPACE_CONFIG.to_s)
     command('versioned namespace creation', 'kubectl', '--context', CONTEXT, 'create',
             '--filename', NAMESPACE_CONFIG.to_s)
+    # K3s installs Traefik through an asynchronous Helm job. Node readiness
+    # does not mean its Deployment has been created yet.
+    SYSTEM_DEPLOYMENTS.each do |name|
+      command("kube-system #{name} creation", 'kubectl', '--context', CONTEXT, '-n', 'kube-system',
+              'wait', '--for=create', "deployment/#{name}", '--timeout=120s')
+    end
     verify_foundation(namespaces)
     @output.puts 'CloudDSP foundation bootstrap: fresh k3d cluster and three project namespaces ready'
     0
@@ -132,12 +138,14 @@ class CloudDSPFoundation
   end
 
   def cluster_exists?
-    command('target k3d cluster lookup', 'k3d', 'cluster', 'list', CLUSTER, '--no-headers')
+    # A named lookup exits nonzero on a fresh Docker daemon. List all clusters
+    # so absence is an ordinary empty result during the first bootstrap.
+    command('target k3d cluster lookup', 'k3d', 'cluster', 'list', '--no-headers')
       .lines.any? { |line| line.split.first == CLUSTER }
   end
 
   def registry_exists?
-    command('target k3d registry lookup', 'k3d', 'registry', 'list', REGISTRY, '--no-headers')
+    command('target k3d registry lookup', 'k3d', 'registry', 'list', '--no-headers')
       .lines.any? { |line| line.split.first == REGISTRY }
   end
 

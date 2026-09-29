@@ -65,7 +65,7 @@ class MinioAdtofIamStageTest < Minitest::Test
         if path == TEMP_SOURCE.to_s
           @resources[['secret', TEMP_SECRET]] = { 'kind' => 'Secret' }
         else
-          document = YAML.load_file(path)
+          document = YAML.safe_load(File.read(path), aliases: true)
           @resources[[document.fetch('kind').downcase, document.fetch('metadata').fetch('name')]] = document
         end
       when 'wait'

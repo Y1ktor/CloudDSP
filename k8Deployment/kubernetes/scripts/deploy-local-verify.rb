@@ -55,6 +55,8 @@ class CloudDSPLocalVerify
     Stage.new(name: 'Demucs MinIO runtime Secret', command: ['ruby', 'demucs-minio-secret-stage.rb', 'verify']),
     Stage.new(name: 'Basic Pitch MinIO runtime Secret', command: ['ruby', 'basic-pitch-minio-secret-stage.rb', 'verify']),
     Stage.new(name: 'ADTOF MinIO runtime Secret', command: ['ruby', 'adtof-minio-secret-stage.rb', 'verify']),
+    Stage.new(name: 'Basic Pitch PostgreSQL role', command: ['ruby', 'worker-database-stage.rb', 'basic-pitch', 'verify']),
+    Stage.new(name: 'ADTOF PostgreSQL role', command: ['ruby', 'worker-database-stage.rb', 'adtof', 'verify']),
     Stage.new(name: 'Job API PostgreSQL bootstrap and migrations', command: ['ruby', 'job-api-postgresql-stage.rb', 'verify']),
     Stage.new(name: 'RabbitMQ processing topology', command: ['ruby', 'rabbitmq-processing-topology.rb', 'verify']),
     Stage.new(name: 'upload-intake RabbitMQ runtime Secret', command: ['ruby', 'upload-intake-rabbitmq-secret-stage.rb', 'verify']),

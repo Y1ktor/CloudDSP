@@ -60,7 +60,7 @@ spec:
       # a custom administration image.
       initContainers:
         - name: configure-minio-root-alias
-          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          image: clouddsp-registry.localhost:5001/minio-mc@sha256:37d109dddbbb2c95873f5fc81ac93f37023264770fc580a7564148892087b1b7
           imagePullPolicy: IfNotPresent
           env:
             # Direct mc's small alias/config file to the writable emptyDir.
@@ -108,7 +108,7 @@ spec:
             - $(MINIO_ROOT_PASSWORD)
 
         - name: wait-for-minio-service
-          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          image: clouddsp-registry.localhost:5001/minio-mc@sha256:37d109dddbbb2c95873f5fc81ac93f37023264770fc580a7564148892087b1b7
           imagePullPolicy: IfNotPresent
           env:
             - name: MC_CONFIG_DIR
@@ -138,7 +138,7 @@ spec:
             - minio-admin
 
         - name: create-permanent-private-uploads-bucket
-          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          image: clouddsp-registry.localhost:5001/minio-mc@sha256:37d109dddbbb2c95873f5fc81ac93f37023264770fc580a7564148892087b1b7
           imagePullPolicy: IfNotPresent
           env:
             - name: MC_CONFIG_DIR
@@ -170,7 +170,7 @@ spec:
             - minio-admin/clouddsp-uploads
 
         - name: remove-anonymous-bucket-access
-          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          image: clouddsp-registry.localhost:5001/minio-mc@sha256:37d109dddbbb2c95873f5fc81ac93f37023264770fc580a7564148892087b1b7
           imagePullPolicy: IfNotPresent
           env:
             - name: MC_CONFIG_DIR
@@ -202,7 +202,7 @@ spec:
             - minio-admin/clouddsp-uploads
 
         - name: create-or-update-job-api-policy
-          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          image: clouddsp-registry.localhost:5001/minio-mc@sha256:37d109dddbbb2c95873f5fc81ac93f37023264770fc580a7564148892087b1b7
           imagePullPolicy: IfNotPresent
           env:
             - name: MC_CONFIG_DIR
@@ -239,7 +239,7 @@ spec:
             - /policy/job-api-uploads-policy.json
 
         - name: create-or-rotate-job-api-user
-          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          image: clouddsp-registry.localhost:5001/minio-mc@sha256:37d109dddbbb2c95873f5fc81ac93f37023264770fc580a7564148892087b1b7
           imagePullPolicy: IfNotPresent
           env:
             - name: MC_CONFIG_DIR
@@ -287,7 +287,7 @@ spec:
             - $(JOB_API_S3_SECRET_KEY)
 
         - name: attach-restricted-job-api-policy
-          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          image: clouddsp-registry.localhost:5001/minio-mc@sha256:37d109dddbbb2c95873f5fc81ac93f37023264770fc580a7564148892087b1b7
           imagePullPolicy: IfNotPresent
           env:
             - name: MC_CONFIG_DIR
@@ -332,7 +332,7 @@ spec:
             - --user=$(JOB_API_S3_ACCESS_KEY)
 
         - name: verify-job-api-user-policy
-          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          image: clouddsp-registry.localhost:5001/minio-mc@sha256:37d109dddbbb2c95873f5fc81ac93f37023264770fc580a7564148892087b1b7
           imagePullPolicy: IfNotPresent
           env:
             - name: MC_CONFIG_DIR
@@ -374,7 +374,7 @@ spec:
             - $(JOB_API_S3_ACCESS_KEY)
 
         - name: remove-root-alias-from-temporary-config
-          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          image: clouddsp-registry.localhost:5001/minio-mc@sha256:37d109dddbbb2c95873f5fc81ac93f37023264770fc580a7564148892087b1b7
           imagePullPolicy: IfNotPresent
           env:
             - name: MC_CONFIG_DIR
@@ -406,7 +406,7 @@ spec:
             - minio-admin
       containers:
         - name: completion-marker
-          image: quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          image: clouddsp-registry.localhost:5001/minio-mc@sha256:37d109dddbbb2c95873f5fc81ac93f37023264770fc580a7564148892087b1b7
           imagePullPolicy: IfNotPresent
           resources:
             requests:

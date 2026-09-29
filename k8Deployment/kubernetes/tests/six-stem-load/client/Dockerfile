@@ -8,7 +8,7 @@
 # multi-architecture Python base for the local ARM64 k3d profile.
 # Reuse the project's reviewed digest-pinned MinIO CLI image instead of
 # downloading an executable in this build. The runtime stage copies only mc.
-FROM quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727 AS minio-cli
+FROM clouddsp-registry.localhost:5001/minio-mc@sha256:37d109dddbbb2c95873f5fc81ac93f37023264770fc580a7564148892087b1b7 AS minio-cli
 
 FROM docker.io/library/python@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254 AS dependencies
 

@@ -82,6 +82,20 @@ class JobApiMigrationsTest < Minitest::Test
     assert_equal([@migrations.last.job_path], created.map(&:last))
   end
 
+  def test_prerequisite_pass_stops_at_v006_for_worker_role_bootstrap
+    fake = FakeCluster.new(@migrations, applied: 0)
+    capture_io { JobApiMigrations.new(runner: fake.method(:call)).run('reconcile-prerequisites') }
+    assert_equal @migrations.take(6).map(&:id), fake.rows.map { |row| row.fetch('migration_id') }
+    created_jobs = fake.calls.select { |argv| argv.include?('create') && !argv.include?('--dry-run=server') && argv.last.end_with?('-job.yaml') }
+    assert_equal @migrations.take(6).map(&:job_path), created_jobs.map(&:last)
+  end
+
+  def test_prerequisite_pass_is_read_only_after_v006
+    fake = FakeCluster.new(@migrations, applied: 6)
+    capture_io { JobApiMigrations.new(runner: fake.method(:call)).run('reconcile-prerequisites') }
+    refute(fake.calls.any? { |argv| argv.include?('create') })
+  end
+
   def test_missing_sql_configmap_is_created_before_the_migration_job
     fake = FakeCluster.new(@migrations, applied: 8, missing_config: true)
     capture_io { JobApiMigrations.new(runner: fake.method(:call)).run('reconcile') }

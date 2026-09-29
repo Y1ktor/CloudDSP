@@ -4,9 +4,9 @@
 # ordered child stages exactly once: preparation creates the cluster and image
 # mirror, then PostgreSQL, RabbitMQ, and MinIO receive their own Secrets,
 # releases, and external state. Keycloak's isolated database, Mailpit, and the
-# identity-provider release and realm precede Job API database/migrations. The Job API
-# PostgreSQL runtime Secret must exist before its role bootstrap Job can verify
-# matching credentials and run schema migrations. Processing topology is then
+# identity-provider release and realm precede Job API database/migrations. The
+# Job API schema passes through v006 before worker database roles are created;
+# v007 and later depend on those roles. Processing topology is then
 # imported into the broker before the Job API Helm release starts.
 #
 # This is a partial bootstrap. Remaining service roles and Secrets, KEDA, and
@@ -34,7 +34,11 @@ class CloudDSPBootstrapPlatform
     ['Keycloak realm and client bootstrap', 'keycloak-realm-stage.rb', 'bootstrap'],
     ['Keycloak realm and client verification', 'keycloak-realm-stage.rb', 'verify'],
     ['Job API PostgreSQL runtime credential Secret', 'job-api-database-secret-stage.rb', 'bootstrap'],
-    ['Job API PostgreSQL database and migrations', 'job-api-postgresql-stage.rb', 'reconcile'],
+    ['Job API PostgreSQL database bootstrap', 'job-api-database-bootstrap.rb', 'reconcile'],
+    ['Job API prerequisite schema migrations through v006', 'job-api-migrations.rb', 'reconcile-prerequisites'],
+    ['Basic Pitch PostgreSQL role bootstrap', 'worker-database-stage.rb', 'basic-pitch', 'bootstrap'],
+    ['ADTOF PostgreSQL role bootstrap', 'worker-database-stage.rb', 'adtof', 'bootstrap'],
+    ['Job API remaining schema migrations', 'job-api-migrations.rb', 'reconcile'],
     ['Job API PostgreSQL verification', 'job-api-postgresql-stage.rb', 'verify'],
     ['RabbitMQ processing topology', 'rabbitmq-processing-topology.rb', 'reconcile'],
     ['RabbitMQ processing topology verification', 'rabbitmq-processing-topology.rb', 'verify'],
