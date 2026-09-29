@@ -54,7 +54,7 @@ class DeployLocalPlatformTest < Minitest::Test
     assert_equal 1, @calls.count(%w[minio-release.rb install])
     assert_operator @calls.index(%w[postgresql-release.rb verify]), :<,
                     @calls.index(%w[rabbitmq-release.rb install])
-    assert_operator @calls.index(%w[minio-adtof-iam-stage.rb verify]), :<,
+    assert_operator @calls.index(%w[minio-notification-stage.rb verify]), :<,
                     @calls.index(%w[keycloak-database-stage.rb bootstrap])
     assert_operator @calls.index(%w[keycloak-database-stage.rb verify]), :<,
                     @calls.index(%w[mailpit-release.rb install])

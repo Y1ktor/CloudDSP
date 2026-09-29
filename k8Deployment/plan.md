@@ -4713,3 +4713,15 @@ now lists 49 steps.
 The retained cluster passed the Job API release's read-only Helm, source,
 image-digest, readiness, and protected-route checks. The fresh creation path
 is covered by fake-cluster tests until an empty-cluster trial.
+
+### Source-upload notification in fresh MinIO bootstrap (2026-09-29)
+
+The MinIO child of `bootstrap-platform` now runs the existing guarded
+`minio-notification-stage.rb reconcile` after the restricted IAM stages, then
+checks its durable rule with `verify`. The fixed Job creates only the absent
+`uploads/` PUT notification targeting RabbitMQ source intake. An existing
+matching rule verifies without a write; partial or foreign notification state
+stops for inspection. The root stage list now has 55 steps. Ordered-runner
+tests pass, and read-only `plan` verified the retained cluster's exact rule
+after the locked MinIO client was mirrored into its registry. The next
+empty-cluster trial must validate creation and the actual MinIO event path.

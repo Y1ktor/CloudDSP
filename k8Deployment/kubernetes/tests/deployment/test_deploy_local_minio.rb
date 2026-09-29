@@ -31,7 +31,9 @@ class DeployLocalMinioTest < Minitest::Test
     %w[minio-basic-pitch-iam-stage.rb bootstrap],
     %w[minio-basic-pitch-iam-stage.rb verify],
     %w[minio-adtof-iam-stage.rb bootstrap],
-    %w[minio-adtof-iam-stage.rb verify]
+    %w[minio-adtof-iam-stage.rb verify],
+    %w[minio-notification-stage.rb reconcile],
+    %w[minio-notification-stage.rb verify]
   ].freeze
 
   def setup
@@ -79,6 +81,10 @@ class DeployLocalMinioTest < Minitest::Test
                     @calls.index(%w[minio-basic-pitch-iam-stage.rb bootstrap])
     assert_operator @calls.index(%w[minio-basic-pitch-iam-stage.rb verify]), :<,
                     @calls.index(%w[minio-adtof-iam-stage.rb bootstrap])
+    assert_operator @calls.index(%w[minio-adtof-iam-stage.rb verify]), :<,
+                    @calls.index(%w[minio-notification-stage.rb reconcile])
+    assert_operator @calls.index(%w[minio-notification-stage.rb verify]), :>,
+                    @calls.index(%w[minio-notification-stage.rb reconcile])
     assert_includes @output.string, 'application orchestration remains pending'
     assert_empty @error.string
   end

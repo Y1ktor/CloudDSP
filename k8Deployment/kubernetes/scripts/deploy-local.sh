@@ -5,7 +5,8 @@
 # foundation and mirrors its locked images. `bootstrap-mailpit` adds the first
 # fresh Helm release. `bootstrap-postgresql` and `bootstrap-rabbitmq` prepare
 # individual stateful services; `bootstrap-minio` composes broker and object
-# storage prerequisites, buckets, locked samples, and restricted IAM users.
+# storage prerequisites, buckets, locked samples, restricted IAM users, and
+# the source-upload notification that forwards private uploads to the broker.
 # `bootstrap-platform` reuses those guarded children once, adding PostgreSQL,
 # Keycloak's database, release, and realm, Mailpit, Job API schema/release,
 # and processing topology in dependency order.
@@ -39,7 +40,8 @@ bootstrap-minio: On an absent cluster, prepare and install RabbitMQ, create
          source-intake state, install MinIO, and stage Job API, upload-intake,
          Demucs, Basic Pitch, and ADTOF MinIO runtime credentials. It creates buckets,
          mirrors 461 locked MIDI samples, and provisions Job API, upload-intake,
-         Demucs, Basic Pitch, and ADTOF MinIO users.
+         Demucs, Basic Pitch, and ADTOF MinIO users. Reconcile and verify the
+         source-upload notification after those identities are ready.
 bootstrap-platform: On an absent cluster, compose the guarded PostgreSQL,
          RabbitMQ, and MinIO children once, create Keycloak's database and
          credential Secret, install Mailpit, then stage Keycloak's admin Secret

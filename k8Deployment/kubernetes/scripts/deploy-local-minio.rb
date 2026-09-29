@@ -10,7 +10,10 @@
 # match. Two fixed Jobs provision the Job API's restricted MinIO IAM, then a
 # separate Job provisions upload-intake's source-read identity. Another fixed
 # Job provisions Demucs artifact IAM, followed by the Basic Pitch artifact
-# IAM Job. The ADTOF credential and restricted IAM follow those workers.
+# IAM Job. The ADTOF credential and restricted IAM follow those workers. Only
+# after all five IAM identities verify does the fixed notification Job connect
+# private source uploads to RabbitMQ. Its rule is then read back from MinIO's
+# durable S3 metadata before a dependent application can start.
 # A failed child leaves partial state for
 # inspection; this runner never retries by taking ownership or deleting data.
 require 'rbconfig'
@@ -44,7 +47,9 @@ class CloudDSPBootstrapMinio
     ['fresh Basic Pitch MinIO IAM user and policy', 'minio-basic-pitch-iam-stage.rb', 'bootstrap'],
     ['Basic Pitch MinIO IAM verification', 'minio-basic-pitch-iam-stage.rb', 'verify'],
     ['fresh ADTOF MinIO IAM user and policy', 'minio-adtof-iam-stage.rb', 'bootstrap'],
-    ['ADTOF MinIO IAM verification', 'minio-adtof-iam-stage.rb', 'verify']
+    ['ADTOF MinIO IAM verification', 'minio-adtof-iam-stage.rb', 'verify'],
+    ['MinIO source-upload notification', 'minio-notification-stage.rb', 'reconcile'],
+    ['MinIO source-upload notification verification', 'minio-notification-stage.rb', 'verify']
   ].freeze
 
   def initialize(run_command: method(:system), output: $stdout, error: $stderr)
@@ -62,7 +67,7 @@ class CloudDSPBootstrapMinio
       @error.puts "CloudDSP bootstrap-minio stopped at #{label}; inspect that stage before retrying."
       return 1
     end
-    @output.puts 'CloudDSP bootstrap-minio complete: broker, MinIO, shared samples, Job API IAM, upload-intake IAM, Demucs IAM, Basic Pitch IAM, and ADTOF IAM ready; application orchestration remains pending.'
+    @output.puts 'CloudDSP bootstrap-minio complete: broker, MinIO, shared samples, restricted IAM, and source-upload notification ready; application orchestration remains pending.'
     0
   end
 end

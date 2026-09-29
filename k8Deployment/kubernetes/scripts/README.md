@@ -32,7 +32,7 @@ is a standalone k3d container; normal `cleanup` retains its images, while
 ./k8Deployment/kubernetes/scripts/deploy-local.sh purge-registry
 ```
 
-`stages` prints the exact 53 ordered steps currently wired into
+`stages` prints the exact 55 ordered steps currently wired into
 `bootstrap-platform` without contacting the cluster. The `plan` mode is the first stage of the
 [deployment orchestrator](../deployment-orchestration-plan.md). It reads the
 versioned workload manifests and lock files, then queries only the explicit
@@ -110,7 +110,10 @@ browser-read policy. It then provisions the restricted Job API user with two
 policies, the upload-intake user with its source-read policy, the Demucs worker
 with its private source-read and stem-write policy, the Basic Pitch worker
 with its stem-read and MIDI-write policy, and the ADTOF worker with its
-drums-read and fixed MIDI/tempo-write policy.
+drums-read and fixed MIDI/tempo-write policy. Once these IAM stages verify,
+the fixed notification Job configures the private uploads bucket to send
+`uploads/` object PUT events to the restricted RabbitMQ source-intake target.
+The next read-only gate verifies the exact durable notification rule.
 The broker runner manages its temporary bootstrap Secret and removes it after
 successful user verification. A failed stage leaves partial state
 for inspection. This is an alternative partial trial to the other
