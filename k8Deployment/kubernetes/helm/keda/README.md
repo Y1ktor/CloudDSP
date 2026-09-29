@@ -18,6 +18,9 @@ specific worker Deployment.
 - [`../../scripts/install-keda.sh`](../../scripts/install-keda.sh) is the one
   non-interactive install/upgrade entry point. It uses the explicit k3d
   context, reads both files, waits for readiness, and verifies the CRDs.
+- [`../../scripts/keda-release-stage.rb`](../../scripts/keda-release-stage.rb)
+  guards fresh bootstrap against an existing release or leftover KEDA
+  resources and verifies the exact deployed chart, values, and controllers.
 
 The installed KEDA components run as normal Kubernetes Pods in the `keda`
 namespace. Helm is only the host-side client that renders and submits the
@@ -29,10 +32,20 @@ after the command exits.
 Run the versioned installer from the repository root:
 
 ```bash
+ruby ./k8Deployment/kubernetes/scripts/keda-release-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/keda-release-stage.rb install
+ruby ./k8Deployment/kubernetes/scripts/keda-release-stage.rb verify
+```
+
+Use the Ruby `install` mode during one-command fresh bootstrap; it refuses a
+pre-existing KEDA release, namespace, CRD, or metrics API. The standalone
+shell installer is an alternative for explicit reconciliation:
+
+```bash
 ./k8Deployment/kubernetes/scripts/install-keda.sh
 ```
 
-The script targets `k3d-clouddsp-local` explicitly. `helm upgrade --install`
+It targets `k3d-clouddsp-local` explicitly. `helm upgrade --install`
 makes repeated runs intentional reconciliation: it installs the release when
 absent and upgrades it only to the exact version in `release.lock.yaml` when
 present. It does not create a CloudDSP worker ScaledObject, change a worker's

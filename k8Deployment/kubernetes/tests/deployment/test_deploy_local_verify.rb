@@ -46,6 +46,9 @@ class DeployLocalVerifyTest < Minitest::Test
                     commands.index(['ruby', 'minio-basic-pitch-iam-stage.rb', 'verify'])
     assert_operator commands.index(['ruby', 'minio-basic-pitch-iam-stage.rb', 'verify']), :<,
                     commands.index(['ruby', 'minio-adtof-iam-stage.rb', 'verify'])
+    assert_operator commands.index(['ruby', 'keda-release-stage.rb', 'verify']), :<,
+                    commands.index(['kubectl', '--context', 'k3d-clouddsp-local', '-n', 'keda', 'rollout',
+                                    'status', 'deployment/keda-operator', '--timeout=30s'])
     commands.each do |command|
       if command.first == 'ruby'
         assert command.length == 2 || command.last == 'verify', command.inspect

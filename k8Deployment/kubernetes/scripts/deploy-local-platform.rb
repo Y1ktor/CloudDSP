@@ -9,9 +9,10 @@
 # v007 and later depend on those roles. Processing topology is then
 # imported into the broker before the Job API Helm release starts.
 #
-# This is a partial bootstrap. Remaining service roles and Secrets, KEDA, and
-# remaining application Helm releases need independent fresh runners before a
-# full browser-to-worker bootstrap can be enabled. A failed child leaves the
+# This is a partial bootstrap. The pinned KEDA platform release now follows
+# the Job API; remaining service roles, Secrets, and application Helm releases
+# need independent fresh runners before a full browser-to-worker bootstrap can
+# be enabled. A failed child leaves the
 # partial cluster for inspection; this coordinator never adopts or retries it.
 require 'rbconfig'
 require_relative 'deploy-local-postgresql'
@@ -43,7 +44,9 @@ class CloudDSPBootstrapPlatform
     ['RabbitMQ processing topology', 'rabbitmq-processing-topology.rb', 'reconcile'],
     ['RabbitMQ processing topology verification', 'rabbitmq-processing-topology.rb', 'verify'],
     ['fresh Job API Helm install', 'job-api-release.rb', 'install'],
-    ['Job API Helm verification', 'job-api-release.rb', 'verify']
+    ['Job API Helm verification', 'job-api-release.rb', 'verify'],
+    ['fresh KEDA Helm install', 'keda-release-stage.rb', 'install'],
+    ['KEDA Helm and controller verification', 'keda-release-stage.rb', 'verify']
   ].freeze
 
   def initialize(run_command: method(:system), output: $stdout, error: $stderr)
@@ -61,7 +64,7 @@ class CloudDSPBootstrapPlatform
       @error.puts "CloudDSP bootstrap-platform stopped at #{label}; inspect that stage before retrying."
       return 1
     end
-    @output.puts 'CloudDSP bootstrap-platform complete: foundation, images, PostgreSQL, RabbitMQ, MinIO, Keycloak identity, Mailpit, Job API release, and processing topology ready; application bootstrap remains pending.'
+    @output.puts 'CloudDSP bootstrap-platform complete: foundation, images, PostgreSQL, RabbitMQ, MinIO, Keycloak identity, Mailpit, Job API, processing topology, and KEDA ready; application bootstrap remains pending.'
     0
   end
 

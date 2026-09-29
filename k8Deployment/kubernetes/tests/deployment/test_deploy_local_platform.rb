@@ -44,7 +44,9 @@ class DeployLocalPlatformTest < Minitest::Test
       ['RabbitMQ processing topology', 'rabbitmq-processing-topology.rb', 'reconcile'],
       ['RabbitMQ processing topology verification', 'rabbitmq-processing-topology.rb', 'verify'],
       ['fresh Job API Helm install', 'job-api-release.rb', 'install'],
-      ['Job API Helm verification', 'job-api-release.rb', 'verify']
+      ['Job API Helm verification', 'job-api-release.rb', 'verify'],
+      ['fresh KEDA Helm install', 'keda-release-stage.rb', 'install'],
+      ['KEDA Helm and controller verification', 'keda-release-stage.rb', 'verify']
     ].map { |_label, script, *arguments| [script, *arguments] }
 
     assert_equal 0, run_platform
@@ -76,6 +78,10 @@ class DeployLocalPlatformTest < Minitest::Test
                     @calls.index(%w[rabbitmq-processing-topology.rb reconcile])
     assert_operator @calls.index(%w[rabbitmq-processing-topology.rb verify]), :<,
                     @calls.index(%w[job-api-release.rb install])
+    assert_operator @calls.index(%w[job-api-release.rb verify]), :<,
+                    @calls.index(%w[keda-release-stage.rb install])
+    assert_operator @calls.index(%w[keda-release-stage.rb install]), :<,
+                    @calls.index(%w[keda-release-stage.rb verify])
     assert @calls.all? { |call| (call & %w[adopt upgrade smoke delete apply]).empty? }
     assert_includes @output.string, 'application bootstrap remains pending'
     assert_empty @error.string

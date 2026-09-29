@@ -32,7 +32,7 @@ is a standalone k3d container; normal `cleanup` retains its images, while
 ./k8Deployment/kubernetes/scripts/deploy-local.sh purge-registry
 ```
 
-`stages` prints the exact 55 ordered steps currently wired into
+`stages` prints the exact 57 ordered steps currently wired into
 `bootstrap-platform` without contacting the cluster. The `plan` mode is the first stage of the
 [deployment orchestrator](../deployment-orchestration-plan.md). It reads the
 versioned workload manifests and lock files, then queries only the explicit
@@ -131,13 +131,14 @@ then configure and verify the CloudDSP realm, SMTP, registration policies,
 React PKCE client, and Job API audience. It creates the Job API
 PostgreSQL runtime Secret, bootstraps the Job API schema owner, applies schema
 migrations v001–v006, provisions the Basic Pitch and ADTOF restricted database
-roles, then applies v007–v009. It imports/verifies RabbitMQ processing topology, then installs
-and verifies the Job API Helm release. Every step
+roles, then applies v007–v009. It imports/verifies RabbitMQ processing topology,
+installs and verifies the Job API Helm release, then installs and verifies the
+pinned KEDA chart, controllers, CRDs, and Helm values. Every step
 stops at the first error and leaves a partial cluster for inspection. This is
 an alternative absent-cluster command, not one to run after a partial
-bootstrap. The retained cluster passed read-only verification; the fresh
-The 53 stages completed in an isolated Ubuntu 24.04 VM on September 29, 2026
-after installing the AWS CLI v2. On the final trial, both the CloudDSP cluster
+bootstrap. The earlier 53-stage path completed in an isolated Ubuntu 24.04 VM
+on September 29, 2026 after installing the AWS CLI v2. On the final trial,
+both the CloudDSP cluster
 and its local registry were absent at the start. The run anonymously verified
 and digest-mirrored all 19 locked ARM64 images, including the public MinIO
 client mirror, then completed all 53 `bootstrap-platform` stages. The MinIO
@@ -145,11 +146,12 @@ IAM Jobs pulled and ran the client from the newly populated registry. The
 first attempt exposed that direct `ctr` calls bypass k3s registry rewriting;
 the verifier now uses the node-internal HTTP registry endpoint explicitly.
 
-This validates the platform bootstrap, not the full application deployment.
-KEDA, remaining application Secrets/releases, and the MinIO upload notification
-stage are not part of these 53 stages. As a result, root `verify` stops at its
-preflight and the focused MinIO state verifier reports the missing notification
-until those later bootstrap stages are wired.
+This validates the earlier platform bootstrap, not the current 57-stage path
+or the full application deployment. The MinIO notification and KEDA fresh
+install stages were wired afterward and have read-only verification on the
+retained cluster. Their fresh creation paths await the next empty-cluster trial.
+Remaining application Secrets/releases also keep root `verify` from passing
+after the partial platform bootstrap.
 
 For focused Keycloak database diagnosis, run:
 
@@ -167,7 +169,7 @@ local password through the existing PostgreSQL Pod; the password travels on
 stdin and is never printed.
 
 The full `bootstrap` command still needs guarded fresh paths for remaining
-application database and RabbitMQ roles, their runtime Secrets, KEDA
+application database and RabbitMQ roles, their runtime Secrets, KEDA trigger
 authentication, and the other app/worker Helm
 releases. Most existing app release runners currently support adoption of live
 objects, not a fresh install. Those dependencies must be implemented and
@@ -200,9 +202,10 @@ every tag were verified by anonymous manifest requests. A Job API image was
 pulled from Docker Hub and pushed to a disposable empty `.localhost` registry
 with its digest unchanged. A complete fresh-registry `mirror` run and full root
 `bootstrap-platform` run passed in the September 29 VM trial with matching
-digests in both registries. The full application `bootstrap` sequence still
-needs KEDA, remaining runtime Secrets/releases, and the MinIO upload
-notification stage; normal `cleanup` retains the populated registry.
+digests in both registries. The current 57-stage path adds the notification
+and pinned KEDA release; their fresh paths await a new trial. The full
+application `bootstrap` still needs remaining runtime Secrets and releases;
+normal `cleanup` retains the populated registry.
 
 ## Root verification and existing-cluster reconcile
 
@@ -221,8 +224,9 @@ the [MinIO bucket stage](minio-buckets-stage.rb), the
 [Demucs IAM stage](minio-demucs-iam-stage.rb), the
 [Basic Pitch IAM stage](minio-basic-pitch-iam-stage.rb), the
 [ADTOF IAM stage](minio-adtof-iam-stage.rb), and
-[IAM/notification state](minio-notification-stage.rb),
-and the KEDA controller Deployments and CRDs in dependency order.
+[IAM/notification state](minio-notification-stage.rb), the pinned
+[KEDA release](keda-release-stage.rb), and its controller Deployments and CRDs
+in dependency order.
 It stops at the first failed gate and names the component command to run for
 focused diagnosis. It invokes no adopt, reconcile, bootstrap, or smoke mode;
 therefore it does not create test Jobs or alter the live cluster. The Keycloak
@@ -1235,11 +1239,26 @@ deployed; K3s platform Pods such as CoreDNS and Traefik run in `kube-system`.
 ## Install or reconcile KEDA
 
 ```bash
+ruby ./k8Deployment/kubernetes/scripts/keda-release-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/keda-release-stage.rb install
+ruby ./k8Deployment/kubernetes/scripts/keda-release-stage.rb verify
+```
+
+The guarded `install` path is part of `bootstrap-platform`. It requires no
+KEDA Helm release, namespace, CRD, or external metrics API registration,
+then calls the pinned installer and verifies the exact Helm values, three
+controller rollouts, six KEDA CRDs, and metrics API registration. `plan` and
+`verify` are read-only. The fresh install has not yet been trialed on an
+empty cluster; the retained cluster passed `verify`.
+
+The underlying shell command supports a separately requested install or
+upgrade of the pinned KEDA release:
+
+```bash
 ./k8Deployment/kubernetes/scripts/install-keda.sh
 ```
 
-This is the versioned, non-interactive Helm entry point for the KEDA event
-autoscaler. It reads the pinned official chart release and local values from
+It reads the pinned official chart release and local values from
 [`../helm/keda/`](../helm/keda/), targets only the
 `k3d-clouddsp-local` context, and waits for KEDA's operator, metrics API
 server, admission webhook, and custom resource definitions to become ready.

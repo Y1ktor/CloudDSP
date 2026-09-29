@@ -4725,3 +4725,15 @@ stops for inspection. The root stage list now has 55 steps. Ordered-runner
 tests pass, and read-only `plan` verified the retained cluster's exact rule
 after the locked MinIO client was mirrored into its registry. The next
 empty-cluster trial must validate creation and the actual MinIO event path.
+
+### Guarded KEDA platform install (2026-09-29)
+
+`kubernetes/scripts/keda-release-stage.rb` adds a fresh-only boundary around
+the existing pinned installer. It requires KEDA's Helm release, namespace,
+CRDs, and external metrics API to be absent before the shell installer can
+write. After install, and in read-only `verify`, it checks chart 2.20.2,
+committed Helm values, three Ready controller Deployments, all six KEDA CRDs,
+and the metrics API registration. `bootstrap-platform` runs install and verify
+after the Job API; `stages` lists 57 steps. The retained cluster passed the
+new read-only verifier and fake-cluster tests cover the fresh guard and order.
+An empty-cluster trial is still required for the new install path.

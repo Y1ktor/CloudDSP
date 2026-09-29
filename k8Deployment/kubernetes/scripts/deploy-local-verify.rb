@@ -76,6 +76,7 @@ class CloudDSPLocalVerify
     Stage.new(name: 'upload-intake release', command: ['ruby', 'upload-intake-release.rb', 'verify']),
     Stage.new(name: 'legacy dispatcher release', command: ['ruby', 'dispatcher-release.rb', 'verify']),
     Stage.new(name: 'generic dispatcher release', command: ['ruby', 'generic-dispatcher-release.rb', 'verify']),
+    Stage.new(name: 'pinned KEDA Helm release', command: ['ruby', 'keda-release-stage.rb', 'verify']),
     Stage.new(name: 'KEDA operator', command: ['kubectl', '--context', CONTEXT, '-n', 'keda', 'rollout', 'status', 'deployment/keda-operator', '--timeout=30s']),
     Stage.new(name: 'KEDA metrics API', command: ['kubectl', '--context', CONTEXT, '-n', 'keda', 'rollout', 'status', 'deployment/keda-operator-metrics-apiserver', '--timeout=30s']),
     Stage.new(name: 'KEDA admission webhooks', command: ['kubectl', '--context', CONTEXT, '-n', 'keda', 'rollout', 'status', 'deployment/keda-admission-webhooks', '--timeout=30s']),
