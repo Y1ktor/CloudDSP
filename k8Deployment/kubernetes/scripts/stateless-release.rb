@@ -19,6 +19,8 @@ class StatelessRelease
   ROOT = Pathname.new(__dir__).parent
   REPOSITORY_ROOT = ROOT.parent.parent
   CONTEXT = 'k3d-clouddsp-local'
+  IDLE_POD_DRAIN_TIMEOUT_SECONDS = 60
+  IDLE_POD_RECHECK_INTERVAL_SECONDS = 1
 
   def initialize(component:, namespace:, release:, source_files:, resources:, pod_selector:, health_host: nil, health_path: nil,
                  source_directory: component, image_lock_key: component, verify_running_digest: false,
@@ -455,13 +457,28 @@ class StatelessRelease
                 "#{@component} #{@workload_kind} observed replicas changed")
     pvc = live_pvc if @pvc_name
     pod_uid = if @expected_replicas.zero?
-                pods = JSON.parse(kubectl('get', 'pods', '--selector', @pod_selector, '--output', 'json')).fetch('items')
-                ensure_true(pods.empty?, "expected no idle #{@component} Pods, found #{pods.length}")
+                wait_for_idle_pods
                 nil
               else
                 live_pod.fetch('metadata').fetch('uid')
               end
     { objects: objects, pod_uid: pod_uid, pvc: pvc, release: record }
+  end
+
+  def wait_for_idle_pods
+    deadline = monotonic_time + IDLE_POD_DRAIN_TIMEOUT_SECONDS
+    loop do
+      pods = JSON.parse(kubectl('get', 'pods', '--selector', @pod_selector, '--output', 'json')).fetch('items')
+      return if pods.empty?
+
+      remaining = deadline - monotonic_time
+      ensure_true(remaining.positive?, "expected no idle #{@component} Pods, found #{pods.length} after scale-to-zero")
+      sleep([remaining, IDLE_POD_RECHECK_INTERVAL_SECONDS].min)
+    end
+  end
+
+  def monotonic_time
+    Process.clock_gettime(Process::CLOCK_MONOTONIC)
   end
 
   def live_pvc
