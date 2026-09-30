@@ -41,12 +41,46 @@ class DeployLocalPlatformTest < Minitest::Test
       ['ADTOF PostgreSQL role bootstrap', 'worker-database-stage.rb', 'adtof', 'bootstrap'],
       ['Job API remaining schema migrations', 'job-api-migrations.rb', 'reconcile'],
       ['Job API PostgreSQL verification', 'job-api-postgresql-stage.rb', 'verify'],
+      ['upload-intake PostgreSQL role and runtime Secret', 'application-identity-stage.rb', 'database', 'upload-intake', 'bootstrap'],
+      ['upload-intake PostgreSQL identity verification', 'application-identity-stage.rb', 'database', 'upload-intake', 'verify'],
+      ['dispatcher PostgreSQL role and runtime Secret', 'application-identity-stage.rb', 'database', 'dispatcher', 'bootstrap'],
+      ['dispatcher PostgreSQL identity verification', 'application-identity-stage.rb', 'database', 'dispatcher', 'verify'],
+      ['Demucs PostgreSQL role and runtime Secret', 'application-identity-stage.rb', 'database', 'demucs', 'bootstrap'],
+      ['Demucs PostgreSQL identity verification', 'application-identity-stage.rb', 'database', 'demucs', 'verify'],
+      ['Demucs KEDA PostgreSQL scaler role and Secret', 'application-identity-stage.rb', 'database', 'keda-demucs', 'bootstrap'],
+      ['Demucs KEDA PostgreSQL scaler identity verification', 'application-identity-stage.rb', 'database', 'keda-demucs', 'verify'],
       ['RabbitMQ processing topology', 'rabbitmq-processing-topology.rb', 'reconcile'],
       ['RabbitMQ processing topology verification', 'rabbitmq-processing-topology.rb', 'verify'],
+      ['dispatcher RabbitMQ publisher user and Secret', 'application-identity-stage.rb', 'rabbitmq', 'dispatcher', 'bootstrap'],
+      ['dispatcher RabbitMQ publisher verification', 'application-identity-stage.rb', 'rabbitmq', 'dispatcher', 'verify'],
+      ['Demucs RabbitMQ consumer user and Secret', 'application-identity-stage.rb', 'rabbitmq', 'demucs', 'bootstrap'],
+      ['Demucs RabbitMQ consumer verification', 'application-identity-stage.rb', 'rabbitmq', 'demucs', 'verify'],
+      ['Basic Pitch RabbitMQ consumer user and Secret', 'application-identity-stage.rb', 'rabbitmq', 'basic-pitch', 'bootstrap'],
+      ['Basic Pitch RabbitMQ consumer verification', 'application-identity-stage.rb', 'rabbitmq', 'basic-pitch', 'verify'],
+      ['ADTOF RabbitMQ consumer user and Secret', 'application-identity-stage.rb', 'rabbitmq', 'adtof', 'bootstrap'],
+      ['ADTOF RabbitMQ consumer verification', 'application-identity-stage.rb', 'rabbitmq', 'adtof', 'verify'],
+      ['KEDA RabbitMQ scaler user and Secret', 'application-identity-stage.rb', 'rabbitmq', 'keda-scaler', 'bootstrap'],
+      ['KEDA RabbitMQ scaler identity verification', 'application-identity-stage.rb', 'rabbitmq', 'keda-scaler', 'verify'],
       ['fresh Job API Helm install', 'job-api-release.rb', 'install'],
       ['Job API Helm verification', 'job-api-release.rb', 'verify'],
       ['fresh KEDA Helm install', 'keda-release-stage.rb', 'install'],
-      ['KEDA Helm and controller verification', 'keda-release-stage.rb', 'verify']
+      ['KEDA Helm and controller verification', 'keda-release-stage.rb', 'verify'],
+      ['fresh KEDA scaling-auth Helm install', 'scaling-auth-release.rb', 'install'],
+      ['KEDA scaling-auth prerequisite verification', 'scaling-auth-release.rb', 'verify-prerequisites'],
+      ['fresh upload-intake Helm install', 'upload-intake-release.rb', 'install'],
+      ['upload-intake Helm verification', 'upload-intake-release.rb', 'verify'],
+      ['fresh legacy dispatcher Helm install', 'dispatcher-release.rb', 'install'],
+      ['legacy dispatcher Helm verification', 'dispatcher-release.rb', 'verify'],
+      ['fresh generic dispatcher Helm install', 'generic-dispatcher-release.rb', 'install'],
+      ['generic dispatcher Helm verification', 'generic-dispatcher-release.rb', 'verify'],
+      ['fresh Demucs Helm install', 'demucs-release.rb', 'install'],
+      ['Demucs Helm verification', 'demucs-release.rb', 'verify'],
+      ['fresh Basic Pitch Helm install', 'basic-pitch-release.rb', 'install'],
+      ['Basic Pitch Helm verification', 'basic-pitch-release.rb', 'verify'],
+      ['fresh ADTOF Helm install', 'adtof-release.rb', 'install'],
+      ['ADTOF Helm verification', 'adtof-release.rb', 'verify'],
+      ['fresh frontend Helm install', 'frontend-release.rb', 'install'],
+      ['frontend Helm, route, and static asset verification', 'frontend-release.rb', 'verify']
     ].map { |_label, script, *arguments| [script, *arguments] }
 
     assert_equal 0, run_platform
@@ -82,8 +116,14 @@ class DeployLocalPlatformTest < Minitest::Test
                     @calls.index(%w[keda-release-stage.rb install])
     assert_operator @calls.index(%w[keda-release-stage.rb install]), :<,
                     @calls.index(%w[keda-release-stage.rb verify])
+    assert_operator @calls.index(%w[scaling-auth-release.rb install]), :<,
+                    @calls.index(%w[demucs-release.rb install])
+    assert_operator @calls.index(%w[basic-pitch-release.rb install]), :<,
+                    @calls.index(%w[adtof-release.rb install])
+    assert_operator @calls.index(%w[frontend-release.rb install]), :<,
+                    @calls.index(%w[frontend-release.rb verify])
     assert @calls.all? { |call| (call & %w[adopt upgrade smoke delete apply]).empty? }
-    assert_includes @output.string, 'application bootstrap remains pending'
+    assert_includes @output.string, 'all application Helm releases are ready'
     assert_empty @error.string
   end
 

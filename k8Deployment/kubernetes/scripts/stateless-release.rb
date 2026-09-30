@@ -17,6 +17,7 @@ require 'yaml'
 
 class StatelessRelease
   ROOT = Pathname.new(__dir__).parent
+  REPOSITORY_ROOT = ROOT.parent.parent
   CONTEXT = 'k3d-clouddsp-local'
 
   def initialize(component:, namespace:, release:, source_files:, resources:, pod_selector:, health_host: nil, health_path: nil,
@@ -175,7 +176,7 @@ class StatelessRelease
   end
 
   def command(*args, stdin_data: nil)
-    output, error, status = Open3.capture3(*args, stdin_data: stdin_data)
+    output, error, status = Open3.capture3(*args, stdin_data: stdin_data, chdir: REPOSITORY_ROOT)
     raise "#{args.first} failed: #{error.strip.empty? ? output.strip : error.strip}" unless status.success?
     output
   end
@@ -278,8 +279,10 @@ class StatelessRelease
     # Helm can create storage. PVC data is never reused by an implicit install.
     stateless = @workload_kind == 'Deployment' && @pvc_name.nil?
     stateful = @workload_kind == 'StatefulSet' && !@pvc_name.nil?
-    ensure_true(@expected_replicas == 1 && (stateless || stateful),
-                "fresh #{@component} install requires a one-Pod Deployment or guarded StatefulSet")
+    fresh_deployment = @expected_replicas == 1 ||
+                       (@expected_replicas.zero? && @source.any? { |(kind, _namespace, _name), _object| kind == 'ScaledObject' })
+    ensure_true(fresh_deployment && (stateless || stateful),
+                "fresh #{@component} install requires a one-Pod Deployment, an idle KEDA worker, or guarded StatefulSet")
     ensure_true(release_record.nil?, "#{@component} Helm release already exists; use verify or inspect it")
     @resources.each do |resource|
       # Explicit names plus --ignore-not-found distinguish an empty namespace

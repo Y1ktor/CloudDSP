@@ -9,7 +9,8 @@
 # the source-upload notification that forwards private uploads to the broker.
 # `bootstrap-platform` reuses those guarded children once, adding PostgreSQL,
 # Keycloak's database, release, and realm, Mailpit, Job API schema/release,
-# processing topology, and the pinned KEDA controller in dependency order.
+# restricted service identities, processing topology, KEDA authentication,
+# and every application Helm release in dependency order.
 # `verify` checks each reviewed component and bootstrap stage. `reconcile`
 # changes only audited external state through versioned runners; existing Helm
 # releases are verified and must already match their charts. `cleanup` removes the k3d cluster while
@@ -48,9 +49,9 @@ bootstrap-platform: On an absent cluster, compose the guarded PostgreSQL,
          and install its Helm release. Bootstrap its realm and clients before
          Job API PostgreSQL migrations v001–v006, Basic Pitch and ADTOF
          database roles, remaining migrations, and RabbitMQ processing topology.
-         Install the Job API release after those checks, followed by the
-         pinned KEDA release. Remaining service roles, Secrets, and app
-         releases remain.
+         Install the Job API release after those checks, followed by KEDA,
+         scaling-auth, all application Secrets and database/broker identities,
+         then upload-intake, both dispatchers, all three workers, and frontend.
 verify: Run that preflight, then the reviewed read-only Helm, KEDA, and
         bootstrap gates in dependency order. Stop at the first failed gate.
 reconcile: On an existing cluster, run the same ordered gates and reconcile

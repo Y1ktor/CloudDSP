@@ -11,5 +11,14 @@ StatelessRelease.new(
   source_files: %w[upload-intake-deployment.yaml],
   resources: %w[deployment/clouddsp-upload-intake],
   pod_selector: 'app.kubernetes.io/name=upload-intake,app.kubernetes.io/instance=clouddsp-upload-intake,app.kubernetes.io/component=source-event-consumer',
-  verify_running_digest: true
+  verify_running_digest: true,
+  allow_fresh_install: true,
+  before_install: [
+    %w[ruby ./k8Deployment/kubernetes/scripts/job-api-release.rb verify],
+    %w[ruby ./k8Deployment/kubernetes/scripts/application-identity-stage.rb database upload-intake verify],
+    %w[ruby ./k8Deployment/kubernetes/scripts/upload-intake-rabbitmq-secret-stage.rb verify],
+    %w[ruby ./k8Deployment/kubernetes/scripts/rabbitmq-source-intake-bootstrap.rb verify],
+    %w[ruby ./k8Deployment/kubernetes/scripts/upload-intake-minio-secret-stage.rb verify],
+    %w[ruby ./k8Deployment/kubernetes/scripts/minio-upload-intake-iam-stage.rb verify]
+  ]
 ).run(ARGV.length == 1 ? ARGV.first : nil)

@@ -22,10 +22,18 @@ class DeployLocalVerifyTest < Minitest::Test
                     commands.index(['ruby', 'keycloak-release.rb', 'verify'])
     assert_operator commands.index(['ruby', 'job-api-database-secret-stage.rb', 'verify']), :<,
                     commands.index(['ruby', 'job-api-postgresql-stage.rb', 'verify'])
+    assert_operator commands.index(['ruby', 'job-api-postgresql-stage.rb', 'verify']), :<,
+                    commands.index(['ruby', 'worker-database-stage.rb', 'basic-pitch', 'verify'])
+    assert_operator commands.index(['ruby', 'job-api-postgresql-stage.rb', 'verify']), :<,
+                    commands.index(['ruby', 'worker-database-stage.rb', 'adtof', 'verify'])
     assert_operator commands.index(['ruby', 'worker-database-stage.rb', 'basic-pitch', 'verify']), :<,
-                    commands.index(['ruby', 'job-api-postgresql-stage.rb', 'verify'])
+                    commands.index(['ruby', 'application-identity-stage.rb', 'database', 'upload-intake', 'verify'])
     assert_operator commands.index(['ruby', 'worker-database-stage.rb', 'adtof', 'verify']), :<,
-                    commands.index(['ruby', 'job-api-postgresql-stage.rb', 'verify'])
+                    commands.index(['ruby', 'application-identity-stage.rb', 'database', 'upload-intake', 'verify'])
+    assert_operator commands.index(['ruby', 'rabbitmq-processing-topology.rb', 'verify']), :<,
+                    commands.index(['ruby', 'application-identity-stage.rb', 'rabbitmq', 'dispatcher', 'verify'])
+    assert_operator commands.index(['ruby', 'application-identity-stage.rb', 'rabbitmq', 'keda-scaler', 'verify']), :<,
+                    commands.index(['ruby', 'rabbitmq-source-intake-bootstrap.rb', 'verify'])
     assert_operator commands.index(['ruby', 'job-api-minio-secret-stage.rb', 'verify']), :<,
                     commands.index(['ruby', 'minio-buckets-stage.rb', 'verify'])
     assert_operator commands.index(['ruby', 'upload-intake-minio-secret-stage.rb', 'verify']), :<,

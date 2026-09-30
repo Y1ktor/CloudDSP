@@ -10,6 +10,7 @@ require 'yaml'
 
 class ScalingAuthRelease
   ROOT = Pathname.new(__dir__).parent
+  REPOSITORY_ROOT = ROOT.parent.parent
   CONTEXT = 'k3d-clouddsp-local'
   NAMESPACE = 'clouddsp-app'
   RELEASE = 'clouddsp-scaling-auth'
@@ -33,8 +34,12 @@ class ScalingAuthRelease
     }
   }.freeze
 
+  def initialize(command: Open3.method(:capture3))
+    @command = command
+  end
+
   def run(mode)
-    abort 'Usage: ./k8Deployment/kubernetes/scripts/scaling-auth-release.rb plan|adopt|verify' unless %w[plan adopt verify].include?(mode)
+    abort 'Usage: ./k8Deployment/kubernetes/scripts/scaling-auth-release.rb plan|install|adopt|verify|verify-prerequisites' unless %w[plan install adopt verify verify-prerequisites].include?(mode)
     check_tools_and_keda
     check_chart_and_source
 
@@ -42,6 +47,15 @@ class ScalingAuthRelease
     when 'plan'
       check_cluster('kubectl')
       puts 'scaling-auth chart matches both source objects and live specs; three dependent scalers are Ready.'
+    when 'install'
+      check_fresh_install_boundary
+      puts 'Installing the fresh scaling-auth Helm release...'
+      output = command('helm', 'install', RELEASE, CHART.to_s,
+                       '--kube-context', CONTEXT, '--namespace', NAMESPACE,
+                       '--wait', '--timeout', '3m')
+      puts output.lines.grep(/^(NAME|NAMESPACE|STATUS|REVISION):/)
+      check_cluster('Helm', require_scalers: false)
+      puts 'scaling-auth fresh install: both TriggerAuthentications, Secret references, and KEDA controller are ready.'
     when 'adopt'
       before = check_cluster('kubectl')
       operation = before.fetch(:release) ? 'upgrade' : 'install'
@@ -58,6 +72,9 @@ class ScalingAuthRelease
     when 'verify'
       check_cluster('Helm')
       puts 'scaling-auth Helm manifest, Secret references, both TriggerAuthentications, three Ready scalers, HPAs, and worker targets verified.'
+    when 'verify-prerequisites'
+      check_cluster('Helm', require_scalers: false)
+      puts 'scaling-auth release, both TriggerAuthentications, Secret references, and KEDA controller verified for worker installation.'
     end
   rescue StandardError => error
     warn "scaling-auth #{mode} stopped: #{error.message}"
@@ -72,7 +89,7 @@ class ScalingAuthRelease
   end
 
   def command(*args, stdin_data: nil)
-    output, error, status = Open3.capture3(*args, stdin_data: stdin_data)
+    output, error, status = @command.call(*args, stdin_data: stdin_data, chdir: REPOSITORY_ROOT)
     raise "#{args.first} failed: #{error.strip.empty? ? output.strip : error.strip}" unless status.success?
     output
   end
@@ -150,7 +167,22 @@ class ScalingAuthRelease
     result
   end
 
-  def check_cluster(owner)
+  def check_fresh_install_boundary
+    ensure_true(release_record.nil?, 'scaling-auth Helm release already exists; use verify or inspect it')
+    @source.each_key do |name|
+      ensure_true(kubectl('get', "triggerauthentication/#{name}", '--ignore-not-found', '--output=name').strip.empty?,
+                  "TriggerAuthentication/#{name} already exists; inspect it before install")
+    end
+    ensure_true(SCALERS.keys.all? { |name|
+      kubectl('get', "scaledobject/#{name}", '--ignore-not-found', '--output=name').strip.empty?
+    }, 'one or more worker ScaledObjects already exist; inspect their authentication before install')
+    command('ruby', './k8Deployment/kubernetes/scripts/application-identity-stage.rb',
+            'rabbitmq', 'keda-scaler', 'verify')
+    command('ruby', './k8Deployment/kubernetes/scripts/application-identity-stage.rb',
+            'database', 'keda-demucs', 'verify')
+  end
+
+  def check_cluster(owner, require_scalers: true)
     release = release_record
     if owner == 'Helm'
       ensure_true(release && release['status'] == 'deployed' && release['chart'] == @chart_identity,
@@ -188,6 +220,8 @@ class ScalingAuthRelease
       object.fetch('spec').fetch('secretTargetRef').map { |entry| entry.fetch('name') }
     end.uniq
     kubectl('get', *secret_names.map { |name| "secret/#{name}" }, '--output=name')
+
+    return { authentications: authentications, release: release } unless require_scalers
 
     scalers = collect('scaledobject', SCALERS.keys)
     hpas = collect('hpa', SCALERS.keys.map { |name| "keda-hpa-#{name}" })
@@ -235,4 +269,4 @@ class ScalingAuthRelease
   end
 end
 
-ScalingAuthRelease.new.run(ARGV.length == 1 ? ARGV.first : nil)
+ScalingAuthRelease.new.run(ARGV.length == 1 ? ARGV.first : nil) if $PROGRAM_NAME == __FILE__

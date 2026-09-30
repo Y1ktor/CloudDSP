@@ -14,5 +14,11 @@ StatelessRelease.new(
   resources: %w[deployment/clouddsp-generic-dispatcher],
   pod_selector: 'app.kubernetes.io/name=dispatcher,app.kubernetes.io/instance=clouddsp-generic-dispatcher,app.kubernetes.io/component=generic-outbox-publisher',
   image_lock_key: 'dispatcher',
-  verify_running_digest: true
+  verify_running_digest: true,
+  allow_fresh_install: true,
+  before_install: [
+    %w[ruby ./k8Deployment/kubernetes/scripts/application-identity-stage.rb database dispatcher verify],
+    %w[ruby ./k8Deployment/kubernetes/scripts/application-identity-stage.rb rabbitmq dispatcher verify],
+    %w[ruby ./k8Deployment/kubernetes/scripts/job-api-release.rb verify]
+  ]
 ).run(ARGV.length == 1 ? ARGV.first : nil)

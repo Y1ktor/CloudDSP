@@ -17,6 +17,14 @@ class AdtofRelease < StatelessRelease
       resources: ["deployment/clouddsp-adtof", "scaledobject/#{SCALER}"],
       pod_selector: 'app.kubernetes.io/name=adtof,app.kubernetes.io/instance=clouddsp-adtof,app.kubernetes.io/component=drum-midi-worker',
       expected_replicas: 0,
+      allow_fresh_install: true,
+      before_install: [
+        %w[ruby ./k8Deployment/kubernetes/scripts/worker-database-stage.rb adtof verify],
+        %w[ruby ./k8Deployment/kubernetes/scripts/application-identity-stage.rb rabbitmq adtof verify],
+        %w[ruby ./k8Deployment/kubernetes/scripts/adtof-minio-secret-stage.rb verify],
+        %w[ruby ./k8Deployment/kubernetes/scripts/minio-adtof-iam-stage.rb verify],
+        %w[ruby ./k8Deployment/kubernetes/scripts/scaling-auth-release.rb verify-prerequisites]
+      ],
       smoke_job: { name: 'adtof-worker-smoke', manifest: 'tests/adtof-worker-smoke/adtof-worker-smoke-job.yaml' },
       smoke_timeout_seconds: 840
     )

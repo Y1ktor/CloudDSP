@@ -17,6 +17,14 @@ class DemucsRelease < StatelessRelease
       resources: ["deployment/clouddsp-demucs", "scaledobject/#{SCALER}"],
       pod_selector: 'app.kubernetes.io/name=demucs,app.kubernetes.io/instance=clouddsp-demucs,app.kubernetes.io/component=audio-separation-worker',
       expected_replicas: 0,
+      allow_fresh_install: true,
+      before_install: [
+        %w[ruby ./k8Deployment/kubernetes/scripts/application-identity-stage.rb database demucs verify],
+        %w[ruby ./k8Deployment/kubernetes/scripts/application-identity-stage.rb rabbitmq demucs verify],
+        %w[ruby ./k8Deployment/kubernetes/scripts/demucs-minio-secret-stage.rb verify],
+        %w[ruby ./k8Deployment/kubernetes/scripts/minio-demucs-iam-stage.rb verify],
+        %w[ruby ./k8Deployment/kubernetes/scripts/scaling-auth-release.rb verify-prerequisites]
+      ],
       smoke_job: { name: 'demucs-worker-smoke', manifest: 'tests/demucs-worker-smoke/demucs-worker-smoke-job.yaml' },
       smoke_timeout_seconds: 900
     )

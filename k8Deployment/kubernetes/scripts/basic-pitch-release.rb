@@ -25,6 +25,14 @@ class BasicPitchRelease < StatelessRelease
       resources: ["deployment/clouddsp-basic-pitch", "scaledobject/#{SCALER}"],
       pod_selector: 'app.kubernetes.io/name=basic-pitch,app.kubernetes.io/instance=clouddsp-basic-pitch,app.kubernetes.io/component=midi-extraction-worker',
       expected_replicas: 0,
+      allow_fresh_install: true,
+      before_install: [
+        %w[ruby ./k8Deployment/kubernetes/scripts/worker-database-stage.rb basic-pitch verify],
+        %w[ruby ./k8Deployment/kubernetes/scripts/application-identity-stage.rb rabbitmq basic-pitch verify],
+        %w[ruby ./k8Deployment/kubernetes/scripts/basic-pitch-minio-secret-stage.rb verify],
+        %w[ruby ./k8Deployment/kubernetes/scripts/minio-basic-pitch-iam-stage.rb verify],
+        %w[ruby ./k8Deployment/kubernetes/scripts/scaling-auth-release.rb verify-prerequisites]
+      ],
       smoke_job: { name: 'basic-pitch-worker-smoke', manifest: 'tests/basic-pitch-worker-smoke/basic-pitch-worker-smoke-job.yaml' },
       smoke_timeout_seconds: 360
     )

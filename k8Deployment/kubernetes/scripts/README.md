@@ -32,7 +32,7 @@ is a standalone k3d container; normal `cleanup` retains its images, while
 ./k8Deployment/kubernetes/scripts/deploy-local.sh purge-registry
 ```
 
-`stages` prints the exact 57 ordered steps currently wired into
+`stages` prints the exact ordered steps currently wired into
 `bootstrap-platform` without contacting the cluster. The `plan` mode is the first stage of the
 [deployment orchestrator](../deployment-orchestration-plan.md). It reads the
 versioned workload manifests and lock files, then queries only the explicit
@@ -69,17 +69,16 @@ It first refuses an existing cluster, validates every published Docker Hub
 digest, creates the foundation, mirrors any missing locked images, then checks
 both registries. It stops on the first failure and leaves a created cluster
 for inspection. `prepare` does not install KEDA, create runtime Secrets,
-install Helm releases, or bootstrap external state. The full root
-`deploy-local.sh bootstrap` mode will be added after those stages have
-reviewed fresh-cluster paths.
+install Helm releases, or bootstrap external state. `bootstrap-platform`
+composes the reviewed stages after `prepare`.
 
 `bootstrap-mailpit` is the first root composition beyond `prepare`. On an
 absent cluster it runs foundation and image preparation, the guarded Mailpit
 `install`, and Mailpit `verify` in that order. A failure stops later stages
 and leaves created resources for inspection. It does not install the remaining
-CloudDSP releases or bootstrap application data; the full root `bootstrap`
-mode remains pending. Use the separate Mailpit smoke command below when SMTP
-capture needs a functional check.
+CloudDSP releases or bootstrap application data; use `bootstrap-platform` for
+the complete fresh-cluster sequence. Use the separate Mailpit smoke command
+below when SMTP capture needs a functional check.
 
 `bootstrap-postgresql` is the parallel root slice for the first data service.
 It runs `prepare`, creates and verifies the ignored PostgreSQL credential
@@ -87,16 +86,16 @@ Secret, installs the PostgreSQL Helm release, then verifies its Ready Pod and
 bound PVC. A failure stops later stages and leaves the partial cluster or
 release for inspection. The Mailpit and PostgreSQL partial commands each
 start from an absent cluster; they are alternative trials, not sequential
-commands to run against the same cluster. The eventual full `bootstrap` will
-compose their component stages in one dependency order.
+commands to run against the same cluster. `bootstrap-platform` composes these
+component stages in one dependency order.
 
 `bootstrap-rabbitmq` is the corresponding partial root command for the
 broker. It runs `prepare`, creates and verifies the ignored administrator
 Secret, installs the RabbitMQ Helm release, then verifies its Ready Pod and
 bound PVC. Each child must succeed before the next starts. This command also
 requires an absent cluster, so it is an alternative clean-cluster trial to
-the Mailpit and PostgreSQL partial commands. The eventual full `bootstrap`
-will run these component stages together in dependency order.
+the Mailpit and PostgreSQL partial commands. `bootstrap-platform` runs these
+component stages together in dependency order.
 
 `bootstrap-minio` composes the broker and object-storage slice from an absent
 cluster. It reuses `bootstrap-rabbitmq` for foundation, images, administrator
@@ -119,8 +118,8 @@ successful user verification. A failed stage leaves partial state
 for inspection. This is an alternative partial trial to the other
 `bootstrap-*` commands, not a command to run after them on the same cluster.
 It configures the Job API, upload-intake, Demucs, Basic Pitch, and ADTOF MinIO
-identities. Application releases remain for later fresh bootstrap stages.
-The full root `bootstrap` will compose those remaining stages later.
+identities. `bootstrap-platform` continues through application identity and
+fresh release stages after this shared service foundation.
 
 `bootstrap-platform` combines the already guarded fresh PostgreSQL, RabbitMQ,
 and MinIO child steps once, then creates Keycloak's isolated PostgreSQL
@@ -133,23 +132,61 @@ PostgreSQL runtime Secret, bootstraps the Job API schema owner, applies schema
 migrations v001–v006, provisions the Basic Pitch and ADTOF restricted database
 roles, then applies v007–v009. It imports/verifies RabbitMQ processing topology,
 installs and verifies the Job API Helm release, then installs and verifies the
-pinned KEDA chart, controllers, CRDs, and Helm values. Every step
-stops at the first error and leaves a partial cluster for inspection. This is
-an alternative absent-cluster command, not one to run after a partial
-bootstrap. The earlier 53-stage path completed in an isolated Ubuntu 24.04 VM
+pinned KEDA chart, controllers, CRDs, and Helm values. It then creates the
+remaining database and RabbitMQ identities, installs KEDA's shared
+TriggerAuthentication release, and installs upload-intake, both dispatchers,
+Demucs, Basic Pitch, ADTOF, and frontend. Every step stops at the first error
+and leaves a partial cluster for inspection. This is an absent-cluster
+command, not one to run after a partial bootstrap. The earlier 53-stage path
+completed in an isolated Ubuntu 24.04 VM
 on September 29, 2026 after installing the AWS CLI v2. It found and fixed a
 direct-`ctr` pull that bypassed k3s registry rewriting.
 
-The current 57-stage path then passed in a new disposable Ubuntu 24.04 ARM64
-VM. Both the CloudDSP cluster and local registry were absent initially. The
+The prior 57-stage platform subset passed in a new disposable Ubuntu 24.04
+ARM64 VM. Both the CloudDSP cluster and local registry were absent initially. The
 run anonymously verified and digest-mirrored all 19 locked images, created
 the MinIO source-upload notification from an absent rule and verified it,
 installed KEDA as Helm revision 1 at chart 2.20.2, and verified all three
 controller Deployments at 1/1 plus the committed values and six CRDs. The
 command exited 0 after stage 57/57. Independent read-only KEDA and MinIO
-notification verifiers passed before the VM was purged. This validates the
-platform bootstrap; remaining application Secrets/releases keep the full
-browser-to-worker deployment and root `verify` pending.
+notification verifiers passed before the VM was purged. The application
+identity and fresh-release stages were wired afterward, so a new full
+clean-cluster VM trial is still needed.
+
+## Fresh application identity and Helm stages
+
+The new `application-identity-stage.rb` handles the remaining restricted
+PostgreSQL accounts for upload-intake, dispatcher, Demucs, and the Demucs KEDA
+scaler; its RabbitMQ accounts cover dispatcher publishing, Demucs, Basic
+Pitch, ADTOF, and KEDA queue observation. For example:
+
+```bash
+ruby ./k8Deployment/kubernetes/scripts/application-identity-stage.rb database upload-intake plan
+ruby ./k8Deployment/kubernetes/scripts/application-identity-stage.rb database upload-intake bootstrap
+ruby ./k8Deployment/kubernetes/scripts/application-identity-stage.rb database upload-intake verify
+ruby ./k8Deployment/kubernetes/scripts/application-identity-stage.rb rabbitmq demucs plan
+ruby ./k8Deployment/kubernetes/scripts/application-identity-stage.rb rabbitmq demucs bootstrap
+ruby ./k8Deployment/kubernetes/scripts/application-identity-stage.rb rabbitmq demucs verify
+```
+
+The stage reads the ignored runtime Secret and committed example, generates
+the matching data-namespace bootstrap Secret in memory, then validates the
+Secret and fixed Job manifests with API-server dry runs. It runs the Jobs,
+checks durable PostgreSQL grants or RabbitMQ tags/permissions and login, and
+removes the temporary Secret. Passwords are never passed in command-line
+arguments or printed. `verify` audits the durable identity directly rather
+than relying on short-lived completed Jobs. Existing MinIO credentials,
+Basic Pitch/ADTOF database roles, and upload-intake's source-intake RabbitMQ
+identity keep their dedicated stages.
+
+After KEDA installs, `scaling-auth-release.rb install` creates the two
+TriggerAuthentication resources. Fresh `install` modes now cover upload-
+intake, both dispatchers, Demucs, Basic Pitch, ADTOF, and frontend. Each checks
+its credentials and service prerequisites, refuses an existing release or
+chart-owned object, and verifies the installed workload. KEDA workers install
+at zero idle replicas with shared authentication already present. Frontend
+installation checks the Keycloak realm and Job API release, then verifies the
+browser route and static assets.
 
 For focused Keycloak database diagnosis, run:
 
@@ -166,12 +203,16 @@ grants are checked directly. Verification also authenticates with the ignored
 local password through the existing PostgreSQL Pod; the password travels on
 stdin and is never printed.
 
-The full `bootstrap` command still needs guarded fresh paths for remaining
-application database and RabbitMQ roles, their runtime Secrets, KEDA trigger
-authentication, and the other app/worker Helm
-releases. Most existing app release runners currently support adoption of live
-objects, not a fresh install. Those dependencies must be implemented and
-verified before the full browser-to-worker command can safely run.
+All application identities and guarded fresh release paths are now wired into
+`bootstrap-platform`. `stages` lists 91 ordered stages without contacting
+Kubernetes. The expanded command still needs its disposable VM trial; the
+previous trial covered only the earlier 57-stage platform subset. Before that
+trial, provide the VM with all ignored credential Secret sources required by
+the stages under `k8Deployment/.local/` over a secure channel. This includes
+the runtime sources and bootstrap inputs used by existing PostgreSQL, RabbitMQ,
+and MinIO stages. The new application-identity Jobs generate their temporary
+administrator-namespace credential Secrets in memory from runtime values, so
+those new identities need no separate temporary bootstrap Secret files.
 
 ## Docker Hub image source and local mirror
 
@@ -200,10 +241,11 @@ every tag were verified by anonymous manifest requests. A Job API image was
 pulled from Docker Hub and pushed to a disposable empty `.localhost` registry
 with its digest unchanged. A complete fresh-registry `mirror` run and full root
 `bootstrap-platform` run passed in the September 29 VM trials with matching
-digests in both registries. The current 57-stage path includes the fresh
-notification and pinned KEDA release, both verified in a clean VM. The full
-application `bootstrap` still needs remaining runtime Secrets and releases;
-normal `cleanup` retains the populated registry.
+digests in both registries. The historical 57-stage path includes the fresh
+notification and pinned KEDA release, both verified in a clean VM. The
+additional application identities and fresh releases are part of the current
+91-stage path, which still needs a full clean-VM run. Normal `cleanup` retains
+the populated registry.
 
 ## Root verification and existing-cluster reconcile
 
@@ -211,10 +253,12 @@ normal `cleanup` retains the populated registry.
 grants, and runtime Secret after the PostgreSQL release, then checks the RabbitMQ,
 MinIO, Job API MinIO, upload-intake RabbitMQ/MinIO, Demucs MinIO, Basic Pitch
 MinIO, and ADTOF MinIO Secrets against their ignored local sources without
-printing values. It checks Keycloak's bootstrap-admin Secret before the
-Keycloak release, then checks the
-fourteen adopted CloudDSP Helm releases, the implemented Job API PostgreSQL
-and RabbitMQ bootstrap stages, the
+printing values. It directly audits the new upload-intake, dispatcher,
+Demucs, and KEDA PostgreSQL/RabbitMQ identities against restricted grants and
+permissions; those checks do not depend on completed Jobs that may expire.
+It checks Keycloak's bootstrap-admin Secret before the Keycloak release, then
+checks all fifteen CloudDSP Helm releases and the Job API and application
+database/broker stages, the
 [Keycloak realm/client state](keycloak-config-verify.rb),
 the [MinIO bucket stage](minio-buckets-stage.rb), the
 [Job API IAM stage](minio-job-api-iam-stage.rb), the
@@ -250,7 +294,7 @@ temporary Secret cleanup, and the MinIO source-upload notification. Each IAM
 stage deletes only a matching temporary Secret after its exact user and policy
 state verifies. Other runners
 create only wholly missing versioned bootstrap state and verify its durable
-result; partial state and drift stop the command. All fourteen Helm releases
+result; partial state and drift stop the command. All fifteen Helm releases
 remain in read-only `verify` mode, so a chart change, missing release, or
 unexpected owner fails rather than triggering an unsafe takeover or revision.
 This mode does not create a fresh cluster, install/upgrade Helm releases,
@@ -965,18 +1009,21 @@ MinIO notifications or run upload-intake.
 
 ```bash
 ./k8Deployment/kubernetes/scripts/scaling-auth-release.rb plan
+./k8Deployment/kubernetes/scripts/scaling-auth-release.rb install
 ./k8Deployment/kubernetes/scripts/scaling-auth-release.rb adopt
 ./k8Deployment/kubernetes/scripts/scaling-auth-release.rb verify
+./k8Deployment/kubernetes/scripts/scaling-auth-release.rb verify-prerequisites
 ```
 
 The [scaling-auth chart](../helm/scaling-auth/README.md) owns only the two
-existing app-namespace `TriggerAuthentication` resources. Its read-only plan
-requires exact source/render/live spec parity, the pinned KEDA release, both
-referenced Secret names, three Ready worker `ScaledObject`s, and their
-correctly owned HPAs. Adoption preserved both authentication UIDs and spec
-generations plus all dependent scaler, HPA, and worker Deployment UIDs.
-Secret values, worker scale decisions, and the KEDA controller remain outside
-this release. Each worker adoption and processing smoke is a later task.
+app-namespace `TriggerAuthentication` resources. Fresh `install` requires the
+KEDA controller and both restricted scaler identities, refuses existing
+authentication or worker scaler resources, and installs only those two
+objects. `verify-prerequisites` checks that release before the first fresh
+worker install. Full `verify` also requires all three Ready worker
+`ScaledObject`s and their correctly owned HPAs. `adopt` remains the protected
+one-time takeover for an existing cluster. Secret values, worker scale
+decisions, and the KEDA controller remain outside this release.
 
 ## Basic Pitch worker Helm adoption and verification
 

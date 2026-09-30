@@ -6,7 +6,8 @@
 # values with ignored local sources without printing or changing credentials.
 # Release verifiers then compare their own rendered/source/live resources;
 # external-state runners check the PostgreSQL, RabbitMQ, MinIO, and Keycloak
-# work implemented so far. Keep those narrow verifiers runnable for diagnosis.
+# work implemented so far. App-identity verifiers compare restricted account
+# permissions with the committed contracts without depending on expired Jobs.
 # This command never invokes an adopt, smoke, or bootstrap mode. Its companion
 # root reconcile permits only the reviewed external-state runners listed below.
 
@@ -38,7 +39,8 @@ class CloudDSPLocalVerify
   # an absent shared-sample policy, and the Job API, upload-intake, Demucs,
   # Basic Pitch, and ADTOF IAM stages remove matching Secrets after full
   # verification. The notification stage restores only an absent upload rule.
-  # Keycloak state still needs a separate reviewed write path.
+  # Root reconcile leaves Keycloak realm/admin state in verify-only mode;
+  # fresh bootstrap has its own reviewed Keycloak writers.
   STAGES = [
     Stage.new(name: 'preflight', command: ['ruby', 'deploy-local-plan.rb']),
     Stage.new(name: 'PostgreSQL credential Secret', command: ['ruby', 'postgresql-secret-stage.rb', 'verify']),
@@ -55,10 +57,19 @@ class CloudDSPLocalVerify
     Stage.new(name: 'Demucs MinIO runtime Secret', command: ['ruby', 'demucs-minio-secret-stage.rb', 'verify']),
     Stage.new(name: 'Basic Pitch MinIO runtime Secret', command: ['ruby', 'basic-pitch-minio-secret-stage.rb', 'verify']),
     Stage.new(name: 'ADTOF MinIO runtime Secret', command: ['ruby', 'adtof-minio-secret-stage.rb', 'verify']),
+    Stage.new(name: 'Job API PostgreSQL bootstrap and migrations', command: ['ruby', 'job-api-postgresql-stage.rb', 'verify']),
     Stage.new(name: 'Basic Pitch PostgreSQL role', command: ['ruby', 'worker-database-stage.rb', 'basic-pitch', 'verify']),
     Stage.new(name: 'ADTOF PostgreSQL role', command: ['ruby', 'worker-database-stage.rb', 'adtof', 'verify']),
-    Stage.new(name: 'Job API PostgreSQL bootstrap and migrations', command: ['ruby', 'job-api-postgresql-stage.rb', 'verify']),
+    Stage.new(name: 'upload-intake PostgreSQL role and runtime Secret', command: ['ruby', 'application-identity-stage.rb', 'database', 'upload-intake', 'verify']),
+    Stage.new(name: 'dispatcher PostgreSQL role and runtime Secret', command: ['ruby', 'application-identity-stage.rb', 'database', 'dispatcher', 'verify']),
+    Stage.new(name: 'Demucs PostgreSQL role and runtime Secret', command: ['ruby', 'application-identity-stage.rb', 'database', 'demucs', 'verify']),
+    Stage.new(name: 'Demucs KEDA PostgreSQL scaler identity', command: ['ruby', 'application-identity-stage.rb', 'database', 'keda-demucs', 'verify']),
     Stage.new(name: 'RabbitMQ processing topology', command: ['ruby', 'rabbitmq-processing-topology.rb', 'verify']),
+    Stage.new(name: 'dispatcher RabbitMQ publisher identity', command: ['ruby', 'application-identity-stage.rb', 'rabbitmq', 'dispatcher', 'verify']),
+    Stage.new(name: 'Demucs RabbitMQ consumer identity', command: ['ruby', 'application-identity-stage.rb', 'rabbitmq', 'demucs', 'verify']),
+    Stage.new(name: 'Basic Pitch RabbitMQ consumer identity', command: ['ruby', 'application-identity-stage.rb', 'rabbitmq', 'basic-pitch', 'verify']),
+    Stage.new(name: 'ADTOF RabbitMQ consumer identity', command: ['ruby', 'application-identity-stage.rb', 'rabbitmq', 'adtof', 'verify']),
+    Stage.new(name: 'KEDA RabbitMQ scaler identity', command: ['ruby', 'application-identity-stage.rb', 'rabbitmq', 'keda-scaler', 'verify']),
     Stage.new(name: 'upload-intake RabbitMQ runtime Secret', command: ['ruby', 'upload-intake-rabbitmq-secret-stage.rb', 'verify']),
     Stage.new(name: 'RabbitMQ source-intake topology and users', command: ['ruby', 'rabbitmq-source-intake-bootstrap.rb', 'verify']),
     Stage.new(name: 'MinIO bucket boundaries and shared samples', command: ['ruby', 'minio-buckets-stage.rb', 'verify']),

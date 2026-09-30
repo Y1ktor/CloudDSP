@@ -13,5 +13,10 @@ StatelessRelease.new(
   pod_selector: 'app.kubernetes.io/name=clouddsp-frontend,app.kubernetes.io/component=frontend',
   health_host: 'clouddsp.localhost',
   health_path: '/healthz',
-  browser_shell: true
+  browser_shell: true,
+  allow_fresh_install: true,
+  before_install: [
+    %w[ruby ./k8Deployment/kubernetes/scripts/keycloak-config-verify.rb verify],
+    %w[ruby ./k8Deployment/kubernetes/scripts/job-api-release.rb verify]
+  ]
 ).run(ARGV.length == 1 ? ARGV.first : nil)

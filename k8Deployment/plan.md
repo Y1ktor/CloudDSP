@@ -4758,3 +4758,41 @@ ScaledObject, browser-to-worker processing, or full root `verify`, which still
 depend on remaining application Secrets and Helm release installers. The
 disposable VM was purged after the trial; the existing Mac k3d cluster was
 not replaced or cleaned up.
+
+### Application identities and fresh application Helm installs (2026-09-29)
+
+The root fresh-cluster sequence now provisions the remaining restricted
+PostgreSQL identities for upload-intake, both dispatchers, Demucs, and its
+PostgreSQL KEDA scaler, plus RabbitMQ users for dispatcher publishing, the
+Demucs/Basic Pitch/ADTOF consumers, and the RabbitMQ KEDA scaler. Each stage
+generates its temporary administrator-namespace credential Secret in memory
+from the ignored runtime Secret, server-validates the Secret and versioned
+Jobs, provisions only absent state, audits the durable permissions and
+authenticates the restricted login, and deletes the temporary Secret after
+success. Existing Basic Pitch/ADTOF PostgreSQL and upload-intake RabbitMQ
+stages remain their dedicated sources of truth.
+
+Fresh-install guards now cover KEDA scaling authentication, upload-intake,
+both dispatcher releases, Demucs, Basic Pitch, ADTOF, and frontend. The
+workers install with zero idle replicas after their runtime identity and KEDA
+TriggerAuthentication prerequisites verify. Root `verify` now includes every
+application identity and all 15 CloudDSP Helm releases; its PostgreSQL schema
+gate precedes the per-worker database role checks. `stages` reports the full
+91-step `bootstrap-platform` sequence.
+
+Local deployment tests cover identity credential contracts, required and
+forbidden privilege checks, exact RabbitMQ permissions, the scaling-auth
+identity preflight, root stage order, and fail-fast behavior. The scaling-auth
+preflight was corrected after this review found it was passing display labels
+as executable names. The focused deployment test suite passes locally.
+
+The final expanded clean-cluster VM trial is still outstanding. The prior
+trial covered only the earlier 57-stage platform subset. For the final trial,
+use a disposable VM with the Kubernetes context absent and the local registry
+absent, mirror the locked Docker Hub images, and provide all ignored credential
+Secret sources securely under `k8Deployment/.local/`. Run
+`./k8Deployment/kubernetes/scripts/deploy-local.sh bootstrap-platform`, then
+`./k8Deployment/kubernetes/scripts/deploy-local.sh verify`; do not use or
+remove the working Mac cluster for this test. Normal `cleanup` keeps the VM's
+local image registry, so VM disposal should happen only after recording the
+results.
