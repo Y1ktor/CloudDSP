@@ -93,6 +93,17 @@ class ApplicationIdentityStageTest < Minitest::Test
     assert_equal :partial, stage.send(:database_state)
   end
 
+  def test_demucs_database_audit_matches_its_reviewed_direct_job_privileges
+    config = CloudDSPApplicationIdentityStage::DATABASE_IDENTITIES.fetch('demucs')
+
+    assert_includes config.fetch(:required), [:column, 'public.jobs', 'status', 'UPDATE']
+    assert_includes config.fetch(:required), [:column, 'public.jobs', 'revision', 'UPDATE']
+    assert_includes config.fetch(:required), [:column, 'public.jobs', 'stems', 'UPDATE']
+    assert_includes config.fetch(:required), [:column, 'public.jobs', 'error_message', 'UPDATE']
+    assert_includes config.fetch(:forbidden), [:column, 'public.jobs', 'input_object_key', 'UPDATE']
+    refute config.fetch(:required).any? { |entry| entry[1].include?('clouddsp_lock_demucs_job_for_claim') }
+  end
+
   def test_rabbitmq_audit_requires_exact_user_tags_and_permissions
     config = CloudDSPApplicationIdentityStage::RABBITMQ_IDENTITIES.fetch('dispatcher')
     command = lambda do |*arguments, stdin_data: nil|

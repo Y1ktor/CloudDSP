@@ -83,15 +83,20 @@ class CloudDSPApplicationIdentityStage
       ],
       required: [
         [:column, 'public.jobs', 'job_id', 'SELECT'],
+        [:column, 'public.jobs', 'status', 'UPDATE'],
+        [:column, 'public.jobs', 'revision', 'UPDATE'],
+        [:column, 'public.jobs', 'stems', 'UPDATE'],
+        [:column, 'public.jobs', 'error_message', 'UPDATE'],
         [:column, 'public.processing_tasks', 'task_id', 'INSERT'],
-        [:function, 'public.clouddsp_lock_demucs_job_for_claim(uuid)', 'EXECUTE'],
         [:function, 'public.clouddsp_demucs_recovery_event_matches(uuid, uuid, uuid, text, text, text, integer, uuid)', 'EXECUTE'],
         [:column, 'public.outbox_events', 'event_id', 'INSERT']
       ],
       forbidden: [
         [:column, 'public.jobs', 'owner_sub', 'SELECT'],
+        [:column, 'public.jobs', 'input_object_key', 'UPDATE'],
         [:column, 'public.outbox_events', 'payload', 'SELECT'],
-        [:column, 'public.jobs', 'status', 'UPDATE'],
+        [:table, 'public.jobs', 'DELETE'],
+        [:table, 'public.outbox_events', 'UPDATE'],
         [:table, 'public.outbox_events', 'DELETE']
       ]
     },
