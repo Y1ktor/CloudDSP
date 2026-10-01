@@ -149,9 +149,9 @@ the MinIO source-upload notification from an absent rule and verified it,
 installed KEDA as Helm revision 1 at chart 2.20.2, and verified all three
 controller Deployments at 1/1 plus the committed values and six CRDs. The
 command exited 0 after stage 57/57. Independent read-only KEDA and MinIO
-notification verifiers passed before the VM was purged. The application
-identity and fresh-release stages were wired afterward, so a new full
-clean-cluster VM trial is still needed.
+notification verifiers passed before the VM was purged. The later, complete
+91-stage clean-VM trial is recorded in
+[`2026-09-30-clean-vm-bootstrap-d903e8c.md`](../docs/trials/2026-09-30-clean-vm-bootstrap-d903e8c.md).
 
 ## Fresh application identity and Helm stages
 
@@ -205,14 +205,13 @@ stdin and is never printed.
 
 All application identities and guarded fresh release paths are now wired into
 `bootstrap-platform`. `stages` lists 91 ordered stages without contacting
-Kubernetes. The expanded command still needs its disposable VM trial; the
-previous trial covered only the earlier 57-stage platform subset. Before that
-trial, provide the VM with all ignored credential Secret sources required by
-the stages under `k8Deployment/.local/` over a secure channel. This includes
-the runtime sources and bootstrap inputs used by existing PostgreSQL, RabbitMQ,
-and MinIO stages. The new application-identity Jobs generate their temporary
-administrator-namespace credential Secrets in memory from runtime values, so
-those new identities need no separate temporary bootstrap Secret files.
+Kubernetes. The full command passed in the disposable Ubuntu ARM64 VM trial
+linked above. It requires all ignored credential Secret sources under
+`k8Deployment/.local/`; the trial copied them to the VM over Multipass's local
+transfer channel without adding them to the committed source archive. The new
+application-identity Jobs generate their temporary administrator-namespace
+credential Secrets in memory from runtime values, so those identities need no
+separate temporary bootstrap Secret files.
 
 ## Docker Hub image source and local mirror
 
@@ -246,11 +245,11 @@ every tag were verified by anonymous manifest requests. A Job API image was
 pulled from Docker Hub and pushed to a disposable empty `.localhost` registry
 with its digest unchanged. A complete fresh-registry `mirror` run and full root
 `bootstrap-platform` run passed in the September 29 VM trials with matching
-digests in both registries. The historical 57-stage path includes the fresh
-notification and pinned KEDA release, both verified in a clean VM. The
-additional application identities and fresh releases are part of the current
-91-stage path, which still needs a full clean-VM run. Normal `cleanup` retains
-the populated registry.
+digests in both registries. The full 91-stage clean-VM trial then passed from
+an empty registry on September 30, 2026; the bootstrap mirrored all 19 images,
+and root `verify` passed all 56 gates. See the
+[trial record](../docs/trials/2026-09-30-clean-vm-bootstrap-d903e8c.md).
+Normal `cleanup` retains the populated registry.
 
 ## Root verification and existing-cluster reconcile
 
