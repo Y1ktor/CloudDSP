@@ -105,15 +105,15 @@ spec:
                   name: clouddsp-keycloak-bootstrap-admin
                   key: KC_BOOTSTRAP_ADMIN_PASSWORD
           resources:
-            # This is control-plane configuration work, not DSP processing.
-            # Tight bounds preserve local capacity for storage, database,
-            # identity, and eventual audio-processing worker Pods.
+            # This Job starts even more short-lived Java Admin CLI processes
+            # than the React client Job. Give each process enough CPU to finish
+            # its API call inside the existing five-minute deadline.
             requests:
-              cpu: 25m
+              cpu: 100m
               memory: 64Mi
               ephemeral-storage: 32Mi
             limits:
-              cpu: 100m
+              cpu: 500m
               memory: 256Mi
               ephemeral-storage: 64Mi
           securityContext:

@@ -228,12 +228,17 @@ The public [`y1ktor/clouddsp`](https://hub.docker.com/r/y1ktor/clouddsp)
 repository holds one tag per locally built image in `images.lock.yaml`.
 `publish` copies the reviewed local image into that Docker Hub tag using the
 saved Docker CLI login; it stops if either side has a different digest.
-`verify-source` checks anonymous Docker Hub access and all locked public
-digests before a fresh cluster is created; it does not contact the local
-registry. `mirror` works in the other direction after the local registry
-exists. It pulls a public Docker Hub image by its immutable digest, pushes it
-into the matching local repository, and checks that the digest was preserved.
-Existing matching local images are skipped. `verify` checks both registries
+`verify-source` checks that Docker Buildx is installed and verifies anonymous
+Docker Hub access and all locked public digests before a fresh cluster is
+created; it does not contact the local registry. After the local registry
+exists, `mirror` uses Docker Buildx to copy each pinned public manifest or OCI
+index to the registry's `127.0.0.1:5001` endpoint, then verifies the matching local
+repository and immutable digest. The loopback address reaches the same registry
+as `clouddsp-registry.localhost:5001` and avoids Docker Desktop's proxy and
+Buildx's HTTPS probe for the custom registry hostname. A prior Docker push may
+have left a tag pointing to one child of the locked index; `mirror` repairs
+only that specific mismatch. Existing matching local images are skipped, while
+an unrelated mismatched tag remains an error. `verify` checks both registries
 without writing. The lock remains the authority; none of these modes rewrites it.
 
 All 19 current local images target Linux ARM64. The public repository and

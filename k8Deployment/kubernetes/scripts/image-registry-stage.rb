@@ -19,7 +19,15 @@ class CloudDSPImageRegistryStage
   ROOT = Pathname.new(File.expand_path('..', __dir__)).freeze
   LOCK = ROOT.join('images.lock.yaml').freeze
   LOCAL_HOST = 'clouddsp-registry.localhost:5001'.freeze
+  # Buildx talks to registries directly and does not inherit Docker Engine's
+  # insecure-registry setting. The same host-published registry is reachable on
+  # loopback, where Buildx permits its HTTP endpoint without a proxy hop.
+  LOCAL_COPY_HOST = '127.0.0.1:5001'.freeze
   HUB_REPOSITORY = 'y1ktor/clouddsp'.freeze
+  INDEX_MEDIA_TYPES = %w[
+    application/vnd.oci.image.index.v1+json
+    application/vnd.docker.distribution.manifest.list.v2+json
+  ].freeze
   MANIFEST_ACCEPT = [
     'application/vnd.oci.image.manifest.v1+json',
     'application/vnd.docker.distribution.manifest.v2+json',
@@ -42,6 +50,11 @@ class CloudDSPImageRegistryStage
       @output.puts "CloudDSP image plan: #{entries.length} reviewed ARM64 images"
       return 0
     end
+
+    # prepare runs verify-source before creating k3d. Confirm the registry-copy
+    # command is available here so a missing Buildx plugin cannot leave a new
+    # cluster halted later at the mirror stage.
+    docker('buildx', 'version') if mode == 'verify-source'
 
     entries.each_with_index do |entry, index|
       process(mode, entry)
@@ -125,17 +138,32 @@ class CloudDSPImageRegistryStage
 
   def mirror(entry)
     source = "#{HUB_REPOSITORY}@#{entry.fetch(:digest)}"
-    destination = "#{LOCAL_HOST}/#{entry.fetch(:local_repo)}:#{entry.fetch(:source_tag)}"
+    destination = "#{LOCAL_COPY_HOST}/#{entry.fetch(:local_repo)}:#{entry.fetch(:source_tag)}"
     existing_tag = local_manifest_digest(entry.fetch(:local_repo), entry.fetch(:source_tag))
-    raise "#{entry.fetch(:key)} local tag already points to another digest" if existing_tag && existing_tag != entry.fetch(:digest)
+    if existing_tag && existing_tag != entry.fetch(:digest)
+      # An earlier Docker pull/tag/push could flatten an OCI index to its ARM64
+      # child. Only that exact child of the locked source may be replaced; an
+      # unrelated tag remains a conflict for a human to inspect.
+      raise "#{entry.fetch(:key)} local tag already points to another digest" unless
+        locked_index_child?(source, existing_tag)
+    end
 
-    docker('pull', source)
-    docker('tag', source, destination)
-    output = docker('push', destination)
-    reported = output[/digest:\s*(sha256:[0-9a-f]{64})/, 1]
-    raise "#{entry.fetch(:key)} local push did not preserve the locked digest" unless reported == entry.fetch(:digest)
+    # Registry-to-registry copying preserves the complete index, including
+    # attestation manifests. A Docker pull/tag/push retains only the host's
+    # platform child. For a single-platform source, prefer-index=false keeps
+    # the original manifest instead of wrapping it in a new index.
+    docker('buildx', 'imagetools', 'create', '--prefer-index=false', '--tag', destination, source)
+    raise "#{entry.fetch(:key)} local tag did not preserve the locked digest" unless
+      local_manifest_digest(entry.fetch(:local_repo), entry.fetch(:source_tag)) == entry.fetch(:digest)
     raise "#{entry.fetch(:key)} local registry did not return the locked digest" unless
       local_manifest_digest(entry.fetch(:local_repo), entry.fetch(:digest)) == entry.fetch(:digest)
+  end
+
+  def locked_index_child?(source, digest)
+    manifest = JSON.parse(docker('manifest', 'inspect', source))
+    return false unless INDEX_MEDIA_TYPES.include?(manifest['mediaType'])
+
+    manifest.fetch('manifests').any? { |child| child['digest'] == digest }
   end
 
   def ensure_cached(reference)
@@ -144,14 +172,29 @@ class CloudDSPImageRegistryStage
   end
 
   def docker(*arguments)
-    output, _error, status = Open3.capture3('docker', *arguments)
-    raise "Docker #{arguments.first} failed" unless status.success?
+    output, error, status = Open3.capture3('docker', *arguments)
+    unless status.success?
+      detail = docker_error_detail(output, error)
+      raise "Docker #{arguments.first} failed: #{detail}"
+    end
 
     output
   end
 
+  def docker_error_detail(output, error)
+    detail = (error.to_s.empty? ? output.to_s : error.to_s).lines.map(&:strip).reject(&:empty?).last.to_s
+    return 'no diagnostic returned by Docker' if detail.empty?
+
+    detail = detail.gsub(/\e\[[0-9;]*m/, '')
+                   .gsub(/\bBearer\s+\S+/i, 'Bearer [redacted]')
+                   .gsub(/(\b(?:authorization|password|token|secret)\b["']?\s*[:=]\s*["']?)[^"'\s,]+/i,
+                         '\1[redacted]')
+                   .gsub(%r{(https?://[^\s?]+)\?[^\s"']+}, '\1?[redacted]')
+    detail.slice(0, 300)
+  end
+
   def local_manifest_digest(repository, reference)
-    uri = URI("http://#{LOCAL_HOST}/v2/#{repository}/manifests/#{reference}")
+    uri = URI("http://#{LOCAL_COPY_HOST}/v2/#{repository}/manifests/#{reference}")
     manifest_digest(uri)
   end
 

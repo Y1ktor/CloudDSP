@@ -31,9 +31,10 @@ spec:
   # A policy update must not retry unexpectedly.  An incorrect administrator
   # Secret or unavailable realm should remain visible for deliberate diagnosis.
   backoffLimit: 0
-  # This Job makes a few local Admin API calls, so a short deadline prevents a
-  # failed Service/DNS path from retaining a Pod indefinitely.
-  activeDeadlineSeconds: 120
+  # The deadline includes a possible cold image pull on another k3d node,
+  # followed by separate JVM startups for each authenticated kcadm call.
+  # Keep the work bounded without timing out healthy fresh-cluster setup.
+  activeDeadlineSeconds: 180
   template:
     metadata:
       labels:
@@ -85,15 +86,14 @@ spec:
                   name: clouddsp-keycloak-bootstrap-admin
                   key: KC_BOOTSTRAP_ADMIN_PASSWORD
           resources:
-            # This controller performs only authenticated configuration calls;
-            # it should remain small beside the stateful data services and the
-            # future CPU/GPU processing workloads.
+            # Each --no-config Admin CLI call starts a JVM. Give this one-off
+            # policy update enough CPU to complete after a cold image pull.
             requests:
-              cpu: 25m
+              cpu: 100m
               memory: 64Mi
               ephemeral-storage: 32Mi
             limits:
-              cpu: 100m
+              cpu: 500m
               memory: 256Mi
               ephemeral-storage: 64Mi
           securityContext:

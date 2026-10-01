@@ -19,6 +19,7 @@ class DeployLocalFoundationTest < Minitest::Test
       @registry = registry
       @namespaces = namespaces
       @traefik_created = cluster
+      @deployment_lookups = Hash.new(0)
       @calls = []
       @fail_namespace_create = false
     end
@@ -50,8 +51,15 @@ class DeployLocalFoundationTest < Minitest::Test
 
         @namespaces = true unless argv.include?('--dry-run=server')
         ''
+      elsif argv.first == 'kubectl' && argv.include?('--ignore-not-found') &&
+            argv.any? { |arg| arg.start_with?('deployment/') }
+        name = argv.find { |arg| arg.start_with?('deployment/') }.delete_prefix('deployment/')
+        @deployment_lookups[name] += 1
+        return '' if name == 'traefik' && @deployment_lookups[name] == 1 && !@traefik_created
+
+        @traefik_created = true if name == 'traefik'
+        "deployment.apps/#{name}\n"
       elsif argv.first == 'kubectl' && argv.include?('wait')
-        @traefik_created = true if argv.include?('--for=create') && argv.include?('deployment/traefik')
         ''
       elsif argv.first == 'kubectl' && argv.include?('nodes')
         JSON.generate('items' => CloudDSPFoundation::NODE_ROLES.map do |name, role|
@@ -85,7 +93,10 @@ class DeployLocalFoundationTest < Minitest::Test
   end
 
   def foundation(commands)
-    FakeFoundation.new(command: commands.method(:call), output: StringIO.new, error: StringIO.new)
+    elapsed_seconds = 0.0
+    FakeFoundation.new(command: commands.method(:call), output: StringIO.new, error: StringIO.new,
+                       monotonic_clock: -> { elapsed_seconds },
+                       sleeper: ->(seconds) { elapsed_seconds += seconds })
   end
 
   def test_source_configuration_is_fixed_to_the_reviewed_three_node_profile
@@ -111,7 +122,9 @@ class DeployLocalFoundationTest < Minitest::Test
     create_namespaces = commands.calls.index { |argv| argv.first == 'kubectl' && argv.include?('create') && !argv.include?('--dry-run=server') }
     assert_operator create_cluster, :<, wait_nodes
     assert_operator wait_nodes, :<, create_namespaces
-    wait_traefik = commands.calls.index { |argv| argv.include?('--for=create') && argv.include?('deployment/traefik') }
+    wait_traefik = commands.calls.index do |argv|
+      argv.include?('--ignore-not-found') && argv.include?('deployment/traefik')
+    end
     rollout_traefik = commands.calls.index { |argv| argv.include?('rollout') && argv.include?('deployment/traefik') }
     assert_operator create_namespaces, :<, wait_traefik
     assert_operator wait_traefik, :<, rollout_traefik
@@ -119,6 +132,22 @@ class DeployLocalFoundationTest < Minitest::Test
     assert commands.registry
     assert commands.namespaces
     assert_equal 0, foundation(commands).run('verify')
+  end
+
+  def test_system_deployment_creation_wait_polls_until_async_traefik_exists
+    commands = FakeCommands.new
+
+    assert_equal 0, foundation(commands).run('bootstrap')
+    CloudDSPFoundation::SYSTEM_DEPLOYMENTS.each do |name|
+      assert_includes commands.calls,
+                      ['kubectl', '--context', 'k3d-clouddsp-local', '-n', 'kube-system',
+                       'get', "deployment/#{name}", '--ignore-not-found', '--output=name',
+                       "--request-timeout=#{CloudDSPFoundation::SYSTEM_DEPLOYMENT_REQUEST_TIMEOUT}"]
+    end
+    traefik_lookups = commands.calls.count do |argv|
+      argv.include?('--ignore-not-found') && argv.include?('deployment/traefik')
+    end
+    assert_equal 2, traefik_lookups, 'the async Traefik Deployment appears after the first lookup'
   end
 
   def test_existing_cluster_stops_before_mutation

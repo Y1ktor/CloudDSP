@@ -29,9 +29,10 @@ spec:
   # Do not create repeated client updates after an authentication, DNS, or
   # validation failure.  A user should diagnose and explicitly rerun this Job.
   backoffLimit: 0
-  # A client lookup/create/update is a few small local Admin API calls.  Bound
-  # the Job so an unavailable identity service cannot retain a Pod indefinitely.
-  activeDeadlineSeconds: 120
+  # Each kcadm call starts a JVM and authenticates again because no token file
+  # is stored. Give the create-or-update path time on a busy local Mac, while
+  # still bounding a stalled Admin API request and expiring the Job afterward.
+  activeDeadlineSeconds: 180
   template:
     metadata:
       labels:
@@ -94,14 +95,15 @@ spec:
                   name: clouddsp-keycloak-bootstrap-admin
                   key: KC_BOOTSTRAP_ADMIN_PASSWORD
           resources:
-            # This controller performs only a small configuration transaction;
-            # its bounds leave local capacity for identity/data services and DSP.
+            # Several short-lived Java CLI processes run sequentially. At a
+            # 100m CPU limit they can spend most of the Job deadline starting
+            # up; 500m lets this one-off control-plane work complete promptly.
             requests:
-              cpu: 25m
+              cpu: 100m
               memory: 64Mi
               ephemeral-storage: 32Mi
             limits:
-              cpu: 100m
+              cpu: 500m
               memory: 256Mi
               ephemeral-storage: 64Mi
           securityContext:
@@ -161,6 +163,7 @@ spec:
               # The preceding realm-bootstrap Job is a strict prerequisite.
               # Suppress a full representation so future sensitive settings do
               # not accidentally enter a broadly readable Kubernetes Job log.
+              printf 'Keycloak React client bootstrap: verifying realm\n'
               if ! "$KCADM" get "realms/$CLOUDDSP_REALM" "$@" >/dev/null 2>&1; then
                 printf 'Keycloak OIDC client bootstrap failed: CloudDSP realm is unavailable\n' >&2
                 exit 1
@@ -169,30 +172,23 @@ spec:
               # Keycloak addresses clients internally by generated UUID, but
               # CloudDSP declares its stable clientId.  Query first to make the
               # Job idempotent and avoid duplicate public clients on a rerun.
+              printf 'Keycloak React client bootstrap: locating client\n'
               CLIENT_UUID=$("$KCADM" get clients "$@" -r "$CLOUDDSP_REALM" \
                 --query "clientId=$OIDC_CLIENT_ID" \
                 --fields id --format csv --noquotes)
 
               if [ -z "$CLIENT_UUID" ]; then
+                printf 'Keycloak React client bootstrap: creating client\n'
                 client_configuration | "$KCADM" create clients "$@" -r "$CLOUDDSP_REALM" -f - >/dev/null
-                CLIENT_UUID=$("$KCADM" get clients "$@" -r "$CLOUDDSP_REALM" \
-                  --query "clientId=$OIDC_CLIENT_ID" \
-                  --fields id --format csv --noquotes)
+              else
+                # A newly created client already has this exact payload. Only
+                # an existing client needs an update; avoiding the immediate
+                # lookup and duplicate write also saves two JVM starts.
+                printf 'Keycloak React client bootstrap: updating client\n'
+                client_configuration | "$KCADM" update "clients/$CLIENT_UUID" "$@" \
+                  -r "$CLOUDDSP_REALM" -f - >/dev/null
               fi
 
-              if [ -z "$CLIENT_UUID" ]; then
-                printf 'Keycloak OIDC client bootstrap failed: client lookup was empty\n' >&2
-                exit 1
-              fi
-
-              # `update` merges this partial representation with the current
-              # client, preserving Keycloak-generated IDs and default scopes.
-              # It also ensures a later deliberate rerun restores the reviewed
-              # redirect, PKCE, and disabled-flow policy after accidental drift.
-              client_configuration | "$KCADM" update "clients/$CLIENT_UUID" "$@" \
-                -r "$CLOUDDSP_REALM" -f - >/dev/null
-
-              # Do not print the whole client representation.  The next small
-              # task can verify discovery/client behavior; this Job reports only
-              # that Keycloak accepted the desired configuration.
+              # The stage verifies all client settings after its six Jobs. Do
+              # not print the representation or credentials to this Pod log.
               printf 'Keycloak public OIDC client %s bootstrap passed\n' "$OIDC_CLIENT_ID"

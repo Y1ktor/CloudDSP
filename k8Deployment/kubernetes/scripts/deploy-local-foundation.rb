@@ -27,11 +27,18 @@ class CloudDSPFoundation
     'k3d-clouddsp-local-agent-1' => 'cpu-worker'
   }.freeze
   SYSTEM_DEPLOYMENTS = %w[coredns traefik local-path-provisioner].freeze
+  SYSTEM_DEPLOYMENT_CREATION_TIMEOUT = 120
+  SYSTEM_DEPLOYMENT_POLL_INTERVAL = 1
+  SYSTEM_DEPLOYMENT_REQUEST_TIMEOUT = '10s'.freeze
 
-  def initialize(command: Open3.method(:capture3), output: $stdout, error: $stderr)
+  def initialize(command: Open3.method(:capture3), output: $stdout, error: $stderr,
+                 monotonic_clock: -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) },
+                 sleeper: ->(seconds) { sleep(seconds) })
     @command = command
     @output = output
     @error = error
+    @monotonic_clock = monotonic_clock
+    @sleeper = sleeper
   end
 
   def run(mode)
@@ -67,10 +74,11 @@ class CloudDSPFoundation
     command('versioned namespace creation', 'kubectl', '--context', CONTEXT, 'create',
             '--filename', NAMESPACE_CONFIG.to_s)
     # K3s installs Traefik through an asynchronous Helm job. Node readiness
-    # does not mean its Deployment has been created yet.
+    # does not mean its Deployment has been created yet. Poll the read-only
+    # Deployment lookup: kubectl wait --for=create is unsupported by older
+    # clients, while wait on a JSONPath field returns NotFound before creation.
     SYSTEM_DEPLOYMENTS.each do |name|
-      command("kube-system #{name} creation", 'kubectl', '--context', CONTEXT, '-n', 'kube-system',
-              'wait', '--for=create', "deployment/#{name}", '--timeout=120s')
+      wait_for_system_deployment(name)
     end
     verify_foundation(namespaces)
     @output.puts 'CloudDSP foundation bootstrap: fresh k3d cluster and three project namespaces ready'
@@ -135,6 +143,20 @@ class CloudDSPFoundation
     output, _stderr, status = @command.call(*arguments)
     ensure_true(status.success?, "#{label} failed")
     output
+  end
+
+  def wait_for_system_deployment(name)
+    deadline = @monotonic_clock.call + SYSTEM_DEPLOYMENT_CREATION_TIMEOUT
+    loop do
+      output = command("kube-system #{name} lookup", 'kubectl', '--context', CONTEXT, '-n', 'kube-system',
+                       'get', "deployment/#{name}", '--ignore-not-found', '--output=name',
+                       "--request-timeout=#{SYSTEM_DEPLOYMENT_REQUEST_TIMEOUT}")
+      return unless output.strip.empty?
+
+      remaining = deadline - @monotonic_clock.call
+      ensure_true(remaining.positive?, "kube-system #{name} was not created within 120 seconds")
+      @sleeper.call([SYSTEM_DEPLOYMENT_POLL_INTERVAL, remaining].min)
+    end
   end
 
   def cluster_exists?

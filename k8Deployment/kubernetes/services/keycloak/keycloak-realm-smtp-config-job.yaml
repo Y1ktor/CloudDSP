@@ -34,9 +34,9 @@ spec:
   # A bad Keycloak administrator Secret, missing realm, or unavailable Service
   # must be diagnosed rather than retried silently by another client Pod.
   backoffLimit: 0
-  # The Job makes a small number of local Admin API requests.  A time limit
-  # prevents an unhealthy identity service from consuming a Pod indefinitely.
-  activeDeadlineSeconds: 120
+  # Include a possible cold Keycloak image pull on another k3d node and
+  # several authenticated JVM startups inside this bounded deadline.
+  activeDeadlineSeconds: 180
   template:
     metadata:
       labels:
@@ -102,15 +102,15 @@ spec:
                   name: clouddsp-keycloak-bootstrap-admin
                   key: KC_BOOTSTRAP_ADMIN_PASSWORD
           resources:
-            # A realm update is a few tiny local HTTP calls.  Small bounds keep
-            # this setup Job from competing with persistent data services or
-            # later CPU/GPU audio-processing workloads.
+            # kcadm.sh starts a JVM for every --no-config request. A 500m cap
+            # lets this one-off update complete promptly without competing
+            # with the future CPU-heavy audio worker Pods.
             requests:
-              cpu: 25m
+              cpu: 100m
               memory: 64Mi
               ephemeral-storage: 32Mi
             limits:
-              cpu: 100m
+              cpu: 500m
               memory: 256Mi
               ephemeral-storage: 64Mi
           securityContext:

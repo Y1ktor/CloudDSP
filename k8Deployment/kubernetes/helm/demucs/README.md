@@ -6,7 +6,10 @@ the digest-pinned ARM64 CPU worker, private Secret references, scratch volume,
 and internal queue consumer. The ScaledObject retains both its RabbitMQ queue
 trigger and PostgreSQL due-work trigger. KEDA owns the generated HPA and
 writes the Deployment `/scale` subresource; this chart omits `spec.replicas`.
-The worker has no Service or Ingress, and zero Pods is healthy when idle.
+The worker has no Service or Ingress, and zero active Pods is healthy when
+idle. A Pod already marked for deletion may remain visible while Kubernetes
+honors its 780-second grace period; the release check requires zero desired
+and observed replicas plus no Pod outside that termination path.
 
 ```bash
 ./k8Deployment/kubernetes/scripts/demucs-release.rb plan

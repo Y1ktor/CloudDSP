@@ -469,10 +469,19 @@ class StatelessRelease
     deadline = monotonic_time + IDLE_POD_DRAIN_TIMEOUT_SECONDS
     loop do
       pods = JSON.parse(kubectl('get', 'pods', '--selector', @pod_selector, '--output', 'json')).fetch('items')
-      return if pods.empty?
+      # The Deployment's desired and observed replica counts were checked
+      # above. A Pod with deletionTimestamp is already being drained by its
+      # controller; long-running workers deliberately keep a grace period
+      # longer than this readiness check so an active task can finish safely.
+      # Wait only for Pods that have not entered termination. Requiring the
+      # API object to disappear would make a successful KEDA scale-to-zero
+      # fail during Demucs's 780-second (or another worker's) drain window.
+      active_pods = pods.select { |pod| pod.fetch('metadata').fetch('deletionTimestamp', nil).to_s.empty? }
+      return if active_pods.empty?
 
       remaining = deadline - monotonic_time
-      ensure_true(remaining.positive?, "expected no idle #{@component} Pods, found #{pods.length} after scale-to-zero")
+      ensure_true(remaining.positive?,
+                  "expected no non-terminating #{@component} Pods, found #{active_pods.length} after scale-to-zero")
       sleep([remaining, IDLE_POD_RECHECK_INTERVAL_SECONDS].min)
     end
   end

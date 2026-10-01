@@ -34,9 +34,11 @@ spec:
   # Do not hide a bad administrator Secret or unavailable Keycloak Service
   # behind automatic retries.  Diagnose it, then explicitly delete and rerun.
   backoffLimit: 0
-  # Realm creation is a few local HTTP calls.  This bound prevents a broken
-  # DNS name, Service endpoint, or Keycloak availability issue from lingering.
-  activeDeadlineSeconds: 120
+  # The Job deadline includes scheduling and a cold pull of the Keycloak
+  # image, which took 51 seconds in a fresh k3d run. Each kcadm call then
+  # starts a JVM and authenticates again. Allow those bounded calls to finish
+  # on an uncached node while still stopping an unavailable Admin API.
+  activeDeadlineSeconds: 180
   template:
     metadata:
       labels:
@@ -95,15 +97,15 @@ spec:
                   name: clouddsp-keycloak-bootstrap-admin
                   key: KC_BOOTSTRAP_ADMIN_PASSWORD
           resources:
-            # The CLI sends at most a few small Admin API requests.  These
-            # bounds make the bootstrap schedulable beside identity services
-            # without competing with persistent data or future DSP workloads.
+            # Each --no-config invocation launches a new JVM. The former 100m
+            # cap left little time for those calls after a cold image pull;
+            # this one-off task may use 500m to finish.
             requests:
-              cpu: 25m
+              cpu: 100m
               memory: 64Mi
               ephemeral-storage: 32Mi
             limits:
-              cpu: 100m
+              cpu: 500m
               memory: 256Mi
               ephemeral-storage: 64Mi
           securityContext:

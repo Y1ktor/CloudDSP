@@ -34,9 +34,21 @@ class StatelessReleaseTest < Minitest::Test
     end
   end
 
-  def test_waits_for_a_terminating_idle_pod_to_be_removed
+  def test_accepts_a_terminating_pod_after_the_deployment_scales_to_zero
     terminating_pod = { 'metadata' => { 'name' => 'demucs-abc', 'deletionTimestamp' => '2026-09-29T00:00:00Z' } }
-    release = FakeRelease.new([JSON.generate('items' => [terminating_pod]), JSON.generate('items' => [])])
+    release = FakeRelease.new([JSON.generate('items' => [terminating_pod])])
+
+    assert_nil release.send(:wait_for_idle_pods)
+    assert_equal 1, release.pod_list_reads
+  end
+
+  def test_waits_for_a_non_terminating_pod_even_if_another_is_draining
+    terminating_pod = { 'metadata' => { 'name' => 'demucs-old', 'deletionTimestamp' => '2026-09-29T00:00:00Z' } }
+    active_pod = { 'metadata' => { 'name' => 'demucs-new' } }
+    release = FakeRelease.new([
+      JSON.generate('items' => [terminating_pod, active_pod]),
+      JSON.generate('items' => [terminating_pod])
+    ])
 
     assert_nil release.send(:wait_for_idle_pods)
     assert_equal 2, release.pod_list_reads
@@ -48,7 +60,7 @@ class StatelessReleaseTest < Minitest::Test
 
     error = assert_raises(RuntimeError) { release.send(:wait_for_idle_pods) }
 
-    assert_includes error.message, 'expected no idle demucs Pods, found 1 after scale-to-zero'
+    assert_includes error.message, 'expected no non-terminating demucs Pods, found 1 after scale-to-zero'
     assert_equal StatelessRelease::IDLE_POD_DRAIN_TIMEOUT_SECONDS + 1, release.pod_list_reads
   end
 end
