@@ -6,4 +6,4 @@ name: frontend
 description: CloudDSP local static browser application
 type: application
 version: 0.1.0
-appVersion: "0.5.2-local-midi-samples"
+appVersion: "0.5.3-local-k8-docs"

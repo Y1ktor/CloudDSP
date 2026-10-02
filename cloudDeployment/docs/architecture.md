@@ -124,7 +124,10 @@ dedicated OAC, and no current-object expiration. Its objects are publicly
 readable only through the intended CloudFront `demo/*` URLs.
 
 The CloudFront request function rewrites only known React routes such as
-`/architecture` and `/stems` to `index.html`. Distribution-wide 403/404 SPA
+`/architecture`, `/k8`, and `/stems` (with or without a trailing slash)
+to `index.html`. The public `/k8` route explains the separate local Kubernetes
+deployment, its processing workflow, and its security and delivery guarantees.
+Distribution-wide 403/404 SPA
 fallbacks are deliberately avoided: a missing demo manifest, WAV, or MIDI
 must remain a real error instead of returning the HTML application with HTTP
 200.

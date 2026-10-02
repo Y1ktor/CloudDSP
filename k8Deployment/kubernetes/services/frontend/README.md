@@ -45,6 +45,16 @@ later visit in the same browser profile does not reopen them. Clearing site
 storage (or using a different browser profile) deliberately restores the
 first-visit experience; no account preference or credential is stored there.
 
+The navigation includes the shared **Architecture** and **K8** informational
+pages. The K8 page documents the local cluster, security
+boundaries, durable processing, and deployment command with the same diagram
+and component icons as the cloud website. Its GitHub links use the local icon
+sprite and explicitly identify their destination. These shared pages are
+copied deliberately without replacing the local Keycloak adapter, job API
+transport, sample configuration, or tutorial storage marker. Version
+`0.5.3-local-k8-docs` records this frontend update; Kubernetes still pulls the
+immutable digest recorded in the image lock and Helm values.
+
 ## Local MIDI playback samples
 
 The React copy now loads its **shared instrument sounds** from the dedicated

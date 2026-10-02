@@ -51,6 +51,29 @@ credential, queue credential, MinIO credential, or Kubernetes credential.
    tracked `.env.example`, temporary test output, or a developer's uncommitted
    changes.
 
+## Informational page synchronization — 2026-10-02
+
+The user explicitly requested the newest cloud informational frontend pages in
+the local deployment before committing those pages. This synchronization uses
+the reviewed cloud working tree rather than a new Git revision: it copies
+`ArchitecturePage` and `K8Page` with their styles, the Kubernetes diagram, and
+its locally stored component icons and license records. The local
+`App.jsx` receives only the matching informational imports, navigation links,
+and routes.
+
+Keycloak authentication, access-token authorization, local job-status text,
+MinIO sample delivery, public browser configuration, CSP, and the existing
+browser-local tutorial marker remain owned by this local variant. Those
+runtime files are not replaced with the Cognito/AWS versions. Built output and
+ignored environment files are not part of this source synchronization.
+
+The reviewed source was built as `0.5.3-local-k8-docs`, published to the local
+registry and the public `y1ktor/clouddsp:frontend-0.5.3-local-k8-docs` tag, and
+verified at the same manifest digest. `images.lock.yaml`, the Helm values, and
+the retained source manifest now pin those exact bytes. The existing local
+frontend was upgraded through Helm and passed its ownership, readiness, HTTP,
+and static-asset verification; future fresh installs pull this image as well.
+
 ## Current functional state
 
 The local-only `src/auth/oidc.js` adapter now replaces the copied Cognito

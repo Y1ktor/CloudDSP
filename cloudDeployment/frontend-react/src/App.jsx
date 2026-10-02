@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BrowserRouter, Link, NavLink, Navigate, Route, Routes } from 'react-router-dom';
 import ArchitecturePage from './components/ArchitecturePage';
+import K8Page from './components/K8Page';
 import AuthPanel from './components/AuthPanel';
 import DemoLibrary from './components/DemoLibrary';
 import WelcomeTutorial from './components/WelcomeTutorial';
@@ -194,6 +195,10 @@ function NavBar({ authProps }) {
                 to="/architecture"
                 style={({ isActive }) => ({ color: isActive ? 'var(--studio-accent)' : 'var(--studio-text-muted)', fontSize: '13px', fontWeight: '700', textDecoration: 'none' })}
             >Architecture</NavLink>
+            <NavLink
+                to="/k8"
+                style={({ isActive }) => ({ color: isActive ? 'var(--studio-accent)' : 'var(--studio-text-muted)', fontSize: '13px', fontWeight: '700', textDecoration: 'none' })}
+            >K8</NavLink>
             <div style={{ marginLeft: 'auto' }}><AuthPanel {...authProps} /></div>
         </div>
     );
@@ -959,6 +964,7 @@ export default function App() {
                 <Routes>
                     <Route path="/" element={<div style={{ display: 'flex', justifyContent: 'center' }}><StemSplitter {...stemProps} /></div>} />
                     <Route path="/architecture" element={<ArchitecturePage />} />
+                    <Route path="/k8" element={<K8Page />} />
                     <Route path="/stems" element={<Navigate to="/" replace />} />
                 </Routes>
             </div>

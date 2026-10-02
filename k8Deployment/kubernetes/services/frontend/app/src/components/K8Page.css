@@ -1,0 +1,53 @@
+/* Reuse the AWS page's restrained document styling. Namespace new rules to
+   the Kubernetes page so its tables and component ledger cannot affect Studio. */
+.k8-page code {
+    overflow-wrap: anywhere;
+    color: #255f89;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: .92em;
+}
+
+.k8-text-link { color: #255f89; font-size: 12px; text-underline-offset: 3px; }
+.k8-text-link:hover { color: #163c58; }
+.k8-github-link { display: inline-flex; align-items: center; gap: 7px; vertical-align: middle; }
+.k8-github-link svg { flex: 0 0 auto; }
+.k8-page a:focus-visible { outline: 2px solid #4e7897; outline-offset: 3px; }
+.k8-page [role="tabpanel"]:focus-visible { outline: 2px solid #4e7897; outline-offset: 4px; }
+.k8-panel-heading { margin: 8px 0 0; font-size: 24px; line-height: 1.2; letter-spacing: -.02em; }
+.k8-intro { max-width: 840px; margin: 14px 0 8px; color: #526474; font-size: 15px; line-height: 1.7; }
+
+.k8-service-section { margin-top: 30px; }
+.k8-service-section > h2 { margin: 8px 0 20px; font-size: 22px; letter-spacing: -.02em; }
+.k8-service-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 30px; }
+.k8-service { display: flex; gap: 16px; padding: 20px 0; border-top: 1px solid #c4ced8; }
+.k8-service > img { flex-shrink: 0; object-fit: contain; margin-top: 4px; }
+.k8-service span { color: #44657f; font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.k8-service h3 { margin: 5px 0 7px; color: #273847; font-size: 18px; }
+.k8-service p { margin: 0; color: #526474; font-size: 14px; line-height: 1.65; }
+.k8-source-note { margin: 16px 0 0; color: #536171; font-size: 12px; line-height: 1.65; }
+.k8-source-note a { color: #255f89; }
+.k8-walkthrough h3 { margin: 1px 0 5px; color: #273847; font-family: Georgia, "Times New Roman", serif; font-size: 18px; line-height: 1.25; }
+
+.k8-table-wrap { max-width: 100%; margin-top: 28px; overflow-x: auto; }
+.k8-table-wrap:focus-visible { outline: 2px solid #4e7897; outline-offset: 3px; }
+.k8-table { width: 100%; min-width: 580px; border-collapse: collapse; color: #526474; font-size: 13px; text-align: left; }
+.k8-table caption { margin-bottom: 14px; color: #273847; font-size: 17px; font-weight: 700; text-align: left; }
+.k8-table th, .k8-table td { padding: 13px 12px; border-bottom: 1px solid #c4ced8; line-height: 1.5; }
+.k8-table thead th { background: #f3f7fa; color: #35556f; }
+.k8-table tbody th { color: #273847; }
+
+.k8-boundary-note { margin-top: 24px; padding: 20px; border-left: 3px solid #8c7147; background: #faf8f4; }
+.k8-boundary-note h3 { margin: 0 0 10px; color: #524531; font-size: 16px; }
+.k8-boundary-note p { margin: 10px 0 0; color: #635c50; font-size: 14px; line-height: 1.7; }
+.k8-command { margin: 22px 0; padding: 16px 18px; overflow-x: auto; border: 1px solid #c4ced8; background: #f3f7fa; line-height: 1.6; }
+.k8-command code { font-size: 13px; }
+.k8-deployment-links { display: flex; align-items: center; flex-wrap: wrap; gap: 20px; margin-top: 24px; }
+
+@media (max-width: 760px) {
+    .k8-service-grid { grid-template-columns: 1fr; }
+    .k8-page .architecture-hero h1 { font-size: 32px; }
+    .k8-panel-heading { font-size: 22px; }
+    .k8-command { padding: 12px; }
+    .k8-deployment-links { align-items: flex-start; flex-direction: column; gap: 15px; }
+    .k8-deployment-links .architecture-icons-credit { white-space: normal; }
+}

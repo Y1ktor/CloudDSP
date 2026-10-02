@@ -478,6 +478,7 @@ Resources:
                   - cloudfront:ListDistributions
                   - cloudfront:ListOriginAccessControls
                   - cloudfront:ListResponseHeadersPolicies
+                  - cloudfront:ListTagsForResource
                   - cloudfront:PublishFunction
                   - cloudfront:TagResource
                   - cloudfront:UntagResource

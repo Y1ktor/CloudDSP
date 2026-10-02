@@ -51,7 +51,7 @@ FROM docker.io/library/nginx@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a
 LABEL org.opencontainers.image.title="CloudDSP local frontend" \
       org.opencontainers.image.description="Static local React frontend with Keycloak OIDC" \
       org.opencontainers.image.source="k8Deployment/kubernetes/services/frontend/app" \
-      org.opencontainers.image.version="0.5.2-local-midi-samples"
+      org.opencontainers.image.version="0.5.3-local-k8-docs"
 
 # Replace the root-oriented default configuration with an explicit unprivileged
 # listener, then copy only Vite's immutable output into NGINX's document root.

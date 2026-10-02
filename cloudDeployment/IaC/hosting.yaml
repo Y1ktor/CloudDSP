@@ -340,6 +340,8 @@ Resources:
           const reactRoutes = {
             '/architecture': true,
             '/architecture/': true,
+            '/k8': true,
+            '/k8/': true,
             '/stems': true,
             '/stems/': true
           };

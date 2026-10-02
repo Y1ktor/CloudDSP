@@ -47,6 +47,21 @@ const TUTORIAL_SLIDES = [
     },
 ];
 
+// This is a browser-local first-visit marker, not an account preference. Set
+// it when the dialog actually opens (rather than when a route mounts), so a
+// delayed/disabled tutorial can still appear on the visitor's next visit.
+const TUTORIAL_SEEN_KEY = 'clouddsp.welcomeTutorial.seen.v1';
+
+function hasSeenTutorial() {
+    try {
+        return window.localStorage.getItem(TUTORIAL_SEEN_KEY) === '1';
+    } catch {
+        // Private browsing or disabled storage still allows this document's
+        // in-memory dismissal; persistent first-visit tracking is unavailable.
+        return false;
+    }
+}
+
 function ArrowIcon({ direction }) {
     return (
         <svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none">
@@ -89,9 +104,9 @@ export default function WelcomeTutorial({ enabled = true, delayMs = 2400 }) {
     const location = useLocation();
     const dialogRef = useRef(null);
     const restoreFocusRef = useRef(null);
-    // Dismiss only for this document. A page refresh deliberately offers the
-    // tutorial again so its layout and final screenshots remain easy to review.
-    const [isDismissed, setIsDismissed] = useState(false);
+    // A visitor sees onboarding at most once in a browser profile, including
+    // when they skip it. Do not tie this preference to sign-in state.
+    const [isDismissed, setIsDismissed] = useState(hasSeenTutorial);
     const [isOpen, setIsOpen] = useState(false);
     const [activeSlide, setActiveSlide] = useState(0);
     const [direction, setDirection] = useState('forward');
@@ -102,7 +117,20 @@ export default function WelcomeTutorial({ enabled = true, delayMs = 2400 }) {
             return undefined;
         }
 
-        const timer = window.setTimeout(() => setIsOpen(true), delayMs);
+        const timer = window.setTimeout(() => {
+            // A second tab may have shown onboarding during the delay. Mark it
+            // before opening so a refresh cannot race the first display.
+            if (hasSeenTutorial()) {
+                setIsDismissed(true);
+                return;
+            }
+            try {
+                window.localStorage.setItem(TUTORIAL_SEEN_KEY, '1');
+            } catch {
+                // The current document still shows the tutorial once.
+            }
+            setIsOpen(true);
+        }, delayMs);
         return () => window.clearTimeout(timer);
     }, [delayMs, enabled, isDismissed, location.pathname]);
 
@@ -121,6 +149,13 @@ export default function WelcomeTutorial({ enabled = true, delayMs = 2400 }) {
     }, [isOpen]);
 
     const complete = useCallback(() => {
+        // Reassert the marker if storage became available after the dialog
+        // opened; the in-memory flag also suppresses another open this visit.
+        try {
+            window.localStorage.setItem(TUTORIAL_SEEN_KEY, '1');
+        } catch {
+            // Browsers may reject storage in restricted contexts.
+        }
         setIsDismissed(true);
         setIsOpen(false);
     }, []);
