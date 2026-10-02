@@ -18,6 +18,7 @@ is a standalone k3d container; normal `cleanup` retains its images, while
 ## Root deployment plan
 
 ```bash
+./k8Deployment/kubernetes/scripts/deploy-local.sh secrets-init
 ./k8Deployment/kubernetes/scripts/deploy-local.sh stages
 ./k8Deployment/kubernetes/scripts/deploy-local.sh plan
 ./k8Deployment/kubernetes/scripts/deploy-local.sh prepare
@@ -43,6 +44,64 @@ local Secret filenames and committed example contracts without printing Secret
 values. The command makes no cluster changes and returns nonzero when a
 blocking inconsistency is found; warnings identify work needed before a fresh
 bootstrap. Ruby's standard YAML/JSON libraries are required on the host.
+
+## Local credential initialization
+
+```bash
+ruby ./k8Deployment/kubernetes/scripts/credential-catalog.rb
+./k8Deployment/kubernetes/scripts/deploy-local.sh secrets-init
+```
+
+The value-free [`catalog.yaml`](../credentials/catalog.yaml) describes the 24
+runtime credential groups and nine additional local bootstrap Secret sources
+needed by `bootstrap-platform`. Each group names its required fields and the
+committed example contracts for the Secret manifests. The validator checks
+those contracts and shared runtime/bootstrap mappings without opening
+`k8Deployment/.local/` or contacting the cluster. It rejects password literals
+in the catalog.
+
+`secrets-init` uses the reviewed catalog to create all 33 ignored Secret
+sources at once. It fills fixed service identities, generates independent
+random passwords and MinIO keys, and uses the same values in matching runtime
+and temporary bootstrap manifests. It derives MinIO's AMQP URL from the
+restricted RabbitMQ identity. The command creates `k8Deployment/.local/` with
+owner-only access and writes owner-only files. If every source already exists,
+it checks their contracts and shared values without replacing them. If only
+some sources exist, it stops without generating the rest. No Kubernetes API or
+Helm release is contacted and no credential value is printed. Existing files
+with broader permissions are reported but not changed by this command.
+
+To choose a value, copy the
+[`overrides.example.yaml`](../credentials/overrides.example.yaml) contract to
+an ignored or other private location, set owner-only permissions, and edit
+that one file. For an ignored local copy:
+
+```bash
+mkdir -p k8Deployment/.local
+chmod 700 k8Deployment/.local
+cp k8Deployment/kubernetes/credentials/overrides.example.yaml k8Deployment/.local/credentials-input.yaml
+chmod 600 k8Deployment/.local/credentials-input.yaml
+${EDITOR:-vi} k8Deployment/.local/credentials-input.yaml
+```
+
+Under `credentials`, use a group name from the catalog, then the field name
+to override. Only fields marked `default` or `generate` can be supplied;
+fixed service identities remain fixed. For example, an input can set
+`keycloak-admin.KC_BOOTSTRAP_ADMIN_USERNAME` and
+`keycloak-admin.KC_BOOTSTRAP_ADMIN_PASSWORD`. Then run:
+
+```bash
+./k8Deployment/kubernetes/scripts/deploy-local.sh secrets-init --input k8Deployment/.local/credentials-input.yaml
+```
+
+Custom passwords and MinIO secret keys must contain at least 16 characters.
+Keep the ignored sources for verification and later fresh installs. This
+initializer does not rotate a live database, broker, identity provider, or
+object-store credential. On a clean machine, `bootstrap-platform` first checks
+that the target cluster is absent, then runs `secrets-init` before foundation
+creation. Existing complete `.local` sources are validated and reused;
+partial sources stop the run before any cluster resource is created. Run
+`secrets-init --input` first if you want to choose values.
 
 ## Fresh-cluster foundation stage
 
@@ -121,8 +180,9 @@ It configures the Job API, upload-intake, Demucs, Basic Pitch, and ADTOF MinIO
 identities. `bootstrap-platform` continues through application identity and
 fresh release stages after this shared service foundation.
 
-`bootstrap-platform` combines the already guarded fresh PostgreSQL, RabbitMQ,
-and MinIO child steps once, then creates Keycloak's isolated PostgreSQL
+`bootstrap-platform` first checks that the target cluster is absent and
+initializes ignored credential sources. It composes the guarded fresh
+PostgreSQL, RabbitMQ, and MinIO child steps once, then creates Keycloak's isolated PostgreSQL
 credential Secret and database using the versioned one-shot Job. It installs
 and verifies Mailpit, stages the ignored Keycloak bootstrap-admin Secret, then
 installs and verifies the Keycloak Helm release. Six versioned Admin API Jobs
@@ -204,11 +264,14 @@ local password through the existing PostgreSQL Pod; the password travels on
 stdin and is never printed.
 
 All application identities and guarded fresh release paths are now wired into
-`bootstrap-platform`. `stages` lists 91 ordered stages without contacting
-Kubernetes. The full command passed in the disposable Ubuntu ARM64 VM trial
-linked above. It requires all ignored credential Secret sources under
-`k8Deployment/.local/`; the trial copied them to the VM over Multipass's local
-transfer channel without adding them to the committed source archive. The new
+`bootstrap-platform`. `stages` lists 93 ordered stages without contacting
+Kubernetes. On 2026-10-01, a fresh Ubuntu 24.04 ARM64 VM with no `.local`
+directory passed all 93 bootstrap stages. The command generated all 33
+owner-only credential sources and completed in 16m29s; read-only `verify`
+passed all 56 gates in 80s. A separate clean-VM trial passed
+`secrets-init --input` with five custom fields across four credential groups,
+including matching Job API runtime and bootstrap sources. Neither trial
+printed credential values. The new
 application-identity Jobs generate their temporary administrator-namespace
 credential Secrets in memory from runtime values, so those identities need no
 separate temporary bootstrap Secret files.

@@ -1,8 +1,9 @@
 #!/usr/bin/env ruby
 # Compose the reviewed fresh-cluster platform and the two application-state
 # runners that already have guarded write paths. Reuse each partial bootstrap's
-# ordered child stages exactly once: preparation creates the cluster and image
-# mirror, then PostgreSQL, RabbitMQ, and MinIO receive their own Secrets,
+# ordered child stages exactly once: an absent-cluster guard runs before local
+# credential initialization, preparation creates the cluster and image mirror,
+# then PostgreSQL, RabbitMQ, and MinIO receive their own Secrets,
 # releases, and external state. Keycloak's isolated database, Mailpit, and the
 # identity-provider release and realm precede Job API database/migrations. The
 # Job API schema passes through v006 before worker database roles are created;
@@ -22,6 +23,12 @@ require_relative 'deploy-local-minio'
 class CloudDSPBootstrapPlatform
   SCRIPT_DIRECTORY = File.expand_path(__dir__).freeze
   STEPS = [
+    # The initializer may write owner-only local files. Check the target
+    # cluster is absent first, so invoking fresh bootstrap against a running
+    # cluster cannot generate credentials unrelated to its durable state.
+    # `prepare` repeats this read-only foundation plan before its first write.
+    ['absent-cluster guard', 'deploy-local-foundation.rb', 'plan'],
+    ['local credential initialization', 'credential-init.rb'],
     *CloudDSPBootstrapPostgresql::STEPS,
     *CloudDSPBootstrapRabbitmq::STEPS.drop(1),
     *CloudDSPBootstrapMinio::STEPS.drop(1),
@@ -98,7 +105,7 @@ class CloudDSPBootstrapPlatform
       @error.puts "CloudDSP bootstrap-platform stopped at #{label}; inspect that stage before retrying."
       return 1
     end
-    @output.puts 'CloudDSP bootstrap-platform complete: foundation, locked images, data services, identity, application database and broker roles, KEDA authentication, and all application Helm releases are ready.'
+    @output.puts 'CloudDSP bootstrap-platform complete: local credentials, foundation, locked images, data services, identity, application database and broker roles, KEDA authentication, and all application Helm releases are ready.'
     0
   end
 

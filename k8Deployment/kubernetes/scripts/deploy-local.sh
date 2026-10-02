@@ -7,7 +7,8 @@
 # individual stateful services; `bootstrap-minio` composes broker and object
 # storage prerequisites, buckets, locked samples, restricted IAM users, and
 # the source-upload notification that forwards private uploads to the broker.
-# `bootstrap-platform` reuses those guarded children once, adding PostgreSQL,
+# `bootstrap-platform` first guards an absent cluster and initializes local
+# credential sources. It then reuses those guarded children once, adding PostgreSQL,
 # Keycloak's database, release, and realm, Mailpit, Job API schema/release,
 # restricted service identities, processing topology, KEDA authentication,
 # and every application Helm release in dependency order.
@@ -21,8 +22,11 @@ readonly SCRIPT_DIRECTORY="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
   cat <<'USAGE'
-Usage: ./k8Deployment/kubernetes/scripts/deploy-local.sh stages|plan|prepare|bootstrap-mailpit|bootstrap-postgresql|bootstrap-rabbitmq|bootstrap-minio|bootstrap-platform|verify|reconcile|cleanup|purge-registry
+Usage: ./k8Deployment/kubernetes/scripts/deploy-local.sh secrets-init [--input OWNER_ONLY_YAML]
+       ./k8Deployment/kubernetes/scripts/deploy-local.sh stages|plan|prepare|bootstrap-mailpit|bootstrap-postgresql|bootstrap-rabbitmq|bootstrap-minio|bootstrap-platform|verify|reconcile|cleanup|purge-registry
 
+secrets-init: Render or validate the ignored local Secret sources without
+         contacting the cluster. Optional input overrides selected values.
 stages: List the ordered stages currently wired into bootstrap-platform;
         read-only and does not contact the cluster.
 plan: Read-only preflight for the explicit k3d-clouddsp-local context.
@@ -43,7 +47,8 @@ bootstrap-minio: On an absent cluster, prepare and install RabbitMQ, create
          mirrors 461 locked MIDI samples, and provisions Job API, upload-intake,
          Demucs, Basic Pitch, and ADTOF MinIO users. Reconcile and verify the
          source-upload notification after those identities are ready.
-bootstrap-platform: On an absent cluster, compose the guarded PostgreSQL,
+bootstrap-platform: On an absent cluster, initialize ignored local credentials,
+         then compose the guarded PostgreSQL,
          RabbitMQ, and MinIO children once, create Keycloak's database and
          credential Secret, install Mailpit, then stage Keycloak's admin Secret
          and install its Helm release. Bootstrap its realm and clients before
@@ -71,7 +76,9 @@ if [[ "$#" -eq 1 && ( "$1" == "-h" || "$1" == "--help" || "$1" == "help" ) ]]; t
   exit 0
 fi
 
-if [[ "$#" -ne 1 || ( "$1" != "stages" && "$1" != "plan" && "$1" != "prepare" && "$1" != "bootstrap-mailpit" && "$1" != "bootstrap-postgresql" && "$1" != "bootstrap-rabbitmq" && "$1" != "bootstrap-minio" && "$1" != "bootstrap-platform" && "$1" != "verify" && "$1" != "reconcile" && "$1" != "cleanup" && "$1" != "purge-registry" ) ]]; then
+if [[ "$#" -eq 3 && "$1" == "secrets-init" && "$2" == "--input" ]]; then
+  :
+elif [[ "$#" -ne 1 || ( "$1" != "secrets-init" && "$1" != "stages" && "$1" != "plan" && "$1" != "prepare" && "$1" != "bootstrap-mailpit" && "$1" != "bootstrap-postgresql" && "$1" != "bootstrap-rabbitmq" && "$1" != "bootstrap-minio" && "$1" != "bootstrap-platform" && "$1" != "verify" && "$1" != "reconcile" && "$1" != "cleanup" && "$1" != "purge-registry" ) ]]; then
   usage >&2
   exit 2
 fi
@@ -92,6 +99,12 @@ if ! command -v ruby >/dev/null 2>&1; then
 fi
 
 case "$1" in
+  secrets-init)
+    if [[ "$#" -eq 3 ]]; then
+      exec ruby "${SCRIPT_DIRECTORY}/credential-init.rb" --input "$3"
+    fi
+    exec ruby "${SCRIPT_DIRECTORY}/credential-init.rb"
+    ;;
   stages) exec ruby "${SCRIPT_DIRECTORY}/deploy-local-platform.rb" list ;;
   plan) exec ruby "${SCRIPT_DIRECTORY}/deploy-local-plan.rb" ;;
   prepare) exec ruby "${SCRIPT_DIRECTORY}/deploy-local-prepare.rb" ;;

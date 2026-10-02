@@ -22,6 +22,8 @@ class DeployLocalPlatformTest < Minitest::Test
 
   def test_existing_guarded_children_run_once_in_dependency_order
     expected = [
+      ['absent-cluster guard', 'deploy-local-foundation.rb', 'plan'],
+      ['local credential initialization', 'credential-init.rb'],
       *CloudDSPBootstrapPostgresql::STEPS,
       *CloudDSPBootstrapRabbitmq::STEPS.drop(1),
       *CloudDSPBootstrapMinio::STEPS.drop(1),
@@ -85,7 +87,13 @@ class DeployLocalPlatformTest < Minitest::Test
 
     assert_equal 0, run_platform
     assert_equal expected, @calls
+    assert_equal 1, @calls.count(%w[deploy-local-foundation.rb plan])
+    assert_equal 1, @calls.count(['credential-init.rb'])
     assert_equal 1, @calls.count(['deploy-local-prepare.rb'])
+    assert_operator @calls.index(%w[deploy-local-foundation.rb plan]), :<,
+                    @calls.index(['credential-init.rb'])
+    assert_operator @calls.index(['credential-init.rb']), :<,
+                    @calls.index(['deploy-local-prepare.rb'])
     assert_equal 1, @calls.count(%w[rabbitmq-release.rb install])
     assert_equal 1, @calls.count(%w[minio-release.rb install])
     assert_operator @calls.index(%w[postgresql-release.rb verify]), :<,
@@ -125,6 +133,13 @@ class DeployLocalPlatformTest < Minitest::Test
     assert @calls.all? { |call| (call & %w[adopt upgrade smoke delete apply]).empty? }
     assert_includes @output.string, 'all application Helm releases are ready'
     assert_empty @error.string
+  end
+
+  def test_existing_cluster_guard_stops_before_local_credentials_are_initialized
+    assert_equal 1, run_platform(%w[deploy-local-foundation.rb plan])
+    assert_equal [%w[deploy-local-foundation.rb plan]], @calls
+    refute_includes @output.string, 'local credential initialization'
+    assert_includes @error.string, 'absent-cluster guard'
   end
 
   def test_every_failure_stops_before_the_next_stage_or_success_claim
