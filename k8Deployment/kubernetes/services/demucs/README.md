@@ -1289,22 +1289,38 @@ The PostgreSQL observer is a separate, read-only `clouddsp-keda-demucs` role.
 The versioned [bootstrap Job](../postgresql/postgresql-keda-demucs-bootstrap-job.yaml)
 grants SELECT on only the task columns `stage`, `status`, and `available_at`;
 it does not expose job IDs, MinIO keys, event payloads, or write privileges.
-The [TriggerAuthentication](../../helm/keda/keda-demucs-postgresql-trigger-authentication.yaml)
+The [TriggerAuthentication](../../helm/scaling-auth/templates/keda-demucs-postgresql-trigger-authentication.yaml)
 reads its password from an ignored app-namespace Secret. The temporary
 bootstrap Secret is removed from the data namespace after the role is created.
 
-Reconcile these resources, in that order, with the
+Reassert the reviewed configuration in an already-deployed, idle cluster with the
 [versioned script](../../scripts/reconcile-demucs-scaling.sh):
 
 ```bash
 ./k8Deployment/kubernetes/scripts/reconcile-demucs-scaling.sh
 ```
 
-The script uses the explicit `k3d-clouddsp-local` context and two ignored
-files under `k8Deployment/.local/`. Their committed `.secret.example.yaml`
-counterparts document the required keys, not deployable credentials. The
-fixed-name bootstrap Job must be absent before running the script again;
-inspect an existing Job and deliberately remove it before a password rotation.
+The script first verifies the existing PostgreSQL and RabbitMQ scaler
+identities and their restricted permissions. It then runs the existing Helm
+release checks, which lint and render the charts, validate the Kubernetes API
+schema, compare installed and live configuration with the reviewed sources,
+and require Helm ownership and an idle Demucs worker.
+
+After those gates pass, it upgrades `clouddsp-scaling-auth` and then
+`clouddsp-demucs` in `clouddsp-app`, using the explicit
+`k3d-clouddsp-local` context and checked-in chart defaults. The shared
+scaling-auth release includes both PostgreSQL and RabbitMQ authentications;
+the Demucs release includes its Deployment and ScaledObject. Final checks
+verify both authentications, scaler readiness, HPA ownership, and idle state.
+
+This maintenance command requires both releases to be deployed and already
+match the reviewed configuration. Missing releases, failed releases, source
+or ownership drift, and active Demucs work stop it before Helm writes. Use
+`deploy-local.sh bootstrap-platform` for a fresh cluster; intentional chart
+changes need their own reviewed rollout. Existing runtime credentials under
+`k8Deployment/.local/` are verified without applying Secrets, creating a
+database bootstrap Job, or rotating credentials. If a Helm upgrade fails,
+inspect the release in place before retrying.
 
 This local policy uses a 15-second polling interval, one-message target,
 `minReplicaCount: 0`, `maxReplicaCount: 1`, and a five-minute cooldown. The

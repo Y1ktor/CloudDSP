@@ -1,55 +1,59 @@
 #!/usr/bin/env bash
-# Reconcile the Demucs CPU profile and both KEDA work signals in safe order.
-# The due database retry will wake immediately after the final ScaledObject
-# apply, so the Deployment's reviewed CPU budget must be installed first.
+# Reassert the reviewed, already-installed Demucs CPU and KEDA configuration.
+# Helm owns the worker Deployment/ScaledObject and both shared scaler
+# authentications. Reuse the release verifiers before either Helm write so
+# missing releases, ownership drift, changed profiles, or active work stop here.
+# Fresh bootstrap and credential rotation belong to their separate stages.
 set -euo pipefail
+
+if [ "$#" -ne 0 ]; then
+  printf 'Usage: ./k8Deployment/kubernetes/scripts/reconcile-demucs-scaling.sh\n' >&2
+  exit 64
+fi
 
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 repo_root="$(cd "$script_dir/../../.." && pwd)"
 context="k3d-clouddsp-local"
-app_secret="$repo_root/k8Deployment/.local/keda-demucs-postgresql-credentials.secret.yaml"
-bootstrap_secret="$repo_root/k8Deployment/.local/postgresql-keda-demucs-bootstrap-credentials.secret.yaml"
-bootstrap_job="$repo_root/k8Deployment/kubernetes/services/postgresql/postgresql-keda-demucs-bootstrap-job.yaml"
-authentication="$repo_root/k8Deployment/kubernetes/helm/keda/keda-demucs-postgresql-trigger-authentication.yaml"
-worker="$repo_root/k8Deployment/kubernetes/services/demucs/demucs-deployment.yaml"
-scaled_object="$repo_root/k8Deployment/kubernetes/services/demucs/demucs-scaledobject.yaml"
+namespace="clouddsp-app"
+chart_dir="$repo_root/k8Deployment/kubernetes/helm"
 
-# Fail before applying anything if either ignored local Secret is absent.
-# Their committed example files contain placeholders and must never be used
-# as live credentials.
-test -f "$app_secret"
-test -f "$bootstrap_secret"
-kubectl --context "$context" cluster-info >/dev/null
+run_stage() {
+  local stage="$1"
+  shift
+  printf 'Demucs scaling reconcile: %s\n' "$stage"
+  if ! "$@"; then
+    printf 'Demucs scaling reconcile stopped at %s; inspect the identities and Helm releases before retrying.\n' "$stage" >&2
+    exit 1
+  fi
+}
 
-# A completed fixed-name Job does not rerun on apply. Refuse to silently bind
-# a newly rotated app Secret to an older PostgreSQL role password.
-if kubectl --context "$context" --namespace clouddsp-data \
-  get job postgresql-keda-demucs-bootstrap >/dev/null 2>&1; then
-  printf 'Inspect the existing postgresql-keda-demucs-bootstrap Job before a deliberate rerun.\n' >&2
-  exit 1
-fi
+# Both authentications are shared: Basic Pitch uses the PostgreSQL observer,
+# and all three workers use the RabbitMQ observer. Verify their existing
+# restricted identities instead of recreating passwords or bootstrap Jobs.
+run_stage 'PostgreSQL scaler identity verification' \
+  ruby "$script_dir/application-identity-stage.rb" database keda-demucs verify
+run_stage 'RabbitMQ scaler identity verification' \
+  ruby "$script_dir/application-identity-stage.rb" rabbitmq keda-scaler verify
+run_stage 'scaling-auth Helm preflight' \
+  ruby "$script_dir/scaling-auth-release.rb" verify-prerequisites
+run_stage 'idle Demucs Helm preflight' \
+  ruby "$script_dir/demucs-release.rb" verify
 
-kubectl --context "$context" apply --filename "$app_secret"
-kubectl --context "$context" apply --filename "$bootstrap_secret"
-kubectl --context "$context" apply --filename "$bootstrap_job"
-kubectl --context "$context" --namespace clouddsp-data wait \
-  --for=condition=complete job/postgresql-keda-demucs-bootstrap \
-  --timeout=180s
-kubectl --context "$context" --namespace clouddsp-data logs \
-  job/postgresql-keda-demucs-bootstrap \
-  --container=postgresql-bootstrap-client
+# Upgrade only existing releases, using their checked-in chart defaults.
+# scaling-auth owns both TriggerAuthentications; demucs owns the Deployment
+# and dual-trigger ScaledObject together. KEDA retains its controller, HPA,
+# and /scale ownership. A failed write remains inspectable in place.
+run_stage 'scaling-auth Helm upgrade' \
+  helm upgrade clouddsp-scaling-auth "$chart_dir/scaling-auth" \
+    --kube-context "$context" --namespace "$namespace" --wait --timeout 3m
+run_stage 'Demucs Helm upgrade' \
+  helm upgrade clouddsp-demucs "$chart_dir/demucs" \
+    --kube-context "$context" --namespace "$namespace" --wait --timeout 3m
 
-# The role is now durable in PostgreSQL; remove its temporary copy from the
-# data namespace. The ignored local file remains available for a reviewed
-# password rotation, while KEDA keeps only its app-namespace Secret.
-kubectl --context "$context" --namespace clouddsp-data delete \
-  secret clouddsp-keda-demucs-postgresql-bootstrap-credentials
-
-kubectl --context "$context" apply --filename "$authentication"
-kubectl --context "$context" apply --filename "$worker"
-kubectl --context "$context" apply --filename "$scaled_object"
-kubectl --context "$context" --namespace clouddsp-app wait \
-  --for=condition=ready scaledobject/clouddsp-demucs-rabbitmq-scaler \
-  --timeout=90s
-kubectl --context "$context" --namespace clouddsp-app get \
-  scaledobject/clouddsp-demucs-rabbitmq-scaler
+# These checks cover stored Helm manifests, resource ownership, both Secret
+# references, scaler readiness, the generated HPA, and the idle worker state.
+run_stage 'scaling-auth Helm verification' \
+  ruby "$script_dir/scaling-auth-release.rb" verify-prerequisites
+run_stage 'Demucs Helm verification' \
+  ruby "$script_dir/demucs-release.rb" verify
+printf 'Demucs scaling reconcile completed through Helm.\n'

@@ -1166,6 +1166,28 @@ uses guarded cleanup of only its test data. The first trial reached verified
 Demucs completion, then stalled because Basic Pitch scaled away during its
 second task; the full smoke remains failed with fixed evidence preserved.
 
+### Reassert the installed Demucs scaling profile
+
+```bash
+./k8Deployment/kubernetes/scripts/reconcile-demucs-scaling.sh
+```
+
+This scoped maintenance command verifies the PostgreSQL and RabbitMQ scaler
+identities, then runs the scaling-auth and idle Demucs Helm preflight checks
+before either write. It upgrades the existing `clouddsp-scaling-auth` release
+and then `clouddsp-demucs` using their versioned charts, with explicit context
+`k3d-clouddsp-local`, namespace `clouddsp-app`, and three-minute waits. Final
+release checks verify Helm ownership, stored and live manifests, authentication
+references, scaler readiness, generated HPA ownership, and idle worker state.
+
+Both releases must already be deployed and match the reviewed configuration;
+missing or failed releases, configuration drift, or active Demucs work stop
+before any Helm upgrade. Fresh creation belongs to `bootstrap-platform`, and
+intentional chart changes need a separately reviewed rollout. The helper
+verifies existing credentials instead of applying Secrets or rerunning a
+database bootstrap Job. It uses Helm for both shared authentications and the
+worker resources and stops at the first failed stage for inspection.
+
 ## Keycloak Helm adoption and verification
 
 ```bash
