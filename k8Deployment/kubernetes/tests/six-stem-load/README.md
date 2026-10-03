@@ -220,8 +220,10 @@ copy. The paired connection reader fixes the destination to
 `clouddsp-postgresql.clouddsp-data.svc:5432` and database
 `clouddsp_job_api`, which is where the Job API schema and migrations reside.
 
-[`six-stem-load-job.skeleton.yaml`](six-stem-load-job.skeleton.yaml) is valid
-but deliberately `suspend: true`. It shows the broker's immutable image,
+The earlier `six-stem-load-job.skeleton.yaml` was valid
+but deliberately `suspend: true`. The current completed manifest is
+[`six-stem-load-job.yaml`](six-stem-load-job.yaml); follow the current run
+instructions below rather than this historical skeleton phase. It shows the broker's immutable image,
 memory-backed 1 MiB handoff volume, non-root UID, 30-second graceful shutdown,
 and absence of a ServiceAccount token. It has no authenticated client yet, so
 it must not be unsuspended or applied as a load test. No Kubernetes Job,

@@ -571,26 +571,28 @@ images:
     # the dedicated MinIO read-only bucket; its CSP no longer permits the
     # original online sample hosts. Keep the immutable digest in the Pod so a
     # mutable registry tag cannot silently change that browser behavior.
-    # This reviewed UI sync adds the Kubernetes architecture tab and GitHub
-    # destination marks while preserving local Keycloak and MinIO adapters.
+    # This build selects local adapters from the canonical root frontend;
+    # cloud and local screens now share one source and dependency lock.
     repository: clouddsp-registry.localhost:5001/frontend
-    sourceTag: "0.5.3-local-k8-docs"
-    digest: sha256:008340ede283f93eee487d2259f996d6878738e478e0d29085ae48414e1e3503
-    immutableReference: clouddsp-registry.localhost:5001/frontend@sha256:008340ede283f93eee487d2259f996d6878738e478e0d29085ae48414e1e3503
+    sourceTag: "0.6.0-shared-profiles"
+    digest: sha256:913e4264b8f54debcc78501640784a8aee6c78d35614d2a0046111c5f088c55a
+    immutableReference: clouddsp-registry.localhost:5001/frontend@sha256:913e4264b8f54debcc78501640784a8aee6c78d35614d2a0046111c5f088c55a
     supportedPlatforms:
       - linux/arm64/v8
     builtFrom:
-      # The application baseline began at this recorded cloud revision, then
-      # gained local-only OIDC/CSP changes in the current Kubernetes worktree.
+      # The original local snapshot began at this recorded cloud revision.
+      # The current shared source retains its local OIDC/CSP adapters.
       # It is intentionally called out as a working-tree build until this task
       # is committed; the output digest above still identifies its exact bytes.
       sourceBaselineCommit: 6393ae3eb4153b883baf993e7c1d887252f8de1f
-      sourceRevision: local-kubernetes-working-tree
-      sourceDirectory: kubernetes/services/frontend/app
+      sourceRevision: shared-frontend-working-tree
+      # Application source is relative to the repository root; delivery files
+      # below retain their Kubernetes-directory-relative locations.
+      sourceDirectory: frontend
       dockerfile: kubernetes/services/frontend/Dockerfile
       builderImageLock: images.frontend-node-builder
       runtimeImageLock: images.frontend-nginx-runtime
-      publicConfigurationFile: kubernetes/services/frontend/app/.env.production
+      publicConfigurationFile: .local/frontend.env.production
       # These URLs are JavaScript configuration sent to the browser, not
       # Secrets. The image checks confirm no internal `*.svc` address is
       # bundled: browser code cannot resolve Kubernetes Service DNS.
@@ -598,7 +600,7 @@ images:
       publicObjectStorageOrigin: http://minio.localhost:8080
       midiSampleLock: kubernetes/services/minio/midi-sample-assets.lock.json
       sharedSampleBucket: clouddsp-midi-samples
-    localDockerSizeBytes: 35132882
+    localDockerSizeBytes: 35135239
     localDockerSize: "33.51 MiB"
     pushedAt: "2026-10-02"
 

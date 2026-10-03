@@ -3,7 +3,9 @@
 CloudDSP is a browser-based audio workspace for separating recordings into stems,
 transcribing pitched instruments and drums to MIDI, and editing the results.
 The repository contains an AWS deployment and a separate local Kubernetes
-deployment of the processing services.
+deployment of the processing services. Both use the shared React application
+in [`frontend/`](frontend/), with cloud and local build profiles; the backend
+code and infrastructure remain in their respective deployment directories.
 
 ## Cloud
 
@@ -12,8 +14,17 @@ deployment of the processing services.
 The hosted application runs on AWS. The website includes an **Architecture**
 page describing its authentication, upload, processing, storage, and result
 delivery paths. Source code and CloudFormation templates are in
-[`cloudDeployment/`](cloudDeployment/); the detailed design is in the
+[`cloudDeployment/`](cloudDeployment/), and the shared browser source is in
+[`frontend/`](frontend/); the detailed design is in the
 [cloud architecture documentation](cloudDeployment/docs/architecture.md).
+
+To work on the browser application, follow the
+[frontend development guide](frontend/README.md). `npm run build:cloud`
+creates `frontend/dist/cloud/` for AWS hosting; `npm run build:local`
+creates `frontend/dist/local/` for the Kubernetes NGINX image. Choose the
+matching public environment profile before building. The local bootstrap
+below pulls published, locked images and does not require Node.js or a
+frontend build on the deployment machine.
 
 ## Local
 
@@ -190,3 +201,7 @@ provide production availability, TLS, data recovery, or CUDA performance
 validation. See the [orchestration plan](k8Deployment/kubernetes/deployment-orchestration-plan.md)
 and [scripts guide](k8Deployment/kubernetes/scripts/README.md) for the full
 stage list, verification details, and component smoke tests.
+
+The [local documentation index](k8Deployment/kubernetes/README.md) links current
+service contracts and reference guides. Earlier implementation notes and
+adoption inventories are preserved in [history](k8Deployment/kubernetes/docs/history/README.md).

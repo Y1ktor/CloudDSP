@@ -330,6 +330,13 @@ frontend ignore rules exclude `.env` and `.env.*` while explicitly retaining
 values: Cognito User Pool ID, Cognito browser client ID, Job API URL, and
 WebSocket URL.
 
+That path records the layout when this control was implemented. The canonical
+application now lives at `../../frontend/`; its public cloud example is
+`profiles/cloud.env.example`, and populated cloud configuration uses ignored
+`.env.cloud.local`. Local public build settings use the separate example in
+`profiles/local.env.example` and ignored
+`../../k8Deployment/.local/frontend.env.production` for the container build.
+
 Vite compiles every `VITE_*` value into browser JavaScript, so these variables
 must never contain passwords, tokens, AWS credentials, proxy URLs, or client
 secrets. Server-side credentials belong in a runtime secret service such as

@@ -11,6 +11,16 @@ or repurpose this cloud deployment to implement the Kubernetes work unless the
 user explicitly requests a coordinated cloud change. The repository-level
 `.gitmsg` remains one directory above this file.
 
+The explicitly shared exception is the canonical React application in
+[`../frontend/`](../frontend/). Both deployments use its screens, audio/MIDI
+hooks, assets, package manifest, and lockfile. Build-selected adapters under
+`../frontend/src/platform/` retain Cognito/AWS behavior for the cloud profile
+and Keycloak/local-service behavior for the local profile. Backend handlers,
+CloudFormation, Kubernetes services, and delivery configuration remain owned
+by their deployment trees. Validate both frontend profiles when changing
+shared browser behavior; do not restore separate copies or import a local
+adapter into the cloud build.
+
 ## 1. Project and Architecture
 
 CloudDSP is a cloud-powered, browser-based digital audio workstation. It
@@ -150,10 +160,13 @@ source ingestion, and server-side persistence require authentication.
 
 ## 2. Repository Layout
 
-- `/frontend-react/` — Vite/React application.
-  - `src/auth/cognito.js` and `src/components/AuthPanel.jsx` — browser-only
-    Cognito User Pool authentication, including a resumable email-confirmation
-    dialog and the profile display name.
+- `../archive/eq/` — retained standalone EQ prototype and unused React EQ
+  wrapper, with original internal layouts. These historical files are outside
+  the active frontend and deployment builds.
+- `../frontend/` — canonical Vite/React application shared by both deployments.
+  - `src/auth/cognito.js` and `src/platform/cloud/SignInPanel.jsx` — browser-only
+    Cognito User Pool authentication for the cloud profile, including a
+    resumable email-confirmation dialog and the profile display name.
   - `src/components/DemoLibrary.jsx` and `src/utils/demoCatalog.js` — anonymous
     static demo discovery and completed-job snapshot hydration. The catalog
     accepts only JSON and same-origin `/demo/*` artifact URLs; demo jobs must
@@ -179,6 +192,12 @@ source ingestion, and server-side persistence require authentication.
     drag interactions.
   - `src/utils/DrumMidi.js` — the canonical ADTOF five-voice General MIDI,
     sampler, visual, and mute/solo mapping.
+  - `src/platform/` — build-selected cloud/local authentication, service,
+    sample-delivery, and presentation boundaries. Keep deployment-specific
+    behavior here while common screens and transport hooks stay shared.
+  - `profiles/cloud.env.example` and `profiles/local.env.example` — public
+    browser configuration examples. Cloud builds use Vite mode `cloud` and
+    write `dist/cloud/`; local builds use mode `k8` and write `dist/local/`.
 - `/src/DSP/src/Cloud/` — Lambda handlers, Batch entry points, and cloud DSP
   scripts.
   - `job_api.py` — authenticated job creation, saved-job library, snapshots,
@@ -245,18 +264,30 @@ source ingestion, and server-side persistence require authentication.
 ### Frontend
 
 ```bash
-cd frontend-react
-npm install
-npm run dev
-npm run build
+cd ../frontend
+npm ci
+cp profiles/cloud.env.example .env.cloud.local
+# Set public Cognito, Job API, and WebSocket values in .env.cloud.local.
+npm run dev:cloud
+npm run lint
+npm test
+npm run build:cloud
+npm run build:local
 ```
 
-Copy `frontend-react/.env.example` to a local ignored environment file and set
-the Cognito, Job API, and WebSocket values from the deployed stack outputs.
+The commands above start in `cloudDeployment/`; from the repository root use
+`cd frontend` instead. Set the cloud profile's Cognito, Job API, and WebSocket
+values from the deployed stack outputs in ignored `frontend/.env.cloud.local`.
+For a manual local browser build, use `profiles/local.env.example` as the
+example for ignored `frontend/.env.k8.local`. The Kubernetes image builder
+reads public local configuration from `k8Deployment/.local/frontend.env.production`
+and passes it explicitly to the shared local build.
 Do not put credentials or private AWS resource values in a `VITE_*` variable:
 Vite embeds those values into browser assets.
-The repository ignores `.env` and `.env.*` but retains `.env.example`; never
-force-add a local environment file.
+The repository ignores populated `.env*` files and retains the profile
+examples; never force-add a local environment file. Upload only
+`frontend/dist/cloud/` to the cloud website bucket. The local image packages
+`frontend/dist/local/` separately.
 
 ### DSP
 
@@ -356,7 +387,7 @@ Docker image before local testing.
 - **Never commit secrets.** Do not hardcode AWS credentials, API keys, proxy
   addresses, or deployment-specific endpoints. Use CloudFormation parameters,
   environment variables, or local ignored configuration.
-- **Preserve the CSP.** `frontend-react/csp.js` is emitted into built HTML and
+- **Preserve the CSP.** `../frontend/csp.js` is emitted into built HTML and
   served by Vite. New browser network or media origins require a deliberate
   production-policy review; never add `unsafe-inline`, `unsafe-eval`, or a
   broad script origin to make a feature work. The production host must mirror
@@ -423,5 +454,6 @@ Docker image before local testing.
 - Do not commit local editor configuration, generated artifacts, Docker caches,
   credentials, or image layers.
 - Do not run a blanket `npm audit fix` or accept a major dependency upgrade
-  without reviewing the lockfile and testing `npm run build`. Treat dependency
+  without reviewing the lockfile and testing both `npm run build:cloud` and
+  `npm run build:local`. Treat dependency
   remediation as an intentional, isolated change.

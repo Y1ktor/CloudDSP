@@ -38,7 +38,7 @@ It does not automatically uninstall or roll back an adopted release.
 named workload objects to be absent. Before Helm writes, the runner verifies
 the Job API database Secret and migrations, restricted MinIO Secret and IAM
 user, and Keycloak realm/client configuration. It installs without taking
-ownership of an existing resource. The partial `bootstrap-platform` command
+ownership of an existing resource. The full `bootstrap-platform` command
 runs these prerequisites and this install in dependency order.
 
 `verify` compares Helm's stored manifest with the chart and live specs,

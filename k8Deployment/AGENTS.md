@@ -14,6 +14,15 @@ the Kubernetes implementation. If a Kubernetes-specific public API, event,
 data model, or infrastructure boundary changes, update `plan.md` and the
 relevant K8 documentation in this tree.
 
+The shared React application in [`../frontend/`](../frontend/) is an explicit
+exception to the deployment-directory boundary. Its screens, audio/MIDI hooks,
+assets, package manifest, and lockfile are canonical for both deployments.
+Adapters under `../frontend/src/platform/` select the Cognito/AWS cloud profile
+or the Keycloak/local-service profile at build time. Keep local containers,
+NGINX configuration, and Kubernetes resources under this deployment tree.
+Shared UI changes require both frontend profiles to pass validation; local
+backend code must still remain independent of AWS handlers.
+
 ## Teaching and task scope
 
 This Kubernetes track is also a learning project. When creating or modifying
@@ -37,7 +46,10 @@ later tasks merely because they appear in a plan.
 
 ## Layout and ownership
 
-- Put all Kubernetes source under `kubernetes/`.
+- Put Kubernetes infrastructure and backend source under `kubernetes/`.
+- Put common browser source in `../frontend/`, using its build-selected
+  platform adapters for deployment-specific browser behavior. Do not create
+  another React source copy under `kubernetes/services/frontend/`.
 - Put reproducible k3d/bootstrap configuration in `kubernetes/cluster/`.
 - Put Helm charts and values in `kubernetes/helm/`.
 - Put K8-specific services and worker CLIs in `kubernetes/services/`.
@@ -52,18 +64,20 @@ and Batch; Kubernetes needs its own adapters and worker CLIs.
 
 ## Target platform
 
-Use k3d for the standard local profile and native Linux x86_64 k3s with NVIDIA
-GPU support for the GPU profile. Do not claim a Mac k3d cluster validates CUDA
-or production-like GPU throughput.
+The implemented standard local profile uses k3d with ARM64 CPU images.
+Native Linux x86_64 k3s with NVIDIA GPU support is a separate future GPU
+profile, requiring its own reviewed images and scheduling configuration. Do
+not claim a Mac k3d cluster validates CUDA or production-like GPU throughput.
 
 Deploy only through versioned Helm configuration and non-interactive scripts.
 Do not use ClickOps or uncommitted `kubectl` changes. Install KEDA before any
-`ScaledJob` resources.
+`ScaledObject` resources.
 
 ## Durable processing rules
 
-- PostgreSQL is authoritative for jobs, artifact keys, revisions, UTC quotas,
-  task leases, and outbox events.
+- PostgreSQL is authoritative for jobs, artifact keys, revisions, task leases,
+  and outbox events. Future UTC quota enforcement must use the same durable
+  boundary; it is not yet implemented locally.
 - MinIO job artifacts stay private. Store stable keys rather than presigned
   URLs in PostgreSQL. The separate `clouddsp-midi-samples` bucket is a narrow
   exception for shared, non-user instrument sounds: anonymous `GetObject`
@@ -75,17 +89,20 @@ Do not use ClickOps or uncommitted `kubectl` changes. Install KEDA before any
   are hints and browser polling remains required for correctness.
 - A worker must not create another Kubernetes Job or use Kubernetes API
   permissions. It queues downstream work through durable messages.
-- yt-dlp writes the ordinary upload key and follows the same intake-to-Demucs
-  path as a direct browser upload.
+- When linked-media ingestion is added, yt-dlp must write the ordinary upload
+  key and follow the same intake-to-Demucs path as a direct browser upload.
 - Preserve source types, byte and duration limits, owner checks, UTC quotas,
   retention, terminal deletion, and `job_id` correlation rules from the cloud
-  deployment.
+  deployment. These are target parity requirements; current local API gaps
+  are listed in `kubernetes/services/api/README.md`. Do not describe an
+  unimplemented route, quota, or cleanup worker as a deployed capability.
 
 ## Authentication, security, and containers
 
 Use Keycloak plus PostgreSQL for local credentials. Use OIDC Authorization Code
 with PKCE in the frontend and validate issuer, audience, expiry, signing keys,
-and immutable `sub` in API and WebSocket services.
+and immutable `sub` in the API. A future realtime service must apply the
+same validation; the current local frontend recovers state through polling.
 
 Never log access tokens, passwords, codes, presigned URLs, or credentials.
 Keep user-data MinIO buckets private and browser job-artifact access presigned.
@@ -97,16 +114,27 @@ least-privilege service access.
 
 Pin base images by digest. Build static frontend assets with Node and serve
 them through NGINX. Keep workers single-purpose, resource-bounded, and free of
-Lambda runtime assumptions. Demucs requests one GPU, uses GPU node affinity,
-and is capped by real GPU capacity.
+Lambda runtime assumptions. Standard local Demucs uses CPU. A future GPU
+profile must request a GPU, use appropriate GPU node affinity, and cap scaling
+by real GPU capacity.
 
 ## Validation and Git workflow
 
 Before marking a change complete, run relevant unit tests, frontend lint/build,
 Helm lint/template, Kubernetes schema validation, `git diff --check`, and an
-appropriate local smoke test. The smoke test covers authentication, upload,
-terminal processing, MIDI, reconnect/poll recovery, failure/retry, duplicate
-delivery, retention, and deletion.
+appropriate local smoke test for the changed implemented boundary. Processing
+checks cover authentication, upload, terminal processing, MIDI, polling
+recovery, failure/retry, and duplicate delivery as relevant. Add realtime
+reconnect, quota, retention-cleanup, and deletion checks when those local
+features are implemented. For documentation-only changes, validate links,
+commands, source consistency, and whitespace; no live deployment is required.
+
+Run shared browser checks from `../frontend/`: `npm run lint`, `npm test`,
+`npm run build:cloud`, and `npm run build:local`. Cloud mode writes
+`dist/cloud/`; Vite mode `k8` writes `dist/local/`. For development use the
+public examples in `profiles/`; the local Docker image builder reads public
+settings from ignored `.local/frontend.env.production` in this deployment
+tree. Never use that file for server-side secrets.
 
 Use Conventional Commits and keep cloud and Kubernetes changes separate unless
 a deliberate shared product contract requires an explicitly coordinated change.

@@ -232,7 +232,7 @@ environment files, local AWS files, and PEM/key material.
 The live website and demo manifest now return a Content-Security-Policy, HSTS,
 X-Frame-Options: DENY, X-Content-Type-Options: nosniff, and
 Referrer-Policy: strict-origin-when-cross-origin. The policy matches
-frontend-react/csp.js and the CloudFront response-headers policy in
+../../frontend/csp.js (cloud profile) and the CloudFront response-headers policy in
 IaC/hosting.yaml. Production builds contain no source maps, and the active
 React path has no unsafe HTML injection, eval, new Function, or remote script
 import.
@@ -278,7 +278,7 @@ The browser accepts only the current presigned POST contract. S3 evaluates the
 signed content-length-range before accepting the source, and Batch retains its
 durable HeadObject size validation.
 
-**Evidence:** frontend-react/src/App.jsx and job_api.py.
+**Evidence:** ../../frontend/src/App.jsx (shared cloud profile) and job_api.py.
 
 **Residual hardening:** the uploads bucket's CORS configuration still permits
 PUT, but no active API/browser path supplies a signed PUT URL. Remove the

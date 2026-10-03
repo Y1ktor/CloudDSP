@@ -1,5 +1,13 @@
 # Browser Transport Performance and Memory
 
+These transport, timeline, and memory rules apply to the canonical React
+application in [`../../frontend/`](../../frontend/) for both deployment
+profiles. Cloud and local adapters in `frontend/src/platform/` provide
+authentication, service configuration, and sample origins; they share the
+audio clock, MIDI scheduling, editor, and instrument lifecycle described here.
+Validate shared transport changes with `npm run lint`, `npm test`,
+`npm run build:cloud`, and `npm run build:local` from `frontend/`.
+
 ## Why a short project could consume gigabytes
 
 A four-minute history job can create several independent kinds of browser

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Build and publish the Kubernetes-local React image through this exact path:
 #
-#   local app/.env.production -> Docker build arguments -> Vite static files
+#   ignored local public config -> Docker build arguments -> shared frontend's
+#       local profile static files
 #       -> non-root NGINX image -> CloudDSP's local k3d registry
 #
 # The configuration values supplied to Vite are public browser settings. This
@@ -14,21 +15,23 @@ set -euo pipefail
 # repository root or any other current directory.
 readonly SCRIPT_DIRECTORY="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly KUBERNETES_DIRECTORY="$(cd -- "${SCRIPT_DIRECTORY}/.." && pwd)"
+readonly REPOSITORY_DIRECTORY="$(cd -- "${KUBERNETES_DIRECTORY}/../.." && pwd)"
 readonly FRONTEND_DIRECTORY="${KUBERNETES_DIRECTORY}/services/frontend"
-readonly ENVIRONMENT_FILE="${FRONTEND_DIRECTORY}/app/.env.production"
+readonly SHARED_FRONTEND_DIRECTORY="${REPOSITORY_DIRECTORY}/frontend"
+readonly ENVIRONMENT_FILE="${KUBERNETES_DIRECTORY}/../.local/frontend.env.production"
 readonly DOCKERFILE="${FRONTEND_DIRECTORY}/Dockerfile"
 
 # Keep the registry name, image path, and tag scoped to this existing k3d
 # learning cluster. The immutable repository digest printed after push is the
 # value a future Deployment will use; this descriptive tag is build traceability.
 readonly REGISTRY_HOST="clouddsp-registry.localhost:5001"
-readonly IMAGE_NAME="${REGISTRY_HOST}/frontend:0.5.3-local-k8-docs"
+readonly IMAGE_NAME="${REGISTRY_HOST}/frontend:0.6.0-shared-profiles"
 
 usage() {
   cat <<'USAGE'
 Usage: ./k8Deployment/kubernetes/scripts/build-frontend-image.sh
 
-Builds the local CloudDSP React + Keycloak OIDC image for linux/arm64, pushes it
+Builds frontend/'s local React + Keycloak OIDC profile for linux/arm64, pushes it
 to the k3d local registry, and prints both its immutable registry digest and
 Docker's local uncompressed image size.
 USAGE
@@ -59,6 +62,13 @@ require_prerequisites() {
     printf 'Local public frontend configuration is missing: %s\n' "${ENVIRONMENT_FILE}" >&2
     exit 1
   fi
+  local source_input
+  for source_input in package.json package-lock.json index.html csp.js vite.config.js src public; do
+    if [[ ! -e "${SHARED_FRONTEND_DIRECTORY}/${source_input}" ]]; then
+      printf 'Shared frontend build input is missing: %s\n' "${SHARED_FRONTEND_DIRECTORY}/${source_input}" >&2
+      exit 1
+    fi
+  done
 
   # The registry is a Docker container managed by k3d, not a Kubernetes
   # Service. Verify its exact declared name before a push can happen.
@@ -149,6 +159,7 @@ main() {
     --platform linux/arm64 \
     --provenance=false \
     --file "${DOCKERFILE}" \
+    --build-context "frontend=${SHARED_FRONTEND_DIRECTORY}" \
     --tag "${IMAGE_NAME}" \
     --build-arg "VITE_OIDC_ISSUER=${oidc_issuer}" \
     --build-arg "VITE_OIDC_CLIENT_ID=${oidc_client_id}" \

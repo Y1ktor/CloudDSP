@@ -1,0 +1,9 @@
+# The image builder installs dependencies from the shared lockfile and receives
+# only public browser settings as build arguments. Local configuration stays
+# outside the context, including the earlier deployment's environment files.
+node_modules
+dist
+.env
+.env.*
+*.log
+.DS_Store

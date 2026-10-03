@@ -2,7 +2,7 @@
 # ../../images.lock.yaml. Vite public browser configuration is baked into this
 # image during its separate build and is not supplied as Helm Secret values.
 image:
-  reference: clouddsp-registry.localhost:5001/frontend@sha256:008340ede283f93eee487d2259f996d6878738e478e0d29085ae48414e1e3503
+  reference: clouddsp-registry.localhost:5001/frontend@sha256:913e4264b8f54debcc78501640784a8aee6c78d35614d2a0046111c5f088c55a
 
 # This hostname is registered as the local Keycloak redirect/logout origin.
 # The Traefik route stays HTTP-only on k3d's loopback port 8080.
