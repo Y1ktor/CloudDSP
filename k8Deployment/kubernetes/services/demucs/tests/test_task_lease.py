@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -52,6 +53,8 @@ DOWNSTREAM_EVENT_IDS = (
     "00000000-0000-4000-8000-000000000002",
     "00000000-0000-4000-8000-000000000003",
     "00000000-0000-4000-8000-000000000004",
+    "00000000-0000-4000-8000-000000000005",
+    "00000000-0000-4000-8000-000000000006",
 )
 
 
@@ -150,11 +153,13 @@ def expired_terminalization_row(**overrides: object) -> dict[str, object]:
     return row
 
 
-def downstream_events_document() -> str:
-    """Return the exact four-stem downstream fan-out accepted by completion SQL."""
+def downstream_events_document(
+    stem_names: tuple[str, ...] = ("drums", "bass", "other", "vocals"),
+) -> str:
+    """Return a complete deterministic downstream fan-out for a reviewed mode."""
 
     documents = []
-    for event_id, stem_name in zip(DOWNSTREAM_EVENT_IDS, ("drums", "bass", "other", "vocals"), strict=True):
+    for event_id, stem_name in zip(DOWNSTREAM_EVENT_IDS[:len(stem_names)], stem_names, strict=True):
         stage = "adtof" if stem_name == "drums" else "basic-pitch"
         documents.append(
             {
@@ -259,6 +264,27 @@ class FirstClaimTests(unittest.TestCase):
 
         with self.assertRaises(DemucsTaskClaimInconsistency):
             claim_demucs_task_for_delivery(cursor, message=message())
+
+    def test_task_created_while_waiting_for_job_lock_is_duplicate_without_insertion(self) -> None:
+        """The repeated task read closes the gap left by the first missing row."""
+
+        cursor = FakeCursor([None, job_row(), leased_task_row(status="running")])
+
+        # An empty factory also proves this path never creates a fresh task ID
+        # or token after another replica won the canonical logical task.
+        result = claim_demucs_task_for_delivery(
+            cursor,
+            message=message(),
+            uuid_factory=FixedUuidFactory(),
+        )
+
+        self.assertEqual(result.disposition, DemucsTaskClaimDisposition.DUPLICATE)
+        self.assertEqual(result.duplicate_status, "running")
+        self.assertIsNone(result.lease)
+        self.assertEqual(len(cursor.calls), 3)
+        self.assertEqual(cursor.calls[0], (LOCK_EXISTING_DEMUCS_TASK_SQL, (JOB_ID,)))
+        self.assertEqual(cursor.calls[2], (LOCK_EXISTING_DEMUCS_TASK_SQL, (JOB_ID,)))
+        self.assertNotIn(INSERT_FIRST_DEMUCS_TASK_LEASE_SQL, [query for query, _ in cursor.calls])
 
     def test_missing_expired_or_terminal_job_is_safe_stale_delivery(self) -> None:
         """Historic broker redelivery does not recreate removed/terminal work."""
@@ -554,6 +580,72 @@ class TaskCompletionTests(unittest.TestCase):
             )
         )
         self.assertEqual(len(cursor.calls), 1)
+
+    def test_two_and_six_stem_modes_accept_their_complete_downstream_fan_out(self) -> None:
+        """Complementary vocals and the largest reviewed set both commit intact."""
+
+        cases = (
+            ("2-stems", ("vocals", "no_vocals")),
+            ("6-stems", ("drums", "bass", "other", "vocals", "guitar", "piano")),
+        )
+        for stem_mode, stem_names in cases:
+            with self.subTest(stem_mode=stem_mode):
+                cursor = FakeCursor(
+                    [{
+                        "task_id": TASK_ID,
+                        "job_id": JOB_ID,
+                        "completed_at": LEASE_EXPIRY,
+                        "job_revision": 8,
+                        "outbox_event_count": len(stem_names),
+                    }]
+                )
+                events_document = downstream_events_document(stem_names)
+                stems_document = json.dumps({
+                    stem_name: {"s3_key": f"stems/{JOB_ID}/{stem_name}.wav", "status": "ready"}
+                    for stem_name in stem_names
+                })
+
+                completion = complete_running_demucs_task(
+                    cursor,
+                    lease=replace(lease(), stem_mode=stem_mode),
+                    stems_document=stems_document,
+                    downstream_events_document=events_document,
+                )
+
+                self.assertIsNotNone(completion)
+                assert completion is not None
+                self.assertEqual(completion.outbox_event_count, len(stem_names))
+                self.assertEqual(len(cursor.calls), 1)
+                self.assertEqual(
+                    cursor.calls[0],
+                    (
+                        COMPLETE_RUNNING_DEMUCS_TASK_SQL,
+                        (JOB_ID, stem_mode, TASK_ID, JOB_ID, LEASE_TOKEN, stems_document, events_document),
+                    ),
+                )
+
+    def test_duplicate_nested_downstream_json_key_is_rejected_before_sql(self) -> None:
+        """JSONB normalization must not hide conflicting private artifact facts."""
+
+        events_document = downstream_events_document().replace(
+            '"size_bytes":100',
+            '"size_bytes":99,"size_bytes":100',
+            1,
+        )
+        cursor = FakeCursor([])
+
+        with self.assertRaisesRegex(
+            DemucsTaskLeaseProtocolError,
+            r"^Demucs downstream outbox evidence is invalid\.$",
+        ):
+            complete_running_demucs_task(
+                cursor,
+                lease=lease(),
+                stems_document="{}",
+                downstream_events_document=events_document,
+            )
+
+        self.assertEqual(cursor.calls, [])
 
     def test_invalid_document_or_returned_row_cannot_become_task_completion(self) -> None:
         """The SQL boundary rejects unsafe caller input and driver result shapes."""

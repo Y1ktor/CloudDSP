@@ -68,6 +68,25 @@ it delegates to [the runtime entry point](app/runtime/worker_main.py). Internal
 imports and the image's source-compilation checks include the nested packages.
 The launch command, task identities, and processing contracts are unchanged.
 
+The public [task-lease interface](app/db/task_lease.py) re-exports the shared
+types and operations from `app/db/task_leases/`. Existing worker imports use
+that interface; the internal modules import their shared contracts directly
+to avoid circular dependencies. Each SQL statement stays beside the operation
+that executes it:
+
+| Task-lease module | Responsibility |
+| --- | --- |
+| [contracts.py](app/db/task_leases/contracts.py) | Immutable lease/result evidence, safe errors, and bounded task vocabulary. |
+| [validation.py](app/db/task_leases/validation.py) | Canonical UUIDs, lease duration bounds, and dictionary-row evidence. |
+| [claim.py](app/db/task_leases/claim.py) | First-delivery claims and duplicate/stale request classification. |
+| [ownership.py](app/db/task_leases/ownership.py) | Token-guarded task start and lease renewal. |
+| [recovery.py](app/db/task_leases/recovery.py) | Due-task recovery, exhausted-lease failure, and durable-deadline failure. |
+| [completion.py](app/db/task_leases/completion.py) | Bounded downstream evidence and atomic task/Job/outbox completion. |
+
+These adapters issue parameterized SQL through a supplied cursor. The existing
+outer database compositions own transaction commit and rollback; moving the
+adapters does not move network calls or media processing inside a transaction.
+
 ## Durable processing and acknowledgement
 
 - A short PostgreSQL transaction claims the unique task with a random lease
