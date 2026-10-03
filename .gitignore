@@ -8,6 +8,8 @@ cloudDeployment/src/DSP/venv3.11/
 cloudDeployment/src/DSP/venv3.14/
 cloudDeployment/frontend-react/node_modules/
 cloudDeployment/frontend-react/dist/
+# DSP stems, MIDI, and analysis are regenerated locally from source inputs.
+cloudDeployment/src/DSP/output/
 __pycache__/
 *.py[cod]
 
