@@ -89,6 +89,30 @@ Deployment commands are in the [repository README](../README.md). Building
 the application does not publish assets, replace a locked local image, or
 update a running Helm release; those are separate delivery steps.
 
+## MIDI editor structure
+
+[`MidiEditorPopup`](src/components/StemSplitter/MidiEditorPopup.jsx) coordinates
+the editor layout and passes its existing public props to modules under
+`src/components/StemSplitter/MidiEditor/`:
+
+| Module | Responsibility |
+| --- | --- |
+| [`useMidiEditorPopup`](src/components/StemSplitter/MidiEditor/useMidiEditorPopup.js) | Session state, selection, audition, context actions, scrolling, and playhead coordination |
+| [`MidiEditorToolbar`](src/components/StemSplitter/MidiEditor/MidiEditorToolbar.jsx) and [`MidiEditorNoteControls`](src/components/StemSplitter/MidiEditor/MidiEditorNoteControls.jsx) | Transport, track controls, edit history, velocity, and popup zoom |
+| [`MidiEditorKeyboard`](src/components/StemSplitter/MidiEditor/MidiEditorKeyboard.jsx) | Piano keys or named drum lanes with mute, solo, and gain controls |
+| [`VisibleMidiEditorNotes`](src/components/StemSplitter/MidiEditor/VisibleMidiEditorNotes.jsx) and [`midiEditorNotes`](src/components/StemSplitter/MidiEditor/midiEditorNotes.js) | Memoized viewport rendering and a separate time-sorted note index |
+| [`MidiEditorDragPreview`](src/components/StemSplitter/MidiEditor/MidiEditorDragPreview.jsx) | Drag lane, replication previews, and selection rectangle |
+| [`MidiEditorDialogs`](src/components/StemSplitter/MidiEditor/MidiEditorDialogs.jsx) and [`MidiEditorContextMenu`](src/components/StemSplitter/MidiEditor/MidiEditorContextMenu.jsx) | Shortcut help, revert confirmation, and context menu presentation |
+
+Editing and export still use the shared
+[`useMidiEditorOperations`](src/hooks/useMidiEditorOperations.js) and
+[`useMidiExport`](src/hooks/useMidiExport.js) hooks. Rendering keeps original
+note-array indices intact so selection, undo, and export address the same
+notes; sorting only affects the renderer's separate index. The shared audio
+clock remains authoritative:
+[`useTransportPlayhead`](src/hooks/useTransportPlayhead.js) writes playhead
+transforms directly, without React updates on every animation frame.
+
 ## Browser invariants
 
 Keep authentication tokens out of logs and public build configuration. Cloud
