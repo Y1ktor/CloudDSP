@@ -1,125 +1,17 @@
 import React from 'react';
 import ControlBar from './ControlBar';
-import TimelineRuler from './TimelineRuler';
-import TrackList from './TrackList';
-import TrackGrid from './TrackGrid';
 import MidiEditorPopup from './MidiEditorPopup';
 import DownloadPopup from './DownloadPopup';
-import TransportPlayheadLine from './TransportPlayheadLine';
+import MidiScheduler from './Workspace/MidiScheduler';
+import WorkspaceTimeline from './Workspace/WorkspaceTimeline';
+import WorkspaceTransportControls from './Workspace/WorkspaceTransportControls';
+import { WorkspaceDemoNotice, WorkspaceActivityNotice, WorkspaceReadinessNotices } from './Workspace/WorkspaceNotices';
+import { useStemSplitterSession } from './Workspace/useStemSplitterSession';
+import { useProjectDownloads } from './Workspace/useProjectDownloads';
+import { useWorkspaceTimeline } from './Workspace/useWorkspaceTimeline';
+import { validateSourceUpload } from './Workspace/sourceUpload';
 
-import { useAudioMultiTrackPlayer } from '../../hooks/useAudioMultiTrackPlayer';
-import { useMidiSynth } from '../../hooks/useMidiSynth';
-import { useInstruments } from '../../hooks/useInstruments';
-import { useMidiManager } from '../../hooks/useMidiManager';
-import { useGlobalShortcuts } from '../../hooks/useGlobalShortcuts';
-import { useUndoHistory } from '../../hooks/useUndoHistory';
-import { useTransportPlayhead } from '../../hooks/useTransportPlayhead';
-import { useTimelineViewport } from '../../hooks/useTimelineViewport';
-import { ADTOF_DRUM_VOICES, getDrumVoiceTrackId } from '../../utils/DrumMidi';
-
-const MAX_SOURCE_UPLOAD_BYTES = 256 * 1024 * 1024;
-const SUPPORTED_AUDIO_EXTENSIONS = new Set([
-    '.wav', '.mp3', '.flac', '.m4a', '.aac', '.ogg', '.opus', '.aiff', '.aif', '.webm',
-]);
-
-function sourceExtension(filename) {
-    const index = filename.lastIndexOf('.');
-    return index < 0 ? '' : filename.slice(index).toLowerCase();
-}
-
-function filenameFromDownloadUrl(url, fallbackName) {
-    try {
-        const pathname = new URL(url).pathname;
-        const filename = pathname.split('/').filter(Boolean).at(-1);
-        return filename ? decodeURIComponent(filename) : fallbackName;
-    } catch {
-        return fallbackName;
-    }
-}
-
-function projectFolderName(filename) {
-    const withoutExtension = String(filename || '').replace(/\.[^./\\]+$/, '').trim();
-    const safeName = withoutExtension
-        .replace(/[<>:"/\\|?*]/g, '_')
-        .replace(/\p{Cc}/gu, '_');
-    return safeName || 'CloudDSP project';
-}
-
-const MidiScheduler = React.memo(function MidiScheduler({
-    trackName,
-    activeBpm,
-    originalBpm,
-    isPlaying,
-    parsedMidiStems,
-    audioCtxRef,
-    transportRef,
-    synthRef,
-    isMidiMode,
-    mutedTracks,
-    soloedTracks,
-    drumMutedVoices,
-    drumSoloedVoices,
-    trackGainDb,
-    drumVoiceGainsDb
-}) {
-    useMidiSynth(
-        audioCtxRef,
-        0,
-        isPlaying,
-        parsedMidiStems,
-        trackName,
-        activeBpm,
-        originalBpm,
-        synthRef,
-        isMidiMode,
-        mutedTracks,
-        soloedTracks,
-        drumMutedVoices,
-        drumSoloedVoices,
-        null,
-        trackGainDb,
-        drumVoiceGainsDb,
-        transportRef,
-    );
-    return null;
-});
-
-/**
- * StemSplitter Component (Orchestrator)
- *
- * This UI component is the central orchestrator of the Stem Splitter workspace. It bridges
- * the gap between the AWS backend connection (handled upstream in App.jsx), the audio transport
- * (handled by `useAudioMultiTrackPlayer`), the MIDI conversion layer (`useMidiManager`), and the
- * visual UI components.
- *
- * ARCHITECTURE NOTE:
- * Following a strict "Smart/Dumb" pattern, this component has been refactored to contain almost
- * zero business logic itself. All state management has been extracted into custom hooks. This
- * file serves purely to assemble the layout and route data between the hooks and the UI components.
- *
- * @param {Object} props - The hoisted state props provided by App.jsx
- * @param {File} props.file - The currently selected audio file
- * @param {Function} props.setFile - State setter for the file
- * @param {string} props.fileName - Display name of the file
- * @param {Function} props.setFileName - State setter for the filename
- * @param {string} props.splitMode - The selected Demucs mode (2, 4, or 6 stems)
- * @param {Function} props.setSplitMode - State setter for the mode
- * @param {boolean} props.isSplitting - Tracks if the active upload is being processed
- * @param {boolean} props.isRestoringHistoryJob - A saved job is being hydrated from private artifacts
- * @param {boolean} props.isHistoryJob - The workspace currently displays a saved job
- * @param {boolean} props.isDemo - The workspace currently displays immutable public demo assets
- * @param {boolean} props.canProcess - Whether the signed-in user may create backend jobs
- * @param {string} props.statusMessage - The dynamic loading text
- * @param {Object} props.stemUrls - Fresh presigned stem URLs from the durable job snapshot
- * @param {Object} props.midiUrls - Fresh presigned MIDI URLs from the durable job snapshot
- * @param {Object} props.midiStates - Per-stem durable MIDI extraction states
- * @param {Object} props.jobTempo - Backend-selected master tempo for the active job
- * @param {string} props.jobId - Durable job ID used to reset tempo between uploads
- * @param {string} props.sourceUrl - Presigned URL for the saved job's original upload
- * @param {string} props.errorMsg - Any error messages to display
- * @param {Function} props.setErrorMsg - State setter for errors
- * @param {Function} props.executeStemSplit - Master function in App.jsx to create and upload a job
- */
+/** Compose the shared cloud/local workspace from session, file, and timeline responsibilities. */
 export default function StemSplitter({
     file, setFile,
     fileName, setFileName,
@@ -128,221 +20,76 @@ export default function StemSplitter({
     sourceUrl,
     executeStemSplit, executeLinkExtraction, beginNewUpload, onOpenExamples
 }) {
-    const [showSigMenu, setShowSigMenu] = React.useState(false);
-    const [selectedTrack, setSelectedTrack] = React.useState(null);
-    const [editorOpenTrack, setEditorOpenTrack] = React.useState(null);
-    const [activeMidiTracks, setActiveMidiTracks] = React.useState({});
-    const [midiStateBeforeEditor, setMidiStateBeforeEditor] = React.useState({});
-    const [expandedDrumTracks, setExpandedDrumTracks] = React.useState({});
-    const [drumMutedVoices, setDrumMutedVoices] = React.useState({});
-    const [drumSoloedVoices, setDrumSoloedVoices] = React.useState({});
-    const [drumVoiceGainsDb, setDrumVoiceGainsDb] = React.useState({});
-    const [isDownloadOpen, setIsDownloadOpen] = React.useState(false);
-    const [selectedDownloadArtifactIds, setSelectedDownloadArtifactIds] = React.useState(new Set());
-
-    const toggleDrumSubtracks = (trackName) => {
-        setExpandedDrumTracks(prev => ({ ...prev, [trackName]: !prev[trackName] }));
-    };
-
-    const toggleDrumMute = (trackName, voiceId) => {
-        const voiceTrackId = getDrumVoiceTrackId(trackName, voiceId);
-        setDrumMutedVoices(prev => ({ ...prev, [voiceTrackId]: !prev[voiceTrackId] }));
-    };
-
-    const toggleDrumSolo = (trackName, voiceId) => {
-        const voiceTrackId = getDrumVoiceTrackId(trackName, voiceId);
-        setDrumSoloedVoices(prev => ({ ...prev, [voiceTrackId]: !prev[voiceTrackId] }));
-    };
-
-    const setDrumVoiceGainDb = (trackName, voiceId, decibels) => {
-        const voiceTrackId = getDrumVoiceTrackId(trackName, voiceId);
-        const numericValue = Number(decibels);
-        setDrumVoiceGainsDb((previous) => ({
-            ...previous,
-            [voiceTrackId]: Number.isFinite(numericValue)
-                ? Math.max(-12, Math.min(12, numericValue))
-                : 0,
-        }));
-    };
-
-    // 1. Instruments
     const {
+        showSigMenu,
+        setShowSigMenu,
+        selectedTrack,
+        setSelectedTrack,
+        editorOpenTrack,
+        activeMidiTracks,
+        drumMutedVoices,
+        drumSoloedVoices,
+        drumVoiceGainsDb,
+        toggleDrumSubtracks,
+        toggleDrumMute,
+        toggleDrumSolo,
+        setDrumVoiceGainDb,
         midiSynthRefs,
         drumVoiceSynthRefs,
-        releaseInstrument,
-        resetInstruments,
-    } = useInstruments();
-
-    // 2. Audio Player
-    const audioEngine = useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks, sourceUrl, jobId);
-    const {
-        setBpm,
-        setOriginalBpm,
-        handleSeek: handleAudioSeek,
-        setCycleRegion,
-    } = audioEngine;
-
-    // 3. MIDI Manager
-    const {
+        audioEngine,
         parsedMidiStems,
         setParsedMidiStems,
-        originalMidiStems,
         isMidiLoading,
-        ensurePlaybackInstrument,
-        releasePlaybackInstrument,
-    } = useMidiManager(
-        midiUrls, midiStates, jobId, audioEngine.timeSignature, audioEngine.audioCtxRef,
-        midiSynthRefs, drumVoiceSynthRefs, releaseInstrument, resetInstruments
-    );
-
-    const setMidiMode = React.useCallback((trackName, enabled) => {
-        if (!trackName) return;
-        if (enabled) {
-            // Instantiating sampled instruments is intentionally demand-driven:
-            // merely receiving a MIDI file must not allocate its sample bank.
-            if (!ensurePlaybackInstrument(trackName)) return;
-        } else {
-            releasePlaybackInstrument(trackName);
-        }
-        setActiveMidiTracks((previous) => ({ ...previous, [trackName]: enabled }));
-    }, [ensurePlaybackInstrument, releasePlaybackInstrument]);
-
-    const handleOpenEditor = React.useCallback((trackName) => {
-        const wasMidiEnabled = Boolean(activeMidiTracks[trackName]);
-        setMidiStateBeforeEditor((previous) => ({ ...previous, [trackName]: wasMidiEnabled }));
-        setEditorOpenTrack(trackName);
-        if (!wasMidiEnabled) setMidiMode(trackName, true);
-    }, [activeMidiTracks, setMidiMode]);
-
-    const handleCloseEditor = React.useCallback(() => {
-        if (editorOpenTrack && !midiStateBeforeEditor[editorOpenTrack]) {
-            setMidiMode(editorOpenTrack, false);
-        }
-        setEditorOpenTrack(null);
-    }, [editorOpenTrack, midiStateBeforeEditor, setMidiMode]);
-
-    const toggleMidiMode = React.useCallback((trackName) => {
-        setMidiMode(trackName, !activeMidiTracks[trackName]);
-    }, [activeMidiTracks, setMidiMode]);
-
-    // Original audio has no generated MIDI. Restrict the global switch to the
-    // tracks whose MIDI is fully parsed so it never mutes a stem that is still
-    // waiting for an extraction result.
-    const midiCapableTrackNames = React.useMemo(
-        () => Object.keys(parsedMidiStems),
-        [parsedMidiStems]
-    );
-    const isGlobalMidiEnabled = midiCapableTrackNames.length > 0
-        && midiCapableTrackNames.every((trackName) => activeMidiTracks[trackName]);
-    const toggleGlobalMidiMode = React.useCallback(() => {
-        if (midiCapableTrackNames.length === 0) return;
-        const shouldEnable = !isGlobalMidiEnabled;
-        midiCapableTrackNames.forEach((trackName) => setMidiMode(trackName, shouldEnable));
-    }, [isGlobalMidiEnabled, midiCapableTrackNames, setMidiMode]);
-
-    const backendTempoBpm = Number(jobTempo?.bpm);
-    const hasBackendTempo = Number.isFinite(backendTempoBpm) && backendTempoBpm > 0;
-    // A 120 BPM fallback keeps timeline math stable but is not a measured tempo.
-    // Do not present it as a BPM result until the backend has a real candidate.
-    const hasDeterminedTempo = hasBackendTempo && jobTempo?.confidence !== 'unknown';
-    const appliedTempoRef = React.useRef({ jobId: null, bpm: null });
-
-    React.useEffect(() => {
-        const previous = appliedTempoRef.current;
-        if (previous.jobId === jobId && previous.bpm === (hasDeterminedTempo ? backendTempoBpm : null)) return;
-
-        if (hasDeterminedTempo) {
-            setOriginalBpm(backendTempoBpm);
-            setBpm(backendTempoBpm);
-        } else if (previous.jobId !== jobId) {
-            setOriginalBpm(null);
-            setBpm(120);
-        }
-        appliedTempoRef.current = { jobId, bpm: hasDeterminedTempo ? backendTempoBpm : null };
-    }, [jobId, hasDeterminedTempo, backendTempoBpm, setBpm, setOriginalBpm]);
-
-    React.useEffect(() => {
-        // A restored job must not retain MIDI-mode toggles or an open editor
-        // from the job that was previously displayed in this workspace.
-        setActiveMidiTracks({});
-        setMidiStateBeforeEditor({});
-        setEditorOpenTrack(null);
-        setSelectedTrack(null);
-        setExpandedDrumTracks({});
-        setDrumMutedVoices({});
-        setDrumSoloedVoices({});
-        setDrumVoiceGainsDb({});
-    }, [jobId]);
-    const midiStatusByTrack = React.useMemo(() => {
-        return Object.keys(stemUrls || {}).reduce((statuses, trackName) => {
-            if (parsedMidiStems[trackName]) {
-                statuses[trackName] = 'ready';
-            } else if (midiStates?.[trackName]?.status === 'failed') {
-                statuses[trackName] = 'failed';
-            } else if (midiUrls?.[trackName]) {
-                statuses[trackName] = 'loading';
-            } else if (trackName === 'Original') {
-                statuses[trackName] = 'unavailable';
-            } else {
-                statuses[trackName] = 'processing';
-            }
-            return statuses;
-        }, {});
-    }, [stemUrls, midiUrls, midiStates, parsedMidiStems]);
-    const pendingMidiTracks = Object.entries(midiStatusByTrack)
-        .filter(([trackName, status]) => trackName !== 'Original' && ['processing', 'loading'].includes(status));
-    const backendMidiProcessingCount = pendingMidiTracks.filter(([, status]) => status === 'processing').length;
-    const midiDownloadCount = pendingMidiTracks.filter(([, status]) => status === 'loading').length;
+        handleOpenEditor,
+        handleCloseEditor,
+        toggleMidiMode,
+        midiCapableTrackNames,
+        isGlobalMidiEnabled,
+        toggleGlobalMidiMode,
+        hasDeterminedTempo,
+        midiStatusByTrack,
+        backendMidiProcessingCount,
+        midiDownloadCount,
+        undoStacks,
+        pushUndoState,
+        handleUndoMidi,
+        handleRevertMidi,
+        tracksToRender,
+        timelineRows,
+    } = useStemSplitterSession({ file, stemUrls, sourceUrl, midiUrls, midiStates, jobId, jobTempo });
+    const {
+        isDownloadOpen,
+        setIsDownloadOpen,
+        selectedDownloadArtifactIds,
+        setSelectedDownloadArtifactIds,
+        downloadRootFolderName,
+        downloadArtifacts,
+        openDownloadPopup,
+    } = useProjectDownloads({ file, fileName, sourceUrl, stemUrls, midiUrls });
+    const timeline = useWorkspaceTimeline({ audioEngine, jobId, editorOpenTrack });
+    const {
+        pixelsPerBar,
+        parsedBeatsPerBar,
+        activeBpm,
+        totalBars,
+        dynamicDuration,
+        dynamicProgress,
+        playheadX,
+        isPlayheadHovered,
+        setIsPlayheadHovered,
+        playheadDragRef,
+        cycleDragRef,
+    } = timeline;
     const showActivityNotice = isSplitting || isRestoringHistoryJob;
     const activityMessage = isRestoringHistoryJob ? 'Stems and MIDI will arrive shortly.' : statusMessage;
 
-    const renderActivityNotice = () => showActivityNotice && (
-        <div style={{
-            display: 'flex', alignItems: 'center', gap: '9px',
-            background: 'var(--studio-midi-soft)', color: '#176b45',
-            border: '1px solid #adddc1', borderRadius: '4px',
-            padding: '9px 12px', fontSize: '13px', fontWeight: '600'
-        }}>
-            <span aria-hidden="true" style={{
-                width: '10px', height: '10px', border: '2px solid rgba(37, 137, 92, 0.24)',
-                borderTopColor: 'var(--studio-midi)', borderRadius: '50%', animation: 'spin 1s linear infinite'
-            }} />
-            {activityMessage}
-            {isSplitting && !hasDeterminedTempo && <span style={{ color: '#3f7d5c', fontWeight: '500' }}>BPM pending</span>}
-        </div>
-    );
-
-    // 4. Undo History
-    const { undoStacks, pushUndoState, handleUndoMidi, handleRevertMidi } = useUndoHistory(
-        parsedMidiStems, setParsedMidiStems, originalMidiStems
-    );
-
-    // 5. Global Shortcuts
-    useGlobalShortcuts({
-        togglePlay: audioEngine.togglePlay,
-        handleGoToBeginning: audioEngine.handleGoToBeginning,
-        setIsCycling: audioEngine.setIsCycling,
-        toggleSolo: audioEngine.toggleSolo,
-        toggleMute: audioEngine.toggleMute,
-        editorOpenTrack,
-        selectedTrack: selectedTrack?.startsWith('drums:') ? 'drums' : selectedTrack,
-        handleUndoMidi
-    });
-
-    const handleFileUpload = (e) => {
-        const uploadedFile = e.target.files[0];
-        // ``accept`` controls only the operating system file-picker view. It
-        // is not validation, so check the actual selected File before it can
-        // create an upload job.
+    const handleFileUpload = (event) => {
+        const uploadedFile = event.target.files[0];
         if (!uploadedFile) return;
-        if (!SUPPORTED_AUDIO_EXTENSIONS.has(sourceExtension(uploadedFile.name))) {
-            setErrorMsg('Choose WAV, MP3, FLAC, M4A, AAC, OGG, Opus, AIFF, or WebM audio.');
-            e.target.value = '';
-            return;
-        }
-        if (!Number.isFinite(uploadedFile.size) || uploadedFile.size < 1 || uploadedFile.size > MAX_SOURCE_UPLOAD_BYTES) {
-            setErrorMsg('Choose an audio file no larger than 256 MiB.');
-            e.target.value = '';
+        const validationError = validateSourceUpload(uploadedFile);
+        if (validationError) {
+            setErrorMsg(validationError);
+            event.target.value = '';
             return;
         }
         setFile(uploadedFile);
@@ -350,215 +97,6 @@ export default function StemSplitter({
         beginNewUpload();
         setErrorMsg("");
     };
-
-    const tracksToRender = React.useMemo(() => {
-        const tr = {};
-        if (file) tr.Original = null;
-        else if (sourceUrl) tr['Original'] = sourceUrl;
-        // Retain this fallback for incomplete legacy jobs created before the
-        // Job API returned original uploads. New and restored jobs use the
-        // real source audio above, never a duplicate stem.
-        else if (!file && stemUrls && Object.keys(stemUrls).length > 0) tr['Original'] = stemUrls[Object.keys(stemUrls)[0]];
-        if (stemUrls) Object.assign(tr, stemUrls);
-        return tr;
-    }, [file, sourceUrl, stemUrls]);
-
-    const downloadRootFolderName = React.useMemo(
-        () => projectFolderName(file?.name || fileName),
-        [file, fileName]
-    );
-    const downloadArtifacts = React.useMemo(() => {
-        const rootPath = downloadRootFolderName;
-        const artifacts = [];
-        const originalFilename = file?.name || filenameFromDownloadUrl(sourceUrl, fileName || 'original-audio.wav');
-
-        if (file instanceof Blob) {
-            artifacts.push({
-                id: 'original', group: 'original', filename: originalFilename, file,
-                archivePath: `${rootPath}/${originalFilename}`,
-            });
-        } else if (sourceUrl) {
-            artifacts.push({
-                id: 'original', group: 'original', filename: originalFilename, url: sourceUrl,
-                archivePath: `${rootPath}/${originalFilename}`,
-            });
-        }
-
-        Object.entries(stemUrls || {}).forEach(([stemName, url]) => {
-            if (!url) return;
-            const filename = filenameFromDownloadUrl(url, `${stemName}.wav`);
-            artifacts.push({
-                id: `stem:${stemName}`, group: 'stems', filename, url,
-                archivePath: `${rootPath}/stems/${filename}`,
-            });
-        });
-        Object.entries(midiUrls || {}).forEach(([stemName, url]) => {
-            if (!url) return;
-            const filename = filenameFromDownloadUrl(url, `${stemName}.mid`);
-            artifacts.push({
-                id: `midi:${stemName}`, group: 'midi', filename, url,
-                archivePath: `${rootPath}/midi/${filename}`,
-            });
-        });
-        return artifacts;
-    }, [downloadRootFolderName, file, fileName, sourceUrl, stemUrls, midiUrls]);
-
-    const openDownloadPopup = () => {
-        if (downloadArtifacts.length === 0) return;
-        setSelectedDownloadArtifactIds(new Set(downloadArtifacts.map((artifact) => artifact.id)));
-        setIsDownloadOpen(true);
-    };
-
-    // ADTOF emits a single drum MIDI file, but its five fixed note classes
-    // represent distinct instruments. The audio stays on the parent row and
-    // its child MIDI lanes are only rendered after the user expands Drums.
-    const timelineRows = React.useMemo(() => (
-        Object.entries(tracksToRender).flatMap(([trackName, url]) => {
-            const hasDrumSubtracks = trackName === 'drums' && parsedMidiStems[trackName]?.isAdtofDrum;
-            const isDrumExpanded = hasDrumSubtracks && Boolean(expandedDrumTracks[trackName]);
-            const stemRow = {
-                id: trackName,
-                trackName,
-                url,
-                kind: 'stem',
-                hasDrumSubtracks,
-                isDrumExpanded
-            };
-            if (!hasDrumSubtracks || !isDrumExpanded) {
-                return [stemRow];
-            }
-
-            return [
-                stemRow,
-                ...ADTOF_DRUM_VOICES.map((drumVoice) => ({
-                    id: `drums:${drumVoice.id}`,
-                    trackName: 'drums',
-                    kind: 'drum-lane',
-                    drumVoice
-                }))
-            ];
-        })
-    ), [tracksToRender, parsedMidiStems, expandedDrumTracks]);
-
-    const [pixelsPerBar, setPixelsPerBar] = React.useState(100);
-    const parsedBeatsPerBar = parseInt(audioEngine.timeSignature.split('/')[0], 10) || 4;
-    const activeBpm = audioEngine.bpm;
-    const totalBars = audioEngine.duration > 0 ? Math.ceil((audioEngine.duration * (activeBpm / 60)) / parsedBeatsPerBar) : 20;
-
-    const dynamicDuration = audioEngine.originalBpm && audioEngine.duration ? audioEngine.duration * (audioEngine.originalBpm / audioEngine.bpm) : audioEngine.duration;
-    const dynamicProgress = audioEngine.originalBpm && audioEngine.progress ? audioEngine.progress * (audioEngine.originalBpm / audioEngine.bpm) : audioEngine.progress;
-    // React only receives a throttled position for text/readout compatibility.
-    // The transport hook below moves the visual playhead every frame directly
-    // from AudioContext time, without rebuilding this component tree.
-    const playheadX = (audioEngine.progress * (activeBpm / 60) / parsedBeatsPerBar) * pixelsPerBar;
-
-    const [isPlayheadHovered, setIsPlayheadHovered] = React.useState(false);
-    const playheadDragRef = React.useRef({ isDragging: false });
-    const cycleDragRef = React.useRef({ isDragging: false, mode: 'move', initialX: 0, initialStart: 0, initialEnd: 0 });
-    const timelineRef = React.useRef(null);
-    const scrollContainerRef = React.useRef(null);
-    const timelinePlayheadRef = React.useRef(null);
-    const rulerPlayheadRef = React.useRef(null);
-    const [visibleTimelineRange, setTimelineScrollContainer] = useTimelineViewport(scrollContainerRef);
-
-    const { notifyManualSeek } = useTransportPlayhead({
-        audioCtxRef: audioEngine.audioCtxRef,
-        transportRef: audioEngine.transportRef,
-        isPlaying: audioEngine.isPlaying,
-        pixelsPerBar,
-        bpm: activeBpm,
-        beatsPerBar: parsedBeatsPerBar,
-        playheadRefs: [timelinePlayheadRef, rulerPlayheadRef],
-        scrollContainerRef,
-        resetKey: jobId,
-        // The modal owns its own direct playhead while open; do not animate
-        // the fully occluded workspace timeline in parallel.
-        enabled: audioEngine.duration > 0 && !editorOpenTrack,
-    });
-
-    const handleTimelineSeek = React.useCallback((event) => {
-        handleAudioSeek(event);
-        // Ruler scrubs carry viewport intent. Tell the transport whether the
-        // chosen position is left or right of the current view before the
-        // next animation frame decides whether to scroll the canvas.
-        notifyManualSeek();
-    }, [handleAudioSeek, notifyManualSeek]);
-
-    React.useEffect(() => {
-        const handleMouseMove = (e) => {
-            if (playheadDragRef.current.isDragging) {
-                const activeTimeline = playheadDragRef.current.timelineRef?.current || timelineRef.current;
-                const activePixels = playheadDragRef.current.pixelsPerBar || pixelsPerBar;
-
-                if (activeTimeline) {
-                    const rect = activeTimeline.getBoundingClientRect();
-                    const xOffset = e.clientX - rect.left;
-
-                    let newBar = xOffset / activePixels;
-                    newBar = Math.max(0, Math.min(newBar, totalBars));
-
-                    const newProgress = (newBar * parsedBeatsPerBar) / (activeBpm / 60);
-                    handleTimelineSeek({ target: { value: newProgress } });
-                }
-            } else if (cycleDragRef.current.isDragging) {
-                const mode = cycleDragRef.current.mode;
-                const activePixels = cycleDragRef.current.pixelsPerBar || pixelsPerBar;
-                const deltaX = e.clientX - cycleDragRef.current.initialX;
-                const deltaBars = deltaX / activePixels;
-                const snappedDeltaBars = Math.round(deltaBars * parsedBeatsPerBar) / parsedBeatsPerBar;
-
-                if (mode === 'move') {
-                    let newStart = cycleDragRef.current.initialStart + snappedDeltaBars;
-                    let newEnd = cycleDragRef.current.initialEnd + snappedDeltaBars;
-                    const span = cycleDragRef.current.initialEnd - cycleDragRef.current.initialStart;
-
-                    if (newStart < 0) {
-                        newStart = 0;
-                        newEnd = span;
-                    } else if (newEnd > totalBars) {
-                        newEnd = totalBars;
-                        newStart = totalBars - span;
-                    }
-                    setCycleRegion({ startBar: newStart, endBar: newEnd });
-                } else if (mode === 'resize-left') {
-                    let newStart = cycleDragRef.current.initialStart + snappedDeltaBars;
-                    const minimumSpan = 1 / parsedBeatsPerBar;
-                    if (newStart < 0) newStart = 0;
-                    if (newStart > cycleDragRef.current.initialEnd - minimumSpan) {
-                        newStart = cycleDragRef.current.initialEnd - minimumSpan;
-                    }
-                    setCycleRegion({ startBar: newStart, endBar: cycleDragRef.current.initialEnd });
-                } else if (mode === 'resize-right') {
-                    let newEnd = cycleDragRef.current.initialEnd + snappedDeltaBars;
-                    const minimumSpan = 1 / parsedBeatsPerBar;
-                    if (newEnd > totalBars) newEnd = totalBars;
-                    if (newEnd < cycleDragRef.current.initialStart + minimumSpan) {
-                        newEnd = cycleDragRef.current.initialStart + minimumSpan;
-                    }
-                    setCycleRegion({ startBar: cycleDragRef.current.initialStart, endBar: newEnd });
-                }
-            }
-        };
-
-        const handleMouseUp = () => {
-            if (playheadDragRef.current.isDragging) {
-                playheadDragRef.current.isDragging = false;
-                document.body.style.cursor = '';
-                setIsPlayheadHovered(false);
-            }
-            if (cycleDragRef.current.isDragging) {
-                cycleDragRef.current.isDragging = false;
-                document.body.style.cursor = '';
-            }
-        };
-
-        window.addEventListener('mousemove', handleMouseMove);
-        window.addEventListener('mouseup', handleMouseUp);
-        return () => {
-            window.removeEventListener('mousemove', handleMouseMove);
-            window.removeEventListener('mouseup', handleMouseUp);
-        };
-    }, [activeBpm, pixelsPerBar, totalBars, parsedBeatsPerBar, handleTimelineSeek, setCycleRegion]);
 
     return (
         <div style={{
@@ -579,29 +117,10 @@ export default function StemSplitter({
                 Stem Splitting & Audio-to-MIDI
             </h2>
 
-            {isDemo && (
-                <div style={{
-                    display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap',
-                    padding: '10px 12px', border: '1px solid #adddc1', borderRadius: '5px',
-                    background: 'var(--studio-midi-soft)', color: '#235c40', fontSize: '12px', lineHeight: 1.45,
-                }}>
-                    <strong style={{ color: '#176b45' }}>Demo mode</strong>
-                    <span style={{ flex: 1, minWidth: '240px' }}>
-                        Explore playback and edit MIDI locally. Public demo assets are read-only; sign in to process and save your own audio.
-                    </span>
-                    {onOpenExamples && (
-                        <button
-                            type="button"
-                            onClick={onOpenExamples}
-                            style={{
-                                padding: '6px 9px', border: '1px solid #8fc9a8', borderRadius: '4px',
-                                background: 'var(--studio-surface)', color: '#176b45', cursor: 'pointer',
-                                fontSize: '11px', fontWeight: '700',
-                            }}
-                        >Choose example</button>
-                    )}
-                </div>
-            )}
+            <WorkspaceDemoNotice
+                isDemo={isDemo}
+                onOpenExamples={onOpenExamples}
+            />
 
             <ControlBar
                 isSplitting={isSplitting}
@@ -632,315 +151,64 @@ export default function StemSplitter({
             }}>
                 {Object.keys(tracksToRender).length ? (
                     <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                        {renderActivityNotice()}
-                        {!audioEngine.isAudioReady && (
-                            <div style={{
-                                display: 'flex', alignItems: 'center', gap: '9px',
-                                background: 'var(--studio-accent-soft)', color: '#245b86',
-                                border: '1px solid #b8d6ee', borderRadius: '4px',
-                                padding: '9px 12px', fontSize: '13px', fontWeight: '600'
-                            }}>
-                                <span aria-hidden="true" style={{
-                                    width: '10px', height: '10px', border: '2px solid rgba(47, 127, 184, 0.24)',
-                                    borderTopColor: 'var(--studio-accent)', borderRadius: '50%', animation: 'spin 1s linear infinite'
-                                }} />
-                                Preparing synchronized audio buffers. Playback will be available when every displayed track is ready.
-                            </div>
-                        )}
-                        {backendMidiProcessingCount > 0 && isSplitting && (
-                            <div style={{
-                                display: 'flex', alignItems: 'center', gap: '9px',
-                                background: 'var(--studio-warning-soft)', color: '#8b5a00',
-                                border: '1px solid #eed49c', borderRadius: '4px',
-                                padding: '9px 12px', fontSize: '13px', fontWeight: '600'
-                            }}>
-                                <span aria-hidden="true" style={{ color: 'var(--studio-warning)', fontSize: '16px' }}>●</span>
-                                MIDI extraction is still processing for {backendMidiProcessingCount} stem{backendMidiProcessingCount === 1 ? '' : 's'}. Tracks will populate as each result arrives.
-                            </div>
-                        )}
-                        {midiDownloadCount > 0 && (
-                            <div style={{
-                                display: 'flex', alignItems: 'center', gap: '9px',
-                                background: 'var(--studio-accent-soft)', color: '#245b86',
-                                border: '1px solid #b8d6ee', borderRadius: '4px',
-                                padding: '9px 12px', fontSize: '13px', fontWeight: '600'
-                            }}>
-                                <span aria-hidden="true" style={{ color: 'var(--studio-accent)', fontSize: '16px' }}>●</span>
-                                {isHistoryJob
-                                    ? `Saved-job MIDI is downloading for ${midiDownloadCount} stem${midiDownloadCount === 1 ? '' : 's'}. Stems and MIDI will arrive shortly.`
-                                    : `Generated MIDI is downloading for ${midiDownloadCount} stem${midiDownloadCount === 1 ? '' : 's'}. Tracks will populate as each file arrives.`}
-                            </div>
-                        )}
-                        {/* Central Master Audio Control */}
-                        <div style={{
-                            background: 'var(--studio-surface-raised)', padding: '15px 20px', borderRadius: '4px',
-                            display: 'flex', alignItems: 'center', gap: '20px'
-                        }}>
-                            <button title="Go to Beginning" onClick={audioEngine.handleGoToBeginning} style={{
-                                background: 'transparent', color: 'var(--studio-text)', border: 'none',
-                                cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '0', opacity: 0.8
-                            }}>
-                                <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
-                            </button>
+                        <WorkspaceActivityNotice
+                            showActivityNotice={showActivityNotice}
+                            activityMessage={activityMessage}
+                            isSplitting={isSplitting}
+                            hasDeterminedTempo={hasDeterminedTempo}
+                        />
+                        <WorkspaceReadinessNotices
+                            isAudioReady={audioEngine.isAudioReady}
+                            backendMidiProcessingCount={backendMidiProcessingCount}
+                            isSplitting={isSplitting}
+                            midiDownloadCount={midiDownloadCount}
+                            isHistoryJob={isHistoryJob}
+                        />
+                        <WorkspaceTransportControls
+                            audioEngine={audioEngine}
+                            isMidiLoading={isMidiLoading}
+                            dynamicProgress={dynamicProgress}
+                            dynamicDuration={dynamicDuration}
+                            toggleGlobalMidiMode={toggleGlobalMidiMode}
+                            midiCapableTrackNames={midiCapableTrackNames}
+                            isGlobalMidiEnabled={isGlobalMidiEnabled}
+                            hasDeterminedTempo={hasDeterminedTempo}
+                            showSigMenu={showSigMenu}
+                            setShowSigMenu={setShowSigMenu}
+                            openDownloadPopup={openDownloadPopup}
+                            downloadArtifacts={downloadArtifacts}
+                        />
 
-                            <button
-                                title="Play/Pause"
-                                onPointerDown={audioEngine.unlockAudio}
-                                onClick={audioEngine.togglePlay}
-                                style={{
-                                background: 'transparent', color: 'var(--studio-text)', border: 'none',
-                                cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '0', opacity: 0.8
-                            }}>
-                                {audioEngine.isPlaying ? (
-                                    <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
-                                ) : (
-                                    <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-                                )}
-                            </button>
-
-                            <button title="Toggle Cycle" onClick={() => audioEngine.setIsCycling(!audioEngine.isCycling)} style={{
-                                background: audioEngine.isCycling ? '#a56a00' : 'transparent',
-                                color: audioEngine.isCycling ? 'white' : 'var(--studio-text)',
-                                border: 'none', borderRadius: '4px',
-                                cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px',
-                                opacity: 0.8,
-                                transition: 'background-color 0.2s'
-                            }}>
-                                <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>
-                            </button>
-
-                            <div className="time-display" style={{ color: 'var(--studio-text)', fontSize: '14px', fontFamily: 'monospace', marginLeft: '10px', whiteSpace: 'nowrap' }}>
-                                {isMidiLoading ?
-                                    `${audioEngine.formatTime(audioEngine.progress)} / ${audioEngine.formatTime(audioEngine.duration)}` :
-                                    `${audioEngine.formatTime(dynamicProgress)} / ${audioEngine.formatTime(dynamicDuration)}`
-                                }
-                            </div>
-
-                            <button
-                                type="button"
-                                onClick={toggleGlobalMidiMode}
-                                disabled={midiCapableTrackNames.length === 0}
-                                aria-pressed={isGlobalMidiEnabled}
-                                title={midiCapableTrackNames.length === 0
-                                    ? 'MIDI playback becomes available as tracks finish processing'
-                                    : `${isGlobalMidiEnabled ? 'Disable' : 'Enable'} MIDI synthesis for all ready tracks`}
-                                style={{
-                                    height: '24px', padding: '0 8px', marginLeft: '12px',
-                                    background: 'transparent',
-                                    color: isGlobalMidiEnabled ? 'var(--studio-midi)' : 'var(--studio-text-muted)',
-                                    border: `1px solid ${isGlobalMidiEnabled ? 'var(--studio-midi)' : 'var(--studio-border-strong)'}`,
-                                    boxShadow: isGlobalMidiEnabled ? '0 0 8px rgba(37, 137, 92, 0.22)' : 'none',
-                                    borderRadius: '4px',
-                                    cursor: midiCapableTrackNames.length === 0 ? 'not-allowed' : 'pointer',
-                                    fontSize: '11px', fontWeight: 'bold',
-                                    opacity: midiCapableTrackNames.length === 0 ? 0.55 : 1,
-                                }}
-                            >MIDI</button>
-
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '18px' }}>
-                                <span className="bpm-label" style={{ color: 'var(--studio-text)', fontSize: '14px', fontWeight: 'bold' }}>BPM:</span>
-                                <div style={{
-                                    background: 'var(--studio-surface)',
-                                    color: hasDeterminedTempo ? 'var(--studio-text)' : 'var(--studio-text-muted)',
-                                    fontSize: '14px', fontFamily: 'monospace', fontWeight: 'bold',
-                                    padding: '4px 8px', borderRadius: '4px', width: '55px', textAlign: 'center',
-                                    border: '1px solid var(--studio-border-strong)',
-                                    borderTop: '1px solid var(--studio-surface)',
-                                    boxShadow: 'inset 0 1px 2px rgba(44, 62, 80, 0.07)',
-                                    textShadow: 'none',
-                                    display: 'flex', justifyContent: 'center', userSelect: 'none'
-                                }}>
-                                    {hasDeterminedTempo ? (
-                                        <>
-                                            <span
-                                                onMouseDown={(e) => audioEngine.handleBpmMouseDown(e, 'int')}
-                                                style={{ cursor: 'ns-resize', flexGrow: 1, textAlign: 'right' }}
-                                            >{Math.floor(audioEngine.bpm)}</span>
-                                            <span style={{ cursor: 'default' }}>.</span>
-                                            <span
-                                                onMouseDown={(e) => audioEngine.handleBpmMouseDown(e, 'dec')}
-                                                style={{ cursor: 'ns-resize', flexGrow: 1, textAlign: 'left' }}
-                                            >{Math.round((audioEngine.bpm - Math.floor(audioEngine.bpm)) * 10)}</span>
-                                        </>
-                                    ) : (
-                                        <span style={{ cursor: 'default' }}>---</span>
-                                    )}
-                                </div>
-                            </div>
-
-                            <div style={{ flexGrow: 0.15, minWidth: '15px', maxWidth: '60px' }} className="dynamic-spacer-1" />
-
-                            {/* Time Signature Box */}
-                            <div className="time-signature" style={{ position: 'relative' }}>
-                                <div
-                                    onClick={() => setShowSigMenu(!showSigMenu)}
-                                    style={{
-                                        background: 'var(--studio-surface)',
-                                        color: 'var(--studio-text)',
-                                        fontSize: '14px', fontFamily: 'monospace', fontWeight: 'bold',
-                                        padding: '4px 8px', borderRadius: '4px', minWidth: '35px', textAlign: 'center',
-                                        border: '1px solid var(--studio-border-strong)',
-                                        borderTop: '1px solid var(--studio-surface)',
-                                        boxShadow: 'inset 0 1px 2px rgba(44, 62, 80, 0.07)',
-                                        textShadow: 'none',
-                                        cursor: 'pointer',
-                                        userSelect: 'none'
-                                    }}
-                                >
-                                    {audioEngine.timeSignature}
-                                </div>
-
-                                {showSigMenu && (
-                                    <>
-                                        <div
-                                            style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 99 }}
-                                            onClick={() => setShowSigMenu(false)}
-                                        />
-                                        <div style={{
-                                            position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)',
-                                            marginTop: '5px', background: 'var(--studio-surface)', border: '1px solid var(--studio-border)',
-                                            borderRadius: '4px', zIndex: 100, display: 'flex', flexDirection: 'column',
-                                            boxShadow: '0 8px 20px rgba(44, 62, 80, 0.16)', overflow: 'hidden'
-                                        }}>
-                                            {['3/4', '4/4', '5/4', '6/8', '7/8'].map(sig => (
-                                                <div
-                                                    key={sig}
-                                                    onClick={() => { audioEngine.setTimeSignature(sig); setShowSigMenu(false); }}
-                                                    onMouseEnter={(e) => e.target.style.background = 'var(--studio-accent-soft)'}
-                                                    onMouseLeave={(e) => e.target.style.background = 'transparent'}
-                                                    style={{
-                                                        padding: '6px 12px', color: 'var(--studio-text)', fontSize: '14px', fontFamily: 'monospace',
-                                                        cursor: 'pointer', textAlign: 'center', transition: 'background 0.1s'
-                                                    }}
-                                                >
-                                                    {sig}
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </>
-                                )}
-                            </div>
-
-                            <div style={{ flexGrow: 1 }} /> {/* Pushes download button to the right */}
-
-                            <button
-                                type="button"
-                                onClick={openDownloadPopup}
-                                disabled={downloadArtifacts.length === 0}
-                                title={downloadArtifacts.length === 0 ? 'No project files are available to download yet' : 'Choose project files to download'}
-                                style={{
-                                    background: downloadArtifacts.length === 0 ? 'var(--studio-surface-sunken)' : 'var(--studio-surface)', color: downloadArtifacts.length === 0 ? 'var(--studio-text-muted)' : 'var(--studio-text-secondary)', border: '1px solid var(--studio-border-strong)',
-                                    padding: '6px 14px', borderRadius: '4px', fontSize: '12px',
-                                    fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px',
-                                    boxShadow: '0 2px 5px rgba(44, 62, 80, 0.08)', opacity: downloadArtifacts.length === 0 ? 0.65 : 1,
-                                    cursor: downloadArtifacts.length === 0 ? 'not-allowed' : 'pointer',
-                                }}
-                            >
-                                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-                                    <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
-                                </svg>
-                                <span className="download-text">Download</span>
-                            </button>
-                            <style>{`
-                                @media (max-width: 850px) {
-                                    .time-display { display: none !important; }
-                                    .download-text { display: none !important; }
-                                }
-                                @media (max-width: 750px){
-                                    .time-signature { display: none !important; }
-                                }
-                                @media (max-width: 600px) {
-                                    .bpm-label { display: none !important; }
-
-                                }
-                            `}</style>
-                        </div>
-
-                        {/* Split Workspace: Fixed Left Column + Scrollable Right Column */}
-                        <div style={{ width: '100%', display: 'flex', gap: '3px', paddingBottom: '10px' }}>
-
-                            {/* LEFT COLUMN: Track Consoles (Fixed) */}
-                            <TrackList
-                                pixelsPerBar={pixelsPerBar}
-                                setPixelsPerBar={setPixelsPerBar}
-                                timelineRows={timelineRows}
-                                toggleMute={audioEngine.toggleMute}
-                                mutedTracks={audioEngine.mutedTracks}
-                                toggleSolo={audioEngine.toggleSolo}
-                                soloedTracks={audioEngine.soloedTracks}
-                                trackGainsDb={audioEngine.trackGainsDb}
-                                setTrackGainDb={audioEngine.setTrackGainDb}
-                                drumVoiceGainsDb={drumVoiceGainsDb}
-                                setDrumVoiceGainDb={setDrumVoiceGainDb}
-                                selectedTrack={selectedTrack}
-                                setSelectedTrack={setSelectedTrack}
-                                onDoubleClickTrack={handleOpenEditor}
-                                activeMidiTracks={activeMidiTracks}
-                                toggleMidiMode={toggleMidiMode}
-                                toggleDrumSubtracks={toggleDrumSubtracks}
-                                drumMutedVoices={drumMutedVoices}
-                                drumSoloedVoices={drumSoloedVoices}
-                                toggleDrumMute={toggleDrumMute}
-                                toggleDrumSolo={toggleDrumSolo}
-                            />
-
-                            {/* RIGHT COLUMN: Timeline Canvas (Scrollable) */}
-                            <div ref={setTimelineScrollContainer} style={{ flexGrow: 1, overflowX: 'auto', paddingBottom: '10px', scrollBehavior: 'auto', backgroundColor: 'var(--studio-canvas)' }}>
-                                <div ref={timelineRef} style={{ minWidth: `${pixelsPerBar * totalBars}px`, display: 'flex', flexDirection: 'column', gap: '3px', position: 'relative', backgroundColor: 'var(--studio-canvas)' }}>
-
-                                    {/* Time Indicator (Playhead) */}
-                                    {audioEngine.duration > 0 && (
-                                        <TransportPlayheadLine
-                                            playheadRef={timelinePlayheadRef}
-                                            fallbackX={playheadX}
-                                            isPlaying={audioEngine.isPlaying}
-                                        />
-                                    )}
-
-                                    {/* Timeline Header Right (Time Bar) */}
-                                    <TimelineRuler
-                                        duration={audioEngine.duration}
-                                        pixelsPerBar={pixelsPerBar}
-                                        cycleDragRef={cycleDragRef}
-                                        cycleRegion={audioEngine.cycleRegion}
-                                        isCycling={audioEngine.isCycling}
-                                        totalBars={totalBars}
-                                        timeSignature={audioEngine.timeSignature}
-                                        timelineRef={timelineRef}
-                                        playheadDragRef={playheadDragRef}
-                                        setIsPlayheadHovered={setIsPlayheadHovered}
-                                        isPlayheadHovered={isPlayheadHovered}
-                                        playheadX={playheadX}
-                                        playheadElementRef={rulerPlayheadRef}
-                                        isPlayheadExternallyDriven={audioEngine.isPlaying}
-                                        visibleRange={visibleTimelineRange}
-                                        activeBpm={activeBpm}
-                                        parsedBeatsPerBar={parsedBeatsPerBar}
-                                        handleSeek={handleTimelineSeek}
-                                    />
-
-                                    {/* The popup is modal. Its own virtual piano roll is
-                                        the only useful note surface while open, so release
-                                        the occluded workspace grid instead of updating two
-                                        dense note renderers during an edit. */}
-                                    {!editorOpenTrack && <TrackGrid
-                                        timelineRows={timelineRows}
-                                        parsedMidiStems={parsedMidiStems}
-                                        midiStatusByTrack={midiStatusByTrack}
-                                        pixelsPerBar={pixelsPerBar}
-                                        activeBpm={activeBpm}
-                                        parsedBeatsPerBar={parsedBeatsPerBar}
-                                        selectedTrack={selectedTrack}
-                                        setSelectedTrack={setSelectedTrack}
-                                        onDoubleClickTrack={handleOpenEditor}
-                                        visibleRange={visibleTimelineRange}
-                                    />}
-                                </div>
-                            </div>
-                        </div>
-                </div>
+                        <WorkspaceTimeline
+                            audioEngine={audioEngine}
+                            timeline={timeline}
+                            timelineRows={timelineRows}
+                            drumVoiceGainsDb={drumVoiceGainsDb}
+                            setDrumVoiceGainDb={setDrumVoiceGainDb}
+                            selectedTrack={selectedTrack}
+                            setSelectedTrack={setSelectedTrack}
+                            handleOpenEditor={handleOpenEditor}
+                            activeMidiTracks={activeMidiTracks}
+                            toggleMidiMode={toggleMidiMode}
+                            toggleDrumSubtracks={toggleDrumSubtracks}
+                            drumMutedVoices={drumMutedVoices}
+                            drumSoloedVoices={drumSoloedVoices}
+                            toggleDrumMute={toggleDrumMute}
+                            toggleDrumSolo={toggleDrumSolo}
+                            parsedMidiStems={parsedMidiStems}
+                            midiStatusByTrack={midiStatusByTrack}
+                            editorOpenTrack={editorOpenTrack}
+                        />
+                    </div>
                 ) : (
-                    renderActivityNotice() || <div>Stem extraction and MIDI results will appear here as downloadable multitracks</div>
+                    showActivityNotice ? (
+                        <WorkspaceActivityNotice
+                            showActivityNotice={showActivityNotice}
+                            activityMessage={activityMessage}
+                            isSplitting={isSplitting}
+                            hasDeterminedTempo={hasDeterminedTempo}
+                        />
+                    ) : <div>Stem extraction and MIDI results will appear here as downloadable multitracks</div>
                 )}
                 <style>{`
                     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }

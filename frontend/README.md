@@ -89,6 +89,43 @@ Deployment commands are in the [repository README](../README.md). Building
 the application does not publish assets, replace a locked local image, or
 update a running Helm release; those are separate delivery steps.
 
+## Application structure
+
+[`src/App.jsx`](src/App.jsx) composes navigation, dialogs, and routes.
+[`useStudioApp`](src/app/useStudioApp.js) owns the shared tab-local workspace
+and account state, which stays mounted while switching informational tabs.
+
+| Module | Responsibility |
+| --- | --- |
+| `src/app/useAppAuthentication.js` | Provider session actions, pending email verification, and requests with a fresh provider token. |
+| `src/app/useJobHistory.js` | Account-backed job library reads and terminal-job deletion. |
+| `src/app/useJobSnapshots.js` | Snapshot hydration, revision checks, request de-duplication, and bounded retry backoff. |
+| `src/app/useJobRealtime.js` | WebSocket subscriptions, heartbeat/reconnect, and polling recovery. |
+| `src/app/useJobSubmission.js` | Durable direct-upload POST contracts and linked-source submissions. |
+| `src/app/useDemoCatalog.js` | Abortable loading of the validated public demo catalog. |
+| `src/app/jobSnapshots.js` / `quotaMessages.js` | Artifact readiness, signed-URL reuse, linked-source guards, and quota messages. |
+| `src/components/AppNavBar.jsx` | Shared navigation and account controls. |
+
+Demo jobs remain browser-local, and account history remains server-backed.
+The realtime hook consumes stable job refs after the controller synchronizes
+them; notifications prompt snapshot reads while polling handles missed hints.
+
+## Workspace structure
+
+[`StemSplitter`](src/components/StemSplitter/StemSplitter.jsx) coordinates the
+shared workspace layout, upload actions, and popup props. Its responsibilities
+are split into modules under `src/components/StemSplitter/Workspace/`:
+
+| Module | Responsibility |
+| --- | --- |
+| [`useStemSplitterSession`](src/components/StemSplitter/Workspace/useStemSplitterSession.js) | Audio/MIDI hooks, lazy instruments, tempo, track selection, drum controls, editor sessions, and undo |
+| [`useWorkspaceTimeline`](src/components/StemSplitter/Workspace/useWorkspaceTimeline.js) | Timeline geometry, viewport refs, seeking, playhead and cycle dragging, and audio-clock playhead coordination |
+| [`WorkspaceTimeline`](src/components/StemSplitter/Workspace/WorkspaceTimeline.jsx) | Track list, ruler, viewport-bounded grid, and playhead presentation |
+| [`useProjectDownloads`](src/components/StemSplitter/Workspace/useProjectDownloads.js) | Download artifact memos, selected artifacts, and popup state |
+| [`projectTracks`](src/components/StemSplitter/Workspace/projectTracks.js), [`projectDownloads`](src/components/StemSplitter/Workspace/projectDownloads.js), and [`sourceUpload`](src/components/StemSplitter/Workspace/sourceUpload.js) | Pure track/status/drum-row models, archive names and artifacts, and source-file validation |
+| [`WorkspaceTransportControls`](src/components/StemSplitter/Workspace/WorkspaceTransportControls.jsx) and [`WorkspaceNotices`](src/components/StemSplitter/Workspace/WorkspaceNotices.jsx) | Playback controls, downloads, demo information, and processing/readiness messages |
+| [`MidiScheduler`](src/components/StemSplitter/Workspace/MidiScheduler.jsx) | Memoized per-track bridge to the shared MIDI scheduling hook |
+
 ## MIDI editor structure
 
 [`MidiEditorPopup`](src/components/StemSplitter/MidiEditorPopup.jsx) coordinates
