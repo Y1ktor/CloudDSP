@@ -3,7 +3,7 @@ require 'minitest/autorun'
 require 'stringio'
 require 'yaml'
 
-require_relative '../../scripts/minio-job-api-iam-stage'
+require_relative '../../scripts/stages/minio/minio-job-api-iam-stage'
 
 class MinioJobApiIamStageTest < Minitest::Test
   class FakeStage < MinioJobApiIamStage

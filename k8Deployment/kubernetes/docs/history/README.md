@@ -3,7 +3,9 @@
 These documents preserve the earlier design, adoption inventories, development
 steps, trial observations, and debugging evidence. They include superseded
 commands, image tags, filenames, and statements that a later stage had not yet
-been implemented. They are historical context, not current deployment runbooks.
+been implemented. They are historical context, not current deployment runbooks. Links to source
+files follow their current locations; quoted commands and path names preserve
+the original record.
 
 Start with the [current documentation index](../../README.md),
 [operator guide](../../scripts/README.md), or

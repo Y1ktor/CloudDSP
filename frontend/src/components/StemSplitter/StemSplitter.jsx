@@ -7,7 +7,7 @@ import MidiEditorPopup from './MidiEditorPopup';
 import DownloadPopup from './DownloadPopup';
 import TransportPlayheadLine from './TransportPlayheadLine';
 
-import { useAudioMultiTrackPlayer } from '../../hooks/AudioMultiTrackPlayer';
+import { useAudioMultiTrackPlayer } from '../../hooks/useAudioMultiTrackPlayer';
 import { useMidiSynth } from '../../hooks/useMidiSynth';
 import { useInstruments } from '../../hooks/useInstruments';
 import { useMidiManager } from '../../hooks/useMidiManager';

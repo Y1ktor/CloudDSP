@@ -13,14 +13,14 @@ from datetime import UTC, datetime
 import unittest
 from unittest.mock import patch
 
-from app.midi_artifact_head_object import VerifiedStoredBasicPitchMidiObject
-from app.midi_task_completion import (
+from app.artifacts.midi_artifact_head_object import VerifiedStoredBasicPitchMidiObject
+from app.db.midi_task_completion import (
     BasicPitchMidiTaskCompletion,
     BasicPitchMidiTaskCompletionProtocolError,
 )
-from app.midi_task_completion_commit import commit_verified_basic_pitch_midi_task
-from app.task_lease import BasicPitchTaskLease
-from app.tempo_candidate import BasicPitchTempoCandidate
+from app.db.midi_task_completion_commit import commit_verified_basic_pitch_midi_task
+from app.db.task_lease import BasicPitchTaskLease
+from app.processing.tempo_candidate import BasicPitchTempoCandidate
 
 
 EVENT_ID = "93b31df9-ea8c-46bb-b2c0-19e9db5365d5"
@@ -94,7 +94,7 @@ def tempo_candidate() -> BasicPitchTempoCandidate:
 class BasicPitchMidiTaskCompletionCommitTests(unittest.TestCase):
     """Prove success only escapes after commit and errors roll back before return."""
 
-    @patch("app.midi_task_completion_commit.complete_running_basic_pitch_task")
+    @patch("app.db.midi_task_completion_commit.complete_running_basic_pitch_task")
     def test_returns_completion_only_after_the_short_transaction_commits(self, complete) -> None:
         """No MinIO/model/broker work shares this short PostgreSQL transaction."""
 
@@ -122,7 +122,7 @@ class BasicPitchMidiTaskCompletionCommitTests(unittest.TestCase):
             tempo_candidate=tempo_candidate(),
         )
 
-    @patch("app.midi_task_completion_commit.complete_running_basic_pitch_task")
+    @patch("app.db.midi_task_completion_commit.complete_running_basic_pitch_task")
     def test_stale_owner_commits_no_mutation_then_returns_none(self, complete) -> None:
         """A no-row SQL result is normal and never becomes fabricated completion evidence."""
 
@@ -139,7 +139,7 @@ class BasicPitchMidiTaskCompletionCommitTests(unittest.TestCase):
         )
         self.assertEqual(database.events, ["transaction-open", "transaction-commit"])
 
-    @patch("app.midi_task_completion_commit.complete_running_basic_pitch_task")
+    @patch("app.db.midi_task_completion_commit.complete_running_basic_pitch_task")
     def test_completion_validation_failure_rolls_back_before_the_caller_sees_it(self, complete) -> None:
         """A malformed SQL result cannot leave a partial task mutation committed."""
 

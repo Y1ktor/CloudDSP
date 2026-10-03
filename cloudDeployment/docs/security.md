@@ -59,7 +59,7 @@ not imply that a related residual risk has disappeared.
 | SEC-14 | **Partially fixed** | TLS-deny policies cover the four IaC-managed S3 buckets; audit logging/alerting remains intentionally out of scope. |
 | SEC-15 | **Deferred — low** | yt-dlp still removes its event-derived temporary directory before canonical UUID validation. |
 | SEC-16 | **Accepted — medium** | Cost-optimized public Batch hosts retain unrestricted outbound HTTPS while running. |
-| SEC-17 | **Conditional high** | Unsafe legacy handlers remain in source but no active IaC reference was found. |
+| SEC-17 | **Archived on 2026-10-03** | Legacy upload/callback/effects handlers are retained outside active deployment source and image contexts. Their historical behavior is unchanged. |
 | SEC-18 | **New — medium** | The WebSocket authorizer packages vulnerable PyJWT 2.10.1; an unauthenticated unknown JWT key ID can amplify JWKS refreshes. |
 | SEC-19 | **New — low historical exposure** | Expired S3 presigned URLs were found only in Git history, not the current tree. |
 
@@ -344,18 +344,23 @@ or task-role credentials.
 **Future remediation:** private Batch subnets with required VPC endpoints, or
 a controlled/logged egress proxy, are the production alternative.
 
-### SEC-17 — Conditional high — dormant legacy handlers are unsafe if redeployed
+### SEC-17 — Archived — legacy handlers remain historical reference
 
 The legacy presigned-URL generator, WebSocket notifier, and DSP plugin bypass
 the durable job/ownership model or insufficiently validate input. A targeted
-IaC search found no active reference to them, so they are not on the current
-deployment path.
+IaC search found no active reference to them. On 2026-10-03, they were moved to
+`archive/dsp/cloud-prototypes/`, outside the active `src/DSP/cloud/` source and
+the `src/DSP` container build context. Active handlers keep their owner-checked
+job workflow and runtime entry points.
 
-**Evidence:** presigned_url/lambda-s3-presigned.py,
-webSocketAPI/WebSocketNotify.py, and plugin/dsp_bitcrush_flanger_ringmod.py.
+**Evidence:** [retired upload handler](../../archive/dsp/cloud-prototypes/presigned-upload/lambda-s3-presigned.py),
+[callback notifier](../../archive/dsp/cloud-prototypes/websocket/WebSocketNotify.py),
+and [effects prototype](../../archive/dsp/cloud-prototypes/effects/dsp_bitcrush_flanger_ringmod.py).
 
-**Remediation:** delete or archive them outside deployable source, or enforce
-CI/IaC packaging controls that prevent accidental deployment.
+**Remediation completed:** archived the source and documented the active build
+inputs in [the DSP guide](../src/DSP/README.md). The prototype code retains its
+original behavior and must not be packaged as a current endpoint. This source
+cleanup does not change existing deployed images or Lambda packages.
 
 ### SEC-18 — New — Medium — vulnerable PyJWT in the WebSocket authorizer enables JWKS-refresh amplification
 
@@ -431,12 +436,16 @@ on Git history changes.
 | pip-audit against yt-dlp requirements | no known vulnerabilities |
 | local DSP virtual environment | not a deployment artifact; its ignored setuptools copy has a developer-hygiene advisory and should be refreshed separately |
 | pip-audit against WebSocket-authorizer requirements | PyJWT 2.10.1 advisories recorded in SEC-18 |
-| bandit -r cloudDeployment/src/DSP/src/Cloud -x lambdazip | 0 high; temporary-path and fixed-argv subprocess warnings were reviewed |
+| Bandit cloud-source scan before archival | 0 high; temporary-path and fixed-argv subprocess warnings were reviewed |
 | Docker Scout quickview | fresh local counts recorded for Basic Pitch, ADTOF, and yt-dlp; Demucs re-index did not complete |
 | Production build and targeted frontend sink search | build succeeds; no source maps or active unsafe DOM/script sinks found |
 | Targeted current-tree / Git-history secret review | current tree clear for targeted patterns; expired historical presigned URLs recorded in SEC-19 |
 | Live website header request | CSP, HSTS, DENY anti-framing, nosniff, and referrer policy verified |
 | Live AWS IAM/ECR/stack-drift review | not performed because the local AWS CLI session had expired |
+
+The scan results above describe the original assessment. The 2026-10-03 source
+reorganization moved active handlers to `src/DSP/cloud/` and retained prototypes
+in `archive/dsp/`; it does not establish a new dependency or deployed-image scan.
 
 Docker Scout was version 1.15.1 and reported an available CLI update. Scout
 quickview counts are vulnerability inventory, not proof that every listed CVE

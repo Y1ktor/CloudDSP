@@ -14,24 +14,24 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.minio_client import (
+from app.artifacts.minio_client import (
     LOCAL_S3_REGION,
     LOCAL_UPLOADS_BUCKET,
     DemucsMinioConfigurationError,
     DemucsMinioSettings,
 )
-from app.shutdown_event import DemucsShutdownWaiter
-from app.supervisor_action import DemucsSupervisorActionOutcome, DemucsSupervisorActionResult
-from app.supervisor_backoff import (
+from app.runtime.shutdown_event import DemucsShutdownWaiter
+from app.runtime.supervisor_action import DemucsSupervisorActionOutcome, DemucsSupervisorActionResult
+from app.runtime.supervisor_backoff import (
     DemucsSupervisorAction,
     DemucsSupervisorBackoffState,
     DemucsSupervisorDecision,
     DemucsSupervisorEvent,
 )
-from app.supervisor_loop import DemucsSupervisorLoopOutcome, DemucsSupervisorLoopResult
-from app.supervisor_once import DemucsSupervisorOnceResult
-from app.supervisor_step import DemucsSupervisorStepResult, DemucsSupervisorStepState
-from app.worker_entrypoint import (
+from app.runtime.supervisor_loop import DemucsSupervisorLoopOutcome, DemucsSupervisorLoopResult
+from app.runtime.supervisor_once import DemucsSupervisorOnceResult
+from app.runtime.supervisor_step import DemucsSupervisorStepResult, DemucsSupervisorStepState
+from app.runtime.worker_entrypoint import (
     EXIT_STATUS_CONFIGURATION_ERROR,
     EXIT_STATUS_SUCCESS,
     DemucsWorkerEntrypointConfigurationError,
@@ -98,12 +98,12 @@ def fatal_result() -> DemucsSupervisorLoopResult:
 class DemucsWorkerEntrypointTests(unittest.TestCase):
     """Prove only reviewed factories and scopes reach the persistent loop."""
 
-    @patch("app.worker_entrypoint.run_demucs_session_supervisor_until_stop")
-    @patch("app.worker_entrypoint.installed_demucs_shutdown_waiter")
-    @patch("app.worker_entrypoint._validated_work_directory")
-    @patch("app.worker_entrypoint.create_boto3_demucs_minio_client")
-    @patch("app.worker_entrypoint.DemucsMinioSettings.from_environment")
-    @patch("app.worker_entrypoint.PsycopgDemucsDatabase")
+    @patch("app.runtime.worker_entrypoint.run_demucs_session_supervisor_until_stop")
+    @patch("app.runtime.worker_entrypoint.installed_demucs_shutdown_waiter")
+    @patch("app.runtime.worker_entrypoint._validated_work_directory")
+    @patch("app.runtime.worker_entrypoint.create_boto3_demucs_minio_client")
+    @patch("app.runtime.worker_entrypoint.DemucsMinioSettings.from_environment")
+    @patch("app.runtime.worker_entrypoint.PsycopgDemucsDatabase")
     def test_composes_restricted_dependencies_and_scopes_signal_then_amqp_lifecycle(
         self,
         database_factory,
@@ -164,12 +164,12 @@ class DemucsWorkerEntrypointTests(unittest.TestCase):
             shutdown_waiter=waiter,
         )
 
-    @patch("app.worker_entrypoint.run_demucs_session_supervisor_until_stop")
-    @patch("app.worker_entrypoint.installed_demucs_shutdown_waiter")
-    @patch("app.worker_entrypoint._validated_work_directory")
-    @patch("app.worker_entrypoint.create_boto3_demucs_minio_client")
-    @patch("app.worker_entrypoint.DemucsMinioSettings.from_environment")
-    @patch("app.worker_entrypoint.PsycopgDemucsDatabase")
+    @patch("app.runtime.worker_entrypoint.run_demucs_session_supervisor_until_stop")
+    @patch("app.runtime.worker_entrypoint.installed_demucs_shutdown_waiter")
+    @patch("app.runtime.worker_entrypoint._validated_work_directory")
+    @patch("app.runtime.worker_entrypoint.create_boto3_demucs_minio_client")
+    @patch("app.runtime.worker_entrypoint.DemucsMinioSettings.from_environment")
+    @patch("app.runtime.worker_entrypoint.PsycopgDemucsDatabase")
     def test_fatal_loop_result_maps_to_configuration_status(
         self,
         database_factory,
@@ -213,10 +213,10 @@ class DemucsWorkerEntrypointTests(unittest.TestCase):
             with self.assertRaises(DemucsWorkerEntrypointConfigurationError):
                 _validated_work_directory(symlink)
 
-    @patch("app.worker_entrypoint.run_demucs_session_supervisor_until_stop")
-    @patch("app.worker_entrypoint.installed_demucs_shutdown_waiter")
-    @patch("app.worker_entrypoint.DemucsMinioSettings.from_environment")
-    @patch("app.worker_entrypoint.PsycopgDemucsDatabase")
+    @patch("app.runtime.worker_entrypoint.run_demucs_session_supervisor_until_stop")
+    @patch("app.runtime.worker_entrypoint.installed_demucs_shutdown_waiter")
+    @patch("app.runtime.worker_entrypoint.DemucsMinioSettings.from_environment")
+    @patch("app.runtime.worker_entrypoint.PsycopgDemucsDatabase")
     def test_static_minio_configuration_failure_stops_before_signal_or_broker_setup(
         self,
         database_factory,

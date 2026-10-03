@@ -11,16 +11,16 @@ from pathlib import Path
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.recovery_cadence import ADTOFWorkerCadenceAction, ADTOFWorkerCadenceState
-from app.supervisor_action import ADTOFSupervisorActionOutcome, ADTOFSupervisorActionResult
-from app.supervisor_backoff import (
+from app.runtime.recovery_cadence import ADTOFWorkerCadenceAction, ADTOFWorkerCadenceState
+from app.runtime.supervisor_action import ADTOFSupervisorActionOutcome, ADTOFSupervisorActionResult
+from app.runtime.supervisor_backoff import (
     ADTOFSupervisorAction,
     ADTOFSupervisorBackoffState,
     ADTOFSupervisorDecision,
     ADTOFSupervisorEvent,
 )
-from app.supervisor_once import ADTOFSupervisorOnceResult, run_one_adtof_supervisor_cycle
-from app.supervisor_step import ADTOFSupervisorStepResult, ADTOFSupervisorStepState
+from app.runtime.supervisor_once import ADTOFSupervisorOnceResult, run_one_adtof_supervisor_cycle
+from app.runtime.supervisor_step import ADTOFSupervisorStepResult, ADTOFSupervisorStepState
 
 
 def retryable_step() -> ADTOFSupervisorStepResult:
@@ -44,8 +44,8 @@ def retryable_step() -> ADTOFSupervisorStepResult:
 class ADTOFSupervisorOnceTests(unittest.TestCase):
     """Prove every completed step gets exactly its one reviewed action."""
 
-    @patch("app.supervisor_once.apply_adtof_supervisor_decision")
-    @patch("app.supervisor_once.run_one_adtof_supervisor_step")
+    @patch("app.runtime.supervisor_once.apply_adtof_supervisor_decision")
+    @patch("app.runtime.supervisor_once.run_one_adtof_supervisor_step")
     def test_forwards_step_decision_and_returns_its_next_state(self, run_step, apply_action) -> None:
         """The runner cannot substitute another action or local state after a step."""
 
@@ -90,8 +90,8 @@ class ADTOFSupervisorOnceTests(unittest.TestCase):
         )
         apply_action.assert_called_once_with(step.decision, shutdown_waiter=waiter)
 
-    @patch("app.supervisor_once.apply_adtof_supervisor_decision")
-    @patch("app.supervisor_once.run_one_adtof_supervisor_step")
+    @patch("app.runtime.supervisor_once.apply_adtof_supervisor_decision")
+    @patch("app.runtime.supervisor_once.run_one_adtof_supervisor_step")
     def test_shutdown_or_continue_outcome_is_returned_without_another_step(self, run_step, apply_action) -> None:
         """A future entrypoint can stop or continue after this one observed action result."""
 
@@ -119,8 +119,8 @@ class ADTOFSupervisorOnceTests(unittest.TestCase):
 
         self.assertEqual(run_step.call_count, 2)
 
-    @patch("app.supervisor_once.apply_adtof_supervisor_decision")
-    @patch("app.supervisor_once.run_one_adtof_supervisor_step")
+    @patch("app.runtime.supervisor_once.apply_adtof_supervisor_decision")
+    @patch("app.runtime.supervisor_once.run_one_adtof_supervisor_step")
     def test_step_or_action_failure_propagates_without_constructing_result(self, run_step, apply_action) -> None:
         """A later entrypoint sees the original failure rather than false continuation."""
 

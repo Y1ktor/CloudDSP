@@ -22,9 +22,9 @@ The Helm chart references but does not own the administrator Secret. After
 the fresh foundation creates `clouddsp-data`, run:
 
 ```bash
-ruby ./k8Deployment/kubernetes/scripts/rabbitmq-secret-stage.rb plan
-ruby ./k8Deployment/kubernetes/scripts/rabbitmq-secret-stage.rb bootstrap
-ruby ./k8Deployment/kubernetes/scripts/rabbitmq-secret-stage.rb verify
+ruby ./k8Deployment/kubernetes/scripts/stages/credentials/rabbitmq-secret-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/stages/credentials/rabbitmq-secret-stage.rb bootstrap
+ruby ./k8Deployment/kubernetes/scripts/stages/credentials/rabbitmq-secret-stage.rb verify
 ```
 
 The populated manifest stays under ignored `.local/` configuration. The
@@ -35,9 +35,9 @@ stage refuses to replace an existing Secret and suppresses credential values.
 After creating the credential Secret in an otherwise empty namespace, run:
 
 ```bash
-./k8Deployment/kubernetes/scripts/rabbitmq-release.rb install
-./k8Deployment/kubernetes/scripts/rabbitmq-release.rb verify
-./k8Deployment/kubernetes/scripts/rabbitmq-release.rb smoke
+./k8Deployment/kubernetes/scripts/releases/rabbitmq-release.rb install
+./k8Deployment/kubernetes/scripts/releases/rabbitmq-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/rabbitmq-release.rb smoke
 ```
 
 The install guard checks that the Helm release, five chart resources,
@@ -53,16 +53,16 @@ current live cluster is retained, so an empty-cluster trial remains pending.
 From the repository root:
 
 ```bash
-./k8Deployment/kubernetes/scripts/rabbitmq-release.rb plan
-./k8Deployment/kubernetes/scripts/rabbitmq-release.rb adopt
-./k8Deployment/kubernetes/scripts/rabbitmq-release.rb verify
-./k8Deployment/kubernetes/scripts/rabbitmq-release.rb smoke
+./k8Deployment/kubernetes/scripts/releases/rabbitmq-release.rb plan
+./k8Deployment/kubernetes/scripts/releases/rabbitmq-release.rb adopt
+./k8Deployment/kubernetes/scripts/releases/rabbitmq-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/rabbitmq-release.rb smoke
 ```
 
 `plan` performs strict chart lint, image-lock and source/render/live spec
 comparisons, API-server dry run, Ready-Pod and bound-PVC checks. `adopt`
 repeats those checks and runs the versioned
-[`rabbitmq-backup-and-restore-test.py`](../../scripts/rabbitmq-backup-and-restore-test.py)
+[`rabbitmq-backup-and-restore-test.py`](../../scripts/maintenance/rabbitmq-backup-and-restore-test.py)
 before Helm takeover. The backup requires no unacknowledged messages, briefly
 scales **only RabbitMQ** to zero, archives the bound node-local PVC directory,
 and restores the original replica. It confirms the StatefulSet and PVC/PV

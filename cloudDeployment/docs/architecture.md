@@ -18,6 +18,13 @@ endpoints, sample delivery, and processing labels. This document describes the
 cloud profile. AWS handlers and infrastructure remain in `cloudDeployment/`;
 local services and delivery resources remain in `k8Deployment/`.
 
+Active backend source lives in [`src/DSP/cloud/`](../src/DSP/cloud/), with image
+recipes under `src/DSP/docker/`. The [DSP guide](../src/DSP/README.md) describes
+their build contexts and entry points. Earlier host experiments and superseded
+or unprovisioned cloud handlers are retained in
+[`archive/dsp/`](../../archive/dsp/README.md), outside active packaging inputs.
+The deployed MIDI extractors remain Basic Pitch and ADTOF.
+
 The central architecture decision is:
 
 > DynamoDB is the durable source of truth for a processing job. S3 stores
@@ -166,7 +173,7 @@ both parameters empty for a normal clean deployment.
 | Area | Resources and code | Responsibility |
 | --- | --- | --- |
 | Browser | Shared **../../frontend/** cloud profile, **App.jsx**, **DemoLibrary.jsx**, **demoCatalog.js**, StemSplitter components | Authenticates, creates jobs, uploads audio, hydrates job snapshots, reconnects WebSockets, polls pending/partial jobs, exposes the account-backed history modal, and renders/edits audio and MIDI. Signed-out startup separately reads the static demo manifest and can hydrate the same editor without backend credentials. |
-| Browser transport | **AudioMultiTrackPlayer.js**, **useTransportPlayhead.js**, **useTimelineViewport.js**, **useMidiSynth.js**, **useMidiManager.js** | Serializes audio/MIDI decode work, retains only current bounded `AudioBuffer`s and one editable MIDI graph per artifact, exposes an audio-clock transport ref for direct visual/MIDI consumers, renders only viewport-local timeline data, applies immediate gain/mute/solo, and aligns isolated MIDI output buses with the same start time. |
+| Browser transport | **useAudioMultiTrackPlayer.js**, **useTransportPlayhead.js**, **useTimelineViewport.js**, **useMidiSynth.js**, **useMidiManager.js** | Serializes audio/MIDI decode work, retains only current bounded `AudioBuffer`s and one editable MIDI graph per artifact, exposes an audio-clock transport ref for direct visual/MIDI consumers, renders only viewport-local timeline data, applies immediate gain/mute/solo, and aligns isolated MIDI output buses with the same start time. |
 | Static-site hosting | **IaC/hosting.yaml**, optional root nested stack | Serves the React site and a separate private demo-assets origin through CloudFront. ACM DNS validation, Route 53 apex/`www` aliases, HTTPS enforcement, OAC bucket policies, `demo/*` routing, security headers, and `www` canonicalization are managed in IaC. It is not an API or private user-artifact proxy. |
 | Demo assets | Hosting demo-assets bucket, CloudFront `demo/*` behavior | Holds manually curated original audio, stems, MIDI, tempo metadata, and `/demo/manifest.json`. Assets do not expire with user jobs and are never written by Batch or MIDI Lambdas. |
 | Authentication | **IaC/auth.yaml**, Cognito User Pool | Provides email/password accounts and ID tokens. There is no Cognito Identity Pool and no browser AWS credentials. |
@@ -692,7 +699,7 @@ HTTP memory cache because the decoded buffer is the intentional current-job
 cache.
 
 Play is enabled only after every currently displayed audio track is decoded.
-`AudioMultiTrackPlayer` creates an `AudioBufferSourceNode` per track and
+`useAudioMultiTrackPlayer` creates an `AudioBufferSourceNode` per track and
 schedules all nodes at the same small future `AudioContext.currentTime`. This
 is intentionally different from calling `play()` on multiple `<audio>`
 elements: Safari and other browsers may resolve those independent media
@@ -749,7 +756,7 @@ Generated drum MIDI: one sampler per drum voice -> that voice OutputChannel -> d
 ~~~
 
 The track dB control is deliberately applied to both representations of a
-track. For a normal stem, `AudioMultiTrackPlayer` converts the value to linear
+track. For a normal stem, `useAudioMultiTrackPlayer` converts the value to linear
 gain and sets that stem's `GainNode`. `useMidiSynth` applies the same dB value
 to the corresponding smplr `OutputChannel`. Therefore switching a track to
 MIDI mode replaces the audible audio stem with a synthesised version at the

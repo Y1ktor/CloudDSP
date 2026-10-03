@@ -10,7 +10,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 import unittest
 
-from app.demucs_cpu_cli import (
+from app.processing.demucs_cpu_cli import (
     DemucsCpuCliConfigurationError,
     disable_mkldnn_for_local_arm64_cpu,
     run_demucs_cpu_cli,

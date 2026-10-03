@@ -418,7 +418,7 @@ private-Service configuration. The Dockerfile deliberately retains
 Demucs-only behavior unless a future generic Deployment explicitly overrides
 the command with `python -m app.dispatcher_generic_runtime`. The reviewed ARM64
 generic-capable build passed all 71 isolated tests, was pushed through
-[`../../scripts/build-dispatcher-image.sh`](../../scripts/build-dispatcher-image.sh),
+[`../../scripts/build-dispatcher-image.sh`](../../scripts/images/build-dispatcher-image.sh),
 and is locked as
 `clouddsp-registry.localhost:5001/dispatcher@sha256:cc2d36bd78ceb7e8ff8cd58d0d39d312c3325dda5e3d540dfcfad94e0dfdb487`
 in [`../../images.lock.yaml`](../../images.lock.yaml). Its local uncompressed

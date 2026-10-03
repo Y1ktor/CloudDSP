@@ -19,7 +19,7 @@ handlers, and PostgreSQL owns durable task state.
 
 AMQP messages use persistent JSON/UTF-8 properties, `type=adtof.requested`, the
 outbox event ID as `message_id`, and Job ID as `correlation_id`. The
-[strict parser](app/adtof_requested_message.py) rejects foreign paths, modes,
+[strict parser](app/messaging/adtof_requested_message.py) rejects foreign paths, modes,
 stems, malformed IDs, duplicate/extra JSON fields, and inconsistent evidence.
 The [dispatcher contract](../dispatcher/README.md) defines the shared envelope.
 
@@ -30,12 +30,29 @@ Demucs drums + outbox -> generic dispatcher -> RabbitMQ
   -> guarded PostgreSQL result -> parent aggregate/tempo resolution
 ```
 
-[model_configuration.py](app/model_configuration.py), the
+[model_configuration.py](app/processing/model_configuration.py), the
 [dependency lock](requirements.lock), and [Dockerfile](Dockerfile) pin the model
 package/configuration and bundle its weights. The local CPU child process has
 a default ten-minute timeout. No running Pod fetches models.
 [images.lock.yaml](../../images.lock.yaml) and
 [chart values](../../helm/adtof/values.yaml) define the current digest.
+
+## Source layout
+
+The worker modules are grouped by responsibility:
+
+| Package | Responsibility |
+| --- | --- |
+| `app/db/` | Database access, task claims, leases, and guarded result transactions. |
+| `app/artifacts/` | Object coordinates, downloads/uploads, and stored-object evidence. |
+| `app/messaging/` | Request parsing, AMQP sessions, and delivery acknowledgement. |
+| `app/processing/` | Model commands, inference, and media/artifact validation. |
+| `app/runtime/` | Execution orchestration, recovery cadence, supervision, and shutdown. |
+
+`app/worker_main.py` remains the public `python -m app.worker_main` launcher;
+it delegates to [the runtime entry point](app/runtime/worker_main.py). Internal
+imports and the image's source-compilation checks include the nested packages.
+The launch command, task identities, and processing contracts are unchanged.
 
 ## Ownership, acknowledgement, and recovery
 
@@ -64,10 +81,10 @@ a default ten-minute timeout. No running Pod fetches models.
   expected child task/output set before making the parent terminal; tempo
   resolution prefers a credible drums candidate.
 
-See [task claims/recovery](app/task_claim.py), [ACK handling](app/amqp_manual_ack.py),
-[recovery cadence](app/recovery_cadence.py),
-[failure classification](app/supervisor_failure_classification.py), and
-[finalization](app/task_finalization.py). The worker does not publish requests,
+See [task claims/recovery](app/db/task_claim.py), [ACK handling](app/messaging/amqp_manual_ack.py),
+[recovery cadence](app/runtime/recovery_cadence.py),
+[failure classification](app/runtime/supervisor_failure_classification.py), and
+[finalization](app/runtime/task_finalization.py). The worker does not publish requests,
 create Kubernetes Jobs, or use an API token to launch another worker.
 
 ## Security and current scaling limitation
@@ -109,8 +126,8 @@ identities, schema, policies, and runtime Secrets in order:
 On a prepared cluster with this release and its resources absent:
 
 ```bash
-./k8Deployment/kubernetes/scripts/adtof-release.rb install
-./k8Deployment/kubernetes/scripts/adtof-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/adtof-release.rb install
+./k8Deployment/kubernetes/scripts/releases/adtof-release.rb verify
 ```
 
 `install` guards prerequisites and conflicting resources. `verify` checks chart,
@@ -127,7 +144,7 @@ Provision those test prerequisites first; the helper does not bootstrap them.
 With an idle release and clean fixture:
 
 ```bash
-./k8Deployment/kubernetes/scripts/adtof-release.rb smoke
+./k8Deployment/kubernetes/scripts/releases/adtof-release.rb smoke
 ```
 
 The helper runs `adtof-worker-smoke`, waits up to 840 seconds, checks actual generic

@@ -1,7 +1,7 @@
 require 'minitest/autorun'
 require 'stringio'
 
-require_relative '../../scripts/keycloak-config-verify'
+require_relative '../../scripts/stages/keycloak/keycloak-config-verify'
 
 class KeycloakConfigVerifyTest < Minitest::Test
   def setup

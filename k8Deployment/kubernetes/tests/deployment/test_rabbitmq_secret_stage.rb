@@ -5,7 +5,7 @@ require 'stringio'
 require 'tmpdir'
 require 'yaml'
 
-require_relative '../../scripts/rabbitmq-secret-stage'
+require_relative '../../scripts/stages/credentials/rabbitmq-secret-stage'
 
 class RabbitmqSecretStageTest < Minitest::Test
   Status = Struct.new(:exitstatus) do

@@ -13,17 +13,17 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from app.adtof_requested_message import ADTOFRequestContractError, ADTOFRequestedMessage
-from app.amqp_connection import ADTOF_REQUEST_QUEUE
-from app.amqp_manual_ack import (
+from app.messaging.adtof_requested_message import ADTOFRequestContractError, ADTOFRequestedMessage
+from app.messaging.amqp_connection import ADTOF_REQUEST_QUEUE
+from app.messaging.amqp_manual_ack import (
     ADTOFAMQPUnavailable,
     ADTOFConsumeOneOutcome,
     ADTOFConsumeOneResult,
     consume_one_adtof_requested_delivery,
 )
-from app.delivery_claim import ADTOFDeliveryClaim
-from app.postgresql import ADTOFDatabaseUnavailable
-from app.task_claim import (
+from app.runtime.delivery_claim import ADTOFDeliveryClaim
+from app.db.postgresql import ADTOFDatabaseUnavailable
+from app.db.task_claim import (
     ADTOFStaleRequestReason,
     ADTOFTaskClaimDisposition,
     ADTOFTaskClaimInconsistency,
@@ -98,7 +98,7 @@ class ADTOFManualAcknowledgementTests(unittest.TestCase):
         self.channel.basic_get.return_value = (None, None, None)
         database = object()
 
-        with patch("app.amqp_manual_ack.claim_adtof_requested_delivery") as bridge:
+        with patch("app.messaging.amqp_manual_ack.claim_adtof_requested_delivery") as bridge:
             result = consume_one_adtof_requested_delivery(
                 self.channel,
                 database=database,  # type: ignore[arg-type]
@@ -112,7 +112,7 @@ class ADTOFManualAcknowledgementTests(unittest.TestCase):
         self.channel.basic_ack.assert_not_called()
         self.channel.basic_nack.assert_not_called()
 
-    @patch("app.amqp_manual_ack.claim_adtof_requested_delivery")
+    @patch("app.messaging.amqp_manual_ack.claim_adtof_requested_delivery")
     def test_committed_results_ack_with_lease_exposed_only_for_new_claim(self, bridge) -> None:
         """Duplicate/stale history cannot reach later ADTOF CPU execution."""
 
@@ -153,7 +153,7 @@ class ADTOFManualAcknowledgementTests(unittest.TestCase):
                 self.channel.basic_ack.assert_called_once_with(42)
         self.channel.basic_nack.assert_not_called()
 
-    @patch("app.amqp_manual_ack.claim_adtof_requested_delivery")
+    @patch("app.messaging.amqp_manual_ack.claim_adtof_requested_delivery")
     def test_malformed_contract_nacks_without_requeue_and_never_acknowledges(self, bridge) -> None:
         """Permanent parser faults use the main queue's configured DLQ path."""
 
@@ -171,7 +171,7 @@ class ADTOFManualAcknowledgementTests(unittest.TestCase):
         self.channel.basic_nack.assert_called_once_with(42, requeue=False)
         self.channel.basic_ack.assert_not_called()
 
-    @patch("app.amqp_manual_ack.claim_adtof_requested_delivery")
+    @patch("app.messaging.amqp_manual_ack.claim_adtof_requested_delivery")
     def test_database_or_durable_identity_failure_remains_unacknowledged(self, bridge) -> None:
         """Only a later terminal policy may make a durable conflict ack-safe."""
 
@@ -195,7 +195,7 @@ class ADTOFManualAcknowledgementTests(unittest.TestCase):
                 self.channel.basic_ack.assert_not_called()
                 self.channel.basic_nack.assert_not_called()
 
-    @patch("app.amqp_manual_ack.claim_adtof_requested_delivery")
+    @patch("app.messaging.amqp_manual_ack.claim_adtof_requested_delivery")
     def test_claim_result_missing_lease_is_not_acknowledged(self, bridge) -> None:
         """A regression cannot ack work while losing its durable ownership token."""
 
@@ -214,7 +214,7 @@ class ADTOFManualAcknowledgementTests(unittest.TestCase):
         self.channel.basic_ack.assert_not_called()
         self.channel.basic_nack.assert_not_called()
 
-    @patch("app.amqp_manual_ack.claim_adtof_requested_delivery")
+    @patch("app.messaging.amqp_manual_ack.claim_adtof_requested_delivery")
     def test_claim_result_missing_validated_message_is_not_acknowledged(self, bridge) -> None:
         """A claimed lease cannot run if parser evidence was lost or malformed."""
 
@@ -235,7 +235,7 @@ class ADTOFManualAcknowledgementTests(unittest.TestCase):
         self.channel.basic_ack.assert_not_called()
         self.channel.basic_nack.assert_not_called()
 
-    @patch("app.amqp_manual_ack.claim_adtof_requested_delivery")
+    @patch("app.messaging.amqp_manual_ack.claim_adtof_requested_delivery")
     def test_acknowledgement_failure_is_retryable_without_nacking_the_committed_claim(self, bridge) -> None:
         """A lost ack makes a redelivery duplicate-safe rather than a second claim."""
 
@@ -252,7 +252,7 @@ class ADTOFManualAcknowledgementTests(unittest.TestCase):
         self.assertEqual(str(raised.exception), "RabbitMQ ADTOF acknowledgement is unavailable.")
         self.channel.basic_nack.assert_not_called()
 
-    @patch("app.amqp_manual_ack.claim_adtof_requested_delivery")
+    @patch("app.messaging.amqp_manual_ack.claim_adtof_requested_delivery")
     def test_rejection_failure_leaves_malformed_delivery_unacknowledged(self, bridge) -> None:
         """A failed nack cannot silently discard malformed durable evidence."""
 

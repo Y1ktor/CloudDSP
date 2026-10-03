@@ -11,19 +11,19 @@ import unittest
 from datetime import UTC, datetime
 from unittest.mock import patch
 
-from app.stem_download import BasicPitchStemDownloadUnavailable
-from app.stem_object import BasicPitchStemStorageUnavailable
-from app.stem_retry_handling import (
+from app.artifacts.stem_download import BasicPitchStemDownloadUnavailable
+from app.artifacts.stem_object import BasicPitchStemStorageUnavailable
+from app.runtime.stem_retry_handling import (
     BasicPitchPreModelRetryHandling,
     BasicPitchPreModelRetryHandlingDisposition,
     handle_basic_pitch_pre_model_storage_retry,
 )
-from app.stem_task_retry_schedule import BasicPitchStemRetrySchedule, BasicPitchStemRetryScheduleCode
-from app.stem_task_retry_exhaustion import (
+from app.db.stem_task_retry_schedule import BasicPitchStemRetrySchedule, BasicPitchStemRetryScheduleCode
+from app.db.stem_task_retry_exhaustion import (
     BasicPitchStemRetryExhaustion,
     BasicPitchStemRetryExhaustionCode,
 )
-from app.task_lease import MAX_BASIC_PITCH_TASK_ATTEMPTS, BasicPitchTaskLease
+from app.db.task_lease import MAX_BASIC_PITCH_TASK_ATTEMPTS, BasicPitchTaskLease
 
 
 EVENT_ID = "93b31df9-ea8c-46bb-b2c0-19e9db5365d5"
@@ -54,8 +54,8 @@ def lease(**overrides: object) -> BasicPitchTaskLease:
 class BasicPitchPreModelRetryHandlingTests(unittest.TestCase):
     """Prove classification and attempt count select exactly one durable branch."""
 
-    @patch("app.stem_retry_handling.commit_final_attempt_basic_pitch_stem_retry_exhaustion")
-    @patch("app.stem_retry_handling.commit_basic_pitch_stem_retry_schedule")
+    @patch("app.runtime.stem_retry_handling.commit_final_attempt_basic_pitch_stem_retry_exhaustion")
+    @patch("app.runtime.stem_retry_handling.commit_basic_pitch_stem_retry_schedule")
     def test_reviewed_storage_outage_commits_its_finite_retry_schedule(self, schedule, exhaust) -> None:
         """A first/second outage crosses only the retry-scheduling SQL boundary."""
 
@@ -87,8 +87,8 @@ class BasicPitchPreModelRetryHandlingTests(unittest.TestCase):
         )
         exhaust.assert_not_called()
 
-    @patch("app.stem_retry_handling.commit_final_attempt_basic_pitch_stem_retry_exhaustion")
-    @patch("app.stem_retry_handling.commit_basic_pitch_stem_retry_schedule")
+    @patch("app.runtime.stem_retry_handling.commit_final_attempt_basic_pitch_stem_retry_exhaustion")
+    @patch("app.runtime.stem_retry_handling.commit_basic_pitch_stem_retry_schedule")
     def test_final_attempt_storage_outage_commits_terminal_exhaustion(self, schedule, exhaust) -> None:
         """The third transient outage cannot silently schedule a fourth attempt."""
 
@@ -117,8 +117,8 @@ class BasicPitchPreModelRetryHandlingTests(unittest.TestCase):
         )
         schedule.assert_not_called()
 
-    @patch("app.stem_retry_handling.commit_final_attempt_basic_pitch_stem_retry_exhaustion")
-    @patch("app.stem_retry_handling.commit_basic_pitch_stem_retry_schedule")
+    @patch("app.runtime.stem_retry_handling.commit_final_attempt_basic_pitch_stem_retry_exhaustion")
+    @patch("app.runtime.stem_retry_handling.commit_basic_pitch_stem_retry_schedule")
     def test_unclassified_error_does_not_open_a_retry_transaction(self, schedule, exhaust) -> None:
         """A later gate can re-raise a model/protocol/database error unchanged."""
 
@@ -134,8 +134,8 @@ class BasicPitchPreModelRetryHandlingTests(unittest.TestCase):
         schedule.assert_not_called()
         exhaust.assert_not_called()
 
-    @patch("app.stem_retry_handling.commit_final_attempt_basic_pitch_stem_retry_exhaustion")
-    @patch("app.stem_retry_handling.commit_basic_pitch_stem_retry_schedule")
+    @patch("app.runtime.stem_retry_handling.commit_final_attempt_basic_pitch_stem_retry_exhaustion")
+    @patch("app.runtime.stem_retry_handling.commit_basic_pitch_stem_retry_schedule")
     def test_no_row_result_remains_distinct_from_an_unclassified_error(self, schedule, exhaust) -> None:
         """A guarded miss has no evidence, whether it follows retry or exhaustion selection."""
 

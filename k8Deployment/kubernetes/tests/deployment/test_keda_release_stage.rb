@@ -2,7 +2,7 @@ require 'minitest/autorun'
 require 'stringio'
 require 'yaml'
 
-require_relative '../../scripts/keda-release-stage'
+require_relative '../../scripts/releases/keda-release-stage'
 
 class KedaReleaseStageTest < Minitest::Test
   Status = Struct.new(:exitstatus) do

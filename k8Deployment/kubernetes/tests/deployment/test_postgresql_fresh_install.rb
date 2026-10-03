@@ -1,10 +1,10 @@
 require 'json'
 require 'minitest/autorun'
 
-require_relative '../../scripts/stateless-release'
+require_relative '../../scripts/lib/helm-release'
 
 class PostgresqlFreshInstallTest < Minitest::Test
-  class FakePostgresql < StatelessRelease
+  class FakePostgresql < HelmRelease
     attr_accessor :existing_release, :existing_object, :existing_pvc, :orphan_pod, :secret_valid
     attr_reader :events
 

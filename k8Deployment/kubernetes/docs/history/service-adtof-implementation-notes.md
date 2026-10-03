@@ -164,7 +164,7 @@ must prove each stored object matches its upload plan before PostgreSQL records
 success.
 
 The source-only
-[`output-object planner`](../../services/adtof/app/output_object_plan.py) now names the two keys
+[`output-object planner`](../../services/adtof/app/artifacts/output_object_plan.py) now names the two keys
 from committed `RunningADTOFStem` evidence and gives each a frozen *base*
 metadata tuple. It includes the input-stem digest, artifact kind, and the
 cloud-default-compatible ADTOF configuration identity: pinned
@@ -175,7 +175,7 @@ A following artifact-verification task must produce those two integrity facts,
 join them to this base tuple, and only then make an upload plan. This prevents
 invented output checksums from appearing as provenance.
 
-The source-only [`local output-artifact verifier`](../../services/adtof/app/output_artifact.py) now
+The source-only [`local output-artifact verifier`](../../services/adtof/app/artifacts/output_artifact.py) now
 accepts one of those exact plans and a future model runner's controlled local
 output path. It rejects symlinks, non-regular files, wrong filenames, oversized
 files, malformed Standard MIDI framing, duplicate/non-finite/wrong-shape JSON,
@@ -186,7 +186,7 @@ belongs to the later model runner/editor boundary. No model invocation, MinIO
 request, PostgreSQL mutation, RabbitMQ action, image, or Kubernetes resource is
 introduced.
 
-The source-only [`CPU inference-command builder`](../../services/adtof/app/adtof_inference_command.py)
+The source-only [`CPU inference-command builder`](../../services/adtof/app/processing/adtof_inference_command.py)
 now reserves a fresh `0700` `adtof-output` sibling of the temporary verified
 drums WAV and builds only one no-shell Python-module argv. The command fixes
 the cloud-default-compatible `adtof-pytorch` revision, CPU device, 100 FPS,
@@ -196,7 +196,7 @@ local artifact verifier and MinIO output plans. It reserves paths only—it does
 not import or run ADTOF/PyTorch, and a future execution boundary must still
 handle timeouts/process cleanup before artifact validation.
 
-The source-only [`CPU inference entrypoint`](../../services/adtof/app/adtof_cpu_inference_entrypoint.py)
+The source-only [`CPU inference entrypoint`](../../services/adtof/app/processing/adtof_cpu_inference_entrypoint.py)
 now accepts only that exact argument sequence, rechecks the fresh sibling
 scratch tree, lazily invokes the pinned `adtof_pytorch` CPU API, and writes only
 the two reserved outputs. Its beat/tempo calculation preserves the cloud
@@ -206,7 +206,7 @@ writing it. It intentionally has no timeout/supervisor, storage, database,
 broker, or Kubernetes code; the next boundary must execute this child command
 under a finite process deadline and clean up its full process group.
 
-The source-only [`CPU process runner`](../../services/adtof/app/adtof_cpu_process.py) now repeats
+The source-only [`CPU process runner`](../../services/adtof/app/processing/adtof_cpu_process.py) now repeats
 the fixed command/path/configuration checks immediately before it starts one
 shell-free child process. It makes a new process session, gives ADTOF a normal
 ten-minute CPU deadline (twelve minutes maximum within the current fifteen
@@ -214,21 +214,21 @@ minute lease), then sends `SIGTERM` and, if needed, `SIGKILL` to the entire
 process group. A zero exit remains only local process evidence; it does not
 prove a valid artifact, a stored MinIO object, or a completed PostgreSQL task.
 
-The source-only [`local task execution composition`](../../services/adtof/app/local_task_execution.py)
+The source-only [`local task execution composition`](../../services/adtof/app/processing/local_task_execution.py)
 now joins one already-running temporary drums WAV, fixed output plans, the CPU
 process runner, and both local artifact checks. It returns MIDI and tempo
 evidence together only after the child exits successfully and both bounded
 files validate. Every returned path remains inside the existing running-stem
 scratch context; there is still no MinIO call or PostgreSQL task completion.
 
-The source-only [`upload-object planner`](../../services/adtof/app/upload_object.py) now rechecks
+The source-only [`upload-object planner`](../../services/adtof/app/artifacts/upload_object.py) now rechecks
 both current local files and joins their exact size/SHA-256 values with the
 frozen base provenance. Its two plans carry the only permitted private MinIO
 keys, MIME types, model identity, input hash, and complete immutable metadata.
 They are still not upload receipts; the following streaming uploader must prove
 that MinIO consumed these same bytes before stored-object verification.
 
-The [`MinIO streaming uploader`](../../services/adtof/app/minio_upload.py) now accepts only that
+The [`MinIO streaming uploader`](../../services/adtof/app/artifacts/minio_upload.py) now accepts only that
 exact MIDI/tempo pair. Before either `PutObject` request, it independently
 revalidates both local artifacts, rebuilds every fixed bucket/key/type/metadata
 constraint, and streams from a non-symlink regular file. A wrapper hashes the
@@ -242,7 +242,7 @@ with `HeadObject` before a PostgreSQL completion transaction can run. The
 uploader creates no client, changes no database row, handles no RabbitMQ
 delivery, runs no model, and creates no Kubernetes resource.
 
-The [`stored-output verifier`](../../services/adtof/app/output_artifact_head_object.py) now follows
+The [`stored-output verifier`](../../services/adtof/app/artifacts/output_artifact_head_object.py) now follows
 the two upload receipts with exactly two metadata-only `HeadObject` requests.
 It independently rechecks every fixed coordinate and receipt, requires the
 MIDI/tempo plans to share the same Job, ADTOF task, request event, drums-input
@@ -254,7 +254,7 @@ the object body because the preceding streaming uploader already computed the
 byte-level digest as its client consumed it. The returned pair is evidence for,
 not a substitute for, the next guarded PostgreSQL completion transaction.
 
-The [`guarded completion adapter`](../../services/adtof/app/task_completion.py) now accepts only a
+The [`guarded completion adapter`](../../services/adtof/app/db/task_completion.py) now accepts only a
 canonical current ADTOF lease, the stored MIDI/tempo pair, and a tempo candidate
 that round-trips through the same strict JSON parser used for local output. It
 calls one typed database function rather than requesting direct Job-table
@@ -264,7 +264,7 @@ lease and a retained `midi_processing` Job, records only the fixed
 the task to `succeeded`. It never changes the overall Job status. A missing row
 is safe ownership loss rather than success.
 
-The [`completion-commit composition`](../../services/adtof/app/task_completion_commit.py) now keeps
+The [`completion-commit composition`](../../services/adtof/app/db/task_completion_commit.py) now keeps
 that single completion call inside the existing short `write_cursor()` context.
 It returns a non-`None` completion only after the context exits normally and
 commits. A no-row stale lease also exits normally because no change occurred;
@@ -273,7 +273,7 @@ rolls back before a future supervisor can choose retry, failure, or broker
 acknowledgement. This composition performs no model/storage/broker work and
 does not apply the prepared bootstrap Job.
 
-The [`post-inference finalization composition`](../../services/adtof/app/task_finalization.py) now
+The [`post-inference finalization composition`](../../services/adtof/app/runtime/task_finalization.py) now
 joins the completed local result to the remaining durable happy path: it rebuilds
 both upload plans, streams the MIDI/tempo pair, verifies both current MinIO
 objects, then invokes the completion-commit composition. No long database
@@ -284,7 +284,7 @@ database exceptions intentionally propagate to a later supervisor. This module
 does not parse a delivery, download/start a task, run ADTOF, choose retry
 policy, or create Kubernetes resources.
 
-The [`post-claim success coordinator`](../../services/adtof/app/claimed_task_success.py) now joins
+The [`post-claim success coordinator`](../../services/adtof/app/runtime/claimed_task_success.py) now joins
 the already-reviewed boundaries for one *committed* ADTOF lease: private drums
 metadata proof, bounded download plus the guarded `running` transition, CPU
 output production, and finalization. It keeps CPU work and output finalization
@@ -418,7 +418,7 @@ bootstrap. This boundary creates no worker Deployment or audio workload.
 
 ## Request-parser boundary
 
-[`app/adtof_requested_message.py`](../../services/adtof/app/adtof_requested_message.py) now
+[`app/adtof_requested_message.py`](../../services/adtof/app/messaging/adtof_requested_message.py) now
 implements the pure, strict entry boundary for the future consumer. It accepts
 only the existing v004 `adtof.requested` delivery: the fixed direct-exchange
 route, persistent AMQP properties, canonical outbox and Job UUIDs, bounded
@@ -431,7 +431,7 @@ boundary without a cluster or broker connection.
 
 ## PostgreSQL first-claim boundary
 
-[`app/task_claim.py`](../../services/adtof/app/task_claim.py) now contains the future worker's pure
+[`app/task_claim.py`](../../services/adtof/app/db/task_claim.py) now contains the future worker's pure
 PostgreSQL first-claim decision. Inside one caller-owned, short transaction it
 locks the canonical `(job_id, 'adtof', 'drums')` task coordinate, uses the
 administrator-owned narrow Job-lock function, re-reads the immutable published
@@ -465,7 +465,7 @@ inside the same short transaction before MinIO or CPU work may begin.
 
 ## First-claim transaction composition
 
-[`app/first_claim.py`](../../services/adtof/app/first_claim.py) now provides the small caller-owned
+[`app/first_claim.py`](../../services/adtof/app/db/first_claim.py) now provides the small caller-owned
 transaction composition around that pure SQL decision. It accepts only a
 structural database object with `write_cursor()`, calls the first-claim adapter
 inside that context, and returns the result only after normal context exit has
@@ -477,7 +477,7 @@ for claimed/duplicate/stale outcomes and rollback for a durable conflict.
 
 ## Concrete PostgreSQL connection boundary
 
-[`app/postgresql.py`](../../services/adtof/app/postgresql.py) now provides the concrete
+[`app/postgresql.py`](../../services/adtof/app/db/postgresql.py) now provides the concrete
 `PsycopgADTOFDatabase.write_cursor()` implementation required by the
 first-claim composition. It accepts only the internal
 `clouddsp-postgresql.clouddsp-data.svc:5432` Service, `clouddsp_job_api`
@@ -496,7 +496,7 @@ than resolving dependencies from the network at Pod start.
 
 ## RabbitMQ connection-settings boundary
 
-[`app/amqp_connection.py`](../../services/adtof/app/amqp_connection.py) now loads and validates the
+[`app/amqp_connection.py`](../../services/adtof/app/messaging/amqp_connection.py) now loads and validates the
 future worker's only broker configuration: private
 `clouddsp-rabbitmq.clouddsp-data.svc:5672`, vhost `/clouddsp`, queue
 `clouddsp.adtof.requests`, prefetch one, bounded connection/heartbeat settings,
@@ -515,7 +515,7 @@ not itself build an image or open a socket until a worker process starts.
 
 ## RabbitMQ passive-channel boundary
 
-[`app/amqp_channel.py`](../../services/adtof/app/amqp_channel.py) now owns the next narrow broker
+[`app/amqp_channel.py`](../../services/adtof/app/messaging/amqp_channel.py) now owns the next narrow broker
 layer. It applies `prefetch_count=1` to one Pika-shaped channel, then uses a
 passive declaration to verify the pre-existing
 `clouddsp.adtof.requests` queue. The first setting limits a CPU ADTOF worker to
@@ -531,7 +531,7 @@ the channel is touched.
 
 ## Parser-to-first-claim bridge
 
-[`app/delivery_claim.py`](../../services/adtof/app/delivery_claim.py) composes the two preceding
+[`app/delivery_claim.py`](../../services/adtof/app/runtime/delivery_claim.py) composes the two preceding
 application boundaries in their required order: it first strictly parses one
 `adtof.requested` envelope and only then opens the short first-claim
 transaction. Its normal return contains the validated private drums-stem
@@ -548,7 +548,7 @@ ADTOF model, Docker/image tool, or Kubernetes API.
 
 ## RabbitMQ manual-acknowledgement boundary
 
-[`app/amqp_manual_ack.py`](../../services/adtof/app/amqp_manual_ack.py) now performs one explicit
+[`app/amqp_manual_ack.py`](../../services/adtof/app/messaging/amqp_manual_ack.py) now performs one explicit
 manual-ack attempt against the reviewed `clouddsp.adtof.requests` queue. It
 receives with `auto_ack=False`, passes the raw envelope only to the
 parser-to-first-claim bridge, and acknowledges only after that bridge returns
@@ -565,7 +565,7 @@ MinIO/model call, and does not build an image or create Kubernetes resources.
 
 ## Acknowledged-lease execution gate
 
-[`app/acknowledged_lease_execution.py`](../../services/adtof/app/acknowledged_lease_execution.py)
+[`app/acknowledged_lease_execution.py`](../../services/adtof/app/runtime/acknowledged_lease_execution.py)
 is the narrow handoff from the completed RabbitMQ action to the post-claim
 success coordinator. It admits only the manual-ack adapter's
 `ACKNOWLEDGED_LEASE` result, which contains both PostgreSQL's committed ADTOF
@@ -581,7 +581,7 @@ ordering.
 
 ## One receive-and-execute iteration
 
-[`app/receive_execute_once.py`](../../services/adtof/app/receive_execute_once.py) joins one
+[`app/receive_execute_once.py`](../../services/adtof/app/runtime/receive_execute_once.py) joins one
 prepared Pika channel, the reviewed manual-ack receive operation, and the
 acknowledged-lease gate once. It maps `idle`, acknowledged duplicate/stale, and
 malformed-DLQ outcomes to non-executing results. Only an
@@ -597,7 +597,7 @@ lease recovery, signal handler, image entrypoint, or Kubernetes behavior.
 
 ## Supervisor decision policy
 
-[`app/supervisor_backoff.py`](../../services/adtof/app/supervisor_backoff.py) now supplies that
+[`app/supervisor_backoff.py`](../../services/adtof/app/runtime/supervisor_backoff.py) now supplies that
 next-step policy without becoming a runtime. A normal `idle` iteration maps to
 a fixed one-second wait. An acknowledged duplicate/stale result, a
 malformed-DLQ rejection, or a completed execution maps to an immediate next
@@ -613,7 +613,7 @@ ADTOF, or interact with Kubernetes.
 
 ## Supervisor failure classification
 
-[`app/supervisor_failure_classification.py`](../../services/adtof/app/supervisor_failure_classification.py)
+[`app/supervisor_failure_classification.py`](../../services/adtof/app/runtime/supervisor_failure_classification.py)
 supplies only the decision policy's safe event inputs. Invalid AMQP, PostgreSQL,
 or MinIO configuration and a missing worker image entrypoint are
 `fatal_configuration`. The established availability wrappers from RabbitMQ,
@@ -629,7 +629,7 @@ shutdown behavior before it performs any action.
 
 ## One supervisor decision step
 
-[`app/supervisor_step.py`](../../services/adtof/app/supervisor_step.py) composes one
+[`app/supervisor_step.py`](../../services/adtof/app/runtime/supervisor_step.py) composes one
 receive-and-execute iteration with the normal-result mapper, narrow failure
 classifier, and pure backoff policy. A normal iteration carries its compact
 result and resets/uses the policy's delay. A classified retryable or fatal
@@ -644,7 +644,7 @@ will apply one decision through a shutdown-aware waiter.
 
 ## Supervisor action adapter
 
-[`app/supervisor_action.py`](../../services/adtof/app/supervisor_action.py) now applies one already
+[`app/supervisor_action.py`](../../services/adtof/app/runtime/supervisor_action.py) now applies one already
 validated next-step decision through an injected `wait_for_shutdown(timeout)`
 primitive. Immediate checks continue without waiting; idle and backoff actions
 call that primitive exactly once; and fatal configuration returns an explicit
@@ -659,7 +659,7 @@ process exit or a completed retry.
 
 ## MinIO client-settings boundary
 
-[`app/minio_client.py`](../../services/adtof/app/minio_client.py) now reads only the restricted
+[`app/minio_client.py`](../../services/adtof/app/artifacts/minio_client.py) now reads only the restricted
 ADTOF runtime S3 pair plus fixed private MinIO configuration: the internal
 `clouddsp-minio.clouddsp-data.svc:9000` Service, `clouddsp-uploads` bucket,
 `us-east-1`, and path-style addressing. Its lazy Boto3 factory passes that key
@@ -675,7 +675,7 @@ opens no connection and reads/writes no object. A later lease-bound
 
 ## Drums `HeadObject` verifier
 
-[`app/stem_object.py`](../../services/adtof/app/stem_object.py) now accepts only a parser-validated
+[`app/stem_object.py`](../../services/adtof/app/artifacts/stem_object.py) now accepts only a parser-validated
 `drums` request and matching, claimed ADTOF lease. It validates both direct
 dataclass inputs before contacting MinIO, then makes exactly one metadata-only
 lookup for `stems/{job_id}/drums.wav`. It requires the current object byte
@@ -693,7 +693,7 @@ uses Kubernetes.
 
 ## Bounded drums-download boundary
 
-[`app/stem_download.py`](../../services/adtof/app/stem_download.py) accepts only the verified,
+[`app/stem_download.py`](../../services/adtof/app/artifacts/stem_download.py) accepts only the verified,
 canonical private drums-WAV evidence. It performs one `GetObject`, verifies its
 headers against the prior `HeadObject`, writes at most 256 MiB into a random
 child of the worker's mounted scratch directory, and computes SHA-256 while it
@@ -708,7 +708,7 @@ acknowledge RabbitMQ, upload an object, build an image, or use Kubernetes.
 
 ## Guarded task-start boundary
 
-[`app/task_claim.py`](../../services/adtof/app/task_claim.py) now also provides the pure
+[`app/task_claim.py`](../../services/adtof/app/db/task_claim.py) now also provides the pure
 `start_leased_adtof_task()` transition. It accepts only a canonical ADTOF
 drums-task lease, then uses a parameterized update whose predicate includes the
 task and Job IDs, fixed `adtof`/`drums` coordinate, current `leased` state,
@@ -722,7 +722,7 @@ write an output, build an image, or use Kubernetes.
 
 ## Verified-stem-to-running composition
 
-[`app/stem_task_start.py`](../../services/adtof/app/stem_task_start.py) composes the completed
+[`app/stem_task_start.py`](../../services/adtof/app/db/stem_task_start.py) composes the completed
 download and task-start boundaries without adding a model implementation. It
 downloads the already verified drums WAV while the task is still `leased`, then
 opens the short PostgreSQL transaction. Only after the guarded transition
@@ -737,7 +737,7 @@ image, Deployment, or Kubernetes change.
 
 ## Recovery request reader
 
-[`app/recovery_request.py`](../../services/adtof/app/recovery_request.py) rebuilds normal strict
+[`app/recovery_request.py`](../../services/adtof/app/db/recovery_request.py) rebuilds normal strict
 `adtof.requested` evidence after a prior RabbitMQ delivery has already been
 acknowledged. It accepts only a fresh second- or third-attempt lease returned
 by the expired-active-lease claim, then re-reads the matching immutable
@@ -755,7 +755,7 @@ task nor contacts RabbitMQ, MinIO, ADTOF, or Kubernetes.
 
 ## Expired-lease recovery transaction
 
-[`app/recovery.py`](../../services/adtof/app/recovery.py) composes the expired-active-lease claim
+[`app/recovery.py`](../../services/adtof/app/db/recovery.py) composes the expired-active-lease claim
 and recovery request reader using exactly one `write_cursor()` context. A scan
 with no candidate commits normally because it changed nothing. A recovered
 task returns only after that context commits both the fresh lease and matching
@@ -775,7 +775,7 @@ Kubernetes.
 
 ## Recovered-task execution gate
 
-[`app/recovered_task_execution.py`](../../services/adtof/app/recovered_task_execution.py) is the
+[`app/recovered_task_execution.py`](../../services/adtof/app/runtime/recovered_task_execution.py) is the
 delivery-free counterpart to the normal acknowledged-lease gate. It accepts
 only a committed `ADTOFRecoveredTask` pair, rechecks canonical UUIDs, recovery
 attempt two/three, a timezone-aware lease timestamp, fixed `adtof`/`drums`
@@ -791,7 +791,7 @@ sleep, loop, build an image, or use Kubernetes.
 
 ## Recovery execute-once composition
 
-[`app/recovery_execute_once.py`](../../services/adtof/app/recovery_execute_once.py) first makes the
+[`app/recovery_execute_once.py`](../../services/adtof/app/runtime/recovery_execute_once.py) first makes the
 third-attempt terminal transition, then joins one reclaimable expired-lease
 recovery transaction to the delivery-free execution gate. Its `idle` outcome
 means PostgreSQL found no safe expired lease; `terminalized` carries only the
@@ -809,7 +809,7 @@ so continual normal queue traffic cannot starve crash recovery.
 
 ## Normal-work and recovery cadence
 
-[`app/recovery_cadence.py`](../../services/adtof/app/recovery_cadence.py) is the pure fairness
+[`app/recovery_cadence.py`](../../services/adtof/app/runtime/recovery_cadence.py) is the pure fairness
 policy for a future worker loop. A new Pod begins with a recovery scan, then
 strictly alternates one bounded recovery attempt and one bounded normal AMQP
 iteration. This deliberate one-to-one cadence means an expired task waits for
@@ -826,7 +826,7 @@ Kubernetes.
 
 ## Cadence-driven worker cycle
 
-[`app/worker_cycle.py`](../../services/adtof/app/worker_cycle.py) performs precisely one action
+[`app/worker_cycle.py`](../../services/adtof/app/runtime/worker_cycle.py) performs precisely one action
 selected by that cadence. For a normal action it passes the AMQP channel only
 to the existing normal receive/execute composition. For recovery it deliberately
 does not pass the channel anywhere, because no raw delivery remains to
@@ -841,7 +841,7 @@ Kubernetes action.
 
 ## Cadence-aware supervisor step
 
-[`app/supervisor_step.py`](../../services/adtof/app/supervisor_step.py) now owns both bounded
+[`app/supervisor_step.py`](../../services/adtof/app/runtime/supervisor_step.py) now owns both bounded
 process-local states: the existing retry-backoff count and the cadence's next
 action. It invokes one worker cycle. A completed cycle advances cadence and
 maps to the established supervisor event vocabulary. A normal AMQP `idle`
@@ -857,7 +857,7 @@ or use Kubernetes.
 
 ## One-step supervisor runner
 
-[`app/supervisor_once.py`](../../services/adtof/app/supervisor_once.py) joins exactly one
+[`app/supervisor_once.py`](../../services/adtof/app/runtime/supervisor_once.py) joins exactly one
 cadence-aware supervisor step to the existing shutdown-aware decision-action
 adapter. It returns the exact step, applied action result, and next state as
 one immutable fact. The action must match the step's decision and the state
@@ -871,7 +871,7 @@ propagate unchanged instead of being presented as a false `continue` result.
 
 ## Scoped shutdown event
 
-[`app/shutdown_event.py`](../../services/adtof/app/shutdown_event.py) provides the main-thread
+[`app/shutdown_event.py`](../../services/adtof/app/runtime/shutdown_event.py) provides the main-thread
 bridge from Kubernetes `SIGTERM` (and interactive `SIGINT`) to the existing
 shutdown-waiter protocol. Both handlers do only one idempotent in-memory
 `threading.Event.set()`. The waiter exposes a bounded 0–30 second interruptible
@@ -886,7 +886,7 @@ image, or use Kubernetes.
 
 ## Shutdown-aware supervisor loop
 
-[`app/supervisor_loop.py`](../../services/adtof/app/supervisor_loop.py) is the intentional
+[`app/supervisor_loop.py`](../../services/adtof/app/runtime/supervisor_loop.py) is the intentional
 persistent worker-control loop. It repeats the one-step runner only after a
 `continue` result, returns on `shutdown_requested` or `exit_fatal`, and checks
 the shutdown event with a zero-second wait before every new worker cycle. That
@@ -902,7 +902,7 @@ AMQP session around this loop.
 
 ## Closeable AMQP session
 
-[`app/amqp_session.py`](../../services/adtof/app/amqp_session.py) now owns that AMQP lifecycle
+[`app/amqp_session.py`](../../services/adtof/app/messaging/amqp_session.py) now owns that AMQP lifecycle
 boundary. It opens the existing restricted connection, obtains one channel,
 applies prefetch-one/passive queue verification, and yields only the prepared
 channel. On setup failure, normal completion, an exception from the supervisor
@@ -917,7 +917,7 @@ Kubernetes change.
 
 ## Worker bootstrap entrypoint
 
-[`app/worker_entrypoint.py`](../../services/adtof/app/worker_entrypoint.py) now composes the
+[`app/worker_entrypoint.py`](../../services/adtof/app/runtime/worker_entrypoint.py) now composes the
 restricted runtime into one testable process boundary. It constructs the
 existing ADTOF PostgreSQL adapter, reads the fixed private MinIO settings and
 creates its Boto3 client, and requires the future Pod's `/worker-scratch`

@@ -16,21 +16,21 @@ import unittest
 
 from unittest.mock import MagicMock
 
-from app.demucs_artifact_upload import DemucsArtifactUploadConsistencyError, UploadedDemucsStemObject
-from app.demucs_artifacts import DEMUCS_STEMS_BY_MODE
-from app.demucs_command import DemucsSeparationCommand
-from app.executed_separation_workspace import opened_executed_demucs_separation_workspace
-from app.hashed_stem_inventory_workspace import opened_hashed_demucs_stem_inventory_workspace
-from app.planned_stem_upload import (
+from app.artifacts.demucs_artifact_upload import DemucsArtifactUploadConsistencyError, UploadedDemucsStemObject
+from app.artifacts.demucs_artifacts import DEMUCS_STEMS_BY_MODE
+from app.processing.demucs_command import DemucsSeparationCommand
+from app.processing.executed_separation_workspace import opened_executed_demucs_separation_workspace
+from app.artifacts.hashed_stem_inventory_workspace import opened_hashed_demucs_stem_inventory_workspace
+from app.artifacts.planned_stem_upload import (
     DemucsPlannedStemUploadWorkspaceProtocolError,
     upload_demucs_stem_from_plan_workspace,
 )
-from app.preflight_task_start import DemucsRunningSource
-from app.running_source_workspace import DemucsRunningSourceWorkspace
-from app.source_preflight import ValidatedDemucsSource
-from app.stem_output_plan_workspace import opened_demucs_stem_output_plan_workspace
-from app.task_lease import DemucsTaskLease
-from app.validated_stem_inventory_workspace import opened_validated_demucs_stem_inventory_workspace
+from app.db.preflight_task_start import DemucsRunningSource
+from app.processing.running_source_workspace import DemucsRunningSourceWorkspace
+from app.processing.source_preflight import ValidatedDemucsSource
+from app.artifacts.stem_output_plan_workspace import opened_demucs_stem_output_plan_workspace
+from app.db.task_lease import DemucsTaskLease
+from app.artifacts.validated_stem_inventory_workspace import opened_validated_demucs_stem_inventory_workspace
 
 
 JOB_ID = "08ec1d44-3106-4fcb-91c8-5d0c78e7e046"

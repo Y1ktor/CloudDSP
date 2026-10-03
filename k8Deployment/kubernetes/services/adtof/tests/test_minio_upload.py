@@ -13,15 +13,15 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from app.local_task_execution import execute_running_adtof_local_task
-from app.minio_upload import (
+from app.processing.local_task_execution import execute_running_adtof_local_task
+from app.artifacts.minio_upload import (
     ADTOFUploadConsistencyError,
     ADTOFUploadContractError,
     ADTOFUploadUnavailable,
     upload_adtof_object,
     upload_adtof_objects,
 )
-from app.upload_object import build_adtof_upload_objects
+from app.artifacts.upload_object import build_adtof_upload_objects
 from test_upload_object import FakeRunner, running_stem, tempo_payload
 
 

@@ -20,9 +20,9 @@ security settings, resources, and one-replica strategy are unchanged.
 From the repository root:
 
 ```bash
-./k8Deployment/kubernetes/scripts/dispatcher-release.rb plan
-./k8Deployment/kubernetes/scripts/dispatcher-release.rb adopt
-./k8Deployment/kubernetes/scripts/dispatcher-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/dispatcher-release.rb plan
+./k8Deployment/kubernetes/scripts/releases/dispatcher-release.rb adopt
+./k8Deployment/kubernetes/scripts/releases/dispatcher-release.rb verify
 ```
 
 `plan` runs strict Helm lint, renders the one Deployment, checks the image

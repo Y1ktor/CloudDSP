@@ -3,7 +3,7 @@ require 'minitest/autorun'
 require 'stringio'
 require 'yaml'
 
-require_relative '../../scripts/minio-basic-pitch-iam-stage'
+require_relative '../../scripts/stages/minio/minio-basic-pitch-iam-stage'
 
 class MinioBasicPitchIamStageTest < Minitest::Test
   # This fake models only the resources owned by this stage. It keeps the

@@ -9,31 +9,31 @@ from __future__ import annotations
 
 import unittest
 
-from app.demucs_artifact_hash import (
+from app.artifacts.demucs_artifact_hash import (
     DemucsArtifactHashConsistencyError,
     DemucsArtifactHashContractError,
     DemucsArtifactHashPathError,
 )
-from app.demucs_artifact_upload import (
+from app.artifacts.demucs_artifact_upload import (
     DemucsArtifactUploadConsistencyError,
     DemucsArtifactUploadContractError,
     DemucsArtifactUploadPathError,
     DemucsArtifactUploadUnavailable,
 )
-from app.demucs_artifacts import (
+from app.artifacts.demucs_artifacts import (
     DemucsArtifactContractError,
     DemucsArtifactInventoryMismatch,
     DemucsArtifactPathError,
 )
-from app.demucs_process import (
+from app.processing.demucs_process import (
     DemucsProcessContractError,
     DemucsProcessError,
     DemucsProcessFailed,
     DemucsProcessTimedOut,
     DemucsProcessUnavailable,
 )
-from app.postgresql import DemucsDatabaseUnavailable
-from app.running_failure_classification import (
+from app.db.postgresql import DemucsDatabaseUnavailable
+from app.runtime.running_failure_classification import (
     DEMUCS_RUNNING_RETRY_EXHAUSTION_BY_RETRY_CODE,
     DemucsRunningFailureDisposition,
     DemucsRunningRetryCode,

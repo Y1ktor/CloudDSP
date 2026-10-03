@@ -10,10 +10,10 @@ KEDA owns the generated HPA and writes the Deployment `/scale` subresource;
 the chart deliberately omits `spec.replicas`.
 
 ```bash
-./k8Deployment/kubernetes/scripts/adtof-release.rb plan
-./k8Deployment/kubernetes/scripts/adtof-release.rb adopt
-./k8Deployment/kubernetes/scripts/adtof-release.rb verify
-./k8Deployment/kubernetes/scripts/adtof-release.rb smoke
+./k8Deployment/kubernetes/scripts/releases/adtof-release.rb plan
+./k8Deployment/kubernetes/scripts/releases/adtof-release.rb adopt
+./k8Deployment/kubernetes/scripts/releases/adtof-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/adtof-release.rb smoke
 ```
 
 `plan` compares the reviewed image lock and the rendered chart against both

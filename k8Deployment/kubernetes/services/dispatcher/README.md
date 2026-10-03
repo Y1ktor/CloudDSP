@@ -120,10 +120,10 @@ On an already prepared cluster, install an absent component separately; for an
 existing Helm release use `verify`:
 
 ```bash
-./k8Deployment/kubernetes/scripts/dispatcher-release.rb install
-./k8Deployment/kubernetes/scripts/generic-dispatcher-release.rb install
-./k8Deployment/kubernetes/scripts/dispatcher-release.rb verify
-./k8Deployment/kubernetes/scripts/generic-dispatcher-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/dispatcher-release.rb install
+./k8Deployment/kubernetes/scripts/releases/generic-dispatcher-release.rb install
+./k8Deployment/kubernetes/scripts/releases/dispatcher-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/generic-dispatcher-release.rb verify
 ```
 
 The helpers guard prerequisites, image locks, rendered/source/live specs, and

@@ -14,20 +14,20 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.demucs_command import DemucsCommandPathError, DemucsSeparationCommand
-from app.demucs_process import DemucsLeaseRenewalOwnershipLost, DemucsProcessFailed
-from app.executed_separation_workspace import (
+from app.processing.demucs_command import DemucsCommandPathError, DemucsSeparationCommand
+from app.processing.demucs_process import DemucsLeaseRenewalOwnershipLost, DemucsProcessFailed
+from app.processing.executed_separation_workspace import (
     DemucsExecutedSeparationWorkspace,
     opened_executed_demucs_separation_workspace,
 )
-from app.preflight_task_start import DemucsRunningSource
-from app.running_lease_renewal import (
+from app.db.preflight_task_start import DemucsRunningSource
+from app.db.running_lease_renewal import (
     DemucsRunningLeaseRenewal,
     DemucsRunningLeaseRenewalOutcome,
 )
-from app.running_source_workspace import DemucsRunningSourceWorkspace
-from app.source_preflight import ValidatedDemucsSource
-from app.task_lease import DemucsTaskLease
+from app.processing.running_source_workspace import DemucsRunningSourceWorkspace
+from app.processing.source_preflight import ValidatedDemucsSource
+from app.db.task_lease import DemucsTaskLease
 
 
 JOB_ID = "08ec1d44-3106-4fcb-91c8-5d0c78e7e046"
@@ -206,7 +206,7 @@ class ExecutedSeparationWorkspaceTests(unittest.TestCase):
             self.assertEqual(len(runner.calls), 1)
             self.assertEqual(sorted(path.name for path in scratch.iterdir()), ["demucs-source-random"])
 
-    @patch("app.executed_separation_workspace.renew_running_demucs_lease")
+    @patch("app.processing.executed_separation_workspace.renew_running_demucs_lease")
     def test_renewal_checkpoint_refreshes_the_running_lease_used_downstream(self, renew) -> None:
         """A live child carries only PostgreSQL's refreshed expiry past this scope."""
 
@@ -240,7 +240,7 @@ class ExecutedSeparationWorkspaceTests(unittest.TestCase):
             self.assertEqual(runner.calls[0][1:], (60, 60, True))
             renew.assert_called_once_with(database=database, running=workspace.running)
 
-    @patch("app.executed_separation_workspace.renew_running_demucs_lease")
+    @patch("app.processing.executed_separation_workspace.renew_running_demucs_lease")
     def test_renewal_ownership_loss_yields_no_workspace_and_cleans_output(self, renew) -> None:
         """The child-stop signal cannot reach local stem validation or uploads."""
 

@@ -321,7 +321,7 @@ documents the plus-for-space representation; parser and handler regression
 tests cover that path locally.
 
 For a retained upload that was already acknowledged before this correction,
-[`../../scripts/reconcile-one-upload-intake-job.sh`](../../scripts/reconcile-one-upload-intake-job.sh)
+[`../../scripts/reconcile-one-upload-intake-job.sh`](../../scripts/maintenance/reconcile-one-upload-intake-job.sh)
 accepts only its canonical job UUID. It runs a one-shot module inside the
 digest-pinned upload-intake Pod. The module reads the pending row's bucket/key
 using the existing restricted database role, then calls the normal parser,
@@ -553,7 +553,7 @@ then runs the worker as numeric non-root account `10001`. It exposes no port:
 this worker makes only outbound connections to its private RabbitMQ, MinIO, and
 PostgreSQL Services, so it needs no Service or Ingress.
 
-[`../../scripts/build-upload-intake-image.sh`](../../scripts/build-upload-intake-image.sh)
+[`../../scripts/build-upload-intake-image.sh`](../../scripts/images/build-upload-intake-image.sh)
 builds `linux/arm64` for the current k3d nodes, runs the test validation,
 pushes the result to the dedicated local registry, and prints its immutable
 digest. The subsequent Deployment task must copy that digest into
@@ -624,7 +624,7 @@ percent-encoded within MinIO's required AMQP URI. They must be the same
 password in two representations.
 
 On a fresh cluster,
-[`upload-intake-rabbitmq-secret-stage.rb`](../../scripts/upload-intake-rabbitmq-secret-stage.rb)
+[`upload-intake-rabbitmq-secret-stage.rb`](../../scripts/stages/credentials/upload-intake-rabbitmq-secret-stage.rb)
 creates only the absent application runtime Secret after validating its
 password against the ignored temporary bootstrap source. The broker topology
 runner creates and removes the temporary Secret when its Job runs.
@@ -699,7 +699,7 @@ The temporary Secret was deleted after the completed Job verified the
 topology; only the runtime Secret remains.
 
 The versioned
-[`rabbitmq-source-intake-bootstrap.rb`](../../scripts/rabbitmq-source-intake-bootstrap.rb)
+[`rabbitmq-source-intake-bootstrap.rb`](../../scripts/stages/rabbitmq/rabbitmq-source-intake-bootstrap.rb)
 runner now verifies that durable broker topology, both least-privilege users,
 their permissions, and their live credentials. Its fresh-cluster reconcile
 creates the temporary Secret and fixed-name Job only when both topology and

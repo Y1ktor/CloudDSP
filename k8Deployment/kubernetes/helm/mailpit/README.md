@@ -21,10 +21,10 @@ Job.
 From the repository root:
 
 ```bash
-./k8Deployment/kubernetes/scripts/mailpit-release.rb plan
-./k8Deployment/kubernetes/scripts/mailpit-release.rb adopt
-./k8Deployment/kubernetes/scripts/mailpit-release.rb verify
-./k8Deployment/kubernetes/scripts/mailpit-release.rb smoke
+./k8Deployment/kubernetes/scripts/releases/mailpit-release.rb plan
+./k8Deployment/kubernetes/scripts/releases/mailpit-release.rb adopt
+./k8Deployment/kubernetes/scripts/releases/mailpit-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/mailpit-release.rb smoke
 ```
 
 `plan` lints and renders the chart, checks the Mailpit image against
@@ -70,8 +70,8 @@ After a separate guarded foundation and image preparation stage has created
 the `clouddsp-data` namespace, the equivalent component commands are:
 
 ```bash
-./k8Deployment/kubernetes/scripts/mailpit-release.rb install
-./k8Deployment/kubernetes/scripts/mailpit-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/mailpit-release.rb install
+./k8Deployment/kubernetes/scripts/releases/mailpit-release.rb verify
 ```
 
 `install` uses the same reviewed chart and image checks but requires the Helm

@@ -9,12 +9,12 @@ from __future__ import annotations
 import unittest
 from datetime import UTC, datetime
 
-from app.recovery_request import (
+from app.db.recovery_request import (
     READ_CURRENT_BASIC_PITCH_RECOVERY_REQUEST_SQL,
     BasicPitchRecoveryRequestProtocolError,
     read_current_basic_pitch_recovery_request,
 )
-from app.task_lease import BasicPitchTaskLease
+from app.db.task_lease import BasicPitchTaskLease
 
 
 EVENT_ID = "93b31df9-ea8c-46bb-b2c0-19e9db5365d5"

@@ -11,11 +11,11 @@ from pathlib import Path
 import unittest
 from unittest.mock import ANY, MagicMock, patch
 
-from app.pre_model_failure_runtime import DemucsOneTaskExecution, DemucsOneTaskExecutionOutcome
-from app.receive_execute_once import DemucsWorkerIterationOutcome, DemucsWorkerIterationResult
-from app.recovery_cadence import DemucsWorkerCadenceAction, DemucsWorkerCadenceState
-from app.recovery_execute_once import DemucsRecoveryIterationOutcome, DemucsRecoveryIterationResult
-from app.worker_cycle import DemucsWorkerCycleResult, run_one_demucs_worker_cycle
+from app.runtime.pre_model_failure_runtime import DemucsOneTaskExecution, DemucsOneTaskExecutionOutcome
+from app.runtime.receive_execute_once import DemucsWorkerIterationOutcome, DemucsWorkerIterationResult
+from app.runtime.recovery_cadence import DemucsWorkerCadenceAction, DemucsWorkerCadenceState
+from app.runtime.recovery_execute_once import DemucsRecoveryIterationOutcome, DemucsRecoveryIterationResult
+from app.runtime.worker_cycle import DemucsWorkerCycleResult, run_one_demucs_worker_cycle
 
 
 def execution() -> DemucsOneTaskExecution:
@@ -27,8 +27,8 @@ def execution() -> DemucsOneTaskExecution:
 class DemucsWorkerCycleTests(unittest.TestCase):
     """Prove each bounded cycle invokes only the branch selected by state."""
 
-    @patch("app.worker_cycle.receive_and_execute_demucs_once")
-    @patch("app.worker_cycle.recover_and_execute_demucs_once")
+    @patch("app.runtime.worker_cycle.receive_and_execute_demucs_once")
+    @patch("app.runtime.worker_cycle.recover_and_execute_demucs_once")
     def test_recovery_selected_cycle_never_passes_channel_to_normal_amqp_work(
         self,
         recover,
@@ -72,8 +72,8 @@ class DemucsWorkerCycleTests(unittest.TestCase):
         )
         normal.assert_not_called()
 
-    @patch("app.worker_cycle.receive_and_execute_demucs_once")
-    @patch("app.worker_cycle.recover_and_execute_demucs_once")
+    @patch("app.runtime.worker_cycle.receive_and_execute_demucs_once")
+    @patch("app.runtime.worker_cycle.recover_and_execute_demucs_once")
     def test_normal_selected_cycle_passes_channel_only_to_normal_branch(self, recover, normal) -> None:
         """One normal AMQP result always makes recovery the next cycle."""
 
@@ -119,8 +119,8 @@ class DemucsWorkerCycleTests(unittest.TestCase):
         )
         recover.assert_not_called()
 
-    @patch("app.worker_cycle.receive_and_execute_demucs_once")
-    @patch("app.worker_cycle.recover_and_execute_demucs_once")
+    @patch("app.runtime.worker_cycle.receive_and_execute_demucs_once")
+    @patch("app.runtime.worker_cycle.recover_and_execute_demucs_once")
     def test_failed_or_forged_selected_branch_does_not_create_a_cycle_result(self, recover, normal) -> None:
         """A supervisor can retry unchanged state instead of skipping the action."""
 

@@ -12,7 +12,7 @@ import json
 import unittest
 from types import SimpleNamespace
 
-from app.basic_pitch_requested_message import (
+from app.messaging.basic_pitch_requested_message import (
     BASIC_PITCH_REQUESTED_ROUTING_KEY,
     BASIC_PITCH_STEM_NAMES,
     MAX_BASIC_PITCH_REQUEST_BODY_BYTES,

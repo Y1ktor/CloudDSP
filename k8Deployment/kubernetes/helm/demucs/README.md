@@ -12,10 +12,10 @@ honors its 780-second grace period; the release check requires zero desired
 and observed replicas plus no Pod outside that termination path.
 
 ```bash
-./k8Deployment/kubernetes/scripts/demucs-release.rb plan
-./k8Deployment/kubernetes/scripts/demucs-release.rb adopt
-./k8Deployment/kubernetes/scripts/demucs-release.rb verify
-./k8Deployment/kubernetes/scripts/demucs-release.rb smoke
+./k8Deployment/kubernetes/scripts/releases/demucs-release.rb plan
+./k8Deployment/kubernetes/scripts/releases/demucs-release.rb adopt
+./k8Deployment/kubernetes/scripts/releases/demucs-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/demucs-release.rb smoke
 ```
 
 `plan` checks the image lock, rendered chart, source and live specs, API

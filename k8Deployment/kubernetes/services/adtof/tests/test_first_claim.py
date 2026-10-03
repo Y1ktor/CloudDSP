@@ -15,9 +15,9 @@ import unittest
 from unittest.mock import patch
 from uuid import UUID
 
-from app.adtof_requested_message import ADTOFRequestedMessage
-from app.first_claim import claim_first_adtof_task
-from app.task_claim import ADTOFTaskClaimDisposition, ADTOFTaskClaimInconsistency
+from app.messaging.adtof_requested_message import ADTOFRequestedMessage
+from app.db.first_claim import claim_first_adtof_task
+from app.db.task_claim import ADTOFTaskClaimDisposition, ADTOFTaskClaimInconsistency
 
 
 EVENT_ID = "93b31df9-ea8c-46bb-b2c0-19e9db5365d5"
@@ -216,7 +216,7 @@ class ADTOFFirstClaimCompositionTests(unittest.TestCase):
 
         self.assertEqual(database.events, ["transaction-open", "transaction-rollback"])
 
-    @patch("app.first_claim.claim_adtof_task_for_delivery")
+    @patch("app.db.first_claim.claim_adtof_task_for_delivery")
     def test_connection_failure_does_not_attempt_the_pure_claim_sql(self, pure_claim) -> None:
         """No durable decision exists when the transaction context cannot open."""
 

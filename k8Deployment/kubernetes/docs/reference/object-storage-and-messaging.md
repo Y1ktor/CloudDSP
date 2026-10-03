@@ -7,13 +7,13 @@ service configuration is the final success evidence.
 
 ## Fresh buckets and shared samples
 
-[minio-fresh-buckets-stage.rb](../../scripts/minio-fresh-buckets-stage.rb)
-and [minio-fresh-samples-stage.rb](../../scripts/minio-fresh-samples-stage.rb)
+[minio-fresh-buckets-stage.rb](../../scripts/stages/minio/minio-fresh-buckets-stage.rb)
+and [minio-fresh-samples-stage.rb](../../scripts/stages/minio/minio-fresh-samples-stage.rb)
 accept `plan`, `bootstrap`, and `verify`.
 
 ```bash
-ruby ./k8Deployment/kubernetes/scripts/minio-fresh-buckets-stage.rb verify
-ruby ./k8Deployment/kubernetes/scripts/minio-fresh-samples-stage.rb verify
+ruby ./k8Deployment/kubernetes/scripts/stages/minio/minio-fresh-buckets-stage.rb verify
+ruby ./k8Deployment/kubernetes/scripts/stages/minio/minio-fresh-samples-stage.rb verify
 ```
 
 The bucket bootstrap requires a verified MinIO release and **zero** buckets.
@@ -38,10 +38,10 @@ shared samples; user uploads, stems, and generated results stay private.
 
 ## Existing bucket and notification checks
 
-[minio-state-verify.rb](../../scripts/minio-state-verify.rb) accepts `verify`:
+[minio-state-verify.rb](../../scripts/stages/minio/minio-state-verify.rb) accepts `verify`:
 
 ```bash
-ruby ./k8Deployment/kubernetes/scripts/minio-state-verify.rb verify
+ruby ./k8Deployment/kubernetes/scripts/stages/minio/minio-state-verify.rb verify
 ```
 
 It audits immutable policy ConfigMaps, private/public bucket boundaries,
@@ -52,12 +52,12 @@ credential-bearing output is suppressed. This check does not read user
 objects, test new notification delivery, or prove an application user's
 secret access-key half works.
 
-[minio-buckets-stage.rb](../../scripts/minio-buckets-stage.rb) accepts
+[minio-buckets-stage.rb](../../scripts/stages/minio/minio-buckets-stage.rb) accepts
 `plan`, `verify`, and `reconcile`:
 
 ```bash
-ruby ./k8Deployment/kubernetes/scripts/minio-buckets-stage.rb verify
-ruby ./k8Deployment/kubernetes/scripts/minio-buckets-stage.rb reconcile
+ruby ./k8Deployment/kubernetes/scripts/stages/minio/minio-buckets-stage.rb verify
+ruby ./k8Deployment/kubernetes/scripts/stages/minio/minio-buckets-stage.rb reconcile
 ```
 
 It requires both expected buckets, private uploads, no sample notifications,
@@ -67,12 +67,12 @@ only a wholly absent shared-sample anonymous-read policy. It does not create
 buckets or replace missing objects; its inventory verification checks keys
 and sizes rather than recomputing every stored content hash.
 
-[minio-notification-stage.rb](../../scripts/minio-notification-stage.rb)
+[minio-notification-stage.rb](../../scripts/stages/minio/minio-notification-stage.rb)
 also accepts `plan`, `verify`, and `reconcile`:
 
 ```bash
-ruby ./k8Deployment/kubernetes/scripts/minio-notification-stage.rb verify
-ruby ./k8Deployment/kubernetes/scripts/minio-notification-stage.rb reconcile
+ruby ./k8Deployment/kubernetes/scripts/stages/minio/minio-notification-stage.rb verify
+ruby ./k8Deployment/kubernetes/scripts/stages/minio/minio-notification-stage.rb reconcile
 ```
 
 Only a wholly absent source-upload rule and absent fixed-name Job permit the
@@ -90,11 +90,11 @@ Each helper accepts `plan`, `bootstrap`, `verify`, and `reconcile`:
 
 | Helper | Reviewed runtime capability |
 | --- | --- |
-| [minio-job-api-iam-stage.rb](../../scripts/minio-job-api-iam-stage.rb) | Upload policy plus artifact-read policy. |
-| [minio-upload-intake-iam-stage.rb](../../scripts/minio-upload-intake-iam-stage.rb) | Read only the source-upload scope. |
-| [minio-demucs-iam-stage.rb](../../scripts/minio-demucs-iam-stage.rb) | Read private sources and write approved stems. |
-| [minio-basic-pitch-iam-stage.rb](../../scripts/minio-basic-pitch-iam-stage.rb) | Read stems and write approved MIDI artifacts. |
-| [minio-adtof-iam-stage.rb](../../scripts/minio-adtof-iam-stage.rb) | Read drums and write fixed MIDI/tempo output names. |
+| [minio-job-api-iam-stage.rb](../../scripts/stages/minio/minio-job-api-iam-stage.rb) | Upload policy plus artifact-read policy. |
+| [minio-upload-intake-iam-stage.rb](../../scripts/stages/minio/minio-upload-intake-iam-stage.rb) | Read only the source-upload scope. |
+| [minio-demucs-iam-stage.rb](../../scripts/stages/minio/minio-demucs-iam-stage.rb) | Read private sources and write approved stems. |
+| [minio-basic-pitch-iam-stage.rb](../../scripts/stages/minio/minio-basic-pitch-iam-stage.rb) | Read stems and write approved MIDI artifacts. |
+| [minio-adtof-iam-stage.rb](../../scripts/stages/minio/minio-adtof-iam-stage.rb) | Read drums and write fixed MIDI/tempo output names. |
 
 Fresh bootstrap requires verified bucket/sample prerequisites and runtime
 Secrets. It refuses existing user/policy/ConfigMap/Job/provisioning Secret
@@ -104,8 +104,8 @@ uses two policy Jobs; ADTOF's reviewed policy-association container budget is
 256 MiB. Failed partial work remains for diagnosis.
 
 ```bash
-ruby ./k8Deployment/kubernetes/scripts/minio-demucs-iam-stage.rb verify
-ruby ./k8Deployment/kubernetes/scripts/minio-demucs-iam-stage.rb reconcile
+ruby ./k8Deployment/kubernetes/scripts/stages/minio/minio-demucs-iam-stage.rb verify
+ruby ./k8Deployment/kubernetes/scripts/stages/minio/minio-demucs-iam-stage.rb reconcile
 ```
 
 Verification requires complete IAM state and no temporary Secret. Existing
@@ -117,13 +117,13 @@ smokes are in the [test-tool reference](image-builds-and-smoke-tools.md).
 
 ## RabbitMQ topology and source intake
 
-[rabbitmq-processing-topology.rb](../../scripts/rabbitmq-processing-topology.rb)
-and [rabbitmq-source-intake-bootstrap.rb](../../scripts/rabbitmq-source-intake-bootstrap.rb)
+[rabbitmq-processing-topology.rb](../../scripts/stages/rabbitmq/rabbitmq-processing-topology.rb)
+and [rabbitmq-source-intake-bootstrap.rb](../../scripts/stages/rabbitmq/rabbitmq-source-intake-bootstrap.rb)
 accept `plan`, `verify`, and `reconcile`:
 
 ```bash
-ruby ./k8Deployment/kubernetes/scripts/rabbitmq-processing-topology.rb verify
-ruby ./k8Deployment/kubernetes/scripts/rabbitmq-source-intake-bootstrap.rb verify
+ruby ./k8Deployment/kubernetes/scripts/stages/rabbitmq/rabbitmq-processing-topology.rb verify
+ruby ./k8Deployment/kubernetes/scripts/stages/rabbitmq/rabbitmq-source-intake-bootstrap.rb verify
 ```
 
 Processing topology owns the reviewed processing exchanges, quorum queues,

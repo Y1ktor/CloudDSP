@@ -3,7 +3,7 @@ require 'json'
 require 'minitest/autorun'
 require 'tmpdir'
 require 'yaml'
-require_relative '../../scripts/job-api-database-bootstrap'
+require_relative '../../scripts/stages/database/job-api-database-bootstrap'
 
 class JobApiDatabaseBootstrapTest < Minitest::Test
   VALUES = {

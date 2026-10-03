@@ -5,7 +5,7 @@ require 'pathname'
 require 'tmpdir'
 require 'yaml'
 
-require_relative '../../scripts/application-identity-stage'
+require_relative '../../scripts/stages/credentials/application-identity-stage'
 
 class ApplicationIdentityStageTest < Minitest::Test
   Status = Struct.new(:exitstatus) do

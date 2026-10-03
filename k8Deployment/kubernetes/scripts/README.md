@@ -168,6 +168,31 @@ for the complete deployment.
 ./k8Deployment/kubernetes/scripts/deploy-local.sh --help
 ```
 
+## Script layout
+
+`deploy-local.sh` is the public entry point. Its command names and stage order
+are independent of the internal folders below. Focused helper commands in the
+references use their full paths.
+
+| Folder | Responsibility |
+| --- | --- |
+| `orchestration/` | Root coordinators, foundation creation, and ordered stage lists. |
+| `releases/` | Component Helm install, adoption, verification, and smoke commands. |
+| `stages/credentials/` | Local credential initialization and Secret/identity staging. |
+| `stages/database/` | PostgreSQL roles, grants, and immutable schema migrations. |
+| `stages/minio/` | Buckets, samples, IAM, notification setup, and storage checks. |
+| `stages/rabbitmq/` | Broker users, source-intake setup, and processing topology. |
+| `stages/keycloak/` | Keycloak database, realm/client bootstrap, and configuration checks. |
+| `images/` | Locked registry mirroring, image builders, and image checks. |
+| `maintenance/` | Cluster/registry cleanup, focused repairs, and opt-in restore rehearsals. |
+| `lib/` | Shared Helm and credential helpers plus explicit script/path resolution. |
+
+The Ruby, Bash, and Python path adapters resolve project roots from their own
+locations. Coordinators resolve known child scripts through the shared registry,
+so invocation from another working directory does not change the target files.
+The shared release helper is `lib/helm-release.rb` (`HelmRelease`); it also
+handles stateful component releases.
+
 Focused current references: [foundation/images](../docs/reference/foundation-and-images.md),
 [credentials/identities](../docs/reference/credentials-and-identities.md),
 [database/schema](../docs/reference/database-and-schema.md),

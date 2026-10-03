@@ -12,8 +12,8 @@ import unittest
 from datetime import UTC, datetime
 from uuid import UUID
 
-from app.demucs_requested_message import DemucsRequestedMessage
-from app.task_lease import (
+from app.messaging.demucs_requested_message import DemucsRequestedMessage
+from app.db.task_lease import (
     CLAIM_NEXT_RECOVERABLE_DEMUCS_TASK_SQL,
     COMPLETE_RUNNING_DEMUCS_TASK_SQL,
     DEFAULT_DEMUCS_LEASE_SECONDS,

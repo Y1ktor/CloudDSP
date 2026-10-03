@@ -65,7 +65,7 @@ function lowerBoundByTime(notes, position) {
 function fallbackPlaybackRate(activeBpm, originalBpm) {
     const requestedRate = Number(activeBpm) / Number(originalBpm);
     if (!Number.isFinite(requestedRate) || requestedRate <= 0) return 1;
-    // Keep the fallback consistent with AudioMultiTrackPlayer's source-node
+    // Keep the fallback consistent with useAudioMultiTrackPlayer's source-node
     // playback-rate clamp when an older caller has not supplied transportRef.
     return Math.max(0.5, Math.min(4, requestedRate));
 }

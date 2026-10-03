@@ -20,11 +20,11 @@ release history.
 From the repository root, run:
 
 ```bash
-./k8Deployment/kubernetes/scripts/keycloak-release.rb plan
-./k8Deployment/kubernetes/scripts/keycloak-release.rb adopt
-./k8Deployment/kubernetes/scripts/keycloak-release.rb install
-./k8Deployment/kubernetes/scripts/keycloak-release.rb verify
-./k8Deployment/kubernetes/scripts/keycloak-release.rb smoke
+./k8Deployment/kubernetes/scripts/releases/keycloak-release.rb plan
+./k8Deployment/kubernetes/scripts/releases/keycloak-release.rb adopt
+./k8Deployment/kubernetes/scripts/releases/keycloak-release.rb install
+./k8Deployment/kubernetes/scripts/releases/keycloak-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/keycloak-release.rb smoke
 ```
 
 `plan` checks strict Helm lint, the image lock, source/render/live spec
@@ -44,7 +44,7 @@ and ignored bootstrap-admin Secret, then performs an ordinary Helm install
 without ownership takeover. The fresh Pod can create Keycloak's initial
 master-realm administrator and run schema migrations in its dedicated database.
 The CloudDSP application realm and clients are configured separately by the
-guarded [`keycloak-realm-stage.rb`](../../scripts/keycloak-realm-stage.rb)
+guarded [`keycloak-realm-stage.rb`](../../scripts/stages/keycloak/keycloak-realm-stage.rb)
 after Helm install. That stage runs the committed one-shot Jobs only for an
 absent realm and verifies the durable result through the Admin API.
 

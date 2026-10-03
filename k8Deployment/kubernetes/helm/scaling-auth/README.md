@@ -20,9 +20,9 @@ and keys; this chart contains no Secret values or credential overrides.
 From the repository root:
 
 ```bash
-./k8Deployment/kubernetes/scripts/scaling-auth-release.rb plan
-./k8Deployment/kubernetes/scripts/scaling-auth-release.rb adopt
-./k8Deployment/kubernetes/scripts/scaling-auth-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/scaling-auth-release.rb plan
+./k8Deployment/kubernetes/scripts/releases/scaling-auth-release.rb adopt
+./k8Deployment/kubernetes/scripts/releases/scaling-auth-release.rb verify
 ```
 
 `plan` checks the pinned KEDA release, lints and renders this chart, compares

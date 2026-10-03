@@ -96,7 +96,9 @@ ownership uses the immutable Cognito `sub`; the local API validates the
 Keycloak access token. Presigned artifact URLs are temporary downloads, and
 polling remains the recovery path for missed notifications.
 
-The shared audio clock, bounded timeline rendering, lazy instrument lifecycle,
-and MIDI scheduling rules are described in
+[`useAudioMultiTrackPlayer`](src/hooks/useAudioMultiTrackPlayer.js) owns the
+shared Web Audio transport. Hook filenames use the `use` prefix to match their
+exports. The shared audio clock, bounded timeline rendering, lazy instrument
+lifecycle, and MIDI scheduling rules are described in
 [browser-performance.md](../cloudDeployment/docs/browser-performance.md).
 Both profiles must preserve them when their platform integration changes.

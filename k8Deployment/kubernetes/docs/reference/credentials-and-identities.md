@@ -12,7 +12,7 @@ ignored files under `k8Deployment/.local/`. Each source is checked against its
 committed example identity, namespace, labels, type, and field names.
 
 ```bash
-ruby ./k8Deployment/kubernetes/scripts/credential-catalog.rb
+ruby ./k8Deployment/kubernetes/scripts/lib/credential-catalog.rb
 ./k8Deployment/kubernetes/scripts/deploy-local.sh secrets-init
 ```
 
@@ -35,25 +35,25 @@ credential values.
 
 These helpers accept `plan`, `bootstrap`, and `verify`:
 
-| Script under `kubernetes/scripts/` | Source/contract |
+| Script under `kubernetes/scripts/stages/credentials/` | Source/contract |
 | --- | --- |
-| [postgresql-secret-stage.rb](../../scripts/postgresql-secret-stage.rb) | PostgreSQL administrator runtime Secret. |
-| [rabbitmq-secret-stage.rb](../../scripts/rabbitmq-secret-stage.rb) | RabbitMQ administrator runtime Secret. |
-| [minio-root-secret-stage.rb](../../scripts/minio-root-secret-stage.rb) | MinIO root runtime Secret. |
-| [minio-amqp-secret-stage.rb](../../scripts/minio-amqp-secret-stage.rb) | Restricted source-notification AMQP URL; linked RabbitMQ identity. |
-| [keycloak-admin-secret-stage.rb](../../scripts/keycloak-admin-secret-stage.rb) | Keycloak bootstrap administrator Secret. |
-| [job-api-database-secret-stage.rb](../../scripts/job-api-database-secret-stage.rb) | Job API runtime and bootstrap database credentials must agree. |
-| [job-api-minio-secret-stage.rb](../../scripts/job-api-minio-secret-stage.rb) | Job API runtime and provisioning MinIO credentials must agree. |
-| [upload-intake-rabbitmq-secret-stage.rb](../../scripts/upload-intake-rabbitmq-secret-stage.rb) | Restricted source-consumer runtime and provisioning credentials. |
-| [upload-intake-minio-secret-stage.rb](../../scripts/upload-intake-minio-secret-stage.rb) | Intake runtime/provisioning MinIO key pair. |
-| [demucs-minio-secret-stage.rb](../../scripts/demucs-minio-secret-stage.rb) | Demucs runtime/provisioning MinIO key pair. |
-| [basic-pitch-minio-secret-stage.rb](../../scripts/basic-pitch-minio-secret-stage.rb) | Basic Pitch runtime/provisioning MinIO key pair. |
-| [adtof-minio-secret-stage.rb](../../scripts/adtof-minio-secret-stage.rb) | ADTOF runtime/provisioning MinIO key pair. |
+| [postgresql-secret-stage.rb](../../scripts/stages/credentials/postgresql-secret-stage.rb) | PostgreSQL administrator runtime Secret. |
+| [rabbitmq-secret-stage.rb](../../scripts/stages/credentials/rabbitmq-secret-stage.rb) | RabbitMQ administrator runtime Secret. |
+| [minio-root-secret-stage.rb](../../scripts/stages/credentials/minio-root-secret-stage.rb) | MinIO root runtime Secret. |
+| [minio-amqp-secret-stage.rb](../../scripts/stages/credentials/minio-amqp-secret-stage.rb) | Restricted source-notification AMQP URL; linked RabbitMQ identity. |
+| [keycloak-admin-secret-stage.rb](../../scripts/stages/credentials/keycloak-admin-secret-stage.rb) | Keycloak bootstrap administrator Secret. |
+| [job-api-database-secret-stage.rb](../../scripts/stages/credentials/job-api-database-secret-stage.rb) | Job API runtime and bootstrap database credentials must agree. |
+| [job-api-minio-secret-stage.rb](../../scripts/stages/credentials/job-api-minio-secret-stage.rb) | Job API runtime and provisioning MinIO credentials must agree. |
+| [upload-intake-rabbitmq-secret-stage.rb](../../scripts/stages/credentials/upload-intake-rabbitmq-secret-stage.rb) | Restricted source-consumer runtime and provisioning credentials. |
+| [upload-intake-minio-secret-stage.rb](../../scripts/stages/credentials/upload-intake-minio-secret-stage.rb) | Intake runtime/provisioning MinIO key pair. |
+| [demucs-minio-secret-stage.rb](../../scripts/stages/credentials/demucs-minio-secret-stage.rb) | Demucs runtime/provisioning MinIO key pair. |
+| [basic-pitch-minio-secret-stage.rb](../../scripts/stages/credentials/basic-pitch-minio-secret-stage.rb) | Basic Pitch runtime/provisioning MinIO key pair. |
+| [adtof-minio-secret-stage.rb](../../scripts/stages/credentials/adtof-minio-secret-stage.rb) | ADTOF runtime/provisioning MinIO key pair. |
 
 Example focused read-only check:
 
 ```bash
-ruby ./k8Deployment/kubernetes/scripts/job-api-minio-secret-stage.rb verify
+ruby ./k8Deployment/kubernetes/scripts/stages/credentials/job-api-minio-secret-stage.rb verify
 ```
 
 `plan` validates source contracts and requires the live Secret to be absent.
@@ -65,7 +65,7 @@ matching database role, RabbitMQ account, or MinIO IAM user.
 
 ## PostgreSQL and RabbitMQ application identities
 
-[application-identity-stage.rb](../../scripts/application-identity-stage.rb)
+[application-identity-stage.rb](../../scripts/stages/credentials/application-identity-stage.rb)
 accepts `database|rabbitmq IDENTITY plan|bootstrap|verify`.
 
 | Backend | Supported identities |
@@ -74,8 +74,8 @@ accepts `database|rabbitmq IDENTITY plan|bootstrap|verify`.
 | RabbitMQ | `dispatcher`, `demucs`, `basic-pitch`, `adtof`, `keda-scaler`. |
 
 ```bash
-ruby ./k8Deployment/kubernetes/scripts/application-identity-stage.rb database demucs verify
-ruby ./k8Deployment/kubernetes/scripts/application-identity-stage.rb rabbitmq keda-scaler verify
+ruby ./k8Deployment/kubernetes/scripts/stages/credentials/application-identity-stage.rb database demucs verify
+ruby ./k8Deployment/kubernetes/scripts/stages/credentials/application-identity-stage.rb rabbitmq keda-scaler verify
 ```
 
 Fresh bootstrap creates the runtime Secret and generates its temporary
@@ -85,8 +85,8 @@ login, then removes the temporary Secret. Failed or ambiguous stages remain
 for inspection. Verification audits durable account state directly, so
 expired completed Jobs are not needed as evidence of success.
 
-Keycloak's database uses [keycloak-database-stage.rb](../../scripts/keycloak-database-stage.rb).
-Basic Pitch and ADTOF database roles use [worker-database-stage.rb](../../scripts/worker-database-stage.rb).
+Keycloak's database uses [keycloak-database-stage.rb](../../scripts/stages/keycloak/keycloak-database-stage.rb).
+Basic Pitch and ADTOF database roles use [worker-database-stage.rb](../../scripts/stages/database/worker-database-stage.rb).
 Job API schema ownership, MinIO IAM, and intake's RabbitMQ account use their
 separate reviewed runners. See [database/schema](database-and-schema.md) and
 [storage/messaging](object-storage-and-messaging.md).

@@ -13,8 +13,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from app.demucs_command import DemucsSeparationCommand, build_demucs_separation_command
-from app.demucs_process import (
+from app.processing.demucs_command import DemucsSeparationCommand, build_demucs_separation_command
+from app.processing.demucs_process import (
     DEFAULT_DEMUCS_LEASE_RENEWAL_INTERVAL_SECONDS,
     DemucsLeaseRenewalOwnershipLost,
     DemucsProcessContractError,
@@ -176,7 +176,7 @@ class DemucsLeaseRenewalProcessTests(unittest.TestCase):
         process = TimedOutFakeProcess([None, None])
         clock_values = iter((0.0, 0.0, 60.0))
 
-        with patch("app.demucs_process._stop_process_group") as stop:
+        with patch("app.processing.demucs_process._stop_process_group") as stop:
             with self.assertRaises(DemucsLeaseRenewalOwnershipLost):
                 _wait_for_process_with_lease_renewal(
                     process,  # type: ignore[arg-type]
@@ -195,7 +195,7 @@ class DemucsLeaseRenewalProcessTests(unittest.TestCase):
         clock_values = iter((0.0, 0.0, 60.0))
         failure = RuntimeError("private renewal database failure")
 
-        with patch("app.demucs_process._stop_process_group") as stop:
+        with patch("app.processing.demucs_process._stop_process_group") as stop:
             with self.assertRaises(RuntimeError) as raised:
                 _wait_for_process_with_lease_renewal(
                     process,  # type: ignore[arg-type]

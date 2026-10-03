@@ -16,7 +16,7 @@ least-privilege Kubernetes consumer.
 
 ## Request and output contract
 
-[`app/basic_pitch_requested_message.py`](../../services/basic-pitch/app/basic_pitch_requested_message.py)
+[`app/basic_pitch_requested_message.py`](../../services/basic-pitch/app/messaging/basic_pitch_requested_message.py)
 defines the first pure safety boundary. It accepts only a persistent
 `basic-pitch.requested` delivery from `clouddsp.processing-events` with a
 version-1 body for one approved non-drum WAV stem:
@@ -45,7 +45,7 @@ storage, and guarded PostgreSQL-completion tasks supply that evidence.
 ## Planned task-table prerequisite
 
 The applied
-[`v005 processing-task migration`](../../services/api/job-api-schema-migration-v005-basic-pitch-processing-tasks-configmap.yaml)
+[`v005 processing-task migration`](../../services/job-api/job-api-schema-migration-v005-basic-pitch-processing-tasks-configmap.yaml)
 is the completed database-only prerequisite. Its companion Job changed no
 runtime component: it merely permits one `basic-pitch` task for each allowed non-drum
 stem and its exact `stems/{job_id}/{stem_name}.wav` input key. It leaves the
@@ -113,7 +113,7 @@ does not access PostgreSQL, RabbitMQ, or objects.
 
 ## MinIO client configuration
 
-[`app/minio_client.py`](../../services/basic-pitch/app/minio_client.py) is the next pure runtime boundary.
+[`app/minio_client.py`](../../services/basic-pitch/app/artifacts/minio_client.py) is the next pure runtime boundary.
 It reads the future Pod's non-secret internal Service configuration and the
 existing `clouddsp-basic-pitch-minio-credentials` Secret, then lazily constructs
 one explicit Boto3-compatible S3 client. It accepts only
@@ -123,7 +123,7 @@ factory passes the restricted access/secret key directly, so Boto3 cannot use
 ambient AWS credentials, a host profile, or browser-facing Traefik routing.
 Creating the client performs no S3 request; Boto3 imports only when the factory
 is called, and the later dependency/image task will pin and install it. The
-lease-bound MinIO `HeadObject` verifier in [`app/stem_object.py`](../../services/basic-pitch/app/stem_object.py)
+lease-bound MinIO `HeadObject` verifier in [`app/stem_object.py`](../../services/basic-pitch/app/artifacts/stem_object.py)
 now makes that one metadata-only request. It permits only the claimed
 `stems/{job_id}/{stem_name}.wav` coordinate, compares its exact WAV type and
 byte length with the durable request, and requires the complete immutable
@@ -133,7 +133,7 @@ malformed metadata is never treated as valid media. It does not download a
 byte, renew/start a task, acknowledge RabbitMQ, invoke Basic Pitch, write MIDI,
 or update PostgreSQL.
 
-[`app/stem_download.py`](../../services/basic-pitch/app/stem_download.py) is the next bounded I/O layer.
+[`app/stem_download.py`](../../services/basic-pitch/app/artifacts/stem_download.py) is the next bounded I/O layer.
 Given only that verified evidence, it requests the same private object once,
 rechecks the returned size/type headers, streams at most 64 KiB at a time into
 a private random child under the future Pod's scratch `emptyDir`, and hashes
@@ -145,7 +145,7 @@ delivery, invoke Basic Pitch, upload MIDI, or write PostgreSQL. The next small
 task is a guarded `leased → running` PostgreSQL transition before model work.
 
 That pure transition now lives beside the claim SQL in
-[`app/task_lease.py`](../../services/basic-pitch/app/task_lease.py). It uses one parameterized PostgreSQL
+[`app/task_lease.py`](../../services/basic-pitch/app/db/task_lease.py). It uses one parameterized PostgreSQL
 statement that binds the task ID, Job ID, Basic Pitch stage, exact stem name,
 and lease token, and requires the PostgreSQL clock to show that the lease is
 still active. A timestamp returned from the committed future transaction is
@@ -154,7 +154,7 @@ result means the lease was expired, recovered, or changed, so the worker must
 stop without producing MIDI. It opens no connection or transaction itself;
 the separate PostgreSQL client/composition task will supply that short scope.
 
-[`app/postgresql.py`](../../services/basic-pitch/app/postgresql.py) now supplies the client half of that
+[`app/postgresql.py`](../../services/basic-pitch/app/db/postgresql.py) now supplies the client half of that
 scope. It accepts only the private
 `clouddsp-postgresql.clouddsp-data.svc:5432` Service, authoritative
 `clouddsp_job_api` database, and the restricted `clouddsp-basic-pitch` login
@@ -165,7 +165,7 @@ normal exit and rolls back on any error; it ends before MinIO or model work.
 It creates no Deployment, no connection at import time, and no task/model
 transition by itself.
 
-[`app/stem_task_start.py`](../../services/basic-pitch/app/stem_task_start.py) now composes the temporary
+[`app/stem_task_start.py`](../../services/basic-pitch/app/db/stem_task_start.py) now composes the temporary
 verified stem, that short transaction, and the pure start statement. It first
 downloads/hashes the exact claimed private stem while the task remains
 `leased`, then commits `running` with the same token. Only after the transaction
@@ -174,7 +174,7 @@ future Basic Pitch process. If ownership is gone, it deletes the scratch stem
 before yielding `None`; database or protocol failures also propagate only after
 cleanup.
 
-[`app/stem_task_terminal_failure.py`](../../services/basic-pitch/app/stem_task_terminal_failure.py) now
+[`app/stem_task_terminal_failure.py`](../../services/basic-pitch/app/db/stem_task_terminal_failure.py) now
 defines the complementary **pre-model** terminal path. A later failure
 classifier may give it only one finite, non-sensitive stem-validation code:
 object missing, size/type/metadata mismatch, or a streamed-download checksum
@@ -185,9 +185,9 @@ the overall Job, retry or dead-letter the already-acknowledged RabbitMQ
 delivery, call MinIO, run Basic Pitch, open a transaction, or create a
 Kubernetes resource. A no-row result is a normal ownership-loss signal. The
 completed
-[`app/stem_task_terminal_failure_commit.py`](../../services/basic-pitch/app/stem_task_terminal_failure_commit.py)
+[`app/stem_task_terminal_failure_commit.py`](../../services/basic-pitch/app/db/stem_task_terminal_failure_commit.py)
 now supplies the one short commit-or-rollback scope around that statement, and
-[`app/stem_failure_classification.py`](../../services/basic-pitch/app/stem_failure_classification.py)
+[`app/stem_failure_classification.py`](../../services/basic-pitch/app/runtime/stem_failure_classification.py)
 maps only the known permanent `HeadObject` or streamed-download consistency
 errors to those finite codes. MinIO outages, protocol errors, database errors,
 and model failures are deliberately not terminalized here. Those modules do
@@ -195,7 +195,7 @@ not themselves catch errors in the execution coordinator, receive RabbitMQ
 messages, or run a worker loop; the later post-ack execution boundary described
 below connects only the reviewed terminal handler.
 
-[`app/stem_task_retry_schedule.py`](../../services/basic-pitch/app/stem_task_retry_schedule.py) now
+[`app/stem_task_retry_schedule.py`](../../services/basic-pitch/app/db/stem_task_retry_schedule.py) now
 provides the separate **transient pre-model** SQL boundary.  It accepts only a
 current, unexpired Basic Pitch `leased` task that has retries remaining and the
 one reviewed `basic_pitch_stem_storage_unavailable` code.  Its guarded
@@ -208,13 +208,13 @@ result deliberately covers loss of ownership, expiry, another state change,
 or the final allowed attempt; a later explicit exhaustion/recovery policy will
 own those outcomes and arrange a new delivery for a successfully scheduled
 retry.  The completed
-[`app/stem_task_retry_schedule_commit.py`](../../services/basic-pitch/app/stem_task_retry_schedule_commit.py)
+[`app/stem_task_retry_schedule_commit.py`](../../services/basic-pitch/app/db/stem_task_retry_schedule_commit.py)
 now supplies the one short commit-or-rollback scope around that statement. It
 returns retry evidence only after normal transaction exit, while preserving the
 same no-row outcome and no authority to classify exceptions, sleep, invoke
 MinIO/Basic Pitch, touch RabbitMQ, or update the Job.
 
-[`app/task_lease.py`](../../services/basic-pitch/app/task_lease.py) now also owns the pure due-retry
+[`app/task_lease.py`](../../services/basic-pitch/app/db/task_lease.py) now also owns the pure due-retry
 recovery claim. Its one indexed `FOR UPDATE SKIP LOCKED` statement selects at
 most one due Basic Pitch `retry_scheduled` task with attempts remaining,
 increments its attempt count, clears the old error code, and grants a fresh
@@ -223,14 +223,14 @@ active task, because a possibly started model run requires a separate policy.
 The returned lease is not model permission by itself: a later recovery boundary
 must reconstruct strict request evidence before normal preflight can start.
 
-[`app/stem_retry_classification.py`](../../services/basic-pitch/app/stem_retry_classification.py) now
+[`app/stem_retry_classification.py`](../../services/basic-pitch/app/runtime/stem_retry_classification.py) now
 recognizes exactly two temporary input-stem MinIO wrappers: unavailable initial
 `HeadObject` and unavailable `GetObject`/streaming download. Both map to the
 same finite storage-unavailable retry code. Permanent input mismatches,
 protocol failures, database/model failures, and MIDI upload/verification
 failures are deliberately excluded: the latter occur after the model starts
 and require their own later policy. The adjacent
-[`app/stem_retry_handling.py`](../../services/basic-pitch/app/stem_retry_handling.py) joins that finite
+[`app/stem_retry_handling.py`](../../services/basic-pitch/app/runtime/stem_retry_handling.py) joins that finite
 classification to the committed retry-schedule wrapper. Its explicit result is
 either `unclassified` (no SQL), `retry_scheduled` (committed first/second
 attempt evidence), `retry_exhausted` (committed third-attempt terminal
@@ -238,7 +238,7 @@ evidence), or `no_durable_result` (a stale/recovered/different-state guard
 miss). It still does not catch around worker I/O, rethrow an unclassified
 error, or send/receive RabbitMQ messages.
 
-[`app/stem_task_retry_exhaustion.py`](../../services/basic-pitch/app/stem_task_retry_exhaustion.py) now
+[`app/stem_task_retry_exhaustion.py`](../../services/basic-pitch/app/db/stem_task_retry_exhaustion.py) now
 defines the separate final-attempt outcome for that reviewed temporary storage
 failure. It accepts only a current unexpired Basic Pitch `leased` task whose
 attempt count is exactly three, then changes it to `failed`, clears its lease,
@@ -248,13 +248,13 @@ overall Job unchanged because the model never began. A no-row result is normal
 ownership loss; this pure adapter does not open a transaction, classify an
 exception, touch MinIO/RabbitMQ, or create a Kubernetes resource.
 The completed
-[`app/stem_task_retry_exhaustion_commit.py`](../../services/basic-pitch/app/stem_task_retry_exhaustion_commit.py)
+[`app/stem_task_retry_exhaustion_commit.py`](../../services/basic-pitch/app/db/stem_task_retry_exhaustion_commit.py)
 now supplies its short commit-or-rollback scope. It returns terminal evidence
 only after normal transaction exit, preserves the no-row ownership-loss result,
 and has no authority to classify errors, retry, touch MinIO/RabbitMQ, or update
 the Job.
 
-[`app/basic_pitch_process.py`](../../services/basic-pitch/app/basic_pitch_process.py) now builds and runs
+[`app/basic_pitch_process.py`](../../services/basic-pitch/app/processing/basic_pitch_process.py) now builds and runs
 the fixed Basic Pitch CLI command
 `/usr/local/bin/basic-pitch <fresh-output-directory> <temporary-stem.wav>`.
 It makes a mode-0700 `midi-output` sibling in the worker-owned temporary
@@ -263,7 +263,7 @@ process group with no stdin or retained stdout/stderr, and enforces a default
 five-minute CPU deadline. A zero exit returns only the expected local
 `stem_basic_pitch.mid` coordinate; it is not yet artifact proof.
 
-[`app/midi_artifact.py`](../../services/basic-pitch/app/midi_artifact.py) is the completed local artifact
+[`app/midi_artifact.py`](../../services/basic-pitch/app/artifacts/midi_artifact.py) is the completed local artifact
 proof boundary. It accepts only that fixed process command/output coordinate,
 opens one non-symlink regular file, limits it to 16 MiB, validates its Standard
 MIDI File header and exact declared `MTrk` chunk layout, then streams SHA-256
@@ -271,14 +271,14 @@ in 64 KiB pieces. Its returned local path, byte count, `audio/midi` MIME type,
 and checksum are evidence for a later MinIO upload boundary—not proof of an
 uploaded object, a completed task, or a RabbitMQ acknowledgement.
 
-[`app/midi_output_object.py`](../../services/basic-pitch/app/midi_output_object.py) is the completed
+[`app/midi_output_object.py`](../../services/basic-pitch/app/artifacts/midi_output_object.py) is the completed
 object-plan boundary. It joins the strict request, matching current task lease,
 and freshly revalidated local MIDI evidence to form only
 `midi/{job_id}/{non-drum-stem}.mid`. Its immutable S3 metadata records the
 schema/producer, Job/task/request IDs, stem and mode, MIDI size/checksum, and
 input-stem checksum. It does not create a MinIO client or send a request.
 
-[`app/midi_artifact_upload.py`](../../services/basic-pitch/app/midi_artifact_upload.py) is the completed
+[`app/midi_artifact_upload.py`](../../services/basic-pitch/app/artifacts/midi_artifact_upload.py) is the completed
 restricted MinIO write boundary. It revalidates the fixed private key and all
 metadata, repeats MIDI framing/hash proof, hashes the current file once before
 upload and again as the Boto3-compatible client consumes it, and sends exactly
@@ -287,14 +287,14 @@ the planned byte count and SHA-256. It intentionally excludes raw SDK output
 and ETags, and does not update PostgreSQL, acknowledge RabbitMQ, or create
 Kubernetes resources.
 
-[`app/midi_artifact_head_object.py`](../../services/basic-pitch/app/midi_artifact_head_object.py) is the
+[`app/midi_artifact_head_object.py`](../../services/basic-pitch/app/artifacts/midi_artifact_head_object.py) is the
 completed stored-object boundary. It makes exactly one MinIO `HeadObject` call
 for the upload receipt's fixed key and requires the stored length, `audio/midi`
 type, and complete case-normalized provenance metadata to match the immutable
 plan. It returns only stable bucket/key/length/SHA-256 evidence; raw S3
 responses, paths, credentials, and ETags remain out of later task state.
 
-[`app/midi_task_completion.py`](../../services/basic-pitch/app/midi_task_completion.py) now calls the
+[`app/midi_task_completion.py`](../../services/basic-pitch/app/db/midi_task_completion.py) now calls the
 administrator-owned `clouddsp_complete_basic_pitch_task` function installed by
 the Job API's versioned v007 migration (with its tempo-aware overload added by
 v009). PostgreSQL rechecks the current, unexpired lease, records the verified
@@ -303,7 +303,7 @@ succeeds that one task in the same transaction.
 The worker receives `EXECUTE` on that typed function, not direct `UPDATE`
 access to the parent Job. `None` remains the normal stale-owner result.
 
-[`app/tempo_candidate.py`](../../services/basic-pitch/app/tempo_candidate.py) mirrors cloud Basic Pitch's
+[`app/tempo_candidate.py`](../../services/basic-pitch/app/processing/tempo_candidate.py) mirrors cloud Basic Pitch's
 librosa beat-tracker candidate. It records estimated BPM, beat count, stem
 duration, interval consistency, and a credible/low-confidence decision. BPM
 analysis is best-effort: a tempo-estimation error creates a non-credible
@@ -323,7 +323,7 @@ output invariant is broken—it sets a bounded safe `failed` state. This keeps
 RabbitMQ as transport and PostgreSQL as the state authority; no extra polling
 Deployment is required.
 
-[`app/midi_task_completion_commit.py`](../../services/basic-pitch/app/midi_task_completion_commit.py)
+[`app/midi_task_completion_commit.py`](../../services/basic-pitch/app/db/midi_task_completion_commit.py)
 is that completed transaction composition. It opens the existing restricted
 PostgreSQL `write_cursor()` only after all model and MinIO work has finished,
 calls the pure completion function inside it, and returns a success result only
@@ -332,7 +332,7 @@ mutation; any database or evidence exception leaves the scope and rolls back.
 It does not make MinIO/RabbitMQ/model/Kubernetes calls; the deferred database
 trigger owns the overall Job transition.
 
-[`app/basic_pitch_task_execution.py`](../../services/basic-pitch/app/basic_pitch_task_execution.py) now
+[`app/basic_pitch_task_execution.py`](../../services/basic-pitch/app/runtime/basic_pitch_task_execution.py) now
 defines the post-claim execution order without becoming an AMQP consumer. A
 future consumer may call it only after its separate parser/first-claim layer
 has committed a `claimed` lease and acknowledged the corresponding delivery.
@@ -368,7 +368,7 @@ successful report confirmed the exact main Basic Pitch queue and empty
 configure/write rules. The temporary data-namespace Secret is deleted, while
 the app runtime Secret remains for a future worker.
 
-[`app/amqp_connection.py`](../../services/basic-pitch/app/amqp_connection.py) now turns that permanent
+[`app/amqp_connection.py`](../../services/basic-pitch/app/messaging/amqp_connection.py) now turns that permanent
 runtime Secret into one bounded Pika connection configuration. It permits only
 the private `clouddsp-rabbitmq.clouddsp-data.svc:5672` ClusterIP listener,
 `/clouddsp`, the fixed `clouddsp.basic-pitch.requests` queue, and the
@@ -379,7 +379,7 @@ deliberately supplies no TLS option because no AMQPS listener/certificate
 configuration exists yet. It opens no channel, consumes no message, declares
 no topology, and makes no acknowledgement decision.
 
-[`app/amqp_channel.py`](../../services/basic-pitch/app/amqp_channel.py) now provides that setup. It calls
+[`app/amqp_channel.py`](../../services/basic-pitch/app/messaging/amqp_channel.py) now provides that setup. It calls
 `basic_qos(prefetch_count=1)`, so one CPU-bound worker Pod never holds several
 unacknowledged delivery/lease candidates while processing a single stem, then
 uses `queue_declare(..., passive=True)` to read-check the exact existing Basic
@@ -390,7 +390,7 @@ MinIO, or model action.
 
 ## First durable task-claim adapter
 
-[`app/task_lease.py`](../../services/basic-pitch/app/task_lease.py) is the first pure PostgreSQL adapter.
+[`app/task_lease.py`](../../services/basic-pitch/app/db/task_lease.py) is the first pure PostgreSQL adapter.
 Inside a later short transaction, it locks the exact `(job_id, basic-pitch,
 stem_name)` task; locks the Job and rechecks the task to close an insertion
 race; validates the retained `midi_processing` Job/stem-mode coordinate; and
@@ -402,7 +402,7 @@ RabbitMQ acknowledgement, MinIO call, model invocation, or Kubernetes action.
 The later start, renewal/recovery, output verification, and completion
 transitions remain separate tasks.
 
-[`app/first_claim.py`](../../services/basic-pitch/app/first_claim.py) now adds only the missing short
+[`app/first_claim.py`](../../services/basic-pitch/app/db/first_claim.py) now adds only the missing short
 transaction scope around that pure adapter. It returns a `claimed`, duplicate,
 or stale result only after the restricted PostgreSQL `write_cursor()` exits
 normally and commits; inconsistencies, malformed rows, and database failures
@@ -410,7 +410,7 @@ escape the context so it rolls back. It has no AMQP frame, delivery tag,
 acknowledgement, MinIO call, model work, or Kubernetes responsibility. The
 next narrow boundary is the completed parser-plus-first-claim bridge below.
 
-[`app/delivery_claim.py`](../../services/basic-pitch/app/delivery_claim.py) now joins the strict raw AMQP
+[`app/delivery_claim.py`](../../services/basic-pitch/app/runtime/delivery_claim.py) now joins the strict raw AMQP
 parser with that completed first-claim transaction. It returns only the
 validated request identifiers and PostgreSQL's committed `claimed`, duplicate,
 or stale result—never raw body/properties, a delivery tag, database cursor, or
@@ -419,7 +419,7 @@ deliveries cannot create or inspect a task. The bridge itself has no Pika
 import, acknowledgement/rejection/retry operation, MinIO call, model action,
 or Kubernetes behavior.
 
-[`app/amqp_manual_ack.py`](../../services/basic-pitch/app/amqp_manual_ack.py) now applies the Pika-only
+[`app/amqp_manual_ack.py`](../../services/basic-pitch/app/messaging/amqp_manual_ack.py) now applies the Pika-only
 manual acknowledgement policy for at most one `basic_get(..., auto_ack=False)`
 delivery. After the bridge commits a new lease, duplicate, or stale result, it
 acknowledges the delivery; an acknowledged new lease carries its same
@@ -431,7 +431,7 @@ propagate for a future reconnect supervisor and leave work eligible for
 at-least-once redelivery. It starts no loop and makes no MinIO, model, or
 Kubernetes call.
 
-[`app/acknowledged_lease_execution.py`](../../services/basic-pitch/app/acknowledged_lease_execution.py)
+[`app/acknowledged_lease_execution.py`](../../services/basic-pitch/app/runtime/acknowledged_lease_execution.py)
 now gates the existing post-claim execution coordinator behind exactly that
 `ACKNOWLEDGED_LEASE` result. It passes the matching durable lease and strict
 request message to the coordinator, which then owns the established
@@ -448,7 +448,7 @@ post-model MIDI-store failures, and every other unclassified exception still
 propagate without any second acknowledgement decision. This handoff accepts no
 channel or delivery tag and makes no new broker decision or re-delivery.
 
-[`app/receive_execute_once.py`](../../services/basic-pitch/app/receive_execute_once.py) now joins the
+[`app/receive_execute_once.py`](../../services/basic-pitch/app/runtime/receive_execute_once.py) now joins the
 manual-ack adapter and post-ack gate for exactly one worker iteration. It
 returns a compact `idle`, `acknowledged_no_work`, `malformed_rejected`, or
 `executed` result; only `executed` contains the coordinator's result. It does
@@ -457,7 +457,7 @@ later supervisor owns reconnection/retry/recovery policy without hiding an
 incomplete action. This file still has no loop, sleep, connection lifecycle,
 or Kubernetes behavior.
 
-[`app/supervisor_backoff.py`](../../services/basic-pitch/app/supervisor_backoff.py) now provides only the
+[`app/supervisor_backoff.py`](../../services/basic-pitch/app/runtime/supervisor_backoff.py) now provides only the
 pure timing policy the future long-running worker will use. Normal progress
 checks the next delivery immediately; an idle queue pauses for one second; a
 runtime-classified retryable failure follows a bounded `1, 2, 4, 8, 16, 30`
@@ -468,7 +468,7 @@ entropy, reconnect, catch an exception, inspect error types, or mutate any
 RabbitMQ/PostgreSQL/MinIO/Kubernetes state. The next small task is to classify
 real worker exceptions and connect this policy to a long-running runtime.
 
-[`app/recovery_request.py`](../../services/basic-pitch/app/recovery_request.py) now rebuilds the same
+[`app/recovery_request.py`](../../services/basic-pitch/app/db/recovery_request.py) now rebuilds the same
 strict `BasicPitchRequestedMessage` from the matching immutable, published
 outbox event after PostgreSQL has granted a retry-scheduled task a fresh lease.
 Its read-only query binds the full lease identity and PostgreSQL's current
@@ -479,7 +479,7 @@ malformed or inconsistent row stops recovery. It claims no task, opens or
 commits no transaction, contacts no broker/MinIO/model, and creates no
 Kubernetes resource.
 
-[`app/due_retry_recovery.py`](../../services/basic-pitch/app/due_retry_recovery.py) now provides the
+[`app/due_retry_recovery.py`](../../services/basic-pitch/app/db/due_retry_recovery.py) now provides the
 missing short transaction scope. It claims at most one due retry, then reads
 that fresh lease's durable request evidence before the same restricted
 PostgreSQL context commits. `None` means the indexed claim found no due task.
@@ -490,7 +490,7 @@ publishes RabbitMQ, calls MinIO, runs Basic Pitch, sleeps, or creates a
 Kubernetes resource. The next narrow task is to pass that committed pair into
 the existing post-claim execution path with the reviewed retry/failure policy.
 
-[`app/recovered_retry_execution.py`](../../services/basic-pitch/app/recovered_retry_execution.py) now
+[`app/recovered_retry_execution.py`](../../services/basic-pitch/app/runtime/recovered_retry_execution.py) now
 does that one transport-free handoff. It accepts only a committed due-retry
 lease/request pair and calls the shared post-lease policy also used after an
 acknowledged RabbitMQ delivery. The policy retains the same sequence and
@@ -503,7 +503,7 @@ a transaction, sleep, loop, or create Kubernetes resources. The next narrow
 task was fair selection between normal RabbitMQ work and PostgreSQL-scheduled
 recovery work.
 
-[`app/work_schedule.py`](../../services/basic-pitch/app/work_schedule.py) now supplies that fair choice as
+[`app/work_schedule.py`](../../services/basic-pitch/app/runtime/work_schedule.py) now supplies that fair choice as
 a pure round-robin policy. Each bounded selection alternates between an
 ordinary RabbitMQ delivery attempt and a due PostgreSQL retry-recovery attempt,
 so sustained backlog on either source cannot starve the other. The preference
@@ -516,7 +516,7 @@ or create Kubernetes resources. The next narrow task is one bounded runtime
 iteration that follows this selection and returns whether a source was idle or
 made normal progress.
 
-[`app/work_source_iteration.py`](../../services/basic-pitch/app/work_source_iteration.py) now provides
+[`app/work_source_iteration.py`](../../services/basic-pitch/app/runtime/work_source_iteration.py) now provides
 that bounded composition. It executes the selected RabbitMQ delivery or due
 retry-recovery path at most once; if that path is empty, it immediately checks
 the other source once. It reports `idle` only when both sources are empty, and
@@ -527,7 +527,7 @@ backoff/reconnect policy. It has no loop, sleep, connection lifecycle, or
 Kubernetes behavior. The next narrow task is to adapt the existing supervisor
 event/backoff policy to this new two-source iteration result.
 
-[`app/supervisor_backoff.py`](../../services/basic-pitch/app/supervisor_backoff.py) now has the matching
+[`app/supervisor_backoff.py`](../../services/basic-pitch/app/runtime/supervisor_backoff.py) now has the matching
 fair-iteration event classifier. A `progress` result checks immediately and
 resets a local backoff streak. Its `idle` event is emitted only after the fair
 iteration confirmed both RabbitMQ and due-retry recovery were empty, so the
@@ -536,7 +536,7 @@ poll. The classifier does not change schedule state, sleep, poll, reconnect,
 or inspect/catch exceptions. The next narrow task is to classify real runtime
 exceptions into the existing retryable-versus-fatal supervisor events.
 
-[`app/supervisor_failure_classification.py`](../../services/basic-pitch/app/supervisor_failure_classification.py)
+[`app/supervisor_failure_classification.py`](../../services/basic-pitch/app/runtime/supervisor_failure_classification.py)
 now performs that narrow mapping. Bad static RabbitMQ/PostgreSQL/MinIO
 configuration or a missing Basic Pitch executable is fatal because waiting
 cannot fix a Secret, topology, dependency, or worker image. Bounded RabbitMQ
@@ -548,7 +548,7 @@ composition that calls one fair iteration, maps its normal result or one
 classified exception to the existing supervisor decision, and leaves the
 actual loop/sleep/reconnect behavior separate.
 
-[`app/supervisor_step.py`](../../services/basic-pitch/app/supervisor_step.py) now provides that one-step
+[`app/supervisor_step.py`](../../services/basic-pitch/app/runtime/supervisor_step.py) now provides that one-step
 composition. A normal fair iteration advances its round-robin state, produces
 an immediate-progress or both-sources-idle decision, and resets local backoff
 as appropriate. A classified worker-level fault preserves fair preference,
@@ -558,7 +558,7 @@ channel, or create Kubernetes resources. The next narrow task is to provide
 the injectable interruptible wait/action boundary needed by a later real
 worker loop.
 
-[`app/supervisor_action.py`](../../services/basic-pitch/app/supervisor_action.py) now provides that
+[`app/supervisor_action.py`](../../services/basic-pitch/app/runtime/supervisor_action.py) now provides that
 injected action boundary. It does not call `sleep`; instead a future entrypoint
 provides a shutdown-aware waiter (for example, a `threading.Event`) that says
 whether termination arrived before the reviewed idle/backoff timeout. Immediate
@@ -569,7 +569,7 @@ no Kubernetes change. The next narrow task is to compose a real entrypoint
 loop around the existing step and action boundaries with explicit resource
 lifecycle and shutdown semantics.
 
-[`app/worker_runtime.py`](../../services/basic-pitch/app/worker_runtime.py) now provides that real,
+[`app/worker_runtime.py`](../../services/basic-pitch/app/runtime/worker_runtime.py) now provides that real,
 testable worker loop over already-constructed restricted dependencies. It
 checks shutdown before opening RabbitMQ, opens one private connection, creates
 one `prefetch=1` passively verified channel, and repeatedly applies the
@@ -585,7 +585,7 @@ does not change PostgreSQL grants, task SQL, RabbitMQ topology, or task-state
 policy. It deliberately does not read environment variables, construct
 clients, install signal handlers, or call `sys.exit`.
 
-[`app/worker_entrypoint.py`](../../services/basic-pitch/app/worker_entrypoint.py) now provides that
+[`app/worker_entrypoint.py`](../../services/basic-pitch/app/runtime/worker_entrypoint.py) now provides that
 bootstrap composition. It validates fixed AMQP/PostgreSQL/MinIO configuration
 from mounted environment values, creates only the restricted database and
 MinIO clients, requires the fixed `/worker-scratch` volume to already exist as
@@ -632,7 +632,7 @@ recorded as `images.basic-pitch` in [`../../images.lock.yaml`](../../images.lock
 and the live Deployment below is pinned to that exact digest. KEDA owns the
 replica count independently of the image version.
 
-[`../../scripts/build-basic-pitch-image.sh`](../../scripts/build-basic-pitch-image.sh)
+[`../../scripts/build-basic-pitch-image.sh`](../../scripts/images/build-basic-pitch-image.sh)
 is that non-interactive local build-and-push boundary. It accepts no runtime
 credentials, verifies the dedicated `clouddsp-registry` container exists,
 builds the Dockerfile specifically for the local Linux/ARM64 nodes, and prints

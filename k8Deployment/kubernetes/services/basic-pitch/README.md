@@ -18,7 +18,7 @@ RabbitMQ/PostgreSQL/MinIO adapters; it does not import a cloud Lambda handler.
 
 Requests are persistent JSON/UTF-8 deliveries. The AMQP type matches the routing
 key, `message_id` is the durable outbox event ID, and `correlation_id` matches the
-Job. The [parser](app/basic_pitch_requested_message.py) rejects unknown or
+Job. The [parser](app/messaging/basic_pitch_requested_message.py) rejects unknown or
 duplicate fields, non-canonical IDs, foreign paths/buckets, unsupported stems,
 and invalid checksum/size evidence. The worker compares the published outbox,
 registered stem, retained Job, and claimed task before reading private storage.
@@ -36,6 +36,23 @@ model. Pods do not download models. The portable Numba configuration is part of
 the reviewed local profile. Use [images.lock.yaml](../../images.lock.yaml) and
 [chart values](../../helm/basic-pitch/values.yaml) for the current immutable image;
 digests in older build/trial notes are not upgrade instructions.
+
+## Source layout
+
+The worker modules are grouped by responsibility:
+
+| Package | Responsibility |
+| --- | --- |
+| `app/db/` | Database access, task claims, leases, and guarded result transactions. |
+| `app/artifacts/` | Object coordinates, downloads/uploads, and stored-object evidence. |
+| `app/messaging/` | Request parsing, AMQP sessions, and delivery acknowledgement. |
+| `app/processing/` | Model commands, inference, and media/artifact validation. |
+| `app/runtime/` | Execution orchestration, recovery cadence, supervision, and shutdown. |
+
+`app/worker_main.py` remains the public `python -m app.worker_main` launcher;
+it delegates to [the runtime entry point](app/runtime/worker_main.py). Internal
+imports and the image's source-compilation checks include the nested packages.
+The launch command, task identities, and processing contracts are unchanged.
 
 ## Task ownership and result rules
 
@@ -59,12 +76,12 @@ digests in older build/trial notes are not upgrade instructions.
   parent-Job mutation rights. Completion registers MIDI evidence, succeeds that
   task, and stores its tempo candidate atomically.
 
-The [lease adapter](app/task_lease.py), [ACK adapter](app/amqp_manual_ack.py),
-[task execution](app/basic_pitch_task_execution.py), and
-[completion adapter](app/midi_task_completion.py) define these boundaries.
+The [lease adapter](app/db/task_lease.py), [ACK adapter](app/messaging/amqp_manual_ack.py),
+[task execution](app/runtime/basic_pitch_task_execution.py), and
+[completion adapter](app/db/midi_task_completion.py) define these boundaries.
 
 Tempo analysis is best-effort: a non-credible candidate does not discard valid
-MIDI. [Tempo candidate validation](app/tempo_candidate.py) records BPM and its
+MIDI. [Tempo candidate validation](app/processing/tempo_candidate.py) records BPM and its
 confidence evidence. The current PostgreSQL migrations resolve the Job's master
 tempo from registered candidates and aggregate the exact expected child task
 set. A parent completes only after the required results are present; a single
@@ -107,8 +124,8 @@ schema, policies, identities, and runtime Secrets in stage order:
 If those prerequisites are already prepared and this release/resources are absent:
 
 ```bash
-./k8Deployment/kubernetes/scripts/basic-pitch-release.rb install
-./k8Deployment/kubernetes/scripts/basic-pitch-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/basic-pitch-release.rb install
+./k8Deployment/kubernetes/scripts/releases/basic-pitch-release.rb verify
 ```
 
 `install` guards prerequisites and conflicting existing resources. `verify` checks
@@ -125,7 +142,7 @@ Prepare the restricted functions and MinIO smoke identity described in the
 does not create those prerequisites. With idle workers and clean fixed fixture:
 
 ```bash
-./k8Deployment/kubernetes/scripts/basic-pitch-release.rb smoke
+./k8Deployment/kubernetes/scripts/releases/basic-pitch-release.rb smoke
 ```
 
 The helper runs `basic-pitch-worker-smoke`, waits up to 360 seconds, and verifies

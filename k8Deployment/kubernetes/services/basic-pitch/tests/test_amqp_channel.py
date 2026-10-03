@@ -10,8 +10,8 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock
 
-from app.amqp_channel import BasicPitchAMQPChannelUnavailable, configure_basic_pitch_rabbitmq_channel
-from app.amqp_connection import (
+from app.messaging.amqp_channel import BasicPitchAMQPChannelUnavailable, configure_basic_pitch_rabbitmq_channel
+from app.messaging.amqp_connection import (
     BASIC_PITCH_REQUEST_QUEUE,
     DEFAULT_BASIC_PITCH_AMQP_HOST,
     BasicPitchAMQPSettings,

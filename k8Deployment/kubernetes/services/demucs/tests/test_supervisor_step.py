@@ -11,15 +11,15 @@ from pathlib import Path
 import unittest
 from unittest.mock import ANY, MagicMock, patch
 
-from app.amqp_connection import DemucsAMQPConfigurationError, DemucsAMQPConnectionUnavailable
-from app.pre_model_failure_runtime import DemucsOneTaskExecution, DemucsOneTaskExecutionOutcome
-from app.receive_execute_once import DemucsWorkerIterationOutcome, DemucsWorkerIterationResult
-from app.recovery_cadence import DemucsWorkerCadenceAction, DemucsWorkerCadenceState
-from app.recovery_execute_once import DemucsRecoveryIterationOutcome, DemucsRecoveryIterationResult
-from app.source_object import DemucsSourceStorageProtocolError
-from app.supervisor_backoff import DemucsSupervisorAction, DemucsSupervisorBackoffState, DemucsSupervisorEvent
-from app.supervisor_step import DemucsSupervisorStepState, run_one_demucs_supervisor_step
-from app.worker_cycle import DemucsWorkerCycleResult
+from app.messaging.amqp_connection import DemucsAMQPConfigurationError, DemucsAMQPConnectionUnavailable
+from app.runtime.pre_model_failure_runtime import DemucsOneTaskExecution, DemucsOneTaskExecutionOutcome
+from app.runtime.receive_execute_once import DemucsWorkerIterationOutcome, DemucsWorkerIterationResult
+from app.runtime.recovery_cadence import DemucsWorkerCadenceAction, DemucsWorkerCadenceState
+from app.runtime.recovery_execute_once import DemucsRecoveryIterationOutcome, DemucsRecoveryIterationResult
+from app.artifacts.source_object import DemucsSourceStorageProtocolError
+from app.runtime.supervisor_backoff import DemucsSupervisorAction, DemucsSupervisorBackoffState, DemucsSupervisorEvent
+from app.runtime.supervisor_step import DemucsSupervisorStepState, run_one_demucs_supervisor_step
+from app.runtime.worker_cycle import DemucsWorkerCycleResult
 
 
 def execution() -> DemucsOneTaskExecution:
@@ -51,7 +51,7 @@ def normal_cycle(result: DemucsWorkerIterationResult) -> DemucsWorkerCycleResult
 class DemucsSupervisorStepTests(unittest.TestCase):
     """Prove backoff/fairness state advances only after a complete cycle."""
 
-    @patch("app.supervisor_step.run_one_demucs_worker_cycle")
+    @patch("app.runtime.supervisor_step.run_one_demucs_worker_cycle")
     def test_recovery_idle_checks_normal_queue_immediately_and_advances_cadence(self, run_cycle) -> None:
         """Recovery idle is not broker idle, so it never adds an idle delay."""
 
@@ -100,7 +100,7 @@ class DemucsSupervisorStepTests(unittest.TestCase):
             running_retry_after_seconds=47,
         )
 
-    @patch("app.supervisor_step.run_one_demucs_worker_cycle")
+    @patch("app.runtime.supervisor_step.run_one_demucs_worker_cycle")
     def test_normal_amqp_idle_uses_short_wait_and_advances_to_recovery(self, run_cycle) -> None:
         """Only normal empty broker polling receives the idle decision."""
 
@@ -127,7 +127,7 @@ class DemucsSupervisorStepTests(unittest.TestCase):
             DemucsWorkerCadenceAction.RUN_RECOVERY_SCAN,
         )
 
-    @patch("app.supervisor_step.run_one_demucs_worker_cycle")
+    @patch("app.runtime.supervisor_step.run_one_demucs_worker_cycle")
     def test_retryable_fault_preserves_prior_cadence_without_cycle_evidence(self, run_cycle) -> None:
         """An outage retries the same selected recovery action after backoff."""
 
@@ -153,7 +153,7 @@ class DemucsSupervisorStepTests(unittest.TestCase):
         self.assertEqual(step.next_state.backoff_state.retryable_failure_streak, 2)
         self.assertEqual(step.next_state.cadence_state, state.cadence_state)
 
-    @patch("app.supervisor_step.run_one_demucs_worker_cycle")
+    @patch("app.runtime.supervisor_step.run_one_demucs_worker_cycle")
     def test_fatal_configuration_preserves_normal_cadence_without_cycle_evidence(self, run_cycle) -> None:
         """Static configuration exits rather than silently skipping a branch."""
 
@@ -176,7 +176,7 @@ class DemucsSupervisorStepTests(unittest.TestCase):
         self.assertIsNone(step.cycle)
         self.assertEqual(step.next_state.cadence_state, state.cadence_state)
 
-    @patch("app.supervisor_step.run_one_demucs_worker_cycle")
+    @patch("app.runtime.supervisor_step.run_one_demucs_worker_cycle")
     def test_unclassified_task_error_propagates_unchanged(self, run_cycle) -> None:
         """Generic supervision cannot override task-integrity handling."""
 

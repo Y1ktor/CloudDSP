@@ -40,7 +40,7 @@ not restore earlier data.
 | [Local architecture and status](../plan.md) | Processing flow, security boundaries, implemented scope, and remaining product gaps. |
 | [Deployment orchestration](deployment-orchestration-plan.md) | Stage ordering, failure behavior, verification, and limited reconciliation. |
 | [Resource ownership](resource-ownership-map.md) | Helm releases, foundation resources, bootstrap state, and credential ownership. |
-| [Job API](services/api/README.md) | Authentication, direct-upload contract, owner-filtered history, and artifact snapshots. |
+| [Job API](services/job-api/README.md) | Authentication, direct-upload contract, owner-filtered history, and artifact snapshots. |
 | [Upload intake](services/upload-intake/README.md) | MinIO events, input validation, and durable handoff. |
 | [Dispatchers](services/dispatcher/README.md) | Transactional outbox publication and routing. |
 | [Demucs](services/demucs/README.md) | Stem processing, task leases, and downstream handoff. |

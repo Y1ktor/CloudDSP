@@ -1,5 +1,5 @@
 require 'minitest/autorun'
-require_relative '../../scripts/job-api-postgresql-stage'
+require_relative '../../scripts/stages/database/job-api-postgresql-stage'
 
 class JobApiPostgresqlStageTest < Minitest::Test
   class FakeStage

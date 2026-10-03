@@ -46,7 +46,7 @@ controller-created resource associated with a service.
 | --- | --- | --- |
 | Runtime and bootstrap Secrets | Ignored `.local/` sources generated from the [credential catalog](credentials/catalog.yaml) | Charts reference names; initialization validates shared mappings. Populated values are not committed or kept in Helm values. |
 | Database roles/databases and grants | Service-specific bootstrap runners and versioned Jobs | Verify actual service identities and permissions; do not infer success from a completed/absent Job alone. |
-| PostgreSQL schema | Immutable migration ConfigMaps/Jobs and `schema_migrations` ledger | [Migration runner](scripts/job-api-migrations.rb) checks the exact `v001`–`v009` sequence; fresh install pauses after `v006` for worker roles. |
+| PostgreSQL schema | Immutable migration ConfigMaps/Jobs and `schema_migrations` ledger | [Migration runner](scripts/stages/database/job-api-migrations.rb) checks the exact `v001`–`v009` sequence; fresh install pauses after `v006` for worker roles. |
 | Job, task, lease, retry, outbox, and artifact-key rows | PostgreSQL application state | Workers use guarded transactions; neither Helm nor broker queue depth is its source of truth. |
 | Keycloak realm, clients, SMTP, and registration policies | Keycloak bootstrap/verification stages | Verify provider configuration independently of Pod readiness or Helm status. |
 | RabbitMQ vhosts, users, topology, source and processing queues | RabbitMQ bootstrap/verification stages | Verify durable routes, identities, and restricted permissions; messages are data. |

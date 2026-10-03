@@ -11,15 +11,15 @@ from datetime import UTC, datetime
 import unittest
 from unittest.mock import MagicMock, call
 
-from app.adtof_requested_message import ADTOFRequestedMessage
-from app.stem_object import (
+from app.messaging.adtof_requested_message import ADTOFRequestedMessage
+from app.artifacts.stem_object import (
     ADTOFPermanentStemVerificationError,
     ADTOFStemStorageProtocolError,
     ADTOFStemStorageUnavailable,
     ADTOFStemVerificationFailureCode,
     verify_claimed_adtof_stem_head_object,
 )
-from app.task_claim import ADTOFTaskLease
+from app.db.task_claim import ADTOFTaskLease
 
 
 EVENT_ID = "93b31df9-ea8c-46bb-b2c0-19e9db5365d5"

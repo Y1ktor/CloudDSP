@@ -15,10 +15,10 @@ specific worker Deployment.
   to `clouddsp-app`, pins its component tags, establishes local resource
   bounds, and documents the intentional secret-access choice needed for later
   RabbitMQ trigger authentication.
-- [`../../scripts/install-keda.sh`](../../scripts/install-keda.sh) is the one
+- [`../../scripts/releases/install-keda.sh`](../../scripts/releases/install-keda.sh) is the one
   non-interactive install/upgrade entry point. It uses the explicit k3d
   context, reads both files, waits for readiness, and verifies the CRDs.
-- [`../../scripts/keda-release-stage.rb`](../../scripts/keda-release-stage.rb)
+- [`../../scripts/releases/keda-release-stage.rb`](../../scripts/releases/keda-release-stage.rb)
   guards fresh bootstrap against an existing release or leftover KEDA
   resources and verifies the exact deployed chart, values, and controllers.
 
@@ -32,9 +32,9 @@ after the command exits.
 Run the versioned installer from the repository root:
 
 ```bash
-ruby ./k8Deployment/kubernetes/scripts/keda-release-stage.rb plan
-ruby ./k8Deployment/kubernetes/scripts/keda-release-stage.rb install
-ruby ./k8Deployment/kubernetes/scripts/keda-release-stage.rb verify
+ruby ./k8Deployment/kubernetes/scripts/releases/keda-release-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/releases/keda-release-stage.rb install
+ruby ./k8Deployment/kubernetes/scripts/releases/keda-release-stage.rb verify
 ```
 
 Use the Ruby `install` mode during one-command fresh bootstrap; it refuses a
@@ -42,7 +42,7 @@ pre-existing KEDA release, namespace, CRD, or metrics API. The standalone
 shell installer is an alternative for explicit reconciliation:
 
 ```bash
-./k8Deployment/kubernetes/scripts/install-keda.sh
+./k8Deployment/kubernetes/scripts/releases/install-keda.sh
 ```
 
 It targets `k3d-clouddsp-local` explicitly. `helm upgrade --install`

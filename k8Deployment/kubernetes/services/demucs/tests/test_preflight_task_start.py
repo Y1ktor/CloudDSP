@@ -13,11 +13,11 @@ from datetime import UTC, datetime
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.acknowledged_lease_preflight import DemucsAcknowledgedLeasePreflight
-from app.postgresql import DemucsDatabaseUnavailable
-from app.preflight_task_start import start_preflight_validated_demucs_task
-from app.source_preflight import ValidatedDemucsSource
-from app.task_lease import DemucsTaskLease, DemucsTaskLeaseProtocolError
+from app.runtime.acknowledged_lease_preflight import DemucsAcknowledgedLeasePreflight
+from app.db.postgresql import DemucsDatabaseUnavailable
+from app.db.preflight_task_start import start_preflight_validated_demucs_task
+from app.processing.source_preflight import ValidatedDemucsSource
+from app.db.task_lease import DemucsTaskLease, DemucsTaskLeaseProtocolError
 
 
 JOB_ID = "08ec1d44-3106-4fcb-91c8-5d0c78e7e046"
@@ -78,7 +78,7 @@ def preflight() -> DemucsAcknowledgedLeasePreflight:
 class PreflightTaskStartCompositionTests(unittest.TestCase):
     """Prove model eligibility exists only after the task-start transaction ends."""
 
-    @patch("app.preflight_task_start.start_leased_demucs_task")
+    @patch("app.db.preflight_task_start.start_leased_demucs_task")
     def test_committed_start_retains_exact_lease_and_source_evidence(self, start) -> None:
         """A model boundary receives durable ownership, not a live database cursor."""
 
@@ -100,7 +100,7 @@ class PreflightTaskStartCompositionTests(unittest.TestCase):
         self.assertEqual(database.events, ["transaction-open", "transaction-commit"])
         start.assert_called_once_with(database.cursor, lease=validated.lease)
 
-    @patch("app.preflight_task_start.start_leased_demucs_task")
+    @patch("app.db.preflight_task_start.start_leased_demucs_task")
     def test_ownership_loss_commits_without_exposing_model_eligible_evidence(self, start) -> None:
         """A recovered or expired task must stop without another side effect here."""
 
@@ -115,7 +115,7 @@ class PreflightTaskStartCompositionTests(unittest.TestCase):
         self.assertIsNone(running)
         self.assertEqual(database.events, ["transaction-open", "transaction-commit"])
 
-    @patch("app.preflight_task_start.start_leased_demucs_task")
+    @patch("app.db.preflight_task_start.start_leased_demucs_task")
     def test_invalid_task_start_rolls_back_instead_of_permitting_model_work(self, start) -> None:
         """A protocol error cannot become a partial committed running transition."""
 
@@ -130,7 +130,7 @@ class PreflightTaskStartCompositionTests(unittest.TestCase):
 
         self.assertEqual(database.events, ["transaction-open", "transaction-rollback"])
 
-    @patch("app.preflight_task_start.start_leased_demucs_task")
+    @patch("app.db.preflight_task_start.start_leased_demucs_task")
     def test_database_outage_prevents_the_pure_start_statement(self, start) -> None:
         """No source evidence is promoted when the transaction cannot open."""
 

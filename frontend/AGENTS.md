@@ -35,6 +35,14 @@ out of environment examples, build arguments, browser logs, and assets.
 Public examples live in `profiles/cloud.env.example` and
 `profiles/local.env.example`; populated `.env*` configuration is ignored.
 
+## Hook naming
+
+Name React hooks with a `use` prefix and keep their filenames aligned with
+their exported hook names. For example,
+[`src/hooks/useAudioMultiTrackPlayer.js`](src/hooks/useAudioMultiTrackPlayer.js)
+exports `useAudioMultiTrackPlayer`. Keep shared transport behavior in this hook
+for both profiles.
+
 ## Validation
 
 From this directory, run `npm run lint`, `npm test`, `npm run build:cloud`,

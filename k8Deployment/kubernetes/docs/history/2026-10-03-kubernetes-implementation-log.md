@@ -504,7 +504,7 @@ least-privilege boundary. Its templates/bootstrap Job remain unapplied.
 ### Basic Pitch worker foundation
 
 The first Basic Pitch boundary is the pure, unit-tested
-[`request/output contract`](../../services/basic-pitch/app/basic_pitch_requested_message.py).
+[`request/output contract`](../../services/basic-pitch/app/messaging/basic_pitch_requested_message.py).
 It accepts only the version-1 persistent `basic-pitch.requested` delivery from
 the processing exchange, for the finite non-drum stem vocabulary `vocals`,
 `no_vocals`, `bass`, `other`, `guitar`, and `piano`. It rejects the ADTOF-only
@@ -516,7 +516,7 @@ image, claim/complete a PostgreSQL task, or acknowledge RabbitMQ. Those
 responsibilities remain separate focused tasks so at-least-once delivery cannot
 be mistaken for authority to process arbitrary private audio.
 The immutable, now-applied
-[`v005 Basic Pitch processing-task migration`](../../services/api/job-api-schema-migration-v005-basic-pitch-processing-tasks-configmap.yaml)
+[`v005 Basic Pitch processing-task migration`](../../services/job-api/job-api-schema-migration-v005-basic-pitch-processing-tasks-configmap.yaml)
 was the database-only prerequisite. It required the applied v003 task and v004
 downstream-outbox migrations, then replaced only v003's three Demucs-only
 checks with one atomic stage/stem/private-input-key constraint. Demucs retains
@@ -560,7 +560,7 @@ bootstrap Secret was deleted, while the permanent app-namespace runtime Secret
 remains.
 
 The completed
-[`Basic Pitch AMQP connection boundary`](../../services/basic-pitch/app/amqp_connection.py)
+[`Basic Pitch AMQP connection boundary`](../../services/basic-pitch/app/messaging/amqp_connection.py)
 now accepts only that restricted runtime identity and the private RabbitMQ
 ClusterIP AMQP listener at
 `clouddsp-rabbitmq.clouddsp-data.svc:5672`, vhost `/clouddsp`, and the fixed
@@ -573,7 +573,7 @@ option. Opening the connection creates no channel, queue action, delivery,
 acknowledgement, MinIO call, model process, or Kubernetes change.
 
 The completed
-[`Basic Pitch AMQP passive-channel boundary`](../../services/basic-pitch/app/amqp_channel.py)
+[`Basic Pitch AMQP passive-channel boundary`](../../services/basic-pitch/app/messaging/amqp_channel.py)
 now sets `prefetch_count=1` and uses only a passive declaration for
 `clouddsp.basic-pitch.requests`. This bounds one CPU worker to one
 unacknowledged candidate at a time and verifies the topology bootstrap's queue
@@ -583,7 +583,7 @@ still receives no delivery, acknowledges/retries nothing, and calls no
 PostgreSQL, MinIO, model, or Kubernetes API.
 
 The new pure
-[`Basic Pitch MinIO client boundary`](../../services/basic-pitch/app/minio_client.py)
+[`Basic Pitch MinIO client boundary`](../../services/basic-pitch/app/artifacts/minio_client.py)
 reads only the permanent restricted S3 Secret and fixed future-Pod values for
 the private MinIO ClusterIP Service, `clouddsp-uploads`, `us-east-1`, and
 path-style addressing. Its lazy Boto3 factory supplies those credentials
@@ -594,7 +594,7 @@ task is a claim-bound `HeadObject` verifier that compares the exact stem's
 MinIO metadata with the already-validated request and durable lease.
 
 The completed pure
-[`Basic Pitch stem HeadObject verifier`](../../services/basic-pitch/app/stem_object.py)
+[`Basic Pitch stem HeadObject verifier`](../../services/basic-pitch/app/artifacts/stem_object.py)
 now makes exactly that one metadata-only MinIO request after revalidating both
 the task lease and the persistent delivery identity. It accepts only the
 claimed `stems/{job_id}/{stem_name}.wav` key and compares its current WAV
@@ -606,7 +606,7 @@ acknowledge RabbitMQ, invoke the model, or persist MIDI. A later isolated
 streaming-download adapter must compare the actual bytes with this evidence.
 
 The completed pure
-[`Basic Pitch stem download adapter`](../../services/basic-pitch/app/stem_download.py)
+[`Basic Pitch stem download adapter`](../../services/basic-pitch/app/artifacts/stem_download.py)
 now makes one matching `GetObject` request only after revalidating the
 HeadObject evidence. It bounds a single stem to 256 MiB, compares GetObject's
 current type/length headers, hashes the streaming bytes in 64 KiB chunks, and
@@ -616,7 +616,7 @@ task is a PostgreSQL lease-token-guarded `leased → running` transition; model
 execution must not begin on an expired or superseded task lease.
 
 The completed pure
-[`Basic Pitch task-start adapter`](../../services/basic-pitch/app/task_lease.py)
+[`Basic Pitch task-start adapter`](../../services/basic-pitch/app/db/task_lease.py)
 now makes that one parameterized `leased → running` statement. It binds the
 task/Job/stage/stem/token identity and requires `lease_expires_at` to be later
 than PostgreSQL's current time; zero returned rows are a normal stale-owner
@@ -626,7 +626,7 @@ Kubernetes responsibility. A later isolated PostgreSQL composition task must
 commit this decision before a Basic Pitch process may begin.
 
 The completed restricted
-[`Basic Pitch PostgreSQL client`](../../services/basic-pitch/app/postgresql.py)
+[`Basic Pitch PostgreSQL client`](../../services/basic-pitch/app/db/postgresql.py)
 now provides that short dictionary-row transaction scope. It accepts only the
 private PostgreSQL Service/port, the authoritative job database, and the
 existing least-privilege Basic Pitch login, while hiding the mounted password
@@ -638,7 +638,7 @@ The next isolated composition task will commit the guarded start decision
 before exposing downloaded-stem evidence to a future model runner.
 
 The completed
-[`Basic Pitch verified-stem task-start composition`](../../services/basic-pitch/app/stem_task_start.py)
+[`Basic Pitch verified-stem task-start composition`](../../services/basic-pitch/app/db/stem_task_start.py)
 now preserves that boundary in one context manager. It downloads/hashes the
 exact claimed stem while the task is `leased`, commits the same-token guarded
 start statement in the restricted short PostgreSQL transaction, and yields the
@@ -648,7 +648,7 @@ the download scope cleans up. It does not invoke Basic Pitch, upload MIDI,
 acknowledge RabbitMQ, renew a lease, or mutate a result.
 
 The completed
-[`Basic Pitch process adapter`](../../services/basic-pitch/app/basic_pitch_process.py)
+[`Basic Pitch process adapter`](../../services/basic-pitch/app/processing/basic_pitch_process.py)
 now creates one fresh mode-0700 local output directory beside the verified
 temporary stem and runs only the fixed shell-free Basic Pitch CLI. It supplies
 no stdin, retains no child output, starts a private process group, and bounds
@@ -657,7 +657,7 @@ returns only the deterministic local `stem_basic_pitch.mid` plan. It does not
 call MinIO/PostgreSQL/RabbitMQ or update Kubernetes state.
 
 The completed
-[`Basic Pitch MIDI artifact verifier`](../../services/basic-pitch/app/midi_artifact.py)
+[`Basic Pitch MIDI artifact verifier`](../../services/basic-pitch/app/artifacts/midi_artifact.py)
 now revalidates that exact fixed command/output coordinate, opens only a
 non-symlink regular local MIDI file, limits it to 16 MiB, and verifies its
 Standard MIDI File header plus exact declared track-chunk layout while streaming
@@ -666,7 +666,7 @@ only temporary local evidence; it does not upload an object, update PostgreSQL,
 acknowledge RabbitMQ, or create/update Kubernetes state.
 
 The completed
-[`Basic Pitch MIDI output-object contract`](../../services/basic-pitch/app/midi_output_object.py)
+[`Basic Pitch MIDI output-object contract`](../../services/basic-pitch/app/artifacts/midi_output_object.py)
 now joins the revalidated local MIDI evidence with the matching durable request
 and task-lease identity. It maps the result only to the stable private
 `midi/{job_id}/{stem_name}.mid` coordinate and attaches immutable provenance:
@@ -676,7 +676,7 @@ a same-size byte replacement. It does not call MinIO, mutate PostgreSQL,
 acknowledge RabbitMQ, or create/update Kubernetes state.
 
 The completed
-[`Basic Pitch MIDI MinIO uploader`](../../services/basic-pitch/app/midi_artifact_upload.py)
+[`Basic Pitch MIDI MinIO uploader`](../../services/basic-pitch/app/artifacts/midi_artifact_upload.py)
 now revalidates the fixed private object plan and all provenance metadata,
 repeats local MIDI framing/hash proof, hashes the current file before upload,
 and streams it through exactly one private `PutObject` request while calculating
@@ -685,7 +685,7 @@ the planned byte count and SHA-256, never trusting a raw ETag. It does not
 mutate PostgreSQL, acknowledge RabbitMQ, or create/update Kubernetes state.
 
 The completed
-[`Basic Pitch stored-MIDI verifier`](../../services/basic-pitch/app/midi_artifact_head_object.py)
+[`Basic Pitch stored-MIDI verifier`](../../services/basic-pitch/app/artifacts/midi_artifact_head_object.py)
 now makes one private `HeadObject` request for the fixed upload receipt key and
 requires MinIO's current byte count, `audio/midi` type, and complete normalized
 provenance metadata to agree with the immutable output plan. Definite absence,
@@ -695,7 +695,7 @@ and does not read MIDI bytes, mutate PostgreSQL, acknowledge RabbitMQ, or
 create/update Kubernetes state.
 
 The completed
-[`Basic Pitch task-completion SQL adapter`](../../services/basic-pitch/app/midi_task_completion.py)
+[`Basic Pitch task-completion SQL adapter`](../../services/basic-pitch/app/db/midi_task_completion.py)
 now validates that stored MIDI proof against the exact leased Job/stem output
 coordinate and issues one parameterized `running → succeeded` statement. The
 predicate binds task/Job/stem/input/mode/lease token and PostgreSQL's current
@@ -707,7 +707,7 @@ It opens no transaction/connection and does not acknowledge RabbitMQ, touch
 MinIO, invoke Basic Pitch, or create/update Kubernetes state.
 
 The completed
-[`Basic Pitch completion transaction composition`](../../services/basic-pitch/app/midi_task_completion_commit.py)
+[`Basic Pitch completion transaction composition`](../../services/basic-pitch/app/db/midi_task_completion_commit.py)
 now supplies that restricted short PostgreSQL scope. It calls the pure
 lease-token-guarded completion statement only after all CPU and MinIO work has
 finished, and exposes a non-`None` completion only after normal context exit
@@ -717,7 +717,7 @@ update the overall Job, or create/update Kubernetes state. The next isolated
 task was the post-claim execution coordinator.
 
 The completed
-[`Basic Pitch post-claim execution coordinator`](../../services/basic-pitch/app/basic_pitch_task_execution.py)
+[`Basic Pitch post-claim execution coordinator`](../../services/basic-pitch/app/runtime/basic_pitch_task_execution.py)
 now joins the already-reviewed runtime boundaries in their only permitted
 order, but receives no AMQP frame and owns no RabbitMQ acknowledgement. After
 a future parser/first-claim layer has committed and acknowledged a `claimed`
@@ -729,7 +729,7 @@ lease loss stops the sequence, while dependency/process errors propagate for a
 future retry/recovery supervisor.
 
 The first pure
-[`Basic Pitch task-claim adapter`](../../services/basic-pitch/app/task_lease.py)
+[`Basic Pitch task-claim adapter`](../../services/basic-pitch/app/db/task_lease.py)
 now defines the narrow transaction that converts one already-parsed delivery
 into a durable per-stem lease. It locks the exact task, locks the Job, repeats
 the task lookup to close a concurrent first-claim race, then checks the
@@ -743,7 +743,7 @@ verification, model execution, output evidence, and completion remain separate
 follow-up tasks.
 
 The completed
-[`Basic Pitch first-claim transaction composition`](../../services/basic-pitch/app/first_claim.py)
+[`Basic Pitch first-claim transaction composition`](../../services/basic-pitch/app/db/first_claim.py)
 now supplies the adapter's one restricted, short PostgreSQL `write_cursor()`
 scope. It exposes the pure `claimed`, duplicate, or stale result only after a
 normal transaction commit, so a future broker layer can make its manual
@@ -755,7 +755,7 @@ isolated task is the parser-plus-first-claim bridge described below, before an
 acknowledgement adapter or consumer loop is introduced.
 
 The completed
-[`Basic Pitch delivery-claim bridge`](../../services/basic-pitch/app/delivery_claim.py)
+[`Basic Pitch delivery-claim bridge`](../../services/basic-pitch/app/runtime/delivery_claim.py)
 now parses exactly one raw `basic-pitch.requested` envelope/properties/body
 contract before it calls the committed first-claim composition. It returns only
 the parsed request identifiers and PostgreSQL's `claimed`, duplicate, or stale
@@ -765,7 +765,7 @@ outage propagates without any transport action. This boundary imports no Pika,
 acknowledges/retries nothing, and calls no MinIO/model/Kubernetes component.
 
 The completed
-[`Basic Pitch manual-ack AMQP adapter`](../../services/basic-pitch/app/amqp_manual_ack.py)
+[`Basic Pitch manual-ack AMQP adapter`](../../services/basic-pitch/app/messaging/amqp_manual_ack.py)
 now reads at most one `basic_get(..., auto_ack=False)` delivery from the fixed
 private queue. It calls the bridge, then acknowledges only a committed new
 lease, duplicate, or stale result; an `ACKNOWLEDGED_LEASE` result is the sole
@@ -777,7 +777,7 @@ preserving at-least-once redelivery. This Pika-shaped adapter starts no loop
 and calls no MinIO/model/Kubernetes component.
 
 The completed
-[`Basic Pitch acknowledged-lease execution gate`](../../services/basic-pitch/app/acknowledged_lease_execution.py)
+[`Basic Pitch acknowledged-lease execution gate`](../../services/basic-pitch/app/runtime/acknowledged_lease_execution.py)
 now invokes the existing post-claim coordinator only when the manual-ack
 adapter produced `ACKNOWLEDGED_LEASE` with both the committed lease and strict
 request message. All idle/no-work/DLQ outcomes stop before MinIO or CPU work;
@@ -786,7 +786,7 @@ The gate accepts no channel/delivery tag, opens no transaction itself, and
 creates no Kubernetes state.
 
 The completed
-[`Basic Pitch single worker iteration`](../../services/basic-pitch/app/receive_execute_once.py)
+[`Basic Pitch single worker iteration`](../../services/basic-pitch/app/runtime/receive_execute_once.py)
 now joins exactly one manual-ack receive decision with the post-ack execution
 gate. It returns only `idle`, acknowledged-no-work, malformed-rejected, or an
 executed coordinator result; only the acknowledged lease path reaches MinIO/
@@ -795,7 +795,7 @@ exceptions, preserving a future supervisor's ability to reconnect and retry
 without inventing a successful result. It deliberately has no loop, sleep,
 connection lifecycle, recovery scan, image entrypoint, or Kubernetes behavior.
 The completed pure
-[`Basic Pitch supervisor backoff policy`](../../services/basic-pitch/app/supervisor_backoff.py)
+[`Basic Pitch supervisor backoff policy`](../../services/basic-pitch/app/runtime/supervisor_backoff.py)
 now maps only explicit runtime events to a next action: ordinary progress
 continues immediately, an empty broker poll waits one second, a retryable
 failure follows a bounded `1, 2, 4, 8, 16, 30`-second exponential sequence
@@ -807,7 +807,7 @@ task established the pre-model terminal-failure boundary that a later exception
 classifier and interruptible long-running runtime will use.
 
 The completed pure
-[`Basic Pitch pre-model terminal-failure adapter`](../../services/basic-pitch/app/stem_task_terminal_failure.py)
+[`Basic Pitch pre-model terminal-failure adapter`](../../services/basic-pitch/app/db/stem_task_terminal_failure.py)
 now guards the permanent input-validation path before any model work begins.
 It accepts only a current Basic Pitch ``leased`` task and one finite safe code
 for a missing, size/type/metadata-mismatched, or streamed-checksum-mismatched
@@ -820,7 +820,7 @@ MinIO operation, worker loop, image, Deployment, or cluster behavior. The next
 isolated task added the short transaction composition and classifier handoff.
 
 The completed
-[`Basic Pitch terminal-failure commit and classifier`](../../services/basic-pitch/app/stem_task_terminal_failure_commit.py)
+[`Basic Pitch terminal-failure commit and classifier`](../../services/basic-pitch/app/db/stem_task_terminal_failure_commit.py)
 now makes the pre-model outcome usable by a later runtime without widening its
 authority. The composition returns only after the existing restricted
 ``write_cursor()`` commits the guarded ``leased → failed`` SQL result. Its
@@ -831,7 +831,7 @@ remain unclassified for a later retry/fatal policy. These modules do not catch
 errors around the coordinator, acknowledge RabbitMQ, or create a worker loop.
 
 The completed
-[`Basic Pitch acknowledged-lease terminal-result integration`](../../services/basic-pitch/app/acknowledged_lease_execution.py)
+[`Basic Pitch acknowledged-lease terminal-result integration`](../../services/basic-pitch/app/runtime/acknowledged_lease_execution.py)
 now handles the two reviewed pre-model categories after the coordinator raises:
 a permanent input mismatch commits its guarded ``leased → failed`` record, and
 a temporary stem-storage outage commits either ``retry_scheduled`` on attempts
@@ -844,7 +844,7 @@ failures, and every other unclassified error still escape without a new broker
 decision. This is not a worker loop, image, Deployment, or Kubernetes action.
 
 The completed pure
-[`Basic Pitch transient pre-model retry-scheduling adapter`](../../services/basic-pitch/app/stem_task_retry_schedule.py)
+[`Basic Pitch transient pre-model retry-scheduling adapter`](../../services/basic-pitch/app/db/stem_task_retry_schedule.py)
 now gives a temporary stem-storage outage a durable outcome that is distinct
 from a permanent mismatch. It accepts only a current unexpired ``leased``
 Basic Pitch task with attempts remaining and the finite
@@ -859,7 +859,7 @@ reviewed temporary dependency errors, commit the schedule, define the explicit
 attempt-exhaustion outcome, and arrange re-delivery after the durable delay.
 
 The completed
-[`Basic Pitch retry-scheduling transaction composition`](../../services/basic-pitch/app/stem_task_retry_schedule_commit.py)
+[`Basic Pitch retry-scheduling transaction composition`](../../services/basic-pitch/app/db/stem_task_retry_schedule_commit.py)
 now wraps that pure statement in the existing restricted ``write_cursor()``
 scope. It returns retry evidence only after PostgreSQL commits; a no-row
 schedule remains a normal stop result, and an adapter/database error leaves the
@@ -869,14 +869,14 @@ or create a Kubernetes resource. The next isolated task can classify the one
 reviewed temporary storage failure and connect it to this commit boundary.
 
 The completed
-[`Basic Pitch transient storage classifier`](../../services/basic-pitch/app/stem_retry_classification.py)
+[`Basic Pitch transient storage classifier`](../../services/basic-pitch/app/runtime/stem_retry_classification.py)
 now recognizes exactly the safe temporary MinIO wrappers produced before model
 start: unavailable stem ``HeadObject`` and unavailable stem
 ``GetObject``/streaming download. Both map to the one finite durable storage
 retry code; permanent mismatches, malformed protocol responses, database/model
 errors, and post-model MIDI-store errors intentionally remain outside this
 policy. The adjacent
-[`classifier-to-commit handoff`](../../services/basic-pitch/app/stem_retry_handling.py)
+[`classifier-to-commit handoff`](../../services/basic-pitch/app/runtime/stem_retry_handling.py)
 now turns that finite mapping into an unclassified no-op, a committed retry
 schedule on attempts one/two, a committed terminal exhaustion result on attempt
 three, or an explicit no-row result. It does not catch around the execution
@@ -885,7 +885,7 @@ action. The two adjacent exhaustion boundaries below provide the third-attempt
 terminal evidence used by this handoff.
 
 The completed pure
-[`Basic Pitch final-attempt storage-retry exhaustion adapter`](../../services/basic-pitch/app/stem_task_retry_exhaustion.py)
+[`Basic Pitch final-attempt storage-retry exhaustion adapter`](../../services/basic-pitch/app/db/stem_task_retry_exhaustion.py)
 now defines that bounded terminal outcome. Only a current unexpired Basic Pitch
 ``leased`` task on attempt three may change to ``failed`` with the finite
 ``basic_pitch_stem_storage_retry_exhausted`` code; PostgreSQL records its
@@ -897,7 +897,7 @@ MinIO/RabbitMQ action, worker loop, image, Deployment, or Kubernetes behavior.
 The next isolated task is its short transaction composition.
 
 The completed
-[`Basic Pitch retry-exhaustion transaction composition`](../../services/basic-pitch/app/stem_task_retry_exhaustion_commit.py)
+[`Basic Pitch retry-exhaustion transaction composition`](../../services/basic-pitch/app/db/stem_task_retry_exhaustion_commit.py)
 now wraps that guarded final-attempt statement in the existing restricted
 ``write_cursor()`` scope. It returns exhaustion evidence only after PostgreSQL
 commits, preserves a no-row result as normal ownership loss, and lets an
@@ -908,7 +908,7 @@ small task can combine the reviewed storage classifier with the normal
 retry-schedule versus final-exhaustion choice.
 
 The completed
-[`Basic Pitch storage-failure attempt chooser`](../../services/basic-pitch/app/stem_retry_handling.py)
+[`Basic Pitch storage-failure attempt chooser`](../../services/basic-pitch/app/runtime/stem_retry_handling.py)
 now makes that finite choice from the immutable lease evidence. A reviewed
 storage outage on attempts one or two uses the guarded ``retry_scheduled``
 transaction; the same outage on attempt three uses the guarded terminal
@@ -916,14 +916,14 @@ transaction; the same outage on attempt three uses the guarded terminal
 committed evidence types, an unclassified no-op that performed no SQL, and a
 no-row guard miss without manufacturing a result. It still does not catch
 around the execution coordinator or arrange RabbitMQ re-delivery. The completed
-[`acknowledged post-lease gate`](../../services/basic-pitch/app/acknowledged_lease_execution.py)
+[`acknowledged post-lease gate`](../../services/basic-pitch/app/runtime/acknowledged_lease_execution.py)
 now maps those committed outcomes into its own result type after the original
 delivery has already been acknowledged. It does not create a worker
 loop/image/Deployment/Kubernetes action. The next small task is durable
 recovery: select due ``retry_scheduled`` tasks and arrange safe re-delivery.
 
 The completed pure
-[`Basic Pitch due-retry recovery claim`](../../services/basic-pitch/app/task_lease.py)
+[`Basic Pitch due-retry recovery claim`](../../services/basic-pitch/app/db/task_lease.py)
 now atomically selects at most one due ``retry_scheduled`` Basic Pitch task,
 uses ``FOR UPDATE SKIP LOCKED`` so replicas cannot wait on or duplicate a
 candidate, increments the attempt count, and grants a fresh ``leased`` token.
@@ -936,7 +936,7 @@ must reconstruct the strict durable request evidence and arrange safe work from
 the committed recovery lease.
 
 The completed pure
-[`Basic Pitch recovery-request reader`](../../services/basic-pitch/app/recovery_request.py)
+[`Basic Pitch recovery-request reader`](../../services/basic-pitch/app/db/recovery_request.py)
 now provides that strict evidence reconstruction without treating an old
 RabbitMQ message as current authority. It joins a fresh `leased` recovery task
 to its matching immutable `published` Basic Pitch outbox event, binds every
@@ -948,7 +948,7 @@ it claims no work, opens/commits no transaction, publishes no broker message,
 and touches no MinIO/model/Kubernetes component.
 
 The completed
-[`Basic Pitch due-retry recovery composition`](../../services/basic-pitch/app/due_retry_recovery.py)
+[`Basic Pitch due-retry recovery composition`](../../services/basic-pitch/app/db/due_retry_recovery.py)
 now places that due-retry claim and evidence reader inside exactly one
 restricted PostgreSQL transaction. It returns a lease/request pair only after
 normal context exit commits both facts. An empty indexed claim commits normally
@@ -960,7 +960,7 @@ committed pair into the existing pre-model executor and apply the reviewed
 terminal/retry handling without creating a second broker delivery.
 
 The completed
-[`Basic Pitch recovered-retry execution gate`](../../services/basic-pitch/app/recovered_retry_execution.py)
+[`Basic Pitch recovered-retry execution gate`](../../services/basic-pitch/app/runtime/recovered_retry_execution.py)
 now performs that handoff without inventing a new RabbitMQ request. It accepts
 only the committed retry lease/request pair and invokes the shared post-lease
 execution policy used by the acknowledged normal-delivery path. Therefore the
@@ -971,7 +971,7 @@ claim work, access MinIO, run the model, open a transaction, sleep, loop, or
 change Kubernetes.
 
 The completed pure
-[`Basic Pitch fair work-source policy`](../../services/basic-pitch/app/work_schedule.py)
+[`Basic Pitch fair work-source policy`](../../services/basic-pitch/app/runtime/work_schedule.py)
 now alternates each bounded selection between a normal RabbitMQ delivery and a
 due PostgreSQL retry-recovery claim. It advances its small local preference
 even when the selected source is idle, allowing the other source an immediate
@@ -983,7 +983,7 @@ next isolated task is a bounded runtime iteration that obeys this policy and
 reports whether it found normal work or needs the second source/idle decision.
 
 The completed
-[`Basic Pitch fair work-source iteration`](../../services/basic-pitch/app/work_source_iteration.py)
+[`Basic Pitch fair work-source iteration`](../../services/basic-pitch/app/runtime/work_source_iteration.py)
 now performs that composition at most twice per call: it checks the selected
 RabbitMQ or due-retry source once, and checks the other source only when the
 first was idle. Only two empty checks return `idle`; every normal delivery or
@@ -994,7 +994,7 @@ action. The next isolated task is to adapt the existing supervisor event and
 backoff policy to this two-source normal result.
 
 The completed
-[`Basic Pitch fair-iteration supervisor classifier`](../../services/basic-pitch/app/supervisor_backoff.py)
+[`Basic Pitch fair-iteration supervisor classifier`](../../services/basic-pitch/app/runtime/supervisor_backoff.py)
 now maps the two-source normal result into the existing bounded backoff events.
 Only a fair result that confirmed both sources empty becomes `iteration_idle`;
 every compact normal broker or recovery result becomes immediate progress and
@@ -1004,7 +1004,7 @@ next isolated task is an explicit real-exception classifier for retryable
 runtime faults versus fatal worker configuration.
 
 The completed pure
-[`Basic Pitch supervisor failure classifier`](../../services/basic-pitch/app/supervisor_failure_classification.py)
+[`Basic Pitch supervisor failure classifier`](../../services/basic-pitch/app/runtime/supervisor_failure_classification.py)
 now maps only known safe outer-worker conditions to existing backoff events.
 Static AMQP/PostgreSQL/MinIO configuration or a missing worker executable is
 fatal; bounded AMQP connection/channel/receive and PostgreSQL availability
@@ -1016,7 +1016,7 @@ is a single runtime-decision composition over one fair iteration or one
 classified exception; loop/sleep/reconnect behavior remains separate.
 
 The completed
-[`Basic Pitch supervisor step`](../../services/basic-pitch/app/supervisor_step.py)
+[`Basic Pitch supervisor step`](../../services/basic-pitch/app/runtime/supervisor_step.py)
 now joins one fair iteration (or one classified worker-level exception) to the
 existing supervisor decision and carries both round-robin and bounded-backoff
 state forward. Normal progress/verified two-source idle advance fair state;
@@ -1027,7 +1027,7 @@ change Kubernetes. The next isolated task is an injectable interruptible
 wait/action boundary for a later actual worker loop.
 
 The completed
-[`Basic Pitch supervisor action boundary`](../../services/basic-pitch/app/supervisor_action.py)
+[`Basic Pitch supervisor action boundary`](../../services/basic-pitch/app/runtime/supervisor_action.py)
 now applies one existing decision through an injected shutdown-aware waiter.
 It calls that waiter exactly once for bounded idle/backoff delays, continues
 when the timeout expires, returns clean-stop when shutdown interrupts it, and
@@ -1037,7 +1037,7 @@ real worker entrypoint composition with explicit broker/resource lifecycle and
 shutdown behavior.
 
 The completed
-[`Basic Pitch worker runtime`](../../services/basic-pitch/app/worker_runtime.py)
+[`Basic Pitch worker runtime`](../../services/basic-pitch/app/runtime/worker_runtime.py)
 now owns the broker-session lifecycle. With already-constructed restricted
 dependencies, it checks shutdown before opening RabbitMQ, creates one
 prefetched/passively verified channel, runs supervisor steps/actions until
@@ -1051,7 +1051,7 @@ RabbitMQ topology, or Kubernetes resources. It deliberately does not construct
 environment-backed clients, install signals, or call `sys.exit`.
 
 The completed
-[`Basic Pitch worker bootstrap entrypoint`](../../services/basic-pitch/app/worker_entrypoint.py)
+[`Basic Pitch worker bootstrap entrypoint`](../../services/basic-pitch/app/runtime/worker_entrypoint.py)
 now builds only the validated mounted AMQP/PostgreSQL/MinIO dependencies,
 requires the fixed pre-mounted `/worker-scratch` directory, delegates to the
 runtime, and maps clean shutdown to exit `0` or runtime fatal configuration to
@@ -1101,7 +1101,7 @@ the adjacent completed build-and-push script supplies the separate publication
 boundary.
 
 The completed
-[`Basic Pitch build-and-push script`](../../scripts/build-basic-pitch-image.sh)
+[`Basic Pitch build-and-push script`](../../scripts/images/build-basic-pitch-image.sh)
 now validates its local Docker/k3d prerequisites, rebuilds the Linux/ARM64 CPU
 image through that Dockerfile, pushes only to the dedicated local registry,
 and prints its immutable repository digest and uncompressed local image size.
@@ -1225,7 +1225,7 @@ two-stage non-root [`smoke-client Dockerfile`](../../tests/basic-pitch-worker-sm
 installs that lock and runs the eight isolated tests only in its disposable
 validation stage. Its runtime retains one client module and verified packages,
 uses UID/GID `10003`, and has no baked Secret or listener. The matching
-non-interactive [`build script`](../../scripts/build-basic-pitch-worker-smoke-client-image.sh)
+non-interactive [`build script`](../../scripts/images/build-basic-pitch-worker-smoke-client-image.sh)
 targets only the local ARM64 registry and prints the immutable digest required
 for an image-lock record. That script built the image successfully, ran all
 eight tests in its validation stage, and published
@@ -1272,8 +1272,8 @@ handler into Kubernetes.
 
 The contract deliberately defers KEDA until the worker has a measured image
 size, CPU/memory envelope, timeout, and retry behaviour. The applied
-[`v006 ADTOF processing-task ConfigMap`](../../services/api/job-api-schema-migration-v006-adtof-processing-tasks-configmap.yaml)
-and completed [`migration Job`](../../services/api/job-api-schema-migration-v006-adtof-processing-tasks-job.yaml)
+[`v006 ADTOF processing-task ConfigMap`](../../services/job-api/job-api-schema-migration-v006-adtof-processing-tasks-configmap.yaml)
+and completed [`migration Job`](../../services/job-api/job-api-schema-migration-v006-adtof-processing-tasks-job.yaml)
 extend only the `processing_tasks` stage/stem/key check for ADTOF drums. They
 use the existing Job API schema-owner Secret and preserve all earlier Demucs/
 Basic Pitch task rows, but create no worker identity, storage/broker access,
@@ -1294,13 +1294,13 @@ bootstrap Job grant no broker
 topology, publishing, retry/DLQ, or management-console access; only an exact
 vhost `read` regex was created by the completed bootstrap Job and its temporary
 data-namespace Secret was removed. The pure
-[`ADTOF request parser`](../../services/adtof/app/adtof_requested_message.py)
+[`ADTOF request parser`](../../services/adtof/app/messaging/adtof_requested_message.py)
 now repeats that route/AMQP/body/object contract at the worker boundary before
 any database, MinIO, RabbitMQ-client, ADTOF, or Kubernetes API action can
 occur. Its standard-library tests reject malformed envelopes, AMQP properties,
 JSON, non-drums stems, private-object coordinates, sizes, and checksums.
 
-The pure [`ADTOF PostgreSQL first-claim adapter`](../../services/adtof/app/task_claim.py)
+The pure [`ADTOF PostgreSQL first-claim adapter`](../../services/adtof/app/db/task_claim.py)
 now locks and rechecks the canonical drums task, narrow Job state, and immutable
 published outbox evidence before inserting one `leased` task. It returns only
 `claimed`, `duplicate`, or `stale` durable facts; it neither opens a database
@@ -1309,7 +1309,7 @@ state, creates output, or reaches Kubernetes. Its tests cover an initial claim,
 redelivery, stale Job, concurrent-insertion race, conflict, and direct-object
 validation.
 
-The new [`ADTOF first-claim transaction composition`](../../services/adtof/app/first_claim.py)
+The new [`ADTOF first-claim transaction composition`](../../services/adtof/app/db/first_claim.py)
 now holds the restricted database write context only around the pure first-claim
 SQL decision. Claim, duplicate, and stale facts return only after commit; a
 conflict or database exception rolls back before any future RabbitMQ decision.
@@ -1317,7 +1317,7 @@ It has no Pika, MinIO, ADTOF, Psycopg-driver, image, Deployment, or Kubernetes
 dependency. Its five in-memory tests verify commit/rollback order and the
 absence of a SQL call when a database context cannot open.
 
-The concrete [`ADTOF Psycopg database adapter`](../../services/adtof/app/postgresql.py)
+The concrete [`ADTOF Psycopg database adapter`](../../services/adtof/app/db/postgresql.py)
 now validates only the restricted `clouddsp-adtof` runtime Secret values and
 the fixed private PostgreSQL Service before it opens one short dictionary-row
 transaction. It maps raw driver/OS failures to one retryable safe category and
@@ -1336,7 +1336,7 @@ already-reviewed Apple-Silicon k3d wheel, and the lock documents the mandatory
 It intentionally excludes RabbitMQ, MinIO, ADTOF/PyTorch, and audio/MIDI
 dependencies, so it does not claim an image is buildable yet.
 
-The pure [`ADTOF RabbitMQ connection-settings adapter`](../../services/adtof/app/amqp_connection.py)
+The pure [`ADTOF RabbitMQ connection-settings adapter`](../../services/adtof/app/messaging/amqp_connection.py)
 now accepts only the private RabbitMQ Service, exact `/clouddsp` ADTOF queue,
 prefetch one, bounded timeouts, and the restricted untagged runtime identity.
 It imports no Pika and cannot open a socket, declare topology, consume/ack a
@@ -1357,7 +1357,7 @@ redaction. It intentionally does not make a channel, consume/acknowledge a
 delivery, inspect/declare topology, or start a worker loop; those are separate
 layers after the durable first-claim ordering is composed.
 
-The completed [`ADTOF AMQP passive-channel boundary`](../../services/adtof/app/amqp_channel.py)
+The completed [`ADTOF AMQP passive-channel boundary`](../../services/adtof/app/messaging/amqp_channel.py)
 now applies `prefetch_count=1` and passively checks only
 `clouddsp.adtof.requests`. This stops one CPU-bound Pod from reserving several
 unacknowledged drums-stem deliveries while it can process only one, while a
@@ -1369,7 +1369,7 @@ Kubernetes call. Five mocked tests prove the fixed queue, prefetch bound,
 redacted failures, no topology fallback, and direct-setting rejection before
 channel I/O.
 
-The new [`ADTOF parser-to-first-claim bridge`](../../services/adtof/app/delivery_claim.py)
+The new [`ADTOF parser-to-first-claim bridge`](../../services/adtof/app/runtime/delivery_claim.py)
 now performs the required parser-before-database composition without making a
 RabbitMQ decision. It exposes only parser-validated drums-stem evidence and a
 PostgreSQL result that has committed before normal return; it does not retain
@@ -1379,7 +1379,7 @@ acknowledgement/rejection action. Its four mocked tests prove that ordering and
 leave DLQ/redelivery policy for the following manual-ack layer. No MinIO/model
 work, image build, Deployment, or Kubernetes action is introduced.
 
-The completed [`ADTOF manual-ack adapter`](../../services/adtof/app/amqp_manual_ack.py)
+The completed [`ADTOF manual-ack adapter`](../../services/adtof/app/messaging/amqp_manual_ack.py)
 now reads one `clouddsp.adtof.requests` delivery using `auto_ack=False`, asks
 the parser-to-first-claim bridge for a committed fact, and acknowledges only a
 new lease, duplicate, or stale result. A malformed contract is nacked without
@@ -1390,7 +1390,7 @@ Nine mocked tests prove idle, durable, malformed, transient, malformed-claim,
 and failed-ack/nack behavior. It does not start a loop, contact MinIO/ADTOF,
 build an image, create a Deployment, or change the cluster.
 
-The new [`ADTOF MinIO settings/client boundary`](../../services/adtof/app/minio_client.py)
+The new [`ADTOF MinIO settings/client boundary`](../../services/adtof/app/artifacts/minio_client.py)
 now accepts only the restricted S3 identity and exact private MinIO Service,
 `clouddsp-uploads` bucket, `us-east-1`, and path-style configuration. Its lazy
 Boto3 factory provides the mounted pair explicitly, avoiding ambient AWS
@@ -1402,7 +1402,7 @@ credential redaction, bounded client construction, and the absence of client
 or network work until a later object verifier. No object is read/written and
 no image, Deployment, or cluster resource is created.
 
-The completed [`ADTOF drums HeadObject verifier`](../../services/adtof/app/stem_object.py)
+The completed [`ADTOF drums HeadObject verifier`](../../services/adtof/app/artifacts/stem_object.py)
 now revalidates a claimed ADTOF lease and strict `drums` request before it
 makes one metadata-only call for the fixed private Demucs WAV. It requires the
 exact current byte count, WAV type, and full immutable Demucs schema/producer/
@@ -1414,7 +1414,7 @@ classification. It neither downloads audio nor updates a task, acknowledges
 RabbitMQ, invokes ADTOF, builds an image, creates a Deployment, or changes the
 cluster.
 
-The completed [`ADTOF bounded drums-download adapter`](../../services/adtof/app/stem_download.py)
+The completed [`ADTOF bounded drums-download adapter`](../../services/adtof/app/artifacts/stem_download.py)
 now accepts only the verified canonical drums evidence, makes one matching
 GetObject call, rechecks its headers, and streams at most 256 MiB into a random
 0600 local file below Pod scratch while computing SHA-256. It yields the path
@@ -1426,7 +1426,7 @@ for forged evidence or symlinked scratch. It does not start/complete a task,
 acknowledge RabbitMQ, invoke ADTOF, upload output, build an image, create a
 Deployment, or change the cluster.
 
-The pure [`ADTOF guarded task-start adapter`](../../services/adtof/app/task_claim.py)
+The pure [`ADTOF guarded task-start adapter`](../../services/adtof/app/db/task_claim.py)
 now changes only a current `leased` drums task to `running`. Its parameterized
 PostgreSQL update matches the exact task/Job/stage/stem/token identity and
 PostgreSQL-clock unexpired predicate, returning a timezone-aware start time
@@ -1437,7 +1437,7 @@ input validation, and return validation. The adapter creates no connection or
 transaction and performs no MinIO, RabbitMQ, ADTOF, image, Deployment, or
 cluster action.
 
-The completed [`ADTOF verified-stem-to-running composition`](../../services/adtof/app/stem_task_start.py)
+The completed [`ADTOF verified-stem-to-running composition`](../../services/adtof/app/db/stem_task_start.py)
 now keeps the verified temporary drums WAV inside its scratch scope, invokes
 the guarded PostgreSQL start transition only after download proof exists, and
 yields the path only after that transaction commits. Ownership loss removes the
@@ -1447,7 +1447,7 @@ commit/rollback, stale-ownership cleanup, and no cross-task source use. It
 does not receive/ack RabbitMQ, run ADTOF, upload output, build an image, create
 a Deployment, or call Kubernetes.
 
-The new pure [`ADTOF output-object planner`](../../services/adtof/app/output_object_plan.py)
+The new pure [`ADTOF output-object planner`](../../services/adtof/app/artifacts/output_object_plan.py)
 now accepts only a committed `RunningADTOFStem` handoff and returns the exact
 two private, non-attempt-specific coordinates: `midi/{job_id}/drums.mid` and
 `midi/{job_id}/drums_bpm.json`. Its frozen base provenance binds each output
@@ -1462,7 +1462,7 @@ or download values. The planner performs no filesystem I/O, model inference,
 MinIO operation, PostgreSQL mutation, RabbitMQ acknowledgement, image build,
 or Kubernetes action.
 
-The new [`ADTOF local output-artifact verifier`](../../services/adtof/app/output_artifact.py)
+The new [`ADTOF local output-artifact verifier`](../../services/adtof/app/artifacts/output_artifact.py)
 now accepts one exact output-object plan plus a future model runner's controlled
 local filename. It prevents plan/key widening before a file is opened; rejects
 symlinks, non-regular/wrong-name/oversized files, malformed Standard MIDI
@@ -1474,20 +1474,20 @@ rejection, invalid MIDI/JSON, and local symlink/filename rejection. It invokes
 no model, contacts no MinIO/PostgreSQL/RabbitMQ service, and makes no image or
 Kubernetes change.
 
-The new pure [`ADTOF CPU inference-command builder`](../../services/adtof/app/adtof_inference_command.py)
+The new pure [`ADTOF CPU inference-command builder`](../../services/adtof/app/processing/adtof_inference_command.py)
 now reserves a fresh mode-0700 `adtof-output` sibling of a verified temporary
 drums WAV and returns one fixed no-shell Python-module argv. It independently
 reuses the running-lease/output-plan proof before it touches a local path, then
 fixes the preserved cloud model revision, CPU device, FPS, five thresholds, and
 `drums.mid`/`drums_bpm.json` filenames. A shared
-[`model configuration`](../../services/adtof/app/model_configuration.py)
+[`model configuration`](../../services/adtof/app/processing/model_configuration.py)
 prevents provenance metadata and inference arguments drifting apart. Three
 standard-library tests cover exact argv/path creation, unsafe input/stale output
 rejection, and forged identity rejection before filesystem access. It imports
 no model package and does not execute ADTOF, access MinIO/PostgreSQL/RabbitMQ,
 build an image, or change Kubernetes.
 
-The new [`ADTOF CPU inference entrypoint`](../../services/adtof/app/adtof_cpu_inference_entrypoint.py)
+The new [`ADTOF CPU inference entrypoint`](../../services/adtof/app/processing/adtof_cpu_inference_entrypoint.py)
 now parses only that exact flag ordering and fixed revision/FPS/threshold/device
 configuration, rechecks a fresh sibling output tree, and lazily calls the
 pinned `adtof_pytorch` CPU API. It writes only `drums.mid` and a strict,
@@ -1498,7 +1498,7 @@ arguments and outputs, altered argv rejection before model execution, and safe
 stale-output/malformed-tempo failure. It has no timeout/process supervision,
 MinIO/PostgreSQL/RabbitMQ/Kubernetes access, or image build.
 
-The new [`ADTOF CPU process runner`](../../services/adtof/app/adtof_cpu_process.py)
+The new [`ADTOF CPU process runner`](../../services/adtof/app/processing/adtof_cpu_process.py)
 now repeats command/configuration/scratch-tree checks directly before it runs
 one no-shell Python child in a private process session. It provides a ten-minute
 normal CPU deadline and twelve-minute hard cap within the existing fifteen-minute
@@ -1507,7 +1507,7 @@ full process group. Three fake-runner tests prove normal execution, tampered or
 stale requests stopping before any model launch, and safe timeout propagation.
 It neither validates outputs nor contacts MinIO/PostgreSQL/RabbitMQ/Kubernetes.
 
-The new [`ADTOF local task execution composition`](../../services/adtof/app/local_task_execution.py)
+The new [`ADTOF local task execution composition`](../../services/adtof/app/processing/local_task_execution.py)
 now joins an already-running temporary drums stem, fixed output plans, the
 bounded CPU process runner, and both local artifact checks. It returns the MIDI
 and tempo evidence together only after exit-zero and both bounded local formats
@@ -1517,7 +1517,7 @@ artifact failure propagation. All paths remain valid only inside the existing
 running-stem scratch context, and this composition has no MinIO/PostgreSQL/
 RabbitMQ/Kubernetes access.
 
-The new pure [`ADTOF upload-object planner`](../../services/adtof/app/upload_object.py)
+The new pure [`ADTOF upload-object planner`](../../services/adtof/app/artifacts/upload_object.py)
 now rebuilds base plans from the running lease, repeats local MIDI/tempo
 validation immediately before use, and appends only the newly proven
 `size-bytes` and output `sha256` fields to immutable provenance metadata. It
@@ -1527,7 +1527,7 @@ coordinate/metadata construction and rejection when local bytes change after
 earlier verification. It performs no S3/MinIO call, PostgreSQL mutation,
 RabbitMQ action, image build, or Kubernetes operation.
 
-The new [`ADTOF streaming MinIO uploader`](../../services/adtof/app/minio_upload.py)
+The new [`ADTOF streaming MinIO uploader`](../../services/adtof/app/artifacts/minio_upload.py)
 now accepts only that complete pair, validates both full plans before the first
 request, repeats each local format/SHA proof, and opens only non-symlink
 regular files. Its streaming request wrapper calculates a second digest from
@@ -1539,7 +1539,7 @@ The adapter makes no PostgreSQL change, RabbitMQ acknowledgement, model call,
 image build, or Kubernetes operation; stored-object verification must still
 precede guarded task completion.
 
-The new [`ADTOF stored-output verifier`](../../services/adtof/app/output_artifact_head_object.py)
+The new [`ADTOF stored-output verifier`](../../services/adtof/app/artifacts/output_artifact_head_object.py)
 now validates the MIDI/tempo plans and receipts as a single task pair before
 issuing either metadata-only `HeadObject` request. It proves both current MinIO
 objects retain their fixed bucket/key/type, length, output SHA-256, and full
@@ -1550,7 +1550,7 @@ PostgreSQL/RabbitMQ, invokes a model, builds an image, or calls Kubernetes; a
 later lease-token-guarded completion transaction must still decide durable
 success.
 
-The new [`ADTOF guarded completion adapter`](../../services/adtof/app/task_completion.py)
+The new [`ADTOF guarded completion adapter`](../../services/adtof/app/db/task_completion.py)
 now validates the current drums lease, both verified stored outputs, and a
 strictly re-parsed cloud-compatible tempo candidate before it calls one typed
 administrator-owned completion function. That function locks the two rows,
@@ -1569,7 +1569,7 @@ all-zero no-row invocation that verifies only signature access. The fixed-name
 bootstrap Job was deliberately reconciled successfully; the function is live
 and its temporary data-namespace credential Secret was removed afterwards.
 
-The new [`ADTOF completion-commit composition`](../../services/adtof/app/task_completion_commit.py)
+The new [`ADTOF completion-commit composition`](../../services/adtof/app/db/task_completion_commit.py)
 now places only the reviewed typed function call inside the existing short
 `write_cursor()` transaction scope. It exposes a completion only after normal
 commit, treats a no-row ownership loss as a non-error stop, and guarantees an
@@ -1577,7 +1577,7 @@ adapter/database exception triggers rollback before a later supervisor could
 acknowledge a broker delivery. It does not apply the bootstrap Job, call MinIO
 or RabbitMQ, run a model, or access Kubernetes.
 
-The new [`ADTOF post-inference finalization composition`](../../services/adtof/app/task_finalization.py)
+The new [`ADTOF post-inference finalization composition`](../../services/adtof/app/runtime/task_finalization.py)
 now joins both local verified artifacts to their deterministic private upload
 plans, the two stored-object metadata proofs, and the committed guarded result
 write. It leaves MinIO outside every PostgreSQL transaction, returns no success
@@ -1585,7 +1585,7 @@ when final ownership is lost, and lets storage/database errors propagate to a
 later supervisor. It does not parse/acknowledge RabbitMQ, start a task, run a
 model, select a retry, apply a manifest, or use Kubernetes.
 
-The new [`ADTOF post-claim success coordinator`](../../services/adtof/app/claimed_task_success.py)
+The new [`ADTOF post-claim success coordinator`](../../services/adtof/app/runtime/claimed_task_success.py)
 now composes one already committed first-claim lease with its matching parsed
 request through the existing drums `HeadObject` proof, bounded download plus
 guarded `running` transition, fixed CPU output composition, and post-inference
@@ -1597,7 +1597,7 @@ to a later delivery supervisor. It neither parses, acknowledges, nor rejects a
 RabbitMQ delivery, selects retry policy, creates a worker Deployment, or calls
 Kubernetes.
 
-The new [`ADTOF acknowledged-lease execution gate`](../../services/adtof/app/acknowledged_lease_execution.py)
+The new [`ADTOF acknowledged-lease execution gate`](../../services/adtof/app/runtime/acknowledged_lease_execution.py)
 now accepts only the prior manual-ack adapter's `ACKNOWLEDGED_LEASE` result.
 That result proves both that PostgreSQL committed the canonical drums lease and
 that RabbitMQ accepted acknowledgement for the delivery which produced it. The
@@ -1607,7 +1607,7 @@ forged results cannot start MinIO or CPU work. It neither makes any RabbitMQ
 call nor opens a transaction, chooses retry policy, starts a loop, builds an
 image, creates a Deployment, or calls Kubernetes.
 
-The new [`ADTOF receive-and-execute-once composition`](../../services/adtof/app/receive_execute_once.py)
+The new [`ADTOF receive-and-execute-once composition`](../../services/adtof/app/runtime/receive_execute_once.py)
 now joins one already-prepared Pika-shaped channel with the existing manual-ack
 adapter and acknowledged-lease gate. The former retains commit-before-ack/DLQ
 responsibility; the latter starts the existing success coordinator only for an
@@ -1618,7 +1618,7 @@ later supervisor. The composition has no loop, sleep/backoff, connection
 lifecycle, retry policy, lease recovery, image entrypoint, Deployment, or
 Kubernetes action.
 
-The new pure [`ADTOF supervisor decision policy`](../../services/adtof/app/supervisor_backoff.py)
+The new pure [`ADTOF supervisor decision policy`](../../services/adtof/app/runtime/supervisor_backoff.py)
 now maps normal one-cycle results to either a fixed one-second idle wait or an
 immediate next check, resetting its local retry-failure counter in both cases.
 It also reserves explicit retryable and fatal events for a later exception
@@ -1628,7 +1628,7 @@ immediately. Its compact in-memory state is not durable task retry state. The
 policy does not sleep, reconnect, poll any service, mutate PostgreSQL, run
 ADTOF, build an image, create a Deployment, or call Kubernetes.
 
-The new pure [`ADTOF supervisor failure classifier`](../../services/adtof/app/supervisor_failure_classification.py)
+The new pure [`ADTOF supervisor failure classifier`](../../services/adtof/app/runtime/supervisor_failure_classification.py)
 now maps only reviewed static configuration/image-entrypoint errors to
 `fatal_configuration` and only established RabbitMQ/PostgreSQL/MinIO
 availability wrappers to `retryable_failure`. Integrity/contract/checksum,
@@ -1638,7 +1638,7 @@ error, sleep, reconnect, acknowledge RabbitMQ, alter a task, build an image,
 create a Deployment, or call Kubernetes. A later runtime must still pair a
 retryable event with explicit lease/recovery policy before any action.
 
-The new [`ADTOF supervisor step`](../../services/adtof/app/supervisor_step.py)
+The new [`ADTOF supervisor step`](../../services/adtof/app/runtime/supervisor_step.py)
 now invokes exactly one receive-and-execute iteration, maps a normal result to
 idle/progress or only a reviewed exception to retryable/fatal, then returns the
 matching pure backoff decision and next in-memory state. Classified failures
@@ -1648,7 +1648,7 @@ mutations beyond the invoked iteration, build an image, create a Deployment, or
 call Kubernetes; a following shutdown-aware action adapter must perform any
 actual wait or exit.
 
-The new [`ADTOF supervisor action adapter`](../../services/adtof/app/supervisor_action.py)
+The new [`ADTOF supervisor action adapter`](../../services/adtof/app/runtime/supervisor_action.py)
 now applies a single existing decision through an injected shutdown-aware
 waiter. It continues immediately for progress, waits once for idle/backoff and
 returns `shutdown_requested` if interrupted, or returns a visible fatal-exit
@@ -1657,7 +1657,7 @@ directly, reconnect/close clients, mutate a task, run ADTOF, build an image,
 create a Deployment, or call Kubernetes. Durable expired-lease recovery must
 be built before a long-running retrying runtime uses its retryable path.
 
-The new pure [`ADTOF expired-active-lease recovery claim`](../../services/adtof/app/task_claim.py)
+The new pure [`ADTOF expired-active-lease recovery claim`](../../services/adtof/app/db/task_claim.py)
 now grants at most one new `leased` token for an expired `leased` or `running`
 drums task, allowing recovery after a Pod crash or a post-ack failure without a
 second RabbitMQ delivery. PostgreSQL's own clock, the active-lease index, and
@@ -1669,7 +1669,7 @@ rebuild strict request evidence before external work. It does not open a
 connection/transaction, read event payloads, call MinIO/RabbitMQ/ADTOF, sleep,
 build an image, create a Deployment, or call Kubernetes.
 
-The new read-only [`ADTOF recovery-request reader`](../../services/adtof/app/recovery_request.py)
+The new read-only [`ADTOF recovery-request reader`](../../services/adtof/app/db/recovery_request.py)
 now runs immediately after that claim inside its same short transaction. It
 requires the exact fresh second/third-attempt lease, binds every task/event/
 input/token coordinate plus PostgreSQL-clock lease expiry in its query, and
@@ -1680,7 +1680,7 @@ task with no executable evidence. The reader opens/commits no transaction and
 does not call RabbitMQ, MinIO, ADTOF, sleep, build an image, create a Deployment,
 or call Kubernetes.
 
-The new [`ADTOF expired-lease recovery composition`](../../services/adtof/app/recovery.py)
+The new [`ADTOF expired-lease recovery composition`](../../services/adtof/app/db/recovery.py)
 now calls that claim and reader through the same restricted `write_cursor()`
 context, returning a recovery lease/request pair only after normal commit. An
 idle scan makes no mutation and commits normally. If a fresh claim loses its
@@ -1690,7 +1690,7 @@ evidence and database errors also propagate through rollback. This prevents a
 durable orphan lease with no strict execution input. It has no RabbitMQ, MinIO,
 ADTOF, sleep/loop, image, Deployment, or Kubernetes action.
 
-The new delivery-free [`ADTOF recovered-task execution gate`](../../services/adtof/app/recovered_task_execution.py)
+The new delivery-free [`ADTOF recovered-task execution gate`](../../services/adtof/app/runtime/recovered_task_execution.py)
 now accepts only that committed pair and repeats its canonical UUID, fresh
 recovery-attempt, lease timestamp, fixed drums-task/private-object, and shared
 event/Job/object identity proof before it delegates to the established
@@ -1700,7 +1700,7 @@ delivery was already acknowledged. This source opens no transaction, scans no
 task, and makes no RabbitMQ/MinIO/ADTOF, sleep/loop, image, Deployment, or
 Kubernetes action itself.
 
-The new [`ADTOF recovery execute-once composition`](../../services/adtof/app/recovery_execute_once.py)
+The new [`ADTOF recovery execute-once composition`](../../services/adtof/app/runtime/recovery_execute_once.py)
 now joins one expired-lease scan/transaction with the delivery-free gate. Its
 normal `idle` result means no safe expired lease exists; its `executed` result
 preserves only the existing post-claim success/ownership-loss fact. Invalid
@@ -1710,7 +1710,7 @@ operation, sleep/loop, image, Deployment, or Kubernetes call. A separate pure
 cadence policy must still bound how often the future supervisor invokes it when
 normal queue traffic remains busy.
 
-The pure [`ADTOF normal/recovery cadence policy`](../../services/adtof/app/recovery_cadence.py)
+The pure [`ADTOF normal/recovery cadence policy`](../../services/adtof/app/runtime/recovery_cadence.py)
 now starts every new Pod with one recovery scan and then strictly alternates a
 bounded recovery iteration with one bounded normal AMQP iteration. This makes
 an expired task wait for no more than one normal iteration, even under a busy,
@@ -1720,7 +1720,7 @@ ordering and complete iteration-result shapes, but makes no database, MinIO,
 RabbitMQ, sleep/loop, image, Deployment, or Kubernetes call. A following
 single-cycle composition will execute exactly the action selected by it.
 
-The new [`ADTOF cadence-driven worker cycle`](../../services/adtof/app/worker_cycle.py)
+The new [`ADTOF cadence-driven worker cycle`](../../services/adtof/app/runtime/worker_cycle.py)
 now executes exactly one cadence-selected branch and returns its compact result
 plus the only valid next cadence state. A normal action alone receives the AMQP
 channel; the recovery action cannot receive/acknowledge/reject/publish a broker
@@ -1730,7 +1730,7 @@ connection lifecycle, image, Deployment, or Kubernetes action. The next small
 change is to have the existing supervisor step own this result/state while
 keeping its reviewed backoff behavior.
 
-The updated [`ADTOF supervisor step`](../../services/adtof/app/supervisor_step.py)
+The updated [`ADTOF supervisor step`](../../services/adtof/app/runtime/supervisor_step.py)
 now owns both its bounded retry-backoff count and the worker cadence's next
 action. It runs exactly one worker cycle and advances cadence only when that
 cycle returns normally; recognized retryable/fatal failures preserve the prior
@@ -1741,7 +1741,7 @@ The step still does not apply its decision, sleep, loop, reconnect, build an
 image, or create/use any Kubernetes resource. The following small composition
 will join this step to the existing shutdown-aware decision action once.
 
-The new [`ADTOF one-step supervisor runner`](../../services/adtof/app/supervisor_once.py)
+The new [`ADTOF one-step supervisor runner`](../../services/adtof/app/runtime/supervisor_once.py)
 now composes one cadence-aware step with the existing shutdown-aware action
 adapter, returning the exact step, applied control result, and verified next
 state together. The action must match the step decision and the state must be
@@ -1751,7 +1751,7 @@ image, Deployment, or Kubernetes action; failures propagate instead of being
 made-up `continue` facts. A subsequent focused shutdown-event adapter will own
 the SIGTERM/SIGINT event that its waiter needs.
 
-The new scoped [`ADTOF shutdown-event adapter`](../../services/adtof/app/shutdown_event.py)
+The new scoped [`ADTOF shutdown-event adapter`](../../services/adtof/app/runtime/shutdown_event.py)
 now installs main-thread SIGTERM/SIGINT handlers that only set one shared
 `threading.Event`, exposes the bounded 0–30 second supervisor-waiter protocol,
 and restores prior process handlers on normal/error cleanup or partial setup
@@ -1760,7 +1760,7 @@ allowing a future loop to stop before a new cycle once its current bounded work
 returns. The next small source task will introduce that loop while keeping
 client creation and closure outside it.
 
-The new [`ADTOF shutdown-aware supervisor loop`](../../services/adtof/app/supervisor_loop.py)
+The new [`ADTOF shutdown-aware supervisor loop`](../../services/adtof/app/runtime/supervisor_loop.py)
 now repeats the one-step runner only after `continue`, returns on
 `shutdown_requested` or `exit_fatal`, and performs a zero-second event check
 before every new cycle. Thus SIGTERM that arrives during CPU work is observed
@@ -1770,7 +1770,7 @@ and owns no client/signal lifecycle, image, Deployment, or Kubernetes action.
 The next focused adapter will make the existing AMQP connection/channel setup
 closeable around this loop.
 
-The new closeable [`ADTOF AMQP session`](../../services/adtof/app/amqp_session.py)
+The new closeable [`ADTOF AMQP session`](../../services/adtof/app/messaging/amqp_session.py)
 now composes the reviewed restricted connection factory and passive
 prefetch-one channel preparation, yielding only the prepared channel to a
 caller. It attempts channel-then-connection closure on every setup/body/normal
@@ -1781,7 +1781,7 @@ signal/loop, image, Deployment, or Kubernetes action. The next composition can
 now join restricted database/storage construction, scoped signal handling,
 session, and loop into one process entrypoint.
 
-The new [`ADTOF worker bootstrap entrypoint`](../../services/adtof/app/worker_entrypoint.py)
+The new [`ADTOF worker bootstrap entrypoint`](../../services/adtof/app/runtime/worker_entrypoint.py)
 now makes exactly that composition. It constructs the existing restricted
 PostgreSQL adapter and MinIO client, requires the future fixed
 `/worker-scratch` `emptyDir` mount to be an existing non-symlink directory,
@@ -1932,7 +1932,7 @@ Basic Pitch/ADTOF or Kubernetes; it now records their later dispatch requests
 in PostgreSQL and leaves broker delivery/autoscaling as separate focused tasks.
 
 The prepared immutable
-[`v003 processing-task migration`](../../services/api/job-api-schema-migration-v003-processing-tasks-configmap.yaml)
+[`v003 processing-task migration`](../../services/job-api/job-api-schema-migration-v003-processing-tasks-configmap.yaml)
 creates the planned `processing_tasks` table only when its separate migration
 Job is explicitly applied. It includes the canonical job/stage/stem and event
 idempotency constraints, renewable active-lease constraints, terminal
@@ -1978,7 +1978,7 @@ runtime Secret remains in `clouddsp-app` while the temporary data-namespace
 duplicate is deleted after provisioning.
 
 The first pure
-[`Demucs request parser`](../../services/demucs/app/demucs_requested_message.py)
+[`Demucs request parser`](../../services/demucs/app/messaging/demucs_requested_message.py)
 now verifies the broker envelope, persistent AMQP properties, canonical IDs,
 strict 4 KiB UTF-8 JSON, and exact private source path before a future worker
 can claim PostgreSQL state or contact MinIO. It rejects duplicate JSON members
@@ -1989,7 +1989,7 @@ runtime. The later AMQP consumer will DLQ only these malformed requests;
 transient pre-claim dependency failures remain unacknowledged for redelivery.
 
 The pure
-[`Demucs PostgreSQL task-lease adapter`](../../services/demucs/app/task_lease.py)
+[`Demucs PostgreSQL task-lease adapter`](../../services/demucs/app/db/task_lease.py)
 now defines the short transaction that converts one parsed request into one
 canonical `processing_tasks` lease. It locks a task, then its Job, then repeats
 the task lock before insert to close concurrent first-claim races. A matching
@@ -2002,7 +2002,7 @@ Kubernetes API, or model process; 18 parser/lease unit tests prove its decisions
 in isolation.
 
 The pure
-[`Demucs MinIO HeadObject verifier`](../../services/demucs/app/source_object.py)
+[`Demucs MinIO HeadObject verifier`](../../services/demucs/app/artifacts/source_object.py)
 now checks a claimed task's own private source coordinate without downloading
 audio. It validates storage-side byte limit, canonical CloudDSP audio MIME
 type, and `job-id`/`stem-mode` object metadata. Definite absence/mismatch has a
@@ -2011,7 +2011,7 @@ retryable; FFprobe still owns byte-level audio/duration validation. Five new
 fake-client tests bring the Demucs pure-boundary suite to 23 passing tests.
 
 The pure
-[`Demucs FFprobe-result parser`](../../services/demucs/app/audio_probe.py)
+[`Demucs FFprobe-result parser`](../../services/demucs/app/processing/audio_probe.py)
 now validates the later tool's bounded JSON result without starting a process
 or reading a media byte. It requires at least one audio stream and an exact,
 finite, positive `format.duration` no greater than the shared 500-second
@@ -2020,7 +2020,7 @@ protocol concern; known unsuitable media has a bounded permanent category.
 Six focused tests bring the Demucs pure-boundary suite to 29 passing tests.
 
 The small
-[`Demucs FFprobe process adapter`](../../services/demucs/app/ffprobe_process.py)
+[`Demucs FFprobe process adapter`](../../services/demucs/app/processing/ffprobe_process.py)
 now composes that parser with one fixed, shell-free local command. It accepts
 only a regular non-symlink file below the worker-owned Pod scratch directory,
 gives the child no stdin, discards stderr, incrementally limits stdout to the
@@ -2031,7 +2031,7 @@ storage, PostgreSQL, RabbitMQ, Demucs, or Kubernetes request. Five adapter
 tests bring the Demucs foundation suite to 34 passing tests.
 
 The bounded
-[`Demucs MinIO source-download adapter`](../../services/demucs/app/source_download.py)
+[`Demucs MinIO source-download adapter`](../../services/demucs/app/artifacts/source_download.py)
 now streams one `HeadObject`-verified private object into a randomly named
 temporary child of the worker's future size-limited `emptyDir`. It makes one
 restricted `GetObject` request, compares the response and streamed byte count
@@ -2042,7 +2042,7 @@ FFprobe. Five fake-client tests bring the Demucs foundation suite to 39 passing
 tests; this task makes no cluster request or image change.
 
 The lease-bound
-[`Demucs source-preflight composition`](../../services/demucs/app/source_preflight.py)
+[`Demucs source-preflight composition`](../../services/demucs/app/processing/source_preflight.py)
 now wires the three source boundaries in their required order: verified private
 metadata, exact streamed bytes, then bounded FFprobe audio/duration evidence.
 It returns no temporary path, because the download context removes local source
@@ -2052,7 +2052,7 @@ the Demucs foundation suite to 43 passing tests. It does not claim/renew/finish
 a task, acknowledge RabbitMQ, construct Boto3, run a model, or alter Kubernetes.
 
 The new
-[`Demucs MinIO Boto3 settings/factory`](../../services/demucs/app/minio_client.py)
+[`Demucs MinIO Boto3 settings/factory`](../../services/demucs/app/artifacts/minio_client.py)
 now provides the future source-preflight client injection point without making
 a network request. It accepts only explicit internal `.svc` MinIO Service DNS,
 the fixed uploads bucket/local region/path addressing contract, and the
@@ -2082,7 +2082,7 @@ need its own locked CUDA image. The 479.50 MiB local image verified model
 checksums while building, so a normal Pod has no reason to fetch mutable
 weights from the public internet at startup.
 
-The new unit-tested [`Demucs Psycopg connection boundary`](../../services/demucs/app/postgresql.py)
+The new unit-tested [`Demucs Psycopg connection boundary`](../../services/demucs/app/db/postgresql.py)
 accepts only the internal PostgreSQL Service DNS, authoritative database, and
 restricted `clouddsp-demucs` role from the existing runtime Secret. It opens a
 fresh, bounded, dictionary-row transaction only for a future durable lease
@@ -2092,7 +2092,7 @@ redaction, commit/rollback scope, and safe outage classification. This
 source-only task intentionally does not alter the already-pushed image or add
 a Deployment; a later runnable-worker build will replace `images.demucs`.
 
-The new [`Demucs first-claim composition`](../../services/demucs/app/first_claim.py)
+The new [`Demucs first-claim composition`](../../services/demucs/app/db/first_claim.py)
 is the smallest layer that joins that transaction boundary to the existing pure
 task-lease SQL. One call opens one short write scope, returns a committed
 claimed/duplicate/stale result only after the scope exits, and lets an unsafe
@@ -2102,7 +2102,7 @@ model operation, Deployment, or image change. Four recording-context tests
 cover commit, rollback, and database-unavailable ordering; the old pinned image
 intentionally predates this source-only composition.
 
-The companion [`Demucs task-maintenance composition`](../../services/demucs/app/task_maintenance.py)
+The companion [`Demucs task-maintenance composition`](../../services/demucs/app/db/task_maintenance.py)
 now places the existing due-task recovery and token-guarded renewal SQL inside
 the same one-call, one-short-transaction boundary. Recovery now claims one
 due/expired task *and* reads its exact published outbox evidence on that cursor,
@@ -2119,7 +2119,7 @@ malformed rows, renewal, outage ordering, and mixed-pair rejection. It
 deliberately adds no long-running supervisor, RabbitMQ handling, media work,
 Deployment, image rebuild, or cluster change.
 
-The new [`Demucs delivery-claim bridge`](../../services/demucs/app/delivery_claim.py)
+The new [`Demucs delivery-claim bridge`](../../services/demucs/app/runtime/delivery_claim.py)
 now applies the exact AMQP parser before the already-committed first-claim
 composition. It exposes only the parsed request identifiers and PostgreSQL's
 claimed/duplicate/stale result, not the raw body, delivery tag, broker client,
@@ -2130,7 +2130,7 @@ manual `ack`/`nack`/redelivery behavior explicitly; this bridge adds no network
 connection, consumer loop, worker processing, image, Deployment, or cluster
 change.
 
-The new [`Demucs manual-ack adapter`](../../services/demucs/app/amqp_manual_ack.py)
+The new [`Demucs manual-ack adapter`](../../services/demucs/app/messaging/amqp_manual_ack.py)
 now implements that one-delivery Pika-shaped state machine without opening a
 connection. It reads only the fixed `clouddsp.demucs.requests` queue with
 `auto_ack=False`, acknowledges only after the bridge's committed result, nacks
@@ -2145,7 +2145,7 @@ the missing-lease guard. It adds no Pika connection/configuration, supervisor,
 source processing, image, Deployment, or cluster action.
 
 The next
-[`acknowledged-lease source-preflight handoff`](../../services/demucs/app/acknowledged_lease_preflight.py)
+[`acknowledged-lease source-preflight handoff`](../../services/demucs/app/runtime/acknowledged_lease_preflight.py)
 now admits work to the existing MinIO/FFprobe source boundary only after the
 manual-ack adapter returns `ACKNOWLEDGED_LEASE`. It carries the exact durable
 lease token with the returned source evidence, while idle, duplicate/stale, and
@@ -2156,7 +2156,7 @@ admission gate and exception propagation; this adds no loop, task-state write,
 Demucs model execution, image, Deployment, or cluster change.
 
 The pure task-lease module now adds its
-[`leased`-to-`running` guard](../../services/demucs/app/task_lease.py) for
+[`leased`-to-`running` guard](../../services/demucs/app/db/task_lease.py) for
 the next step after successful source preflight. The parameterized update
 matches task ID, job ID, `leased` state, the current lease UUID, and
 PostgreSQL's unexpired timestamp before it writes `running`; a no-row result is
@@ -2167,7 +2167,7 @@ transaction-composition task will connect this pure statement to the completed
 preflight handoff. No model, image, Deployment, or cluster change occurs here.
 
 That composition now exists in
-[`preflight_task_start.py`](../../services/demucs/app/preflight_task_start.py).
+[`preflight_task_start.py`](../../services/demucs/app/db/preflight_task_start.py).
 It accepts the acknowledged validated-source handoff, opens exactly one short
 write scope, commits the guarded task-start result, and returns a
 model-eligible lease/source/timestamp value only afterward. Ownership loss
@@ -2176,7 +2176,7 @@ escapes. Four in-memory tests prove those paths. The task does not read a new
 message, invoke Demucs, renew a lease, create artifacts, build an image, or
 change a Kubernetes resource.
 
-The new [`Demucs command builder`](../../services/demucs/app/demucs_command.py)
+The new [`Demucs command builder`](../../services/demucs/app/processing/demucs_command.py)
 fixes the future child process's local CPU argument tuple but does not run it.
 It preserves CloudDSP's `htdemucs`/`htdemucs_6s` stem-mode mapping and adds the
 current image's fixed CPU device and baked model repository. Only a generic
@@ -2187,7 +2187,7 @@ later bounded process adapter must obtain its own local source scope and
 independently validate Demucs outputs before any MinIO write. No image,
 Deployment, or cluster change occurs in this source-only task.
 
-The companion [`Demucs process runner`](../../services/demucs/app/demucs_process.py)
+The companion [`Demucs process runner`](../../services/demucs/app/processing/demucs_process.py)
 now executes only a request that it can rebuild exactly through the command
 builder. Its production path is shell-free, has no stdin or retained child
 output, places the child in a private process group, and limits one local CPU
@@ -2198,7 +2198,7 @@ execution boundary without invoking Demucs. No image, Deployment, or live
 cluster process changes in this task.
 
 The new
-[`executed Demucs separation workspace`](../../services/demucs/app/executed_separation_workspace.py)
+[`executed Demucs separation workspace`](../../services/demucs/app/processing/executed_separation_workspace.py)
 joins the committed `running` source workspace to the fixed command and bounded
 process runner. It first validates the Pod scratch root, creates a new private
 random output directory beside—not inside—the generic temporary source, derives
@@ -2213,7 +2213,7 @@ and cleanup; the next small task is to validate the exact stem inventory inside
 this output scope.
 
 That inventory handoff now exists in
-[`validated_stem_inventory_workspace.py`](../../services/demucs/app/validated_stem_inventory_workspace.py).
+[`validated_stem_inventory_workspace.py`](../../services/demucs/app/artifacts/validated_stem_inventory_workspace.py).
 It invokes the existing exact local WAV validator only while the executed
 output scope remains open and preserves the *same command object* beside the
 returned stem/path/byte-count evidence. An incomplete, extra, empty, symlinked,
@@ -2226,7 +2226,7 @@ substitution attempt; the next small task is SHA-256 hashing of this exact
 in-scope inventory.
 
 That hashing handoff now exists in
-[`hashed_stem_inventory_workspace.py`](../../services/demucs/app/hashed_stem_inventory_workspace.py).
+[`hashed_stem_inventory_workspace.py`](../../services/demucs/app/artifacts/hashed_stem_inventory_workspace.py).
 It invokes the existing streaming SHA-256 boundary only inside the validated
 inventory and executed-output scopes, then requires the same command instance
 and every original stem name/path/byte-count to accompany the resulting digest.
@@ -2239,7 +2239,7 @@ cleanup, and a cloned-command substitution attempt. The next small task is to
 build deterministic private MinIO object plans from this exact hashed evidence.
 
 That private-plan handoff now exists in
-[`stem_output_plan_workspace.py`](../../services/demucs/app/stem_output_plan_workspace.py).
+[`stem_output_plan_workspace.py`](../../services/demucs/app/artifacts/stem_output_plan_workspace.py).
 It calls the existing planner while the hash/output scopes remain open and
 preserves the full one-to-one relationship between the running lease, hashed
 artifact, deterministic private object key, fixed content type, byte count, and
@@ -2252,7 +2252,7 @@ cluster action. The next small task is a one-stem restricted MinIO upload inside
 this scope, with independent streaming hash verification.
 
 That one-stem upload handoff now exists in
-[`planned_stem_upload.py`](../../services/demucs/app/planned_stem_upload.py).
+[`planned_stem_upload.py`](../../services/demucs/app/artifacts/planned_stem_upload.py).
 It accepts only the identity-preserved plan instance from the open private-plan
 workspace, delegates one `PutObject` to the existing restricted streaming/hash
 adapter, and accepts only a matching bucket/key/length/SHA-256 receipt. The
@@ -2267,7 +2267,7 @@ every fixed plan and returning a complete in-memory receipt set—still before
 any durable result transaction.
 
 That complete-upload handoff now exists in
-[`complete_stem_upload.py`](../../services/demucs/app/complete_stem_upload.py).
+[`complete_stem_upload.py`](../../services/demucs/app/artifacts/complete_stem_upload.py).
 It loops over only the fixed plan tuple in deterministic order, reuses the
 one-plan restricted upload/receipt guard for each item, and returns the existing
 receipt-only `PublishedDemucsStemSet` type only if every object upload succeeds.
@@ -2280,7 +2280,7 @@ The next small task is to pass this complete receipt set into the existing
 token-guarded PostgreSQL completion transaction.
 
 That upload-to-completion composition now exists in
-[`complete_stem_upload_commit.py`](../../services/demucs/app/complete_stem_upload_commit.py).
+[`complete_stem_upload_commit.py`](../../services/demucs/app/runtime/complete_stem_upload_commit.py).
 It validates the required PostgreSQL transaction and outbox-ID factory before
 any private upload, runs the fixed complete upload sequence with no database
 lock open, then passes only its full receipt set to the existing guarded
@@ -2294,7 +2294,7 @@ composition that nests source workspace, process, validation, hashing, plans,
 uploads, and this guarded completion path without receiving a new AMQP message.
 
 That outer single-task composition now exists in
-[`task_runtime_once.py`](../../services/demucs/app/task_runtime_once.py).
+[`task_runtime_once.py`](../../services/demucs/app/runtime/task_runtime_once.py).
 Given only an already acknowledged receive result, it nests the exact source
 preflight, committed `running` transition, bounded CPU execution, local stem
 proofs, private upload sequence, and existing token-guarded completion
@@ -2311,7 +2311,7 @@ categories into the existing retry/terminal-failure decision without creating
 the long-running supervisor yet.
 
 That review now starts with the pure
-[`Demucs pre-model source-failure classifier`](../../services/demucs/app/source_failure_classification.py).
+[`Demucs pre-model source-failure classifier`](../../services/demucs/app/runtime/source_failure_classification.py).
 It maps only source-boundary exceptions that occur before the guarded
 ``leased -> running`` transition: permanent HeadObject and FFprobe media
 categories, plus a HeadObject/GetObject consistency mismatch, receive finite
@@ -2324,7 +2324,7 @@ commits one of those outcomes (and fails the Job atomically for every terminal
 Demucs result, including final retry exhaustion).
 
 That pure
-[`Demucs pre-model failure-transition adapter`](../../services/demucs/app/pre_model_failure_transition.py)
+[`Demucs pre-model failure-transition adapter`](../../services/demucs/app/db/pre_model_failure_transition.py)
 now performs the one guarded SQL decision. It locks the still-retained
 `source_uploaded` Job and binds the full source-task identity, exact attempt,
 lease UUID, and PostgreSQL expiry before it changes state. A known MinIO
@@ -2340,7 +2340,7 @@ unclassified-category guard. The next small task is a short transaction
 composition that exposes this result only after PostgreSQL commits.
 
 That transaction composition now exists in
-[`pre_model_failure_transition_commit.py`](../../services/demucs/app/pre_model_failure_transition_commit.py).
+[`pre_model_failure_transition_commit.py`](../../services/demucs/app/db/pre_model_failure_transition_commit.py).
 It opens exactly one restricted ``write_cursor()`` scope around the pure
 failure-transition adapter and returns its retry/terminal/no-row result only
 after normal exit commits. A malformed SQL result or database outage escapes
@@ -2353,7 +2353,7 @@ runtime handoff that catches only classified source-preflight exceptions and
 uses this committed decision.
 
 That narrow handoff now exists in
-[`pre_model_failure_runtime.py`](../../services/demucs/app/pre_model_failure_runtime.py).
+[`pre_model_failure_runtime.py`](../../services/demucs/app/runtime/pre_model_failure_runtime.py).
 It wraps one already-acknowledged one-task attempt and preserves its existing
 success/ownership-loss results. Only the finite source-preflight classifier
 categories are caught: the current acknowledged lease feeds the committed
@@ -2369,7 +2369,7 @@ small task is a separately reviewed policy for failures after Demucs begins
 running.
 
 That policy now starts with the pure
-[`Demucs running-failure classifier`](../../services/demucs/app/running_failure_classification.py).
+[`Demucs running-failure classifier`](../../services/demucs/app/runtime/running_failure_classification.py).
 It recognizes only reviewed after-model disruptions: process start/timeout/
 nonzero failure, transient invalid output, local artifact-integrity evidence
 loss, or private MinIO stem-write unavailability. Each receives one finite
@@ -2384,7 +2384,7 @@ token-guarded `running -> retry_scheduled/failed` PostgreSQL transition using
 these reviewed categories.
 
 That pure
-[`Demucs running-failure transition`](../../services/demucs/app/running_failure_transition.py)
+[`Demucs running-failure transition`](../../services/demucs/app/db/running_failure_transition.py)
 now commits the one guarded SQL decision. It locks the still-retained
 `source_uploaded` Job and checks the full source-task coordinate, `running`
 state, exact attempt, lease UUID, and database-clock expiry. Attempts one/two
@@ -2396,7 +2396,7 @@ still inaccessible and retry-overwritable at deterministic keys. Four fake
 cursor tests prove the retry, terminal task/Job result, no-row ownership loss,
 and unclassified guard. This adapter opens no transaction or external client.
 
-[`Demucs running-failure commit wrapper`](../../services/demucs/app/running_failure_transition_commit.py)
+[`Demucs running-failure commit wrapper`](../../services/demucs/app/db/running_failure_transition_commit.py)
 now provides that narrow durable boundary: one restricted `write_cursor()`
 calls the pure decision exactly once, then exposes retry/terminal evidence only
 after normal commit. A guarded no-row ownership/state race commits normally as
@@ -2406,7 +2406,7 @@ recovery scan, lease renewal, AMQP/MinIO/model operation, image/Deployment, or
 KEDA update. Its four fake tests prove normal commit, no-row commit, exception
 rollback, and the capability guard.
 
-[`Demucs running-failure runtime handoff`](../../services/demucs/app/running_failure_runtime.py)
+[`Demucs running-failure runtime handoff`](../../services/demucs/app/runtime/running_failure_runtime.py)
 now composes the completed source-policy handoff with the completed running
 policy, still for exactly one acknowledged task attempt. Inner success,
 ownership loss, and source-policy retry/terminal evidence pass through without
@@ -2423,7 +2423,7 @@ recovery, image rebuild, Deployment, live-cluster, or KEDA action; its nested
 execution workspace owns short renewal checkpoints while the model runs.
 
 The first small supervisor building block is now
-[`Demucs receive-and-execute once`](../../services/demucs/app/receive_execute_once.py).
+[`Demucs receive-and-execute once`](../../services/demucs/app/runtime/receive_execute_once.py).
 It receives at most one manual-ack RabbitMQ delivery and invokes the completed
 one-attempt policy only when the existing transport boundary returned an
 acknowledged current lease. Idle, duplicate/stale, and malformed-DLQ results
@@ -2436,7 +2436,7 @@ recovery scan, signal handling, connection lifecycle, image, Deployment,
 live-cluster, or KEDA behavior; its nested one-attempt runtime owns short
 renewal checkpoints.
 
-[`Demucs recovery request evidence`](../../services/demucs/app/recovery_request.py)
+[`Demucs recovery request evidence`](../../services/demucs/app/db/recovery_request.py)
 now provides that read-only boundary. A due retry or expired active task has no
 new AMQP delivery, so immediately after PostgreSQL grants its fresh
 attempt-two/three lease, the same short transaction reads only the exact
@@ -2451,7 +2451,7 @@ first-attempt rejection, and event/payload/publication mismatch. This does not
 claim/start work, commit, acknowledge/publish RabbitMQ, contact MinIO, run a
 model, loop, rebuild/deploy an image, or change KEDA.
 
-The existing [`Demucs task-maintenance composition`](../../services/demucs/app/task_maintenance.py)
+The existing [`Demucs task-maintenance composition`](../../services/demucs/app/db/task_maintenance.py)
 now performs that exact one-transaction join. It exposes a
 `DemucsRecoveredTask` only after commit; an evidence loss after a fresh claim
 forces rollback and returns normal no-safe-work, so later code cannot process
@@ -2459,7 +2459,7 @@ from a bare lease. Its frozen pair defensively rejects first attempts, mixed
 coordinates, and unsafe direct construction. It adds no AMQP delivery, MinIO,
 model, loop, image/Deployment, or KEDA behavior.
 
-[`Demucs recovered-task execution`](../../services/demucs/app/recovered_task_execution.py)
+[`Demucs recovered-task execution`](../../services/demucs/app/runtime/recovered_task_execution.py)
 now admits only that committed pair to the established one-task pre-model and
 running-failure policy. It creates a data-only internal lease carrier for the
 legacy post-acknowledgement runtime shape; the carrier has no channel, delivery
@@ -2472,8 +2472,8 @@ The next small task was a guarded terminal transition for an expired third
 attempt, which must never receive a fourth Demucs lease.
 
 That final-expiry path now exists in
-[`Demucs task lease SQL`](../../services/demucs/app/task_lease.py) and
-its [`maintenance composition`](../../services/demucs/app/task_maintenance.py).
+[`Demucs task lease SQL`](../../services/demucs/app/db/task_lease.py) and
+its [`maintenance composition`](../../services/demucs/app/db/task_maintenance.py).
 It locks one active third attempt with `FOR UPDATE SKIP LOCKED`, locks its
 retained source-uploaded Job, and atomically marks task and Job `failed`, clears
 the lease fields, records completion/revision, and uses only the fixed
@@ -2485,7 +2485,7 @@ The next small task is a bounded recovery iteration that terminalizes first,
 then claims and executes at most one safe recovered task, without adding a
 worker loop.
 
-[`Demucs recovery execute once`](../../services/demucs/app/recovery_execute_once.py)
+[`Demucs recovery execute once`](../../services/demucs/app/runtime/recovery_execute_once.py)
 now performs that single bounded step. It terminalizes first, then only when no
 final attempt changed state recovers one committed pair and sends it through the
 existing recovery execution gate. Its `idle`, `terminalized`, and `executed`
@@ -2498,7 +2498,7 @@ result evidence pairing. The next small task is a pure cadence policy for
 interleaving this bounded recovery step with ordinary broker receives, without
 starting a worker loop.
 
-[`Demucs recovery cadence`](../../services/demucs/app/recovery_cadence.py)
+[`Demucs recovery cadence`](../../services/demucs/app/runtime/recovery_cadence.py)
 now makes that interleaving a pure, frozen local policy. Each new Pod begins
 with a recovery scan, then strictly alternates one recovery iteration with one
 normal AMQP receive/optional-execution iteration. Therefore continuous queue
@@ -2512,7 +2512,7 @@ storage, deployment, KEDA, or Kubernetes behavior. The next small task is a
 single worker-cycle composition that executes only the selected cadence action
 and returns its advanced state.
 
-[`Demucs cadence-driven worker cycle`](../../services/demucs/app/worker_cycle.py)
+[`Demucs cadence-driven worker cycle`](../../services/demucs/app/runtime/worker_cycle.py)
 now executes exactly that selected action once. It sends the shared RabbitMQ
 channel only to the normal receive branch; recovery explicitly receives no
 channel because it has no delivery acknowledgement/rejection/publish action.
@@ -2526,7 +2526,7 @@ adds no loop, wait, connection lifecycle, backoff, Deployment, KEDA, or
 Kubernetes behavior. The next small task is a pure supervisor decision policy
 that maps cycle outcomes to explicit future wait/retry/exit actions.
 
-[`Demucs supervisor decision policy`](../../services/demucs/app/supervisor_backoff.py)
+[`Demucs supervisor decision policy`](../../services/demucs/app/runtime/supervisor_backoff.py)
 now maps compact iteration facts to future actions without performing them.
 Only a normal empty broker receive yields the fixed one-second idle wait; every
 recovery fact is immediate progress because cadence schedules the normal broker
@@ -2539,7 +2539,7 @@ guards. The next small task is a narrow supervisor-failure classifier that
 authorizes only reviewed Demucs configuration and availability errors to select
 those reserved failure events.
 
-[`Demucs supervisor failure classification`](../../services/demucs/app/supervisor_failure_classification.py)
+[`Demucs supervisor failure classification`](../../services/demucs/app/runtime/supervisor_failure_classification.py)
 now provides that narrow authority. Bad AMQP/PostgreSQL/MinIO configuration and
 missing FFprobe/Demucs executables are fatal; only safe availability wrappers
 from bounded RabbitMQ, PostgreSQL, and MinIO adapters receive generic process
@@ -2550,7 +2550,7 @@ and non-exception boundaries. The next small task is a one-step supervisor
 composition that combines this classifier, worker cycle, and decision policy
 without waiting or starting a loop.
 
-[`Demucs supervisor step`](../../services/demucs/app/supervisor_step.py)
+[`Demucs supervisor step`](../../services/demucs/app/runtime/supervisor_step.py)
 now runs exactly one cadence-selected cycle, maps only its matching compact
 normal/recovery result to idle/progress, and obtains the next policy action and
 state. A recognized retryable/fatal error has no fake completed-cycle evidence
@@ -2561,7 +2561,7 @@ error propagation. It neither waits, loops, reconnects, manages a channel, nor
 changes Kubernetes. The next small task is a shutdown-aware action adapter
 that applies one existing decision through an injected waiter.
 
-[`Demucs supervisor action adapter`](../../services/demucs/app/supervisor_action.py)
+[`Demucs supervisor action adapter`](../../services/demucs/app/runtime/supervisor_action.py)
 now applies one already-made decision through an injected shutdown waiter.
 `check_immediately` continues with no wait, idle/backoff waits once using the
 exact bounded delay, and fatal configuration returns an explicit exit fact.
@@ -2571,7 +2571,7 @@ The adapter itself installs no signals, sleeps nowhere directly, reconnects no
 service, and starts no loop. The next small task is a one-step runner that
 joins the supervisor step and action result without creating persistence.
 
-[`Demucs one-step supervisor runner`](../../services/demucs/app/supervisor_once.py)
+[`Demucs one-step supervisor runner`](../../services/demucs/app/runtime/supervisor_once.py)
 now executes one supervisor step, applies precisely its returned decision, and
 preserves exactly the step's next local state. Mismatched action/state evidence
 is rejected; step/action failures propagate rather than becoming a false
@@ -2581,7 +2581,7 @@ loop, signal handler, service lifecycle, image, Deployment, or Kubernetes
 behavior. The next small task is a focused shutdown-event adapter that owns
 SIGTERM/SIGINT registration for the future injected waiter.
 
-[`Demucs shutdown-event adapter`](../../services/demucs/app/shutdown_event.py)
+[`Demucs shutdown-event adapter`](../../services/demucs/app/runtime/shutdown_event.py)
 now provides that scoped main-thread bridge. It maps SIGTERM/SIGINT to one
 `threading.Event`, implements `wait_for_shutdown()` with the same 30-second
 policy bound, and restores previous handlers after normal exit, body errors,
@@ -2592,7 +2592,7 @@ cleanup, image, Deployment, or Kubernetes action. The next small task is the
 intentional shutdown-aware supervisor loop that repeats the one-step runner
 until it returns shutdown or fatal control evidence.
 
-[`Demucs shutdown-aware supervisor loop`](../../services/demucs/app/supervisor_loop.py)
+[`Demucs shutdown-aware supervisor loop`](../../services/demucs/app/runtime/supervisor_loop.py)
 now repeats only after `continue`, returns on shutdown/fatal control evidence,
 and makes a zero-delay shared-Event check before every fresh cycle. Therefore a
 SIGTERM during inference cannot permit another broker receive or recovery scan.
@@ -2602,7 +2602,7 @@ post-continue signal observation, fatal stopping, and error propagation. The
 next small task is a closeable AMQP-session adapter that opens the existing
 restricted connection/channel setup and closes it around this loop.
 
-[`Demucs AMQP session`](../../services/demucs/app/amqp_session.py) now
+[`Demucs AMQP session`](../../services/demucs/app/messaging/amqp_session.py) now
 opens one restricted private connection, obtains and prepares one channel with
 prefetch-one/passive-queue verification, yields it, then closes channel before
 connection on all setup/body/normal cleanup paths. A normal cleanup failure is
@@ -2614,7 +2614,7 @@ connection failure. The next small task is a worker bootstrap entrypoint that
 composes restricted database/MinIO construction, signal scope, this AMQP
 session, and the supervisor loop.
 
-[`Demucs worker bootstrap entrypoint`](../../services/demucs/app/worker_entrypoint.py)
+[`Demucs worker bootstrap entrypoint`](../../services/demucs/app/runtime/worker_entrypoint.py)
 now composes that already-tested runtime in one narrow process boundary. Before
 it opens RabbitMQ, it creates the restricted PostgreSQL adapter, creates one
 private MinIO client, and proves the future Pod mounted a real non-symlink
@@ -2723,7 +2723,7 @@ outbound RabbitMQ TCP `5672`, restricted credential, queue, and NetworkPolicy
 boundaries. It also clarified that Demucs has no inbound listener: a
 `containerPort` or Service would be incorrect and would not configure outbound
 AMQP. The new
-[`Demucs session supervisor`](../../services/demucs/app/session_supervisor.py)
+[`Demucs session supervisor`](../../services/demucs/app/runtime/session_supervisor.py)
 makes the observed idle state intentional and safe. Recovery uses PostgreSQL
 only; every normal poll creates a fresh restricted/prepared AMQP session, then
 closes it after its one bounded cycle. A reviewed session failure retains normal
@@ -2805,7 +2805,7 @@ imports, and that exact-context inference passed. The immutable image is
 live Deployment is deliberately unchanged pending an explicit rollout.
 
 That renewal boundary now exists in
-[`running_lease_renewal.py`](../../services/demucs/app/running_lease_renewal.py).
+[`running_lease_renewal.py`](../../services/demucs/app/db/running_lease_renewal.py).
 It requires a committed `DemucsRunningSource`, forwards only its exact task ID
 and lease token to the existing short PostgreSQL renewal transaction, and
 returns either matching immutable running/source evidence with a refreshed
@@ -2817,7 +2817,7 @@ start a timer/thread or stop a model process; the execution workspace now uses
 it at the later cancellation-safe process checkpoints.
 
 That process layer now exists in the separate renewal-aware entrypoint in
-[`demucs_process.py`](../../services/demucs/app/demucs_process.py). It
+[`demucs_process.py`](../../services/demucs/app/processing/demucs_process.py). It
 requires a runner that owns the actual child process group; a plain synchronous
 runner is rejected rather than being placed in an uncancellable Python thread.
 The production runner waits only to the next one-minute-or-faster checkpoint,
@@ -2826,7 +2826,7 @@ or timeout terminates the full child process group *before* its stop/error
 signal leaves the runner. The layer deliberately knows no PostgreSQL task,
 lease token, MinIO, or RabbitMQ detail.
 
-[`executed_separation_workspace.py`](../../services/demucs/app/executed_separation_workspace.py)
+[`executed_separation_workspace.py`](../../services/demucs/app/processing/executed_separation_workspace.py)
 now provides that narrow task-specific wiring. It calls the committed renewal
 checkpoint only while the owned model child is running, carries refreshed
 immutable lease evidence into later artifact/completion guards, and converts a
@@ -2838,7 +2838,7 @@ stopped ownership loss, and the one-attempt outcome mapping. The next small
 task is atomically composing recovery claim and reconstructed evidence before
 the ordinary pre-model runtime receives its committed pair.
 
-The new [`Demucs artifact inventory validator`](../../services/demucs/app/demucs_artifacts.py)
+The new [`Demucs artifact inventory validator`](../../services/demucs/app/artifacts/demucs_artifacts.py)
 is the output-side counterpart to the fixed command. Before any MinIO uploader
 can receive local files, it requires the exact mode-specific non-empty WAV
 stems in the expected private `model/source` directory, rejecting every helper
@@ -2848,7 +2848,7 @@ local path/size evidence. Four temporary-file tests cover all supported modes
 and unsafe cases. It performs no audio inspection, hashing, upload, database
 write, image build, Deployment, or cluster action.
 
-The following [`Demucs artifact hash boundary`](../../services/demucs/app/demucs_artifact_hash.py)
+The following [`Demucs artifact hash boundary`](../../services/demucs/app/artifacts/demucs_artifact_hash.py)
 turns that inventory into stable local evidence before any future MinIO output
 adapter exists. It repeats the strict inventory validation, streams each
 current WAV in 64 KiB chunks, and returns only the fixed stem name, current
@@ -2860,7 +2860,7 @@ call MinIO, mutate PostgreSQL, acknowledge RabbitMQ, rebuild the image, or
 change Kubernetes resources.
 
 The following pure
-[`Demucs output-object contract`](../../services/demucs/app/demucs_output_object.py)
+[`Demucs output-object contract`](../../services/demucs/app/artifacts/demucs_output_object.py)
 defines the only artifact coordinates a future MinIO uploader may receive. It
 re-establishes current SHA-256 evidence and joins it to the canonical durable
 lease, then maps every exact stem deterministically to
@@ -2873,7 +2873,7 @@ temporary-file tests prove those paths. It makes no S3 request or durable
 write, does not acknowledge RabbitMQ, and changes no image, Deployment, or
 cluster resource.
 
-The subsequent [`Demucs MinIO artifact-upload adapter`](../../services/demucs/app/demucs_artifact_upload.py)
+The subsequent [`Demucs MinIO artifact-upload adapter`](../../services/demucs/app/artifacts/demucs_artifact_upload.py)
 accepts only one of those fixed plans and one Boto3-compatible `PutObject`
 client. It repeats the object/metadata contract, pre-hashes the current local
 regular WAV, then streams it to the reviewed private key while calculating a
@@ -2887,7 +2887,7 @@ objects, changes PostgreSQL/RabbitMQ, rebuilds an image, or changes cluster
 resources.
 
 The new
-[`Demucs complete-stem-set composition`](../../services/demucs/app/demucs_stem_set_publish.py)
+[`Demucs complete-stem-set composition`](../../services/demucs/app/processing/demucs_stem_set_publish.py)
 joins the reviewed model/process, exact output tree, hash, output-plan, and
 one-stem upload boundaries in order. A matching running lease and separation
 produce a complete in-memory receipt set only once every expected stem has
@@ -2899,7 +2899,7 @@ composition writes neither PostgreSQL success state nor downstream outbox
 events. Three fake process/client tests cover those cases; no image or
 Kubernetes resource changes.
 
-The pure [`Demucs completion SQL guard`](../../services/demucs/app/task_lease.py)
+The pure [`Demucs completion SQL guard`](../../services/demucs/app/db/task_lease.py)
 now locks a retained `source_uploaded` Job before it changes any row, then
 requires the exact `running`, unexpired task token before it atomically writes
 the complete `stems` JSONB document, transitions the task to `succeeded`,
@@ -2913,7 +2913,7 @@ prepared bootstrap Job grants the restricted Demucs role only the required
 INSERT columns. Four fake-cursor cases cover success, no-row ownership loss,
 malformed evidence, and a mismatched inserted-event count.
 
-The companion [`Demucs task-completion transaction`](../../services/demucs/app/demucs_task_completion.py)
+The companion [`Demucs task-completion transaction`](../../services/demucs/app/db/demucs_task_completion.py)
 converts a complete verified receipt set into a compact parameterized JSONB
 map. It keeps the cloud-compatible stem `status: ready` and `s3_key` fields,
 and records bucket, fixed type, byte count, and SHA-256 for future independent
@@ -2923,7 +2923,7 @@ transaction and a database failure rolls it back. Three in-memory tests prove
 those boundaries. It makes no storage/broker request, image change, or
 Kubernetes change.
 
-The separate [`Demucs AMQP connection boundary`](../../services/demucs/app/amqp_connection.py)
+The separate [`Demucs AMQP connection boundary`](../../services/demucs/app/messaging/amqp_connection.py)
 now loads only the restricted Demucs RabbitMQ Secret and fixed private Service
 topology. It rejects host/port/vhost/queue/username widening, hides the password
 from normal representations, bounds connection timing, lazily imports Pika, and
@@ -2932,7 +2932,7 @@ cover settings, exact private Pika parameters, and outage handling without a
 broker connection. It intentionally adds no channel, consumer, acknowledgement,
 supervisor, image, Deployment, or cluster change.
 
-The companion [`Demucs AMQP channel helper`](../../services/demucs/app/amqp_channel.py)
+The companion [`Demucs AMQP channel helper`](../../services/demucs/app/messaging/amqp_channel.py)
 now applies `prefetch_count=1` and passively verifies only the existing reviewed
 request queue. It cannot declare/bind/modify RabbitMQ topology or receive a
 delivery; a setup failure maps to a bounded category for the later reconnect

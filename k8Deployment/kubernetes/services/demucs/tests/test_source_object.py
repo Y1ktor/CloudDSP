@@ -10,7 +10,7 @@ import unittest
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, call
 
-from app.source_object import (
+from app.artifacts.source_object import (
     MAX_DEMUCS_SOURCE_SIZE_BYTES,
     DemucsPermanentSourceVerificationError,
     DemucsSourceStorageProtocolError,
@@ -18,7 +18,7 @@ from app.source_object import (
     DemucsSourceVerificationFailureCode,
     verify_claimed_demucs_source_head_object,
 )
-from app.task_lease import DemucsTaskLease
+from app.db.task_lease import DemucsTaskLease
 
 
 EVENT_ID = "93b31df9-ea8c-46bb-b2c0-19e9db5365d5"

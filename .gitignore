@@ -10,6 +10,8 @@ frontend/node_modules/
 frontend/dist/
 # DSP stems, MIDI, and analysis are regenerated locally from source inputs.
 cloudDeployment/src/DSP/output/
+archive/dsp/output/
+archive/dsp/manual-checks/test_out_*.wav
 __pycache__/
 *.py[cod]
 

@@ -2,9 +2,10 @@ require 'minitest/autorun'
 require 'fileutils'
 require 'open3'
 require 'tmpdir'
+require_relative '../../scripts/lib/paths'
 
 class ReconcileDemucsScalingTest < Minitest::Test
-  SCRIPT = File.expand_path('../../scripts/reconcile-demucs-scaling.sh', __dir__)
+  SCRIPT = File.expand_path('../../scripts/maintenance/reconcile-demucs-scaling.sh', __dir__)
   KUBERNETES = File.expand_path('../..', __dir__)
   UPGRADE_OPTIONS = %w[--kube-context k3d-clouddsp-local --namespace clouddsp-app --wait --timeout 3m].freeze
 
@@ -62,7 +63,7 @@ class ReconcileDemucsScalingTest < Minitest::Test
     commands.each do |command|
       next unless command.first == 'ruby'
 
-      assert_equal File.join(KUBERNETES, 'scripts'), File.dirname(command.fetch(1))
+      assert_equal CloudDSPPaths.script(File.basename(command.fetch(1))).to_s, command.fetch(1)
       command[1] = File.basename(command[1])
     end
     [status, commands, output, error]

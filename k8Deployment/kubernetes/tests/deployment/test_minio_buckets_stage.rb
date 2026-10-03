@@ -1,7 +1,7 @@
 require 'minitest/autorun'
 require 'stringio'
 
-require_relative '../../scripts/minio-buckets-stage'
+require_relative '../../scripts/stages/minio/minio-buckets-stage'
 
 class MinioBucketsStageTest < Minitest::Test
   class FakeStage < MinioBucketsStage

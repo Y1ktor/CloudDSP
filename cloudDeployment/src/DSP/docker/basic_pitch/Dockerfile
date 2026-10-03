@@ -1,33 +1,58 @@
-# Base Image: Basic Pitch is built on TensorFlow, not PyTorch.
-# We use the official TensorFlow Docker image as our base.
-# Since Basic Pitch inference is extremely fast, many users run it on cheap CPU instances.
-# If you intend to use GPUs for Basic Pitch, you would use tensorflow:2.12.0-gpu
-FROM tensorflow/tensorflow:2.12.0
+# TensorFlow Lite 2.14 requires GLIBC 2.27, so use Amazon Linux 2023 rather
+# than the Amazon Linux 2 Python images. Basic Pitch 0.4.0 supports Python 3.11.
+# This image targets x86_64.
+ARG LAMBDA_PLATFORM=linux/amd64
+FROM --platform=${LAMBDA_PLATFORM} public.ecr.aws/lambda/provided:al2023
 
-WORKDIR /app
+# The OS-only Lambda image requires a Python runtime interface client. libsndfile
+# handles WAV/FLAC and FFmpeg supports compressed uploads such as MP3 and M4A.
+RUN dnf install -y python3.11 python3.11-pip tar xz libsndfile && \
+    dnf clean all && \
+    rm -rf /var/cache/dnf
 
-# Install OS-level dependencies
-# - libsndfile1: Required by the `soundfile` python library (default for uncompressed audio)
-# - ffmpeg: Required by librosa (via audioread) to decode compressed formats like MP3/M4A
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends libsndfile1 ffmpeg && \
-    rm -rf /var/lib/apt/lists/*
+# Amazon Linux 2023 does not provide FFmpeg in its default repositories. Pin
+# the static x86_64 build and verify its published checksum before installing it.
+ARG FFMPEG_VERSION=6.0.1
+ARG FFMPEG_SHA256=28268bf402f1083833ea269331587f60a242848880073be8016501d864bd07a5
+RUN curl -fsSLo ffmpeg.tar.xz "https://www.johnvansickle.com/ffmpeg/old-releases/ffmpeg-${FFMPEG_VERSION}-amd64-static.tar.xz" && \
+    echo "${FFMPEG_SHA256}  ffmpeg.tar.xz" | sha256sum -c - && \
+    tar -xJf ffmpeg.tar.xz && \
+    install -m 0755 "ffmpeg-${FFMPEG_VERSION}-amd64-static/ffmpeg" /usr/local/bin/ffmpeg && \
+    install -m 0755 "ffmpeg-${FFMPEG_VERSION}-amd64-static/ffprobe" /usr/local/bin/ffprobe && \
+    rm -rf "ffmpeg-${FFMPEG_VERSION}-amd64-static" \
+           ffmpeg.tar.xz
 
-# Install Python dependencies
-# - basic-pitch: Spotify's Audio-to-MIDI library
-# - boto3: AWS SDK for S3 interaction
-RUN pip install --no-cache-dir basic-pitch boto3
+# Basic Pitch declares TensorFlow for Python 3.11, although its TFLite model is
+# fully supported. Install the complete inference-only dependency set before
+# adding Basic Pitch without dependencies, which excludes full TensorFlow.
+RUN python3.11 -m pip install --no-cache-dir \
+    "awslambdaric==3.0.0" \
+    "boto3==1.34.162" \
+    "librosa==0.10.2.post1" \
+    "pretty_midi==0.2.10" \
+    "scipy==1.11.4" \
+    "numpy==1.26.4" \
+    "soxr==0.3.7" \
+    "tflite-runtime==2.14.0" \
+    "scikit-learn==1.3.2" \
+    "mir-eval==0.7" \
+    "resampy==0.4.2" \
+    "soundfile==0.12.1" \
+    "typing_extensions==4.12.2" && \
+    python3.11 -m pip install --no-cache-dir --no-deps "basic-pitch==0.4.0" && \
+    python3.11 -c "import tflite_runtime.interpreter" && \
+    python3.11 -c "from basic_pitch import ICASSP_2022_MODEL_PATH; assert str(ICASSP_2022_MODEL_PATH).endswith('.tflite'), ICASSP_2022_MODEL_PATH; from basic_pitch.inference import predict_and_save"
 
-# Note on Cold Starts:
-# Unlike Demucs, Spotify actually bundled the Basic Pitch ML weights (ICASSP_2022) 
-# directly inside the pip package itself! 
-# Because it's packaged within the library, there is ZERO cold-start download time.
-# The weights are already inside this Docker image natively.
+# Configure the Lambda custom runtime and copy the handler.
+COPY docker/basic_pitch/bootstrap ${LAMBDA_RUNTIME_DIR}/bootstrap
+RUN chmod 755 ${LAMBDA_RUNTIME_DIR}/bootstrap
+COPY cloud/cloud_job_workflow.py ${LAMBDA_TASK_ROOT}/cloud_job_workflow.py
+COPY cloud/LambdaMIDIBasicPitch.py ${LAMBDA_TASK_ROOT}/BasicPitch.py
 
-# Copy the Python Cloud wrapper script into the container
-# NOTE: When building this image, the build context must be the `src/DSP` folder.
-# Run this command from src/DSP: 
-# docker build -t clouddsp-basicpitch -f docker/basic_pitch/Dockerfile .
-COPY src/Cloud/CloudExtractBasicPitch.py /app/CloudExtractBasicPitch.py
+# Librosa decorates some functions with Numba's persistent cache. Lambda's
+# task and site-packages directories are read-only at runtime, so direct the
+# cache to Lambda's writable ephemeral storage before Python imports Librosa.
+ENV NUMBA_CACHE_DIR=/tmp/numba-cache
 
-ENTRYPOINT ["python", "/app/CloudExtractBasicPitch.py"]
+# Tell Lambda exactly which function to execute when an event arrives
+CMD ["BasicPitch.lambda_handler"]

@@ -31,7 +31,7 @@ implementation details deliberately in later, small tasks.
 
 ## Current source and image boundary
 
-The local boundary now exists at [`app/`](../../services/api/app) with a minimal FastAPI ASGI
+The local boundary now exists at [`app/`](../../services/job-api/app) with a minimal FastAPI ASGI
 application. Its source intentionally exposes two infrastructure probes, one
 narrow authenticated identity proof, saved-job history/detail reads, and
 direct-upload job creation:
@@ -45,9 +45,9 @@ direct-upload job creation:
 | `POST /jobs` | Validates one direct-upload intent, commits an owner-bound `upload_pending` row, then returns a short-lived constrained MinIO form. | It does not proxy audio bytes, confirm that MinIO received them, publish RabbitMQ work, calculate quota, or run processing. |
 | `GET /jobs/{job_id}` | Returns one non-expired snapshot only when its UUID and verified `sub` both match. Verified source/stem/MIDI objects receive fresh short-lived MinIO download URLs after each key is checked against that Job. | It does not reveal whether a 404 is missing, expired, or owned by another user; it does not fetch or proxy object bytes, alter status, or publish work. |
 
-The digest-pinned [`Dockerfile`](../../services/api/Dockerfile) starts the ASGI application as an
+The digest-pinned [`Dockerfile`](../../services/job-api/Dockerfile) starts the ASGI application as an
 unprivileged user on container port 8080. Its
-[`requirements.lock`](../../services/api/requirements.lock) pins FastAPI, Uvicorn, and every
+[`requirements.lock`](../../services/job-api/requirements.lock) pins FastAPI, Uvicorn, and every
 resolved transitive dependency with hashes. The `pydantic-core` wheel hash is
 for `linux/arm64` and Python 3.12, matching the current Apple-Silicon k3d
 nodes. A future `linux/amd64` image task must add the reviewed x86_64 wheel
@@ -65,10 +65,10 @@ omissions are intentional task boundaries, not missing runtime configuration.
 ## PostgreSQL identity
 
 The API will not connect as PostgreSQL's `clouddsp-admin` administrator. The
-one-shot [`job-api-database-bootstrap-job.yaml`](../../services/api/job-api-database-bootstrap-job.yaml)
+one-shot [`job-api-database-bootstrap-job.yaml`](../../services/job-api/job-api-database-bootstrap-job.yaml)
 creates the isolated `clouddsp_job_api` database and its only application login,
 `clouddsp-job-api`. The future API Pod receives that login through the
-namespaced [`job-api-database-credentials.secret.example.yaml`](../../services/api/job-api-database-credentials.secret.example.yaml)
+namespaced [`job-api-database-credentials.secret.example.yaml`](../../services/job-api/job-api-database-credentials.secret.example.yaml)
 Secret in `clouddsp-app`.
 
 PostgreSQL calls this a **role**: it is the database identity used after the
@@ -79,7 +79,7 @@ uses the administrator credential only to create this restricted identity, then
 authenticates as the restricted identity to prove the future API can connect.
 
 The versioned
-[`job-api-database-bootstrap.rb`](../../scripts/job-api-database-bootstrap.rb)
+[`job-api-database-bootstrap.rb`](../../scripts/stages/database/job-api-database-bootstrap.rb)
 stage checks the live PostgreSQL database/role/schema metadata before running
 that fixed-name Job. Its `reconcile` mode creates the Job only when both the
 database and role are absent, compares ignored local credentials with the live
@@ -87,7 +87,7 @@ runtime Secret before doing so, then removes the temporary bootstrap Secret
 after PostgreSQL confirms the expected owner and grants. Existing drift needs
 inspection or a separate password-rotation procedure.
 
-For deployment, [`job-api-postgresql-stage.rb`](../../scripts/job-api-postgresql-stage.rb)
+For deployment, [`job-api-postgresql-stage.rb`](../../scripts/stages/database/job-api-postgresql-stage.rb)
 runs this bootstrap before the versioned schema migrations. A fresh-cluster
 `plan` defers ledger inspection until the database exists; `reconcile` starts
 migrations only after the database runner verifies the owner and grants.
@@ -104,7 +104,7 @@ identity before the API gains any write route:
   is a short-lived administrator-only Job. It creates the bucket if needed,
   explicitly removes anonymous access, creates or rotates the application S3
   user, attaches the narrow policy, and then removes its temporary root alias.
-- [`job-api-minio-credentials.secret.example.yaml`](../../services/api/job-api-minio-credentials.secret.example.yaml)
+- [`job-api-minio-credentials.secret.example.yaml`](../../services/job-api/job-api-minio-credentials.secret.example.yaml)
   is the namespaced runtime credential template for the future API Deployment.
   It contains only the application access/secret key, never MinIO's root
   administrator credentials.
@@ -142,9 +142,9 @@ after its owner-filtered PostgreSQL query returns verified object coordinates.
 The source `POST /jobs` route reads and validates the same settings when it
 needs to locally sign an upload form; presigning itself makes no MinIO request.
 The source-level
-[`app/object_storage.py`](../../services/api/app/object_storage.py) parser and its focused unit
+[`app/object_storage.py`](../../services/job-api/app/object_storage.py) parser and its focused unit
 tests validate the Pod's endpoint/credential contract. The separately focused
-[`app/presigned_upload.py`](../../services/api/app/presigned_upload.py) helper now uses pinned
+[`app/presigned_upload.py`](../../services/job-api/app/presigned_upload.py) helper now uses pinned
 `boto3`/`botocore` to calculate a constrained Signature V4 POST **locally**;
 it does not call MinIO or open a network connection. For a canonical job UUID,
 it permits only `uploads/{job-id}/{one-filename}`, one exact content type and
@@ -152,7 +152,7 @@ stem-mode metadata, a one-byte-to-256-MiB range (or a lower caller-supplied
 limit), and a maximum fifteen-minute expiry. Its tests decode the local policy
 to prove those MinIO-enforced constraints and patch the HTTP transport to prove
 that presigning performs no I/O. The separately pure
-[`app/direct_upload_contract.py`](../../services/api/app/direct_upload_contract.py) now defines
+[`app/direct_upload_contract.py`](../../services/job-api/app/direct_upload_contract.py) now defines
 and tests the direct-upload request/201-response shapes: it accepts only a
 safe supported-audio filename/type/size/stem-mode pair and makes server-owned
 fields such as owner, status, bucket, object key, and MinIO form fields
@@ -182,9 +182,9 @@ an upload-intake or worker task.
 
 ## Initial jobs schema (migration v001)
 
-[`job-api-schema-migration-v001-configmap.yaml`](../../services/api/job-api-schema-migration-v001-configmap.yaml)
+[`job-api-schema-migration-v001-configmap.yaml`](../../services/job-api/job-api-schema-migration-v001-configmap.yaml)
 holds non-secret SQL as an immutable ConfigMap. The companion
-[`job-api-schema-migration-v001-job.yaml`](../../services/api/job-api-schema-migration-v001-job.yaml)
+[`job-api-schema-migration-v001-job.yaml`](../../services/job-api/job-api-schema-migration-v001-job.yaml)
 mounts that file and executes it through the PostgreSQL ClusterIP Service using
 only the API credential in `clouddsp-app`.
 
@@ -206,11 +206,11 @@ grants the intake role only the columns needed to insert its initial
 `pending` Demucs event. It still cannot publish RabbitMQ work, inspect or
 update outbox rows, or run a dispatcher; those remain separate small tasks.
 
-The applied [`v004 downstream-outbox migration`](../../services/api/job-api-schema-migration-v004-downstream-outbox-configmap.yaml)
+The applied [`v004 downstream-outbox migration`](../../services/job-api/job-api-schema-migration-v004-downstream-outbox-configmap.yaml)
 retains v002's idempotency/publication-state fields while allowing only
 per-stem `basic-pitch.requested` and `adtof.requested` records after Demucs
 completes. The applied
-[`v005 Basic Pitch processing-task migration`](../../services/api/job-api-schema-migration-v005-basic-pitch-processing-tasks-configmap.yaml)
+[`v005 Basic Pitch processing-task migration`](../../services/job-api/job-api-schema-migration-v005-basic-pitch-processing-tasks-configmap.yaml)
 is the separate task-table evolution. It replaces only v003's Demucs-only stage,
 stem, and input-key checks with one compound constraint: a Demucs task still
 uses its job-wide `uploads/{job-id}/...` source, while Basic Pitch can use only
@@ -223,9 +223,9 @@ future Basic Pitch database role or worker image remains separate work; neither
 is implied by this documentation.
 
 The applied
-[`v006 ADTOF processing-task ConfigMap`](../../services/api/job-api-schema-migration-v006-adtof-processing-tasks-configmap.yaml)
+[`v006 ADTOF processing-task ConfigMap`](../../services/job-api/job-api-schema-migration-v006-adtof-processing-tasks-configmap.yaml)
 and its matching
-[`one-shot migration Job`](../../services/api/job-api-schema-migration-v006-adtof-processing-tasks-job.yaml)
+[`one-shot migration Job`](../../services/job-api/job-api-schema-migration-v006-adtof-processing-tasks-job.yaml)
 extend only that same compound task-coordinate check. They add the one legal
 ADTOF coordinate—`(stage='adtof', stem_name='drums',
 input_object_key='stems/{job-id}/drums.wav')`—while preserving Demucs and Basic
@@ -239,9 +239,9 @@ deliberately separate from all ADTOF worker credentials and workloads.
 
 ## Durable outputs and parent Job finalization (migration v007)
 
-[`job-api-schema-migration-v007-job-finalization-configmap.yaml`](../../services/api/job-api-schema-migration-v007-job-finalization-configmap.yaml)
+[`job-api-schema-migration-v007-job-finalization-configmap.yaml`](../../services/job-api/job-api-schema-migration-v007-job-finalization-configmap.yaml)
 and its one-shot
-[`migration Job`](../../services/api/job-api-schema-migration-v007-job-finalization-job.yaml)
+[`migration Job`](../../services/job-api/job-api-schema-migration-v007-job-finalization-job.yaml)
 install the missing parent-state aggregate. Basic Pitch records its verified
 MIDI object key, byte count, and SHA-256 in `jobs.midi` in the same transaction
 that marks its exact current task lease succeeded. A deferred PostgreSQL
@@ -255,8 +255,8 @@ worker roles cannot directly select the terminal status. The migration also
 reconciles already-finished legacy tasks/jobs without inventing hashes.
 
 Migration v008
-([`ConfigMap`](../../services/api/job-api-schema-migration-v008-partial-task-finalization-configmap.yaml),
-[`Job`](../../services/api/job-api-schema-migration-v008-partial-task-finalization-job.yaml))
+([`ConfigMap`](../../services/job-api/job-api-schema-migration-v008-partial-task-finalization-configmap.yaml),
+[`Job`](../../services/job-api/job-api-schema-migration-v008-partial-task-finalization-job.yaml))
 corrects one asynchronous-registration edge case in the v007 aggregate. The
 dispatcher may publish a Demucs completion event before all expected
 Basic-Pitch/ADTOF task rows have been registered. A completed first task must
@@ -267,8 +267,8 @@ explicit terminal child failure or malformed/extra task rows. It preserves
 v007 and records its own immutable migration-ledger entry.
 
 Migration v009
-([`ConfigMap`](../../services/api/job-api-schema-migration-v009-tempo-resolution-configmap.yaml),
-[`Job`](../../services/api/job-api-schema-migration-v009-tempo-resolution-job.yaml)) restores the
+([`ConfigMap`](../../services/job-api/job-api-schema-migration-v009-tempo-resolution-configmap.yaml),
+[`Job`](../../services/job-api/job-api-schema-migration-v009-tempo-resolution-job.yaml)) restores the
 cloud BPM contract in local PostgreSQL. Each verified MIDI-state update
 recalculates the top-level `jobs.tempo` field inside that same row write, so
 the browser receives the resolved BPM from its normal job snapshot. A credible
@@ -321,7 +321,7 @@ applied in this task.
 
 ## PostgreSQL readiness boundary
 
-[`app/database.py`](../../services/api/app/database.py) centralizes the connection settings read
+[`app/database.py`](../../services/job-api/app/database.py) centralizes the connection settings read
 from the API's namespaced Secret. `GET /healthz` remains dependency-free, while
 `GET /readyz` opens a bounded Psycopg connection through
 `clouddsp-postgresql.clouddsp-data.svc` and runs `SELECT 1`. Source-level
@@ -345,7 +345,7 @@ wheel raised `Illegal instruction` during a real RSA operation in this Docker
 Desktop environment. The selected wheel was verified with the same operation;
 revisiting the pin belongs to a deliberate Docker Desktop compatibility task.
 
-The local [`../../scripts/verify-job-api-local-image.sh`](../../scripts/verify-job-api-local-image.sh)
+The local [`../../scripts/verify-job-api-local-image.sh`](../../scripts/images/verify-job-api-local-image.sh)
 smoke test runs the immutable image without a network or database Secret. It
 therefore proves `healthz` is dependency-free and `readyz` fails closed with a
 safe configuration error. A future Kubernetes Deployment task will instead
@@ -353,7 +353,7 @@ inject the Secret and prove `readyz` reaches PostgreSQL through Service DNS.
 
 ## First API Deployment
 
-[`job-api-deployment.yaml`](../../services/api/job-api-deployment.yaml) runs one non-root,
+[`job-api-deployment.yaml`](../../services/job-api/job-api-deployment.yaml) runs one non-root,
 read-only API Pod from `images.job-api.immutableReference`. It injects only the
 three API database Secret values, routes to PostgreSQL through its fully
 qualified ClusterIP Service DNS name, and separates a dependency-free liveness
@@ -364,11 +364,11 @@ run in the Pod until a later explicit Deployment image update and rollout.
 
 ## Internal API Service
 
-[`job-api-service.yaml`](../../services/api/job-api-service.yaml) selects ready Job API Pods and
+[`job-api-service.yaml`](../../services/job-api/job-api-service.yaml) selects ready Job API Pods and
 offers them as
 `clouddsp-job-api.clouddsp-app.svc:80`. The Service maps port 80 to the
 container port named `http` (8080). It creates no Mac port itself. The applied
-[`job-api-ingress.yaml`](../../services/api/job-api-ingress.yaml) routes only `/auth/*` and
+[`job-api-ingress.yaml`](../../services/job-api/job-api-ingress.yaml) routes only `/auth/*` and
 `/jobs/*` from the browser to this stable Service rather than to a changing Pod
 IP.
 

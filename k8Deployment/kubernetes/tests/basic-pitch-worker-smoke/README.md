@@ -206,7 +206,7 @@ instead, so it never competes for a queue message.
 The worker smoke is now an explicit verification command for this release:
 
 ```bash
-./k8Deployment/kubernetes/scripts/basic-pitch-release.rb smoke
+./k8Deployment/kubernetes/scripts/releases/basic-pitch-release.rb smoke
 ```
 
 Investigate any failed fixed-coordinate run before using the guarded cleanup

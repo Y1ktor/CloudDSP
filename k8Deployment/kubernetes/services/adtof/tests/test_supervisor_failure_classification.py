@@ -9,18 +9,18 @@ from __future__ import annotations
 
 import unittest
 
-from app.adtof_cpu_process import ADTOFCPUProcessFailed, ADTOFCPUProcessUnavailable
-from app.amqp_channel import ADTOFAMQPChannelUnavailable
-from app.amqp_connection import ADTOFAMQPConfigurationError, ADTOFAMQPConnectionUnavailable
-from app.amqp_manual_ack import ADTOFAMQPUnavailable
-from app.minio_client import ADTOFMinioConfigurationError
-from app.minio_upload import ADTOFUploadUnavailable
-from app.output_artifact_head_object import ADTOFOutputHeadObjectUnavailable
-from app.postgresql import ADTOFDatabaseConfigurationError, ADTOFDatabaseUnavailable
-from app.stem_download import ADTOFStemDownloadConsistencyError, ADTOFStemDownloadUnavailable
-from app.stem_object import ADTOFStemStorageProtocolError, ADTOFStemStorageUnavailable
-from app.supervisor_backoff import ADTOFSupervisorEvent
-from app.supervisor_failure_classification import classify_adtof_supervisor_failure
+from app.processing.adtof_cpu_process import ADTOFCPUProcessFailed, ADTOFCPUProcessUnavailable
+from app.messaging.amqp_channel import ADTOFAMQPChannelUnavailable
+from app.messaging.amqp_connection import ADTOFAMQPConfigurationError, ADTOFAMQPConnectionUnavailable
+from app.messaging.amqp_manual_ack import ADTOFAMQPUnavailable
+from app.artifacts.minio_client import ADTOFMinioConfigurationError
+from app.artifacts.minio_upload import ADTOFUploadUnavailable
+from app.artifacts.output_artifact_head_object import ADTOFOutputHeadObjectUnavailable
+from app.db.postgresql import ADTOFDatabaseConfigurationError, ADTOFDatabaseUnavailable
+from app.artifacts.stem_download import ADTOFStemDownloadConsistencyError, ADTOFStemDownloadUnavailable
+from app.artifacts.stem_object import ADTOFStemStorageProtocolError, ADTOFStemStorageUnavailable
+from app.runtime.supervisor_backoff import ADTOFSupervisorEvent
+from app.runtime.supervisor_failure_classification import classify_adtof_supervisor_failure
 
 
 class ADTOFSupervisorFailureClassificationTests(unittest.TestCase):

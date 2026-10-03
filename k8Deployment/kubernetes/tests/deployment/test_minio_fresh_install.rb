@@ -1,13 +1,13 @@
 require 'json'
 require 'minitest/autorun'
 
-require_relative '../../scripts/stateless-release'
+require_relative '../../scripts/lib/helm-release'
 
 class MinioFreshInstallTest < Minitest::Test
   # Simulate only the external boundaries. The real runner still performs
   # strict chart/source/schema checks; these cases prove that occupied MinIO
   # identities and either missing Secret stop before Helm creates storage.
-  class FakeMinio < StatelessRelease
+  class FakeMinio < HelmRelease
     attr_accessor :existing_release, :existing_object, :existing_pvc, :orphan_pod,
                   :root_secret_valid, :amqp_secret_valid
     attr_reader :events

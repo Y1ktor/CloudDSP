@@ -151,7 +151,7 @@ artifact; neither is implied by the ARM64 digest.
     direct repeat of the same input wrote both expected stems once
     `torch.backends.mkldnn.enabled` was set to `False` before importing
     `demucs.separate`. The worker now starts its fixed child through
-    `python -m app.demucs_cpu_cli`, which applies and reads back that one
+    `python -m app.processing.demucs_cpu_cli`, which applies and reads back that one
     child-process-only setting before it loads Demucs. A future NVIDIA/GPU
     image must keep a separately validated backend policy rather than copying
     this local CPU workaround. The image validation stage now generates a
@@ -165,7 +165,7 @@ artifact; neither is implied by the ARM64 digest.
     process adapter intentionally invokes each model child with its fresh
     output directory as `cwd`; therefore the earlier module invocation could
     not resolve the image's `/app` package. This revision invokes the same
-    reviewed launcher as `/usr/local/bin/python /app/app/demucs_cpu_cli.py`,
+    reviewed launcher as `/usr/local/bin/python /app/app/processing/demucs_cpu_cli.py`,
     preserving the child-only MKLDNN safeguard without a Pod-wide
     `PYTHONPATH`. Docker now changes into the same output-directory context
     before its real two-second two-stem inference. All 309 source tests,

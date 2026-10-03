@@ -10,20 +10,20 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.amqp_connection import BasicPitchAMQPConfigurationError, BasicPitchAMQPConnectionUnavailable
-from app.basic_pitch_task_execution import (
+from app.messaging.amqp_connection import BasicPitchAMQPConfigurationError, BasicPitchAMQPConnectionUnavailable
+from app.runtime.basic_pitch_task_execution import (
     BasicPitchClaimedTaskExecution,
     BasicPitchClaimedTaskExecutionOutcome,
 )
-from app.receive_execute_once import BasicPitchWorkerIterationOutcome, BasicPitchWorkerIterationResult
-from app.stem_object import BasicPitchStemStorageUnavailable
-from app.supervisor_backoff import BasicPitchSupervisorAction, BasicPitchSupervisorBackoffState, BasicPitchSupervisorEvent
-from app.supervisor_step import (
+from app.runtime.receive_execute_once import BasicPitchWorkerIterationOutcome, BasicPitchWorkerIterationResult
+from app.artifacts.stem_object import BasicPitchStemStorageUnavailable
+from app.runtime.supervisor_backoff import BasicPitchSupervisorAction, BasicPitchSupervisorBackoffState, BasicPitchSupervisorEvent
+from app.runtime.supervisor_step import (
     BasicPitchSupervisorStepState,
     run_one_basic_pitch_supervisor_step,
 )
-from app.work_schedule import BasicPitchWorkScheduleState, BasicPitchWorkSource
-from app.work_source_iteration import BasicPitchFairWorkIterationOutcome, BasicPitchFairWorkIterationResult
+from app.runtime.work_schedule import BasicPitchWorkScheduleState, BasicPitchWorkSource
+from app.runtime.work_source_iteration import BasicPitchFairWorkIterationOutcome, BasicPitchFairWorkIterationResult
 
 
 def progress_iteration() -> BasicPitchFairWorkIterationResult:
@@ -60,7 +60,7 @@ def idle_iteration() -> BasicPitchFairWorkIterationResult:
 class BasicPitchSupervisorStepTests(unittest.TestCase):
     """Prove fair state and bounded backoff state advance only on reviewed facts."""
 
-    @patch("app.supervisor_step.run_one_fair_basic_pitch_work_iteration")
+    @patch("app.runtime.supervisor_step.run_one_fair_basic_pitch_work_iteration")
     def test_normal_progress_advances_fair_state_and_checks_immediately(self, run_iteration) -> None:
         """A completed normal iteration resets prior local failure backoff."""
 
@@ -97,7 +97,7 @@ class BasicPitchSupervisorStepTests(unittest.TestCase):
             process_runner=None,
         )
 
-    @patch("app.supervisor_step.run_one_fair_basic_pitch_work_iteration")
+    @patch("app.runtime.supervisor_step.run_one_fair_basic_pitch_work_iteration")
     def test_two_source_idle_preserves_fair_state_and_uses_existing_idle_wait(self, run_iteration) -> None:
         """A one-second wait happens only after both normal sources were checked."""
 
@@ -116,7 +116,7 @@ class BasicPitchSupervisorStepTests(unittest.TestCase):
         self.assertEqual(step.decision.action, BasicPitchSupervisorAction.WAIT_IDLE)
         self.assertEqual(step.next_state.schedule_state, iteration.next_state)
 
-    @patch("app.supervisor_step.run_one_fair_basic_pitch_work_iteration")
+    @patch("app.runtime.supervisor_step.run_one_fair_basic_pitch_work_iteration")
     def test_retryable_runtime_fault_preserves_fair_preference_and_increments_backoff(
         self, run_iteration
     ) -> None:
@@ -145,7 +145,7 @@ class BasicPitchSupervisorStepTests(unittest.TestCase):
         self.assertEqual(step.next_state.schedule_state, state.schedule_state)
         self.assertEqual(step.next_state.backoff_state.retryable_failure_streak, 1)
 
-    @patch("app.supervisor_step.run_one_fair_basic_pitch_work_iteration")
+    @patch("app.runtime.supervisor_step.run_one_fair_basic_pitch_work_iteration")
     def test_fatal_configuration_returns_exit_without_iteration_evidence(self, run_iteration) -> None:
         """The later loop can exit visibly instead of silently retrying a bad Secret."""
 
@@ -163,7 +163,7 @@ class BasicPitchSupervisorStepTests(unittest.TestCase):
         self.assertEqual(step.decision.action, BasicPitchSupervisorAction.EXIT_FATAL)
         self.assertIsNone(step.iteration)
 
-    @patch("app.supervisor_step.run_one_fair_basic_pitch_work_iteration")
+    @patch("app.runtime.supervisor_step.run_one_fair_basic_pitch_work_iteration")
     def test_unclassified_task_failure_propagates_unchanged(self, run_iteration) -> None:
         """A generic supervisor decision must not replace task-specific handling."""
 

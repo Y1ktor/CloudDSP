@@ -1,9 +1,9 @@
 require 'minitest/autorun'
 
-require_relative '../../scripts/stateless-release'
+require_relative '../../scripts/lib/helm-release'
 
 class MailpitFreshInstallTest < Minitest::Test
-  class FakeMailpit < StatelessRelease
+  class FakeMailpit < HelmRelease
     attr_accessor :existing_release, :existing_object
     attr_reader :events
 

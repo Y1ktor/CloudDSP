@@ -103,8 +103,8 @@ On a prepared cluster where this release/resources are absent, install the
 component; use `verify` for an existing Helm release:
 
 ```bash
-./k8Deployment/kubernetes/scripts/upload-intake-release.rb install
-./k8Deployment/kubernetes/scripts/upload-intake-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/upload-intake-release.rb install
+./k8Deployment/kubernetes/scripts/releases/upload-intake-release.rb verify
 ```
 
 The helper checks prerequisite identity/topology/IAM stages and rejects conflicts.
@@ -142,7 +142,7 @@ implemented operator command reuses the running intake Pod's restricted clients
 and the normal verification/transaction handler:
 
 ```bash
-./k8Deployment/kubernetes/scripts/reconcile-one-upload-intake-job.sh CANONICAL_JOB_UUID
+./k8Deployment/kubernetes/scripts/maintenance/reconcile-one-upload-intake-job.sh CANONICAL_JOB_UUID
 ```
 
 It reads the exact stored source key from PostgreSQL; it accepts no bucket/path
@@ -158,7 +158,7 @@ For diagnosis without exposing credentials:
 
 ```bash
 kubectl --context k3d-clouddsp-local -n clouddsp-app logs deployment/clouddsp-upload-intake --tail=100
-./k8Deployment/kubernetes/scripts/upload-intake-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/upload-intake-release.rb verify
 ```
 
 The complete initial contract, staged adapter implementation, and historical

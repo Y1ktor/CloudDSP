@@ -13,7 +13,7 @@ owns the live Deployment, Service, and Ingress.
 From the repository root:
 
 ```bash
-./k8Deployment/kubernetes/scripts/build-frontend-image.sh
+./k8Deployment/kubernetes/scripts/images/build-frontend-image.sh
 ```
 
 The helper requires Docker with BuildKit, the dedicated

@@ -11,7 +11,7 @@ import os
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.minio_client import (
+from app.artifacts.minio_client import (
     ADTOF_MINIO_CONNECT_TIMEOUT_SECONDS,
     ADTOF_MINIO_MAX_ATTEMPTS,
     ADTOF_MINIO_READ_TIMEOUT_SECONDS,
@@ -111,7 +111,7 @@ class ADTOFMinioSettingsTests(unittest.TestCase):
                 with self.assertRaises(ADTOFMinioConfigurationError):
                     self.settings_from(overrides)
 
-    @patch("app.minio_client._load_boto3_client_factories")
+    @patch("app.artifacts.minio_client._load_boto3_client_factories")
     def test_direct_settings_cannot_redirect_credentials_before_sdk_load(self, loader) -> None:
         """Frozen dataclass construction cannot bypass the endpoint/bucket contract."""
 
@@ -129,7 +129,7 @@ class ADTOFMinioSettingsTests(unittest.TestCase):
 
         loader.assert_not_called()
 
-    @patch("app.minio_client._load_boto3_client_factories")
+    @patch("app.artifacts.minio_client._load_boto3_client_factories")
     def test_factory_uses_explicit_minio_credentials_path_style_and_time_bounds(self, loader) -> None:
         """Patched construction proves client creation itself opens no connection."""
 

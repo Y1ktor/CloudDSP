@@ -12,15 +12,15 @@ from pathlib import Path
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.acknowledged_lease_preflight import DemucsAcknowledgedLeaseSourceWorkspace
-from app.preflight_task_start import DemucsRunningSource
-from app.running_source_workspace import (
+from app.runtime.acknowledged_lease_preflight import DemucsAcknowledgedLeaseSourceWorkspace
+from app.db.preflight_task_start import DemucsRunningSource
+from app.processing.running_source_workspace import (
     DemucsRunningSourceWorkspace,
     DemucsRunningSourceWorkspaceProtocolError,
     opened_running_demucs_source_workspace,
 )
-from app.source_preflight import ValidatedDemucsSource
-from app.task_lease import DemucsTaskLease
+from app.processing.source_preflight import ValidatedDemucsSource
+from app.db.task_lease import DemucsTaskLease
 
 
 JOB_ID = "08ec1d44-3106-4fcb-91c8-5d0c78e7e046"
@@ -63,7 +63,7 @@ def acknowledged_source_workspace() -> DemucsAcknowledgedLeaseSourceWorkspace:
 class RunningSourceWorkspaceTests(unittest.TestCase):
     """Prove no model-eligible path appears before durable lease ownership."""
 
-    @patch("app.running_source_workspace.start_preflight_validated_demucs_task")
+    @patch("app.processing.running_source_workspace.start_preflight_validated_demucs_task")
     def test_committed_start_yields_the_same_lease_source_and_temporary_path(self, start) -> None:
         """The local bytes cannot be rebound to another durable task after start."""
 
@@ -93,7 +93,7 @@ class RunningSourceWorkspaceTests(unittest.TestCase):
             preflight=source_workspace.preflight,
         )
 
-    @patch("app.running_source_workspace.start_preflight_validated_demucs_task")
+    @patch("app.processing.running_source_workspace.start_preflight_validated_demucs_task")
     def test_ownership_loss_yields_none_and_never_creates_model_eligibility(self, start) -> None:
         """An expired/recovered lease must leave the source scope without CPU work."""
 
@@ -112,7 +112,7 @@ class RunningSourceWorkspaceTests(unittest.TestCase):
             preflight=source_workspace.preflight,
         )
 
-    @patch("app.running_source_workspace.start_preflight_validated_demucs_task")
+    @patch("app.processing.running_source_workspace.start_preflight_validated_demucs_task")
     def test_mismatched_database_handoff_is_rejected_before_a_model_path_is_yielded(self, start) -> None:
         """A mocked/alternate adapter cannot authorize another task's source bytes."""
 

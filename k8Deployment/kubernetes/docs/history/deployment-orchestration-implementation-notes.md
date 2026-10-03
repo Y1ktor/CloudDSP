@@ -220,7 +220,7 @@ failure.
 | 7. Browser route | Reconcile frontend after public Keycloak/API/MinIO configuration is checked; verify ingress resources. | Frontend Ready; authenticated browser/API routing check passes. |
 | 8. Verification | Run a small non-destructive smoke first, then the reviewed end-to-end suite. | Login, direct upload, processing to terminal state, MIDI/artifact access, polling recovery, and selected failure/idempotency checks pass. Record report and release revisions. |
 
-The standalone [fresh-cluster foundation stage](../../scripts/deploy-local-foundation.rb)
+The standalone [fresh-cluster foundation stage](../../scripts/orchestration/deploy-local-foundation.rb)
 now implements stage 1's cluster and namespace creation guard. It requires the
 target k3d cluster to be absent, creates or reuses the dedicated registry,
 creates the three versioned namespaces, and verifies nodes, registry,
@@ -228,7 +228,7 @@ and packaged system controllers. It is not yet the root `bootstrap` command;
 image availability, releases, and external-state stages still need fresh-path
 orchestration.
 
-The standalone [image registry stage](../../scripts/image-registry-stage.rb) now
+The standalone [image registry stage](../../scripts/images/image-registry-stage.rb) now
 implements stage 1a's source-to-Docker-Hub publication and read-only digest
 verification for all 18 Linux ARM64 local images. It can mirror missing
 digest-pinned images from public `y1ktor/clouddsp` into the local registry.
@@ -438,18 +438,18 @@ external effect disappeared. Therefore:
    instruction in its tempo step; the dual-trigger scaler, six-minute
    scale-down window, and portable Numba CPU setting resolved both issues.
 6. **Bootstrap/migration stage runners — Job API PostgreSQL slice implemented.**
-   The [combined stage](../../scripts/job-api-postgresql-stage.rb) orders database
+   The [combined stage](../../scripts/stages/database/job-api-postgresql-stage.rb) orders database
    bootstrap before schema migrations for `plan`, `verify`, and `reconcile`.
-   The [database bootstrap runner](../../scripts/job-api-database-bootstrap.rb)
+   The [database bootstrap runner](../../scripts/stages/database/job-api-database-bootstrap.rb)
    verifies the isolated database, restricted role, owner, and grants before
    creating its versioned Job when both are absent. The
-   [migration runner](../../scripts/job-api-migrations.rb) then audits the exact
+   [migration runner](../../scripts/stages/database/job-api-migrations.rb) then audits the exact
    PostgreSQL ledger prefix and immutable SQL ConfigMaps, running only missing
    versioned Jobs in numeric order. The
-   [RabbitMQ processing-topology runner](../../scripts/rabbitmq-processing-topology.rb)
+   [RabbitMQ processing-topology runner](../../scripts/stages/rabbitmq/rabbitmq-processing-topology.rb)
    audits the broker's actual v001/v002 exchanges, queue arguments, and
    bindings before it imports an entirely absent version. The
-   [source-intake broker runner](../../scripts/rabbitmq-source-intake-bootstrap.rb)
+   [source-intake broker runner](../../scripts/stages/rabbitmq/rabbitmq-source-intake-bootstrap.rb)
    audits its separate topology and restricted MinIO/upload-intake users,
    including credential authentication, before a fresh import. Other service
    roles, remaining RabbitMQ identities, MinIO IAM, and Keycloak
@@ -469,7 +469,7 @@ external effect disappeared. Therefore:
    then test a disposable cluster, repeated reconcile, and the product smoke
    suite.
 8. **Fresh-cluster foundation — standalone stage implemented.** The
-   [foundation runner](../../scripts/deploy-local-foundation.rb) strictly refuses an
+   [foundation runner](../../scripts/orchestration/deploy-local-foundation.rb) strictly refuses an
    existing cluster, creates the reviewed k3d topology with a new or retained
    registry, and creates the
    project namespaces, and verifies three Ready nodes, registry access, and

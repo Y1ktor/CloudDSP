@@ -11,12 +11,12 @@ from datetime import UTC, datetime
 from typing import Mapping
 import unittest
 
-from app.recovery_request import (
+from app.db.recovery_request import (
     READ_CURRENT_ADTOF_RECOVERY_REQUEST_SQL,
     ADTOFRecoveryRequestProtocolError,
     read_current_adtof_recovery_request,
 )
-from app.task_claim import ADTOFTaskLease
+from app.db.task_claim import ADTOFTaskLease
 
 
 EVENT_ID = "93b31df9-ea8c-46bb-b2c0-19e9db5365d5"

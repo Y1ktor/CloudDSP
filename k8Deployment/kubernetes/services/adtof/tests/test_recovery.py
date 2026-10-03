@@ -14,14 +14,14 @@ import unittest
 from unittest.mock import patch
 from uuid import UUID
 
-from app.adtof_requested_message import ADTOFRequestedMessage
-from app.recovery import (
+from app.messaging.adtof_requested_message import ADTOFRequestedMessage
+from app.db.recovery import (
     ADTOFRecoveredTask,
     recover_one_expired_adtof_task,
     terminalize_one_expired_exhausted_adtof_task,
 )
-from app.recovery_request import ADTOFRecoveryRequestProtocolError
-from app.task_claim import ADTOFExpiredLeaseTerminalization, ADTOFTaskLease
+from app.db.recovery_request import ADTOFRecoveryRequestProtocolError
+from app.db.task_claim import ADTOFExpiredLeaseTerminalization, ADTOFTaskLease
 
 
 EVENT_ID = "93b31df9-ea8c-46bb-b2c0-19e9db5365d5"
@@ -125,8 +125,8 @@ class FixedUuidFactory:
 class ADTOFRecoveryCompositionTests(unittest.TestCase):
     """Prove no committed recovery lease exists without strict request evidence."""
 
-    @patch("app.recovery.read_current_adtof_recovery_request")
-    @patch("app.recovery.claim_next_expired_adtof_task")
+    @patch("app.db.recovery.read_current_adtof_recovery_request")
+    @patch("app.db.recovery.claim_next_expired_adtof_task")
     def test_idle_scan_commits_without_calling_the_reader(self, claim, reader) -> None:
         """No candidate is normal idle and made no mutation that needs rollback."""
 
@@ -144,8 +144,8 @@ class ADTOFRecoveryCompositionTests(unittest.TestCase):
         )
         reader.assert_not_called()
 
-    @patch("app.recovery.read_current_adtof_recovery_request")
-    @patch("app.recovery.claim_next_expired_adtof_task")
+    @patch("app.db.recovery.read_current_adtof_recovery_request")
+    @patch("app.db.recovery.claim_next_expired_adtof_task")
     def test_complete_pair_commits_after_claim_then_reader(self, claim, reader) -> None:
         """The exact same cursor carries lock-protected claim and event proof."""
 
@@ -173,8 +173,8 @@ class ADTOFRecoveryCompositionTests(unittest.TestCase):
         )
         reader.assert_called_once_with(database.cursor, lease=lease)
 
-    @patch("app.recovery.read_current_adtof_recovery_request")
-    @patch("app.recovery.claim_next_expired_adtof_task")
+    @patch("app.db.recovery.read_current_adtof_recovery_request")
+    @patch("app.db.recovery.claim_next_expired_adtof_task")
     def test_reader_ownership_loss_rolls_back_the_fresh_lease(self, claim, reader) -> None:
         """A claimed token without evidence must never become a durable orphan."""
 
@@ -189,8 +189,8 @@ class ADTOFRecoveryCompositionTests(unittest.TestCase):
         self.assertEqual(database.events, ["transaction-open", "transaction-rollback"])
         reader.assert_called_once_with(database.cursor, lease=lease)
 
-    @patch("app.recovery.read_current_adtof_recovery_request")
-    @patch("app.recovery.claim_next_expired_adtof_task")
+    @patch("app.db.recovery.read_current_adtof_recovery_request")
+    @patch("app.db.recovery.claim_next_expired_adtof_task")
     def test_unsafe_event_evidence_rolls_back_and_propagates(self, claim, reader) -> None:
         """Protocol failure is not converted to idle after an otherwise-valid claim."""
 
@@ -205,8 +205,8 @@ class ADTOFRecoveryCompositionTests(unittest.TestCase):
 
         self.assertEqual(database.events, ["transaction-open", "transaction-rollback"])
 
-    @patch("app.recovery.read_current_adtof_recovery_request")
-    @patch("app.recovery.claim_next_expired_adtof_task")
+    @patch("app.db.recovery.read_current_adtof_recovery_request")
+    @patch("app.db.recovery.claim_next_expired_adtof_task")
     def test_connection_failure_reaches_neither_pure_boundary(self, claim, reader) -> None:
         """A failed context entry cannot create a claim or attempt an outbox read."""
 
@@ -220,7 +220,7 @@ class ADTOFRecoveryCompositionTests(unittest.TestCase):
 class ADTOFExpiredLeaseTerminalizationCompositionTests(unittest.TestCase):
     """Prove exhausted-lease failure is its own short committed transaction."""
 
-    @patch("app.recovery.finalize_next_expired_exhausted_adtof_task")
+    @patch("app.db.recovery.finalize_next_expired_exhausted_adtof_task")
     def test_idle_terminalization_scan_commits_without_claiming_recovery_work(self, finalize) -> None:
         """No exhausted candidate is normal no-mutation progress."""
 
@@ -233,7 +233,7 @@ class ADTOFExpiredLeaseTerminalizationCompositionTests(unittest.TestCase):
         self.assertEqual(database.events, ["transaction-open", "transaction-commit"])
         finalize.assert_called_once_with(database.cursor)
 
-    @patch("app.recovery.finalize_next_expired_exhausted_adtof_task")
+    @patch("app.db.recovery.finalize_next_expired_exhausted_adtof_task")
     def test_terminalization_commits_exact_evidence(self, finalize) -> None:
         """The separate aggregate can later inspect this task-level failure."""
 
@@ -244,7 +244,7 @@ class ADTOFExpiredLeaseTerminalizationCompositionTests(unittest.TestCase):
         self.assertIs(terminalize_one_expired_exhausted_adtof_task(database=database), evidence)
         self.assertEqual(database.events, ["transaction-open", "transaction-commit"])
 
-    @patch("app.recovery.finalize_next_expired_exhausted_adtof_task")
+    @patch("app.db.recovery.finalize_next_expired_exhausted_adtof_task")
     def test_invalid_terminalization_rolls_back_instead_of_committing_untrusted_state(self, finalize) -> None:
         """A future adapter cannot report progress from an unchecked object."""
 

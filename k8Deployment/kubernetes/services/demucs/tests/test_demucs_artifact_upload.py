@@ -11,12 +11,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.demucs_artifact_upload import (
+from app.artifacts.demucs_artifact_upload import (
     DemucsArtifactUploadConsistencyError,
     DemucsArtifactUploadUnavailable,
     upload_demucs_stem_object,
 )
-from app.demucs_output_object import DemucsStemOutputObject
+from app.artifacts.demucs_output_object import DemucsStemOutputObject
 
 
 JOB_ID = "11111111-1111-4111-8111-111111111111"

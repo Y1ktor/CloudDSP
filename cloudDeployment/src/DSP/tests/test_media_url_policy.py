@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 
-CLOUD_SOURCE_ROOT = Path(__file__).resolve().parents[1] / "src" / "Cloud"
+CLOUD_SOURCE_ROOT = Path(__file__).resolve().parents[1] / "cloud"
 sys.path.insert(0, str(CLOUD_SOURCE_ROOT))
 
 from media_url_policy import MediaUrlPolicyError, validate_allowlisted_media_url

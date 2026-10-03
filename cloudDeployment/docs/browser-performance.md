@@ -67,7 +67,7 @@ AudioContext clock
 React state (one-Hz position/readout updates, controls, edits, status)
 ```
 
-`AudioMultiTrackPlayer` updates `transportRef` every frame from
+`useAudioMultiTrackPlayer` updates `transportRef` every frame from
 `AudioContext.currentTime`, but commits its React `progress` state only once a
 second; the visible readout displays whole seconds. This means a delayed Safari
 frame advances the next playhead draw to

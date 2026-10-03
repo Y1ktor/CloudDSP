@@ -9,9 +9,9 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.amqp_channel import ADTOFAMQPChannelUnavailable
-from app.amqp_connection import DEFAULT_ADTOF_AMQP_HOST, ADTOFAMQPConnectionUnavailable, ADTOFAMQPSettings
-from app.amqp_session import opened_adtof_rabbitmq_session
+from app.messaging.amqp_channel import ADTOFAMQPChannelUnavailable
+from app.messaging.amqp_connection import DEFAULT_ADTOF_AMQP_HOST, ADTOFAMQPConnectionUnavailable, ADTOFAMQPSettings
+from app.messaging.amqp_session import opened_adtof_rabbitmq_session
 
 
 def settings() -> ADTOFAMQPSettings:
@@ -46,8 +46,8 @@ class RecordingResource:
 class ADTOFAMQPSessionTests(unittest.TestCase):
     """Prove prepared channels are yielded and both Pika resources are closed."""
 
-    @patch("app.amqp_session.configure_adtof_rabbitmq_channel")
-    @patch("app.amqp_session.open_adtof_rabbitmq_connection")
+    @patch("app.messaging.amqp_session.configure_adtof_rabbitmq_channel")
+    @patch("app.messaging.amqp_session.open_adtof_rabbitmq_connection")
     def test_prepares_channel_then_closes_channel_before_connection(self, open_connection, configure) -> None:
         """The loop sees only a prepared channel, not an unconfigured socket."""
 
@@ -65,8 +65,8 @@ class ADTOFAMQPSessionTests(unittest.TestCase):
         configure.assert_called_once_with(channel, settings=settings())
         self.assertEqual(events, ["close-channel", "close-connection"])
 
-    @patch("app.amqp_session.configure_adtof_rabbitmq_channel")
-    @patch("app.amqp_session.open_adtof_rabbitmq_connection")
+    @patch("app.messaging.amqp_session.configure_adtof_rabbitmq_channel")
+    @patch("app.messaging.amqp_session.open_adtof_rabbitmq_connection")
     def test_setup_or_body_failure_closes_resources_without_hiding_original_error(self, open_connection, configure) -> None:
         """Topology and worker failures cannot leak a socket or be relabeled by cleanup."""
 
@@ -97,8 +97,8 @@ class ADTOFAMQPSessionTests(unittest.TestCase):
 
                 self.assertEqual(events, ["close-channel", "close-connection"])
 
-    @patch("app.amqp_session.configure_adtof_rabbitmq_channel")
-    @patch("app.amqp_session.open_adtof_rabbitmq_connection")
+    @patch("app.messaging.amqp_session.configure_adtof_rabbitmq_channel")
+    @patch("app.messaging.amqp_session.open_adtof_rabbitmq_connection")
     def test_cleanup_failure_after_normal_exit_is_redacted_and_still_closes_connection(self, open_connection, configure) -> None:
         """A broken channel close cannot leak the connection or expose driver text."""
 
@@ -116,8 +116,8 @@ class ADTOFAMQPSessionTests(unittest.TestCase):
         self.assertNotIn("private close diagnostic", str(raised.exception))
         self.assertEqual(events, ["close-channel", "close-connection"])
 
-    @patch("app.amqp_session.configure_adtof_rabbitmq_channel")
-    @patch("app.amqp_session.open_adtof_rabbitmq_connection")
+    @patch("app.messaging.amqp_session.configure_adtof_rabbitmq_channel")
+    @patch("app.messaging.amqp_session.open_adtof_rabbitmq_connection")
     def test_connection_failure_does_not_invent_channel_or_cleanup_work(self, open_connection, configure) -> None:
         """The reviewed factory error remains the outer retryable failure category."""
 

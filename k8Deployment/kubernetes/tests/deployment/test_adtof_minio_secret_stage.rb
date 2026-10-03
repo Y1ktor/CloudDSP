@@ -5,7 +5,7 @@ require 'stringio'
 require 'tmpdir'
 require 'yaml'
 
-require_relative '../../scripts/adtof-minio-secret-stage'
+require_relative '../../scripts/stages/credentials/adtof-minio-secret-stage'
 
 class ADTOFMinioSecretStageTest < Minitest::Test
   Status = Struct.new(:exitstatus) do

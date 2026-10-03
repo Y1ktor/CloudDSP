@@ -80,7 +80,7 @@ The body must have exactly these fields and no browser/API extras:
 ```
 
 The first pure
-[`Demucs request parser`](../../services/demucs/app/demucs_requested_message.py) now enforces this
+[`Demucs request parser`](../../services/demucs/app/messaging/demucs_requested_message.py) now enforces this
 boundary before a future worker makes any database or object-storage call. It
 accepts only the exact exchange/routing key and AMQP properties above,
 canonical lowercase UUID text, one UTF-8 JSON object at most 4 KiB, and the
@@ -90,7 +90,7 @@ bucket, and nested/other-job source paths through one safe error category. Its
 unit tests use no broker or cluster; the later AMQP adapter will turn that
 specific malformed-message error into `basic_nack(requeue=False)`.
 
-The pure [`PostgreSQL task-lease adapter`](../../services/demucs/app/task_lease.py) now supplies the
+The pure [`PostgreSQL task-lease adapter`](../../services/demucs/app/db/task_lease.py) now supplies the
 next boundary, still without opening a connection or committing a transaction.
 For a first parsed delivery it locks an existing canonical task, locks the Job,
 then locks the task again before it inserts a 15-minute lease. The repeated task
@@ -103,7 +103,7 @@ renewal requires both the current token and an unexpired lease. It never grants
 a fourth attempt: an expired third attempt is reserved for a separate guarded
 terminal-failure transition.
 
-The pure [`MinIO HeadObject verifier`](../../services/demucs/app/source_object.py) now validates one
+The pure [`MinIO HeadObject verifier`](../../services/demucs/app/artifacts/source_object.py) now validates one
 already-claimed private source without downloading audio. It requires the
 task's own `uploads/{job_id}/` coordinate, the 256 MiB storage-side size limit,
 one canonical CloudDSP audio MIME type, and matching `job-id`/`stem-mode`
@@ -132,9 +132,9 @@ filename, or presigned URL.
 ## Versioned `processing_tasks` ownership record
 
 The prepared immutable
-[`v003 processing-task migration`](../../services/api/job-api-schema-migration-v003-processing-tasks-configmap.yaml)
+[`v003 processing-task migration`](../../services/job-api/job-api-schema-migration-v003-processing-tasks-configmap.yaml)
 and its separate one-shot
-[`migration Job`](../../services/api/job-api-schema-migration-v003-processing-tasks-job.yaml)
+[`migration Job`](../../services/job-api/job-api-schema-migration-v003-processing-tasks-job.yaml)
 will introduce a generic durable `public.processing_tasks` table when applied.
 Demucs is the first stage, but using a stage column avoids creating a new table
 for every later MIDI/DSP stage. Version 1 allows only the canonical Demucs key:
@@ -241,7 +241,7 @@ the same durable limits and metadata enforced by intake:
 - exact encoded byte cap is at most 256 MiB; and
 - FFprobe finds an audio stream and a duration at most 500 seconds.
 
-[`audio_probe.py`](../../services/demucs/app/audio_probe.py) is the pure interpretation boundary for
+[`audio_probe.py`](../../services/demucs/app/processing/audio_probe.py) is the pure interpretation boundary for
 that later FFprobe command. It accepts at most 1 MiB of successful-process JSON
 output, rejects duplicate JSON members and non-standard numeric values, requires
 at least one `codec_type: audio` stream, and requires a finite, positive
@@ -252,7 +252,7 @@ protocol concern; known media problems use bounded permanent categories. The
 module does not run FFprobe, download an object, choose an audio stream, or
 change database/AMQP state.
 
-[`ffprobe_process.py`](../../services/demucs/app/ffprobe_process.py) is the small composition adapter
+[`ffprobe_process.py`](../../services/demucs/app/processing/ffprobe_process.py) is the small composition adapter
 around that pure parser. It accepts only an existing non-symlink regular file
 below the worker's own Pod-local work directory, then runs the fixed shell-free
 `ffprobe -v error -show_format -show_streams -of json -i <file>` command. The
@@ -262,7 +262,7 @@ output allowance. The adapter does not download the file or create a work
 directory: the next bounded MinIO-download task will own that lifecycle and the
 future Deployment will mount it as a size-limited `emptyDir`.
 
-[`source_download.py`](../../services/demucs/app/source_download.py) now provides that bounded MinIO
+[`source_download.py`](../../services/demucs/app/artifacts/source_download.py) now provides that bounded MinIO
 download boundary. Given a `HeadObject`-verified source, it makes one private
 `GetObject` request, compares its declared length and every streamed byte to
 the verified size, and writes only a generic `source.media` file in a random
@@ -272,7 +272,7 @@ uses the browser filename or S3 key as a local path, and it closes the stream
 even when MinIO changes or truncates the object. A MinIO outage remains
 retryable; a size disagreement is explicitly not allowed to reach FFprobe.
 
-[`source_preflight.py`](../../services/demucs/app/source_preflight.py) composes the three completed
+[`source_preflight.py`](../../services/demucs/app/processing/source_preflight.py) composes the three completed
 source checks for one already-claimed task: exact private-coordinate metadata,
 exact streamed bytes, then FFprobe audio/duration evidence. Its return value
 contains only durable-safe object and probe evidence—never the temporary local
@@ -291,7 +291,7 @@ manual-ack lease gate: only an `ACKNOWLEDGED_LEASE` result can obtain that
 temporary file capability. Its `preflight` property exposes only durable-safe
 evidence to the existing guarded `leased → running` database transition.
 
-[`minio_client.py`](../../services/demucs/app/minio_client.py) supplies the eventual real client for
+[`minio_client.py`](../../services/demucs/app/artifacts/minio_client.py) supplies the eventual real client for
 that preflight composition. It validates that a Pod has only internal `.svc`
 MinIO routing, the fixed uploads bucket/region, path-style addressing, and its
 dedicated Demucs S3 Secret. Its lazy Boto3 factory explicitly supplies those
@@ -306,7 +306,7 @@ packages. Its first verified output is now pinned by immutable digest under
 [`images.demucs`](../../images.lock.yaml); a readable image tag is never used
 by a future Deployment.
 
-The new [`postgresql.py`](../../services/demucs/app/postgresql.py) is the matching private Psycopg
+The new [`postgresql.py`](../../services/demucs/app/db/postgresql.py) is the matching private Psycopg
 connection boundary for the restricted `clouddsp-demucs` role. It accepts only
 the authoritative database and internal PostgreSQL Service DNS, hides the
 mounted password from normal representations, and yields one short
@@ -317,7 +317,7 @@ its configuration, transaction, rollback, and safe outage behavior without a
 database connection. The already-pushed image predates this source-only task;
 the later executable-runtime build must produce a new digest before deployment.
 
-[`first_claim.py`](../../services/demucs/app/first_claim.py) now combines those two deliberately
+[`first_claim.py`](../../services/demucs/app/db/first_claim.py) now combines those two deliberately
 separate layers for exactly one already-parsed `demucs.requested` delivery. It
 opens the bounded PostgreSQL write scope, invokes the pure first-claim decision,
 and returns only after normal exit has committed—or an unsafe inconsistency has
@@ -328,7 +328,7 @@ rollback, and that an unavailable database prevents the pure claim query. The
 image also predates this source-only composition; no Deployment may use its old
 digest as if it contained this code.
 
-[`task_maintenance.py`](../../services/demucs/app/task_maintenance.py) provides the matching bounded
+[`task_maintenance.py`](../../services/demucs/app/db/task_maintenance.py) provides the matching bounded
 transaction wrapper for the existing recovery and renewal decisions. Recovery
 claims one due/expired task and reconstructs its matching published request on
 the same cursor, then commits only the resulting `DemucsRecoveredTask` pair or
@@ -346,7 +346,7 @@ pair commits, rollback on lost or invalid evidence, malformed-row rollback,
 renewal, outage ordering, and direct mixed-pair rejection. This remains
 source-only; the pinned image predates both transaction-composition modules.
 
-[`delivery_claim.py`](../../services/demucs/app/delivery_claim.py) now joins the strict request parser
+[`delivery_claim.py`](../../services/demucs/app/runtime/delivery_claim.py) now joins the strict request parser
 to the committed first-claim composition for one delivery, in that order. It
 returns only parsed identifiers plus PostgreSQL's durable claimed/duplicate/stale
 result; it intentionally contains no delivery tag, Pika import, acknowledge,
@@ -357,7 +357,7 @@ Four mocked-boundary tests prove parse-before-claim, parser-error isolation,
 database-error propagation, and that the bridge does not invent an
 acknowledgement boolean. The pinned image does not contain this source yet.
 
-[`amqp_manual_ack.py`](../../services/demucs/app/amqp_manual_ack.py) is now that next Pika-shaped,
+[`amqp_manual_ack.py`](../../services/demucs/app/messaging/amqp_manual_ack.py) is now that next Pika-shaped,
 one-delivery task. It uses `basic_get(..., auto_ack=False)` only on the fixed
 Demucs request queue, calls the bridge, then acknowledges a committed
 claimed/duplicate/stale result. A malformed request is nacked with
@@ -371,7 +371,7 @@ stale, idle, and rejected results deliberately contain no lease. Eight
 mocked-channel/result tests prove this exact state machine, including ack/nack
 channel failures and a missing-lease guard. The image still predates it.
 
-[`acknowledged_lease_preflight.py`](../../services/demucs/app/acknowledged_lease_preflight.py) is the
+[`acknowledged_lease_preflight.py`](../../services/demucs/app/runtime/acknowledged_lease_preflight.py) is the
 next intentionally narrow handoff. It accepts only the manual-ack adapter's
 `ACKNOWLEDGED_LEASE` outcome, retains that exact PostgreSQL lease token beside
 the existing durable-safe source evidence, and then calls the completed
@@ -382,7 +382,7 @@ result transition; it adds no supervisor loop, connection, task-state write,
 model invocation, image rebuild, Deployment, or Kubernetes action. Three
 mocked-boundary tests prove the handoff gate and exception propagation.
 
-[`task_lease.py`](../../services/demucs/app/task_lease.py) now also contains the pure
+[`task_lease.py`](../../services/demucs/app/db/task_lease.py) now also contains the pure
 `start_leased_demucs_task` statement for the next step after that handoff
 returns valid evidence. In one short transaction supplied later by a
 composition layer, it changes only the still-current `leased` task to
@@ -394,7 +394,7 @@ and an invalid returned timestamp. This remains pure SQL: it does not itself
 invoke source preflight, commit, run the model, renew, update a result, build an
 image, or change the cluster.
 
-[`preflight_task_start.py`](../../services/demucs/app/preflight_task_start.py) now supplies that one
+[`preflight_task_start.py`](../../services/demucs/app/db/preflight_task_start.py) now supplies that one
 short transaction composition. It accepts only acknowledged, validated source
 evidence; commits the pure `leased`-to-`running` guard; and returns the lease,
 source evidence, and start timestamp only after commit. A committed no-row
@@ -405,7 +405,7 @@ ownership-loss, rollback, and outage ordering. It does not receive another
 broker delivery, renew ownership, run the model, write artifacts, build an
 image, create a Deployment, or change the cluster.
 
-[`running_source_workspace.py`](../../services/demucs/app/running_source_workspace.py) joins that
+[`running_source_workspace.py`](../../services/demucs/app/processing/running_source_workspace.py) joins that
 guarded transaction to the already-open temporary source workspace without
 widening either boundary. It yields a model-eligible path only after the
 transaction committed a `running` result with the same lease and source
@@ -415,7 +415,7 @@ for the enclosing context and is not stored in PostgreSQL. This source-only
 handoff does not yet build a Demucs command, invoke the model, renew a lease,
 write a stem, or process another RabbitMQ delivery.
 
-[`demucs_command.py`](../../services/demucs/app/demucs_command.py) now fixes the next local process
+[`demucs_command.py`](../../services/demucs/app/processing/demucs_command.py) now fixes the next local process
 boundary's CPU-only argument vector without starting a child process. It keeps
 the cloud model choices (`htdemucs` for two/four stems and `htdemucs_6s` for
 six), sets `--device cpu`, names the baked read-only `--repo`, and accepts only
@@ -427,7 +427,7 @@ all stem modes and reject invalid modes, host/symlink/user-named inputs, and
 non-empty output directories. It does not download input, execute Demucs,
 renew, write artifacts, build an image, or change the cluster.
 
-[`demucs_process.py`](../../services/demucs/app/demucs_process.py) now adds the bounded runner for
+[`demucs_process.py`](../../services/demucs/app/processing/demucs_process.py) now adds the bounded runner for
 that exact command request. It rebuilds and compares the dataclass just before
 execution, so a hand-built request cannot replace the executable or add an
 option; then its production runner uses `shell=False`, no stdin, discarded
@@ -440,7 +440,7 @@ tamper rejection, failure propagation, and deadline validation without running
 Demucs/Torch. No model command was executed, and this adds no image, Deployment,
 or cluster change.
 
-[`executed_separation_workspace.py`](../../services/demucs/app/executed_separation_workspace.py) now
+[`executed_separation_workspace.py`](../../services/demucs/app/processing/executed_separation_workspace.py) now
 composes the committed `running` source workspace with that exact CPU command
 and bounded runner. It creates one new random, empty `demucs-output-` directory
 under validated Pod scratch, derives the stem mode solely from the committed
@@ -453,7 +453,7 @@ propagation, and output cleanup without starting Demucs/Torch. This remains a
 source-only change: it does not rebuild an image, deploy a worker, or change
 the cluster.
 
-[`validated_stem_inventory_workspace.py`](../../services/demucs/app/validated_stem_inventory_workspace.py)
+[`validated_stem_inventory_workspace.py`](../../services/demucs/app/artifacts/validated_stem_inventory_workspace.py)
 now nests the existing strict local stem validator inside that still-open
 execution workspace. It yields evidence only when the zero-exit output tree has
 exactly the current mode's expected non-empty regular WAV files, and it keeps
@@ -464,7 +464,7 @@ tests prove complete inventory, incomplete-output rejection, outer cleanup, and
 substituted-command rejection. It performs no hash, upload, PostgreSQL update,
 lease renewal, RabbitMQ action, image rebuild, Deployment, or cluster change.
 
-[`hashed_stem_inventory_workspace.py`](../../services/demucs/app/hashed_stem_inventory_workspace.py)
+[`hashed_stem_inventory_workspace.py`](../../services/demucs/app/artifacts/hashed_stem_inventory_workspace.py)
 now nests the existing streaming SHA-256 boundary inside the validated-inventory
 scope. It revalidates every exact WAV artifact before reading it, preserves the
 same command and per-stem name/path/byte-count pairing, and yields only current
@@ -476,7 +476,7 @@ rejection, cleanup, and cloned-command rejection. It makes no MinIO request,
 PostgreSQL update, lease decision, RabbitMQ action, image rebuild, Deployment,
 or cluster change.
 
-[`stem_output_plan_workspace.py`](../../services/demucs/app/stem_output_plan_workspace.py) now nests
+[`stem_output_plan_workspace.py`](../../services/demucs/app/artifacts/stem_output_plan_workspace.py) now nests
 the deterministic private object planner inside that hashed workspace. It
 derives only stable `stems/{job_id}/{stem_name}.wav` plans, retains each exact
 current local path/byte-count/digest alongside the committed lease, and checks
@@ -487,7 +487,7 @@ complete stable plan set, post-hash mutation rejection, outer cleanup, and a
 substituted planner result. This adds no upload, PostgreSQL update, lease
 action, RabbitMQ action, image rebuild, Deployment, or cluster change.
 
-[`planned_stem_upload.py`](../../services/demucs/app/planned_stem_upload.py) now invokes the existing
+[`planned_stem_upload.py`](../../services/demucs/app/artifacts/planned_stem_upload.py) now invokes the existing
 restricted streaming/hash MinIO adapter for exactly one plan instance from that
 open workspace. It forbids cloned or arbitrary plans, requires the returned
 receipt to match the selected bucket/key/length/SHA-256 evidence, and leaves
@@ -498,7 +498,7 @@ storage coordinate. It does not aggregate all stems, write PostgreSQL, renew or
 finish a lease, publish/acknowledge RabbitMQ work, rebuild an image, deploy a
 worker, or change the cluster.
 
-[`complete_stem_upload.py`](../../services/demucs/app/complete_stem_upload.py) now calls that
+[`complete_stem_upload.py`](../../services/demucs/app/artifacts/complete_stem_upload.py) now calls that
 one-stem handoff sequentially for every fixed plan, returning the existing
 receipt-only `PublishedDemucsStemSet` type only after every upload succeeds in
 deterministic stem order. If an upload fails, later writes stop and earlier
@@ -509,7 +509,7 @@ workspace rejection. It does not run Demucs, plan objects, write PostgreSQL,
 renew/finish a lease, publish/acknowledge RabbitMQ work, rebuild an image,
 deploy a worker, or change the cluster.
 
-[`complete_stem_upload_commit.py`](../../services/demucs/app/complete_stem_upload_commit.py) now
+[`complete_stem_upload_commit.py`](../../services/demucs/app/runtime/complete_stem_upload_commit.py) now
 joins that complete receipt set to the existing token-guarded PostgreSQL
 completion transaction. It verifies transaction and outbox-ID-factory
 capabilities before MinIO writes, uploads the full fixed set with no database
@@ -521,7 +521,7 @@ ordering, ownership loss, and no uploads when the database capability is
 missing. It does not directly publish or acknowledge RabbitMQ, rebuild an
 image, deploy a worker, or change the cluster.
 
-[`task_runtime_once.py`](../../services/demucs/app/task_runtime_once.py) now nests the completed
+[`task_runtime_once.py`](../../services/demucs/app/runtime/task_runtime_once.py) now nests the completed
 boundaries into one single-task attempt for an already acknowledged AMQP result:
 source verification, committed running transition, CPU process, exact local
 stem evidence, private uploads, and guarded completion. It validates the
@@ -534,7 +534,7 @@ and the database-capability gate. It receives no new AMQP message, loops or
 retries nothing, directly publishes/acknowledges no RabbitMQ action, rebuilds
 no image, and changes no Deployment or cluster resource.
 
-[`source_failure_classification.py`](../../services/demucs/app/source_failure_classification.py) now
+[`source_failure_classification.py`](../../services/demucs/app/runtime/source_failure_classification.py) now
 defines the narrow pre-model exception vocabulary needed by the next durable
 result layer. Immutable HeadObject metadata/source-limit, FFprobe media-limit,
 and HeadObject/GetObject consistency mismatches map to finite terminal codes;
@@ -547,7 +547,7 @@ and atomically fail the authoritative Job for every terminal result, including
 the third transient failure. Five pure tests prove the exact mapping without a
 worker loop, image, Deployment, or cluster side effect.
 
-[`pre_model_failure_transition.py`](../../services/demucs/app/pre_model_failure_transition.py) now
+[`pre_model_failure_transition.py`](../../services/demucs/app/db/pre_model_failure_transition.py) now
 owns that pure, parameterized PostgreSQL decision. It locks the retained
 `source_uploaded` Job and requires every current task coordinate, attempt,
 lease UUID, and PostgreSQL-clock expiry. A first/second known MinIO outage
@@ -561,7 +561,7 @@ the next small task is the short commit/rollback wrapper around it. Five fake
 cursor tests prove the two atomic paths, bounded exhaustion, race, and
 unclassified-error rejection.
 
-[`pre_model_failure_transition_commit.py`](../../services/demucs/app/pre_model_failure_transition_commit.py)
+[`pre_model_failure_transition_commit.py`](../../services/demucs/app/db/pre_model_failure_transition_commit.py)
 now supplies the missing short transaction scope. It obtains one restricted
 `write_cursor()`, calls the guarded retry/terminal decision exactly once, and
 does not return its evidence until normal context exit has committed. A no-row
@@ -573,7 +573,7 @@ rollback, and the early database-capability guard. The next small task can
 connect classified source exceptions from the one-task runtime to this committed
 decision.
 
-[`pre_model_failure_runtime.py`](../../services/demucs/app/pre_model_failure_runtime.py) now makes
+[`pre_model_failure_runtime.py`](../../services/demucs/app/runtime/pre_model_failure_runtime.py) now makes
 that connection without widening the worker into a supervisor. It wraps one
 already-acknowledged one-task attempt, preserves successful completion and
 normal ownership loss, and catches only the reviewed source-preflight failure
@@ -587,7 +587,7 @@ retry/race outcomes, unclassified model failure propagation, and normal lease
 loss. The next small task is to define the separate policy for failures after
 the task has entered `running`.
 
-[`running_failure_classification.py`](../../services/demucs/app/running_failure_classification.py)
+[`running_failure_classification.py`](../../services/demucs/app/runtime/running_failure_classification.py)
 now defines that after-model policy without changing a task row. A Demucs
 process start/timeout/nonzero failure, temporary invalid output tree, local
 post-model artifact-integrity problem, or private MinIO stem-write outage maps
@@ -601,7 +601,7 @@ fail-closed exclusions, and complete retry-to-exhaustion coverage. The next
 small task is a token-guarded `running -> retry_scheduled/failed` database
 transition that consumes this vocabulary.
 
-[`running_failure_transition.py`](../../services/demucs/app/running_failure_transition.py) now owns
+[`running_failure_transition.py`](../../services/demucs/app/db/running_failure_transition.py) now owns
 that pure PostgreSQL decision. Its SQL locks the retained `source_uploaded`
 Job and requires the complete task coordinate, current `running` state, exact
 attempt, lease UUID, and unexpired PostgreSQL lease. Attempts one/two clear the
@@ -612,7 +612,7 @@ Private partial stem objects stay inaccessible and are retry-overwritable at
 their stable keys. Four fake-cursor tests prove retry scheduling, terminal
 task/Job atomicity, ownership loss, and unclassified-category rejection.
 
-[`running_failure_transition_commit.py`](../../services/demucs/app/running_failure_transition_commit.py)
+[`running_failure_transition_commit.py`](../../services/demucs/app/db/running_failure_transition_commit.py)
 now supplies that short commit/rollback scope. It opens one restricted
 `write_cursor()`, calls the running retry/exhaustion decision exactly once, and
 returns evidence only after normal exit commits. A no-row ownership/state race
@@ -621,7 +621,7 @@ back. It adds no exception classifier, retry sleep, recovery scan, lease
 renewal, AMQP/MinIO/model operation, image/Deployment/KEDA change. Four tests
 prove normal commit, no-row commit, exception rollback, and capability guard.
 
-[`running_failure_runtime.py`](../../services/demucs/app/running_failure_runtime.py) now makes that
+[`running_failure_runtime.py`](../../services/demucs/app/runtime/running_failure_runtime.py) now makes that
 connection without turning a single attempt into a supervisor. It wraps the
 pre-model handoff, passes its success/ownership/source-failure outcomes through
 unchanged, and catches only later exceptions that the fail-closed running
@@ -636,7 +636,7 @@ propagation. It does not receive/acknowledge AMQP, loop/sleep/recover, itself
 schedule renewal, rebuild an image, change a Deployment, or alter KEDA. Its
 nested execution workspace owns short renewal checkpoints while the model runs.
 
-[`receive_execute_once.py`](../../services/demucs/app/receive_execute_once.py) now supplies the
+[`receive_execute_once.py`](../../services/demucs/app/runtime/receive_execute_once.py) now supplies the
 first bounded supervisor building block: one manual-ack RabbitMQ receive and,
 only for an acknowledged current lease, one call to the completed one-attempt
 policy. Idle, duplicate/stale, and malformed-DLQ outcomes return compact
@@ -649,7 +649,7 @@ pairing. It adds no loop, sleep, recovery scan, signal handling, client
 lifecycle, image/Deployment change, or KEDA action; its nested one-attempt
 runtime owns short renewal checkpoints.
 
-[`recovery_request.py`](../../services/demucs/app/recovery_request.py) now reconstructs the strict
+[`recovery_request.py`](../../services/demucs/app/db/recovery_request.py) now reconstructs the strict
 request evidence that a due retry or expired active task no longer has in an
 AMQP delivery. Immediately after PostgreSQL grants a fresh attempt-two/three
 lease, its caller can read only the matching *published* immutable
@@ -665,7 +665,7 @@ row/payload/publication mismatches. This read-only boundary does not claim or
 start work, commit a transaction, acknowledge/publish RabbitMQ, contact MinIO,
 run Demucs, loop, alter a Deployment, or change KEDA.
 
-[`task_maintenance.py`](../../services/demucs/app/task_maintenance.py) now composes that evidence
+[`task_maintenance.py`](../../services/demucs/app/db/task_maintenance.py) now composes that evidence
 read with its due/expired lease claim in the one short transaction required for
 safe recovery. It returns a `DemucsRecoveredTask` only after normal commit; if
 the fresh lease has no current evidence, a private sentinel forces rollback and
@@ -673,7 +673,7 @@ the caller receives normal no-safe-work instead. The frozen pair also rejects
 first attempts, mixed coordinates, and unsafe direct construction. It neither
 starts the model nor changes the normal pre-model guards.
 
-[`recovered_task_execution.py`](../../services/demucs/app/recovered_task_execution.py) now provides
+[`recovered_task_execution.py`](../../services/demucs/app/runtime/recovered_task_execution.py) now provides
 the recovery-execution gate. It accepts only the committed pair, then feeds its
 lease into the established one-task pre-model/running-failure policy through a
 data-only compatibility result. That result has no AMQP channel, delivery tag,
@@ -686,8 +686,8 @@ rejection before the runtime, and unchanged downstream error propagation. The
 next small task was terminalizing an expired third-attempt task, which recovery
 must not grant a fourth lease.
 
-[`task_lease.py`](../../services/demucs/app/task_lease.py) and
-[`task_maintenance.py`](../../services/demucs/app/task_maintenance.py) now provide that terminal
+[`task_lease.py`](../../services/demucs/app/db/task_lease.py) and
+[`task_maintenance.py`](../../services/demucs/app/db/task_maintenance.py) now provide that terminal
 path. PostgreSQL uses `FOR UPDATE SKIP LOCKED` to select one active
 attempt-three Demucs lease whose database-clock expiry has passed, locks its
 still-processable Job, and atomically fails both records. It clears the token
@@ -711,7 +711,7 @@ worker to read broader Job error history. This compatibility repair preserves
 the same transaction, state guards, and least-privilege grants; it only makes
 the existing UUID relationship unambiguous to PostgreSQL.
 
-[`recovery_execute_once.py`](../../services/demucs/app/recovery_execute_once.py) now provides that
+[`recovery_execute_once.py`](../../services/demucs/app/runtime/recovery_execute_once.py) now provides that
 bounded iteration. It terminalizes first; only when no final attempt changed
 state does it claim one committed recovery pair and send it through the
 recovered-task execution gate. Its three outcomes—`idle`, `terminalized`, and
@@ -724,7 +724,7 @@ priority, error propagation, and result evidence pairing. The next small task
 is a pure recovery-cadence policy that decides how often this bounded step runs
 alongside normal broker receives, without starting a loop.
 
-[`recovery_cadence.py`](../../services/demucs/app/recovery_cadence.py) now provides that pure local
+[`recovery_cadence.py`](../../services/demucs/app/runtime/recovery_cadence.py) now provides that pure local
 policy. A new Pod starts with recovery, then strictly alternates one recovery
 scan and one normal manual-ack receive/optional-execution iteration. This
 limits an expired task's wait to at most one normal task even when the broker
@@ -737,7 +737,7 @@ no loop, wait, connection, storage, model, Deployment, KEDA, or Kubernetes
 action. The next small task is a one-cycle composition that performs exactly
 the action selected by this cadence and returns the advanced state.
 
-[`worker_cycle.py`](../../services/demucs/app/worker_cycle.py) now supplies that one-cycle
+[`worker_cycle.py`](../../services/demucs/app/runtime/worker_cycle.py) now supplies that one-cycle
 composition. It accepts the shared channel only for the normal branch; a
 recovery-selected cycle explicitly never passes it onward because durable
 recovery has no AMQP delivery to acknowledge, reject, or publish. It forwards
@@ -751,7 +751,7 @@ It is still not a loop, wait, connection lifecycle, backoff, Deployment, KEDA,
 or Kubernetes action. The next small task is a pure supervisor decision policy
 that maps compact cycle outcomes to explicit future wait/retry/exit actions.
 
-[`supervisor_backoff.py`](../../services/demucs/app/supervisor_backoff.py) now provides that pure
+[`supervisor_backoff.py`](../../services/demucs/app/runtime/supervisor_backoff.py) now provides that pure
 decision policy. Only an empty *normal* broker iteration yields the fixed
 one-second idle wait; every recovery result is immediate progress because its
 following cadence turn is the normal broker receive. Its reserved availability
@@ -765,7 +765,7 @@ guards. The next small task is a narrow supervisor-failure classifier that
 allows only reviewed Demucs configuration and dependency-availability errors
 to choose the two reserved failure events.
 
-[`supervisor_failure_classification.py`](../../services/demucs/app/supervisor_failure_classification.py)
+[`supervisor_failure_classification.py`](../../services/demucs/app/runtime/supervisor_failure_classification.py)
 now provides that narrow authority. Invalid AMQP/PostgreSQL/MinIO settings and
 missing FFprobe or Demucs executables are fatal configuration faults. Only the
 safe availability wrappers emitted by bounded RabbitMQ, PostgreSQL, and MinIO
@@ -777,7 +777,7 @@ next small task is a one-step supervisor composition that combines this
 classifier, the worker cycle, and the pure decision policy without waiting or
 starting a loop.
 
-[`supervisor_step.py`](../../services/demucs/app/supervisor_step.py) now provides that composition.
+[`supervisor_step.py`](../../services/demucs/app/runtime/supervisor_step.py) now provides that composition.
 It runs exactly one cadence-selected cycle, converts only its matching compact
 branch result into an idle/progress event, and asks the policy for the next
 action/state. A recognized retryable or fatal error carries no fake cycle
@@ -789,7 +789,7 @@ loops, reconnects, manages a channel, nor changes Kubernetes. The next small
 task is a shutdown-aware action adapter that applies one existing decision
 through an injected waiter.
 
-[`supervisor_action.py`](../../services/demucs/app/supervisor_action.py) now applies that one
+[`supervisor_action.py`](../../services/demucs/app/runtime/supervisor_action.py) now applies that one
 decision. `check_immediately` continues without waiting; idle/backoff invokes
 the injected shutdown waiter once with the exact policy delay; and fatal
 configuration returns an explicit exit fact without waiting. A strict boolean
@@ -799,7 +799,7 @@ This adapter installs no signal handler, sleeps nowhere directly, reconnects
 no service, and starts no loop. The next small task is a one-step runner that
 joins the supervisor step and this action result without creating persistence.
 
-[`supervisor_once.py`](../../services/demucs/app/supervisor_once.py) now supplies that runner. It
+[`supervisor_once.py`](../../services/demucs/app/runtime/supervisor_once.py) now supplies that runner. It
 executes one supervisor step, applies exactly that returned decision through
 the action adapter, and preserves the step's exact next local state. The
 result rejects mismatched action/state evidence and propagates step/action
@@ -810,7 +810,7 @@ lifecycle, image, Deployment, or Kubernetes action. The next small task is a
 focused shutdown-event adapter that owns SIGTERM/SIGINT registration for the
 future injected waiter.
 
-[`shutdown_event.py`](../../services/demucs/app/shutdown_event.py) now provides that scoped bridge.
+[`shutdown_event.py`](../../services/demucs/app/runtime/shutdown_event.py) now provides that scoped bridge.
 On the main thread it maps SIGTERM and SIGINT to one `threading.Event`, exposes
 the existing `wait_for_shutdown()` protocol, validates the 30-second maximum
 policy delay, and restores all prior signal handlers even after body or partial
@@ -822,7 +822,7 @@ action. The next small task is the intentional shutdown-aware supervisor loop
 that repeatedly invokes the one-step runner until it returns shutdown or fatal
 control evidence.
 
-[`supervisor_loop.py`](../../services/demucs/app/supervisor_loop.py) now provides that persistent
+[`supervisor_loop.py`](../../services/demucs/app/runtime/supervisor_loop.py) now provides that persistent
 control loop. It repeats only after `continue`, stops on shutdown/fatal control
 evidence, and checks the shared shutdown Event with zero delay before every
 new cycle—so SIGTERM during inference cannot permit another broker receive or
@@ -832,7 +832,7 @@ continue behavior, post-continue signal observation, fatal stopping, and error
 propagation. The next small task is a closeable AMQP-session adapter that opens
 the existing restricted connection/channel setup and closes it around this loop.
 
-[`amqp_session.py`](../../services/demucs/app/amqp_session.py) now supplies that lifecycle scope. It
+[`amqp_session.py`](../../services/demucs/app/messaging/amqp_session.py) now supplies that lifecycle scope. It
 creates one restricted private connection, obtains one channel, applies only
 prefetch-one/passive-queue verification, yields the prepared channel, then
 closes channel before connection on setup, body, or normal cleanup paths. A
@@ -845,7 +845,7 @@ redaction, and connection failure. The next small task is a worker bootstrap
 entrypoint that composes restricted database/MinIO construction, signal scope,
 this AMQP session, and the supervisor loop.
 
-[`worker_entrypoint.py`](../../services/demucs/app/worker_entrypoint.py) now provides that one
+[`worker_entrypoint.py`](../../services/demucs/app/runtime/worker_entrypoint.py) now provides that one
 process-boundary composition. It creates the restricted PostgreSQL adapter and
 the one private MinIO client before opening RabbitMQ, verifies that Kubernetes
 mounted a real non-symlink `/worker-scratch` directory, narrows that S3 client
@@ -965,7 +965,7 @@ does **not** declare a `containerPort` or Kubernetes Service because it listens
 on no port. `containerPort: 5672` would incorrectly say that RabbitMQ runs
 inside the worker and would not enable outbound networking.
 
-[`session_supervisor.py`](../../services/demucs/app/session_supervisor.py) now avoids the stale-idle
+[`session_supervisor.py`](../../services/demucs/app/runtime/session_supervisor.py) now avoids the stale-idle
 session condition: a PostgreSQL-only recovery turn opens no broker socket, and
 each normal `basic_get` turn opens a newly authenticated, prefetch-one,
 passively verified AMQP session, then closes it after that one bounded cycle.
@@ -1055,7 +1055,7 @@ new immutable image is
 (479.77 MiB). The image lock and Deployment source are updated, but the live
 Deployment remains on the earlier digest until an explicit rollout.
 
-[`running_lease_renewal.py`](../../services/demucs/app/running_lease_renewal.py) now supplies that
+[`running_lease_renewal.py`](../../services/demucs/app/db/running_lease_renewal.py) now supplies that
 one-shot renewal boundary. It accepts only a committed `DemucsRunningSource`,
 uses its exact task/token in the existing short PostgreSQL renewal transaction,
 and returns either an identical running/source coordinate with only its expiry
@@ -1066,7 +1066,7 @@ propagation, and result pairing. This adapter intentionally starts no timer or
 thread and cannot stop a child process by itself; the execution workspace uses
 it at the later cancellation-safe process checkpoints.
 
-[`demucs_process.py`](../../services/demucs/app/demucs_process.py) now provides that cancellation-
+[`demucs_process.py`](../../services/demucs/app/processing/demucs_process.py) now provides that cancellation-
 safe process layer as the separate `run_demucs_separation_with_lease_renewal()`
 entrypoint. It requires a runner that owns the real child process group; a
 plain synchronous runner is rejected instead of being abandoned in an
@@ -1075,7 +1075,7 @@ the next one-minute-or-faster renewal tick, timeout, or child exit. A renewal
 checkpoint result of `False`, a checkpoint exception, or a process timeout
 terminates the entire child group before the caller receives the corresponding
 signal. This process boundary still knows no database, task, or RabbitMQ fact:
-[`executed_separation_workspace.py`](../../services/demucs/app/executed_separation_workspace.py) now
+[`executed_separation_workspace.py`](../../services/demucs/app/processing/executed_separation_workspace.py) now
 wires the committed running-lease checkpoint into it. Each renewal runs in its
 own short transaction while the child waits; a refreshed lease is carried to
 later upload/completion guards, while a stopped lost-lease child becomes normal
@@ -1086,7 +1086,7 @@ one-attempt ownership mapping. The next small task is atomically composing
 recovery claim and reconstructed evidence before the ordinary pre-model runtime
 receives the committed pair.
 
-[`demucs_artifacts.py`](../../services/demucs/app/demucs_artifacts.py) now performs the next strict
+[`demucs_artifacts.py`](../../services/demucs/app/artifacts/demucs_artifacts.py) now performs the next strict
 local-output check before an upload layer may exist. It requires exactly
 `vocals`/`no_vocals` for two stems, the four normal hybrid stems for four, or
 those four plus guitar/piano for six; each must be one non-empty regular WAV
@@ -1097,7 +1097,7 @@ tests prove all modes plus mismatch/path/tamper rejections. It does not inspect
 audio samples, hash, upload, update PostgreSQL, or change an image, Deployment,
 or cluster resource.
 
-[`demucs_artifact_hash.py`](../../services/demucs/app/demucs_artifact_hash.py) now adds the next
+[`demucs_artifact_hash.py`](../../services/demucs/app/artifacts/demucs_artifact_hash.py) now adds the next
 local-only evidence boundary. It repeats the exact inventory validation rather
 than trusting a caller's dataclass, then reads each current regular WAV file in
 64 KiB chunks to produce an immutable SHA-256 digest alongside its fixed stem
@@ -1107,7 +1107,7 @@ temporary-file tests prove stable evidence plus stale-size, symlink, and
 metadata-tamper rejection. This layer does not upload, call MinIO, update
 PostgreSQL, acknowledge AMQP, build an image, or change the cluster.
 
-[`demucs_output_object.py`](../../services/demucs/app/demucs_output_object.py) now converts only a
+[`demucs_output_object.py`](../../services/demucs/app/artifacts/demucs_output_object.py) now converts only a
 current re-hashed inventory plus its durable Demucs lease into a deterministic
 private upload plan. Each stem always maps to
 `stems/{job_id}/{stem_name}.wav`, preserving the cloud-compatible job prefix
@@ -1120,7 +1120,7 @@ normal plan, mismatched/malformed leases, and stale or forged hash evidence.
 It does not call MinIO, upload data, update PostgreSQL, acknowledge AMQP,
 build an image, or change the cluster.
 
-[`demucs_artifact_upload.py`](../../services/demucs/app/demucs_artifact_upload.py) now provides the
+[`demucs_artifact_upload.py`](../../services/demucs/app/artifacts/demucs_artifact_upload.py) now provides the
 one-stem private MinIO `PutObject` boundary for those plans. It rechecks every
 fixed bucket/key/metadata field, hashes the current regular WAV before opening
 MinIO, then streams the request body while hashing again. It returns a small
@@ -1132,7 +1132,7 @@ fake-client tests prove those paths. It does not create the client, list/delete
 objects, update PostgreSQL, acknowledge AMQP, build an image, or change the
 cluster.
 
-[`demucs_stem_set_publish.py`](../../services/demucs/app/demucs_stem_set_publish.py) now composes the
+[`demucs_stem_set_publish.py`](../../services/demucs/app/processing/demucs_stem_set_publish.py) now composes the
 approved local process, exact-output inventory, SHA-256 evidence, private
 object-plan, and one-stem upload boundaries. Starting with a matching running
 lease and command, it returns a complete in-memory receipt set only after every
@@ -1145,7 +1145,7 @@ process/client tests prove those paths. It does not renew a lease, mutate task
 or Job state, create outbox events, acknowledge AMQP, build an image, or change
 the cluster.
 
-[`task_lease.py`](../../services/demucs/app/task_lease.py) now also contains the one guarded Demucs
+[`task_lease.py`](../../services/demucs/app/db/task_lease.py) now also contains the one guarded Demucs
 completion statement. It locks only a retained `source_uploaded` Job, then
 transitions only that Job’s `running`, unexpired task token to `succeeded`,
 records the complete JSONB stem map, advances the Job to `midi_processing`, and
@@ -1156,7 +1156,7 @@ Job, nor outbox; an outbox constraint/permission failure rolls back all three.
 The statement is fully parameterized. Four fake-cursor cases cover success,
 ownership loss, malformed evidence, and a mismatched inserted-event count.
 
-[`demucs_task_completion.py`](../../services/demucs/app/demucs_task_completion.py) is the matching
+[`demucs_task_completion.py`](../../services/demucs/app/db/demucs_task_completion.py) is the matching
 short-transaction composition. It accepts all and only the expected uploaded
 stem receipts, preserves the cloud-compatible `status: ready` and `s3_key`
 fields, adds bucket/type/byte-count/SHA-256 evidence, and returns a completion
@@ -1167,7 +1167,7 @@ opens a transaction; an SQL failure rolls it back. Three in-memory transaction
 tests prove those guarantees. It does not touch MinIO, publish/acknowledge
 RabbitMQ, renew a lease, build an image, or change the cluster.
 
-[`amqp_connection.py`](../../services/demucs/app/amqp_connection.py) now provides the separate
+[`amqp_connection.py`](../../services/demucs/app/messaging/amqp_connection.py) now provides the separate
 connection boundary. It accepts only the private RabbitMQ Service DNS, AMQP
 port 5672, `/clouddsp` vhost, fixed Demucs queue, and restricted
 `clouddsp-demucs` Secret username; it redacts the mounted password and bounds
@@ -1177,7 +1177,7 @@ anything. Six mocked settings/driver tests cover rejection of widened config,
 safe outage handling, and exact Pika parameters. This source-only task still
 does not alter the pinned image, a Deployment, or the live cluster.
 
-[`amqp_channel.py`](../../services/demucs/app/amqp_channel.py) now adds the distinct safe setup of a
+[`amqp_channel.py`](../../services/demucs/app/messaging/amqp_channel.py) now adds the distinct safe setup of a
 channel from that connection. It applies `prefetch_count=1`, so one CPU/GPU
 worker holds at most one unacknowledged request, then passively checks only the
 already-imported `clouddsp.demucs.requests` queue. Passive verification cannot
@@ -1226,8 +1226,8 @@ Pitch/ADTOF, RabbitMQ, or Kubernetes directly.
 ## Transactional post-Demucs outbox boundary
 
 The prepared immutable
-[`v004 downstream-outbox migration`](../../services/api/job-api-schema-migration-v004-downstream-outbox-configmap.yaml)
-and its separate [`migration Job`](../../services/api/job-api-schema-migration-v004-downstream-outbox-job.yaml)
+[`v004 downstream-outbox migration`](../../services/job-api/job-api-schema-migration-v004-downstream-outbox-configmap.yaml)
+and its separate [`migration Job`](../../services/job-api/job-api-schema-migration-v004-downstream-outbox-job.yaml)
 extend v002's single Demucs-only outbox vocabulary without editing history. The
 migration permits only these combinations:
 
@@ -1303,7 +1303,7 @@ reads its password from an ignored app-namespace Secret. The temporary
 bootstrap Secret is removed from the data namespace after the role is created.
 
 Reassert the reviewed configuration in an already-deployed, idle cluster with the
-[versioned script](../../scripts/reconcile-demucs-scaling.sh):
+[versioned script](../../scripts/maintenance/reconcile-demucs-scaling.sh):
 
 ```bash
 ./k8Deployment/kubernetes/scripts/reconcile-demucs-scaling.sh

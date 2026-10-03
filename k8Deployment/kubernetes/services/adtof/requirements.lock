@@ -41,7 +41,7 @@ wheel==0.46.3 \
 
 # Pin the exact public GitHub source archive—not a moving branch or VCS
 # checkout. The SHA-256 proves the archive bytes at the revision referenced by
-# `app/model_configuration.py`. Its package data includes reviewed `.pth`
+# `app/processing/model_configuration.py`. Its package data includes reviewed `.pth`
 # weights, so a running Pod does not download model weights.
 adtof-pytorch @ https://codeload.github.com/xavriley/ADTOF-pytorch/tar.gz/85c192e78f716ea0b111cc8a5ee4a8f6a3a4f8a9 \
     --hash=sha256:28602a3bd89836240d519396b566966c52b6439e2f3cda61d8a674433b350b56

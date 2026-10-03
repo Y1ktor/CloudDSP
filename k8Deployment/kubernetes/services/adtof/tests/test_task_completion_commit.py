@@ -12,8 +12,8 @@ from datetime import UTC, datetime
 import unittest
 from unittest.mock import patch
 
-from app.task_completion import ADTOFTaskCompletion, ADTOFTaskCompletionProtocolError
-from app.task_completion_commit import commit_verified_adtof_task
+from app.db.task_completion import ADTOFTaskCompletion, ADTOFTaskCompletionProtocolError
+from app.db.task_completion_commit import commit_verified_adtof_task
 from test_task_completion import lease, stored_outputs, tempo_candidate
 
 
@@ -43,7 +43,7 @@ class RecordingDatabase:
 class ADTOFTaskCompletionCommitTests(unittest.TestCase):
     """Prove callers receive success only after the guarded transaction commits."""
 
-    @patch("app.task_completion_commit.complete_running_adtof_task")
+    @patch("app.db.task_completion_commit.complete_running_adtof_task")
     def test_returns_completion_only_after_the_short_transaction_commits(self, complete) -> None:
         """Model, object storage, and broker work stay outside the row-lock scope."""
 
@@ -72,7 +72,7 @@ class ADTOFTaskCompletionCommitTests(unittest.TestCase):
             tempo_candidate=tempo_candidate(),
         )
 
-    @patch("app.task_completion_commit.complete_running_adtof_task")
+    @patch("app.db.task_completion_commit.complete_running_adtof_task")
     def test_no_row_ownership_loss_commits_no_mutation_then_returns_none(self, complete) -> None:
         """A stale worker does not turn a normal no-row result into a retry loop."""
 
@@ -89,7 +89,7 @@ class ADTOFTaskCompletionCommitTests(unittest.TestCase):
         )
         self.assertEqual(database.events, ["transaction-open", "transaction-commit"])
 
-    @patch("app.task_completion_commit.complete_running_adtof_task")
+    @patch("app.db.task_completion_commit.complete_running_adtof_task")
     def test_completion_validation_error_rolls_back_before_the_caller_sees_it(self, complete) -> None:
         """A malformed function result cannot leave a partial durable write committed."""
 

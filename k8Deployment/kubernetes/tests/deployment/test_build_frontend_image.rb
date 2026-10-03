@@ -6,20 +6,24 @@ require 'rbconfig'
 require 'tmpdir'
 
 class BuildFrontendImageTest < Minitest::Test
-  SCRIPT = File.expand_path('../../scripts/build-frontend-image.sh', __dir__)
+  SCRIPT = File.expand_path('../../scripts/images/build-frontend-image.sh', __dir__)
   IMAGE = 'clouddsp-registry.localhost:5001/frontend:0.6.0-shared-profiles'
 
   def setup
     @temporary_directory = Dir.mktmpdir('clouddsp-shared-frontend')
     @repository = File.join(@temporary_directory, 'repository')
     @scripts = File.join(@repository, 'k8Deployment/kubernetes/scripts')
+    @images = File.join(@scripts, 'images')
+    @libraries = File.join(@scripts, 'lib')
+    @build_script = File.join(@images, 'build-frontend-image.sh')
     @service = File.join(@repository, 'k8Deployment/kubernetes/services/frontend')
     @shared = File.join(@repository, 'frontend')
     @local = File.join(@repository, 'k8Deployment/.local')
     @bin = File.join(@temporary_directory, 'bin')
     @log = File.join(@temporary_directory, 'commands.jsonl')
-    [@scripts, @service, @shared, @local, @bin].each { |path| FileUtils.mkdir_p(path) }
-    FileUtils.cp(SCRIPT, File.join(@scripts, 'build-frontend-image.sh'))
+    [@scripts, @images, @libraries, @service, @shared, @local, @bin].each { |path| FileUtils.mkdir_p(path) }
+    FileUtils.cp(SCRIPT, @build_script)
+    FileUtils.cp(File.expand_path('../../scripts/lib/paths.sh', __dir__), File.join(@libraries, 'paths.sh'))
     File.write(File.join(@service, 'Dockerfile'), '')
     %w[package.json package-lock.json index.html csp.js vite.config.js].each do |name|
       File.write(File.join(@shared, name), '')
@@ -69,7 +73,7 @@ class BuildFrontendImageTest < Minitest::Test
     output, error, status = Open3.capture3(
       { 'PATH' => "#{@bin}:#{ENV.fetch('PATH', '')}", 'CLOUDDSP_FRONTEND_TEST_LOG' => @log,
         'CLOUDDSP_FRONTEND_TEST_BUILD_FAIL' => fail_build ? '1' : '0' },
-      '/bin/bash', File.join(@scripts, 'build-frontend-image.sh'), chdir: @temporary_directory
+      '/bin/bash', @build_script, chdir: @temporary_directory
     )
     commands = File.readlines(@log).map { |line| JSON.parse(line) }
     [status, commands, output, error]

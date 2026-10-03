@@ -30,9 +30,9 @@ foundation has already created `clouddsp-data`, run the versioned credential
 stage before installing the StatefulSet:
 
 ```bash
-ruby ./k8Deployment/kubernetes/scripts/postgresql-secret-stage.rb plan
-ruby ./k8Deployment/kubernetes/scripts/postgresql-secret-stage.rb bootstrap
-ruby ./k8Deployment/kubernetes/scripts/postgresql-secret-stage.rb verify
+ruby ./k8Deployment/kubernetes/scripts/stages/credentials/postgresql-secret-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/stages/credentials/postgresql-secret-stage.rb bootstrap
+ruby ./k8Deployment/kubernetes/scripts/stages/credentials/postgresql-secret-stage.rb verify
 ```
 
 The populated manifest remains under ignored `.local/` configuration. The
@@ -40,8 +40,8 @@ stage refuses an existing Secret and never displays its values. After this
 credential stage, the fresh release path is:
 
 ```bash
-./k8Deployment/kubernetes/scripts/postgresql-release.rb install
-./k8Deployment/kubernetes/scripts/postgresql-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/postgresql-release.rb install
+./k8Deployment/kubernetes/scripts/releases/postgresql-release.rb verify
 ```
 
 `install` requires an absent Helm release, StatefulSet, both Services, the
@@ -56,10 +56,10 @@ install is retained for inspection; a clean-cluster trial remains pending.
 From the repository root:
 
 ```bash
-./k8Deployment/kubernetes/scripts/postgresql-release.rb plan
-./k8Deployment/kubernetes/scripts/postgresql-release.rb adopt
-./k8Deployment/kubernetes/scripts/postgresql-release.rb verify
-./k8Deployment/kubernetes/scripts/postgresql-release.rb smoke
+./k8Deployment/kubernetes/scripts/releases/postgresql-release.rb plan
+./k8Deployment/kubernetes/scripts/releases/postgresql-release.rb adopt
+./k8Deployment/kubernetes/scripts/releases/postgresql-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/postgresql-release.rb smoke
 ```
 
 `plan` runs strict Helm lint, image-lock and source/render/live comparisons,
@@ -69,7 +69,7 @@ operational rollout marker; no other spec drift is allowed. A separate
 server-side apply dry run confirmed that marker would remain on the live Pod.
 
 `adopt` repeats the preflight, then automatically runs
-[`postgresql-backup-and-restore-test.sh`](../../scripts/postgresql-backup-and-restore-test.sh).
+[`postgresql-backup-and-restore-test.sh`](../../scripts/maintenance/postgresql-backup-and-restore-test.sh).
 Only after that fresh backup restores successfully into a disposable Docker
 PostgreSQL instance with `--network none` does Helm take ownership. The
 script checks the StatefulSet and both Service UIDs, Pod UID, ordinary Service

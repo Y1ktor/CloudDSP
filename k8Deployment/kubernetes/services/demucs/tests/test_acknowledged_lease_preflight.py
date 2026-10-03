@@ -14,14 +14,14 @@ from pathlib import Path
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.acknowledged_lease_preflight import (
+from app.runtime.acknowledged_lease_preflight import (
     DemucsAcknowledgedLeasePreflightError,
     opened_acknowledged_demucs_source_workspace,
     preflight_acknowledged_demucs_lease,
 )
-from app.amqp_manual_ack import DemucsConsumeOneOutcome, DemucsConsumeOneResult
-from app.source_preflight import OpenedValidatedDemucsSourceWorkspace, ValidatedDemucsSource
-from app.task_lease import DemucsTaskLease
+from app.messaging.amqp_manual_ack import DemucsConsumeOneOutcome, DemucsConsumeOneResult
+from app.processing.source_preflight import OpenedValidatedDemucsSourceWorkspace, ValidatedDemucsSource
+from app.db.task_lease import DemucsTaskLease
 
 
 JOB_ID = "08ec1d44-3106-4fcb-91c8-5d0c78e7e046"
@@ -46,7 +46,7 @@ def acknowledged_lease() -> DemucsTaskLease:
 class AcknowledgedLeasePreflightTests(unittest.TestCase):
     """Prove only a successful broker/durable lease handoff starts source work."""
 
-    @patch("app.acknowledged_lease_preflight.validate_claimed_demucs_source")
+    @patch("app.runtime.acknowledged_lease_preflight.validate_claimed_demucs_source")
     def test_acknowledged_lease_forwards_the_exact_token_to_source_preflight(self, preflight) -> None:
         """The next layer retains both ownership evidence and source evidence."""
 
@@ -76,7 +76,7 @@ class AcknowledgedLeasePreflightTests(unittest.TestCase):
             ffprobe_runner=runner,
         )
 
-    @patch("app.acknowledged_lease_preflight.validate_claimed_demucs_source")
+    @patch("app.runtime.acknowledged_lease_preflight.validate_claimed_demucs_source")
     def test_all_other_normal_receive_outcomes_stop_before_storage_or_ffprobe(self, preflight) -> None:
         """No-work outcomes cannot accidentally restart historical audio work."""
 
@@ -100,7 +100,7 @@ class AcknowledgedLeasePreflightTests(unittest.TestCase):
 
         preflight.assert_not_called()
 
-    @patch("app.acknowledged_lease_preflight.validate_claimed_demucs_source")
+    @patch("app.runtime.acknowledged_lease_preflight.validate_claimed_demucs_source")
     def test_source_preflight_failure_propagates_without_a_new_runtime_policy(self, preflight) -> None:
         """The later token-guarded result adapter must classify source failures."""
 
@@ -149,7 +149,7 @@ class AcknowledgedLeasePreflightTests(unittest.TestCase):
         client = object()
         runner = object()
         with patch(
-            "app.acknowledged_lease_preflight.opened_validated_demucs_source_workspace",
+            "app.runtime.acknowledged_lease_preflight.opened_validated_demucs_source_workspace",
             opened_workspace,
         ):
             with opened_acknowledged_demucs_source_workspace(
@@ -166,7 +166,7 @@ class AcknowledgedLeasePreflightTests(unittest.TestCase):
 
         self.assertEqual(calls, [(client, lease, Path("/worker-scratch"), runner)])
 
-    @patch("app.acknowledged_lease_preflight.opened_validated_demucs_source_workspace")
+    @patch("app.runtime.acknowledged_lease_preflight.opened_validated_demucs_source_workspace")
     def test_workspace_rejects_every_no_work_outcome_before_opening_storage(self, opened_workspace) -> None:
         """The temporary-file capability is not available for historic deliveries."""
 

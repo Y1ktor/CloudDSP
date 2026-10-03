@@ -36,12 +36,32 @@ k8Deployment/
     helm/                         # Component charts and reviewed values
     credentials/                  # Value-free credential catalog and overrides
     services/                     # Local API, intake, dispatchers, workers, delivery
-    scripts/                      # Deployment, verification, reconciliation, cleanup
+      job-api/                    # Authenticated HTTP Job API
+      demucs/app/                 # Grouped worker modules; same layout for MIDI workers
+        db/                       # Task ownership, leases, and result transactions
+        artifacts/                # Object coordinates, downloads, and storage proof
+        messaging/                # Request parsing, broker sessions, ACK/NACK
+        processing/               # Model invocation and media/artifact validation
+        runtime/                  # Execution orchestration, recovery, shutdown
+    scripts/
+      deploy-local.sh             # Public deployment/lifecycle entry point
+      orchestration/              # Root coordinators and stage order
+      releases/                   # Component Helm commands
+      stages/                     # Credentials, database, MinIO, RabbitMQ, Keycloak
+      images/                     # Builders and registry mirroring/checks
+      maintenance/                # Cleanup and opt-in repair/restore tools
+      lib/                        # Shared helpers and path resolution
     tests/                        # Unit, integration, and opt-in smoke/load checks
     docs/history/                 # Preserved implementation/adoption records
     docs/trials/                  # Dated VM trial evidence
     images.lock.yaml              # Reviewed image references and build provenance
 ```
+
+Worker images keep `python -m app.worker_main` as their public launcher. It
+delegates to `app.runtime.worker_main`; internal package paths are implementation
+details. Chart commands and existing locked images retain that launch contract.
+See the [script layout](kubernetes/scripts/README.md#script-layout) for focused
+helper paths.
 
 ## Local platform
 
@@ -96,8 +116,8 @@ roles, then applies the remaining migrations. Job finalization and tempo
 projection are implemented through the later PostgreSQL functions/triggers;
 a partial downstream task inventory waits for asynchronous dispatch rather
 than prematurely failing its parent job. See the
-[migration runner](kubernetes/scripts/job-api-migrations.rb) and
-[Job API implementation](kubernetes/services/api/README.md).
+[migration runner](kubernetes/scripts/stages/database/job-api-migrations.rb) and
+[Job API implementation](kubernetes/services/job-api/README.md).
 
 Both dispatcher releases remain in the bootstrap: the legacy release handles
 Demucs requests, while the generic release routes stage requests. KEDA uses
@@ -134,7 +154,7 @@ namespace separation alone is not a claim of complete network isolation.
 ## Deployment lifecycle
 
 `bootstrap-platform` is the completed fresh-install command. The checked-in
-[platform coordinator](kubernetes/scripts/deploy-local-platform.rb) lists
+[platform coordinator](kubernetes/scripts/orchestration/deploy-local-platform.rb) lists
 **93 ordered stages**: absent-cluster guard and credentials, foundation/image
 mirror, data services, bucket/sample/IAM setup, Keycloak, schema and service
 identities, broker topology, KEDA, application/worker releases, and frontend.

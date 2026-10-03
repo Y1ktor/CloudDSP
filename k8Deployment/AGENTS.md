@@ -94,7 +94,7 @@ Do not use ClickOps or uncommitted `kubectl` changes. Install KEDA before any
 - Preserve source types, byte and duration limits, owner checks, UTC quotas,
   retention, terminal deletion, and `job_id` correlation rules from the cloud
   deployment. These are target parity requirements; current local API gaps
-  are listed in `kubernetes/services/api/README.md`. Do not describe an
+  are listed in `kubernetes/services/job-api/README.md`. Do not describe an
   unimplemented route, quota, or cleanup worker as a deployed capability.
 
 ## Authentication, security, and containers

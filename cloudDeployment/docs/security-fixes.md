@@ -147,7 +147,7 @@ subdomains. It rejects lookalike suffixes, HTTP, embedded credentials, invalid
 ports, and HTTPS ports other than 443.
 
 The validation lives in
-[`media_url_policy.py`](../src/DSP/src/Cloud/media_url_policy.py). Both the Job
+[`media_url_policy.py`](../src/DSP/cloud/media_url_policy.py). Both the Job
 API and the yt-dlp Lambda call it, so direct or asynchronous Lambda invocation
 cannot bypass the policy. The yt-dlp Lambda retains its DNS check that rejects
 an allowlisted hostname resolving to a private or reserved IP address.
@@ -167,8 +167,8 @@ provider. Local verification completed with:
 ```bash
 cd cloudDeployment
 python3 -m unittest src/DSP/tests/test_media_url_policy.py
-python3 -m py_compile src/DSP/src/Cloud/media_url_policy.py \
-  src/DSP/src/Cloud/job_api.py src/DSP/src/Cloud/LambdaYtDlp.py
+python3 -m py_compile src/DSP/cloud/media_url_policy.py \
+  src/DSP/cloud/job_api.py src/DSP/cloud/LambdaYtDlp.py
 ```
 
 ### Residual risk

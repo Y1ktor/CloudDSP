@@ -332,15 +332,15 @@ permissions; those checks do not depend on completed Jobs that may expire.
 It checks Keycloak's bootstrap-admin Secret before the Keycloak release, then
 checks all fifteen CloudDSP Helm releases and the Job API and application
 database/broker stages, the
-[Keycloak realm/client state](../../scripts/keycloak-config-verify.rb),
-the [MinIO bucket stage](../../scripts/minio-buckets-stage.rb), the
-[Job API IAM stage](../../scripts/minio-job-api-iam-stage.rb), the
-[upload-intake IAM stage](../../scripts/minio-upload-intake-iam-stage.rb), the
-[Demucs IAM stage](../../scripts/minio-demucs-iam-stage.rb), the
-[Basic Pitch IAM stage](../../scripts/minio-basic-pitch-iam-stage.rb), the
-[ADTOF IAM stage](../../scripts/minio-adtof-iam-stage.rb), and
-[IAM/notification state](../../scripts/minio-notification-stage.rb), the pinned
-[KEDA release](../../scripts/keda-release-stage.rb), and its controller Deployments and CRDs
+[Keycloak realm/client state](../../scripts/stages/keycloak/keycloak-config-verify.rb),
+the [MinIO bucket stage](../../scripts/stages/minio/minio-buckets-stage.rb), the
+[Job API IAM stage](../../scripts/stages/minio/minio-job-api-iam-stage.rb), the
+[upload-intake IAM stage](../../scripts/stages/minio/minio-upload-intake-iam-stage.rb), the
+[Demucs IAM stage](../../scripts/stages/minio/minio-demucs-iam-stage.rb), the
+[Basic Pitch IAM stage](../../scripts/stages/minio/minio-basic-pitch-iam-stage.rb), the
+[ADTOF IAM stage](../../scripts/stages/minio/minio-adtof-iam-stage.rb), and
+[IAM/notification state](../../scripts/stages/minio/minio-notification-stage.rb), the pinned
+[KEDA release](../../scripts/releases/keda-release-stage.rb), and its controller Deployments and CRDs
 in dependency order.
 It stops at the first failed gate and names the component command to run for
 focused diagnosis. It invokes no adopt, reconcile, bootstrap, or smoke mode;
@@ -432,19 +432,19 @@ it; the S3 notification metadata is the durable success check.
 
 The general `plan` reports resource ownership and source/live identity but
 does not render a chart diff. The separate
-[Mailpit](../../scripts/mailpit-release.rb), [Keycloak](../../scripts/keycloak-release.rb),
-[PostgreSQL](../../scripts/postgresql-release.rb),
-[MinIO](../../scripts/minio-release.rb),
-[RabbitMQ](../../scripts/rabbitmq-release.rb),
-[shared KEDA scaling authentication](../../scripts/scaling-auth-release.rb),
-[Basic Pitch worker](../../scripts/basic-pitch-release.rb),
-[ADTOF worker](../../scripts/adtof-release.rb),
-[Demucs worker](../../scripts/demucs-release.rb),
-[frontend](../../scripts/frontend-release.rb),
-[legacy dispatcher](../../scripts/dispatcher-release.rb),
-[generic dispatcher](../../scripts/generic-dispatcher-release.rb),
-[Job API](../../scripts/job-api-release.rb), and
-[upload-intake](../../scripts/upload-intake-release.rb) release
+[Mailpit](../../scripts/releases/mailpit-release.rb), [Keycloak](../../scripts/releases/keycloak-release.rb),
+[PostgreSQL](../../scripts/releases/postgresql-release.rb),
+[MinIO](../../scripts/releases/minio-release.rb),
+[RabbitMQ](../../scripts/releases/rabbitmq-release.rb),
+[shared KEDA scaling authentication](../../scripts/releases/scaling-auth-release.rb),
+[Basic Pitch worker](../../scripts/releases/basic-pitch-release.rb),
+[ADTOF worker](../../scripts/releases/adtof-release.rb),
+[Demucs worker](../../scripts/releases/demucs-release.rb),
+[frontend](../../scripts/releases/frontend-release.rb),
+[legacy dispatcher](../../scripts/releases/dispatcher-release.rb),
+[generic dispatcher](../../scripts/releases/generic-dispatcher-release.rb),
+[Job API](../../scripts/releases/job-api-release.rb), and
+[upload-intake](../../scripts/releases/upload-intake-release.rb) release
 scripts perform component-specific render and live-spec comparisons. The
 `plan` and `verify` do not install, adopt, migrate, bootstrap, or clean up
 anything. The [resource ownership map](../../resource-ownership-map.md) records the full
@@ -511,7 +511,7 @@ The [PostgreSQL chart](../../helm/postgresql/README.md) owns the existing
 StatefulSet, normal ClusterIP Service, and governing headless Service. Its
 script verifies source/render/live equality and the bound generated PVC.
 Before `adopt` can call Helm, the versioned
-[`backup and restore rehearsal`](../../scripts/postgresql-backup-and-restore-test.sh)
+[`backup and restore rehearsal`](../../scripts/maintenance/postgresql-backup-and-restore-test.sh)
 captures all databases and roles into an ignored owner-only file, restores
 them in an isolated Docker container with no network, and compares counts.
 Adoption preserved resource and Pod UIDs, Service IPs, and PVC/PV identity.
@@ -959,7 +959,7 @@ still derives sample names from the pinned frontend package during updates.
 The [MinIO chart](../../helm/minio/README.md) owns its existing StatefulSet,
 normal and headless Services, and S3 Ingress. Its script checks exact
 source/render/live spec and bound-PVC parity before adoption. The automatic
-[`backup and restore rehearsal`](../../scripts/minio-backup-and-restore-test.py) briefly
+[`backup and restore rehearsal`](../../scripts/maintenance/minio-backup-and-restore-test.py) briefly
 stops the MinIO Pod, archives its node-local PVC, restarts the original Pod,
 and compares an isolated restored server's S3 inventory and object bytes.
 The owner-only archive remains under ignored `k8Deployment/.local/backups/`.
@@ -1010,7 +1010,7 @@ disposable fresh-cluster platform trial; the existing Mac cluster was retained.
 The [RabbitMQ chart](../../helm/rabbitmq/README.md) owns the existing broker
 StatefulSet, AMQP, headless and management Services, and its ingress
 NetworkPolicy. Its automatic
-[`backup and restore rehearsal`](../../scripts/rabbitmq-backup-and-restore-test.py) checks
+[`backup and restore rehearsal`](../../scripts/maintenance/rabbitmq-backup-and-restore-test.py) checks
 that no messages are unacknowledged, briefly stops the broker, archives its
 bound PVC, restarts the original Pod, then compares full definitions and queue
 depths on a disposable no-network restore. The owner-only archive remains
@@ -1242,7 +1242,7 @@ ruby ./k8Deployment/kubernetes/scripts/keycloak-realm-stage.rb verify
 
 The [frontend chart](../../helm/frontend/README.md) owns its existing
 Deployment, ClusterIP Service, and Traefik Ingress in `clouddsp-app`.
-The shared [`stateless-release.rb`](../../scripts/stateless-release.rb) helper supplies the
+The shared [`stateless-release.rb`](../../scripts/lib/helm-release.rb) helper supplies the
 same source/render/live comparison and one-time ownership gate as Mailpit.
 `verify` also checks the local browser app shell, CSP header, and linked
 JavaScript and CSS assets. After adoption, the raw

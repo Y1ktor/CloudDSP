@@ -22,9 +22,9 @@ owned by K3s. The local application images are reviewed for `linux/arm64`;
 this profile does not establish x86_64 or GPU support.
 
 ```bash
-ruby ./k8Deployment/kubernetes/scripts/deploy-local-foundation.rb plan
-ruby ./k8Deployment/kubernetes/scripts/deploy-local-foundation.rb verify
-./k8Deployment/kubernetes/scripts/cluster.sh status
+ruby ./k8Deployment/kubernetes/scripts/orchestration/deploy-local-foundation.rb plan
+ruby ./k8Deployment/kubernetes/scripts/orchestration/deploy-local-foundation.rb verify
+./k8Deployment/kubernetes/scripts/orchestration/cluster.sh status
 ```
 
 Foundation `plan` requires an absent target cluster and a healthy retained
@@ -67,9 +67,9 @@ each includes ARM64 support. Tags provide traceability, while digests identify
 exact manifest/index bytes.
 
 ```bash
-ruby ./k8Deployment/kubernetes/scripts/image-registry-stage.rb plan
-ruby ./k8Deployment/kubernetes/scripts/image-registry-stage.rb verify-source
-ruby ./k8Deployment/kubernetes/scripts/image-registry-stage.rb verify
+ruby ./k8Deployment/kubernetes/scripts/images/image-registry-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/images/image-registry-stage.rb verify-source
+ruby ./k8Deployment/kubernetes/scripts/images/image-registry-stage.rb verify
 ```
 
 | Mode | Behavior |

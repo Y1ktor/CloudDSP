@@ -12,14 +12,14 @@ from contextlib import AbstractContextManager
 from datetime import UTC, datetime
 from unittest.mock import patch
 
-from app.stem_task_retry_exhaustion import (
+from app.db.stem_task_retry_exhaustion import (
     BasicPitchStemRetryExhaustion,
     BasicPitchStemRetryExhaustionCode,
 )
-from app.stem_task_retry_exhaustion_commit import (
+from app.db.stem_task_retry_exhaustion_commit import (
     commit_final_attempt_basic_pitch_stem_retry_exhaustion,
 )
-from app.task_lease import MAX_BASIC_PITCH_TASK_ATTEMPTS, BasicPitchTaskLease
+from app.db.task_lease import MAX_BASIC_PITCH_TASK_ATTEMPTS, BasicPitchTaskLease
 
 
 EVENT_ID = "93b31df9-ea8c-46bb-b2c0-19e9db5365d5"
@@ -73,7 +73,7 @@ class RecordingDatabase:
 class BasicPitchStemRetryExhaustionCommitTests(unittest.TestCase):
     """Prove final-attempt evidence returns only after the transaction scope exits."""
 
-    @patch("app.stem_task_retry_exhaustion_commit.fail_final_attempt_leased_basic_pitch_stem")
+    @patch("app.db.stem_task_retry_exhaustion_commit.fail_final_attempt_leased_basic_pitch_stem")
     def test_committed_exhaustion_returns_after_normal_context_exit(self, fail) -> None:
         """The composition forwards only explicit database/lease/code dependencies."""
 
@@ -100,7 +100,7 @@ class BasicPitchStemRetryExhaustionCommitTests(unittest.TestCase):
             failure_code=BasicPitchStemRetryExhaustionCode.STORAGE_UNAVAILABLE,
         )
 
-    @patch("app.stem_task_retry_exhaustion_commit.fail_final_attempt_leased_basic_pitch_stem")
+    @patch("app.db.stem_task_retry_exhaustion_commit.fail_final_attempt_leased_basic_pitch_stem")
     def test_normal_ownership_loss_commits_no_mutation_and_returns_none(self, fail) -> None:
         """A stale final-attempt worker cannot manufacture a terminal record."""
 
@@ -116,7 +116,7 @@ class BasicPitchStemRetryExhaustionCommitTests(unittest.TestCase):
         )
         self.assertEqual(database.context.exit_arguments, (None, None, None))
 
-    @patch("app.stem_task_retry_exhaustion_commit.fail_final_attempt_leased_basic_pitch_stem")
+    @patch("app.db.stem_task_retry_exhaustion_commit.fail_final_attempt_leased_basic_pitch_stem")
     def test_adapter_error_escapes_so_context_can_roll_back(self, fail) -> None:
         """No failed SQL/protocol result may be treated as durable terminal evidence."""
 

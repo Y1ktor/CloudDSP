@@ -172,7 +172,7 @@ source ingestion, and server-side persistence require authentication.
     accepts only JSON and same-origin `/demo/*` artifact URLs; demo jobs must
     remain outside authenticated API, WebSocket, history, and processing paths.
   - `src/components/StemSplitter/` — stem grid, MIDI status, and popup editor.
-  - `src/hooks/AudioMultiTrackPlayer.js` — shared Web Audio transport. It
+  - `src/hooks/useAudioMultiTrackPlayer.js` — shared Web Audio transport. It
     serializes fetch/decode work, owns current `AudioBuffer`s, and publishes a
     ref-based audio-clock transport. It starts all tracks against one
     `AudioContext` clock; do not reintroduce independent HTML `<audio>`
@@ -198,8 +198,9 @@ source ingestion, and server-side persistence require authentication.
   - `profiles/cloud.env.example` and `profiles/local.env.example` — public
     browser configuration examples. Cloud builds use Vite mode `cloud` and
     write `dist/cloud/`; local builds use mode `k8` and write `dist/local/`.
-- `/src/DSP/src/Cloud/` — Lambda handlers, Batch entry points, and cloud DSP
-  scripts.
+- `/src/DSP/cloud/` — active Lambda handlers, Batch entry point, and shared
+  cloud processing helpers. The [DSP guide](src/DSP/README.md) records image
+  build contexts and source ownership.
   - `job_api.py` — authenticated job creation, saved-job library, snapshots,
     and permanent terminal-job deletion API Lambda.
   - `BatchDemucs.py` — Demucs Batch entry point and downstream MIDI handoff.
@@ -215,15 +216,17 @@ source ingestion, and server-side persistence require authentication.
   - `LambdaYtDlp.py` — durable linked-source ingestion Lambda. It is invoked
     only by the Job API, not by a WebSocket route, and writes the job's input
     key in the uploads bucket.
-  - `LambdaMIDIMadmom.py` is a retained prototype; it is not wired into the
-    durable Job API workflow. Do not use its connection-ID callback design for
-    new work.
 - `/src/DSP/docker/` — deployment Dockerfiles.
   - `stem_split/` runs Demucs in AWS Batch on GPU.
   - `basic_pitch/`, `adtof/`, and `yt-dlp/` are Lambda container images used
-    by the deployed pipeline. The yt-dlp image must copy
-    `cloud_job_workflow.py` with its handler. `madmom/` remains an unprovisioned
-    prototype image.
+    by the deployed pipeline. Each active image has one default `Dockerfile`;
+    Basic Pitch uses its Lambda recipe and custom-runtime `bootstrap`. The
+    yt-dlp image must copy `cloud_job_workflow.py` with its handler.
+- [`../archive/dsp/`](../archive/dsp/README.md) — retained host experiments,
+  manual effect examples, retired presigned-upload/WebSocket/effects handlers,
+  and the unprovisioned Madmom extractor. Madmom's archived handler uses durable
+  job IDs and a workflow snapshot; it is not a deployed drum-processing route.
+  Do not import archived source or include it in active Lambda/image packages.
 - `/IaC/` — componentized CloudFormation templates.
   - `foundation.yaml` — S3 buckets, ECR repositories, CORS, and EventBridge
     delivery from uploads.

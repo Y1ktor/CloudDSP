@@ -12,15 +12,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from app.demucs_requested_message import DemucsRequestedMessage
-from app.pre_model_failure_runtime import DemucsOneTaskExecution, DemucsOneTaskExecutionOutcome
-from app.recovery_execute_once import (
+from app.messaging.demucs_requested_message import DemucsRequestedMessage
+from app.runtime.pre_model_failure_runtime import DemucsOneTaskExecution, DemucsOneTaskExecutionOutcome
+from app.runtime.recovery_execute_once import (
     DemucsRecoveryIterationOutcome,
     DemucsRecoveryIterationResult,
     recover_and_execute_demucs_once,
 )
-from app.task_lease import DEMUCS_EXHAUSTED_LEASE_ERROR_CODE, DemucsExpiredLeaseTerminalization, DemucsTaskLease
-from app.task_maintenance import DemucsRecoveredTask
+from app.db.task_lease import DEMUCS_EXHAUSTED_LEASE_ERROR_CODE, DemucsExpiredLeaseTerminalization, DemucsTaskLease
+from app.db.task_maintenance import DemucsRecoveredTask
 
 
 TASK_ID = "00000000-0000-4000-8000-000000000001"
@@ -71,9 +71,9 @@ def terminalization() -> DemucsExpiredLeaseTerminalization:
 class RecoveryExecuteOnceTests(unittest.TestCase):
     """Prove this iteration has one safe terminal/recovery branch only."""
 
-    @patch("app.recovery_execute_once.execute_recovered_demucs_task")
-    @patch("app.recovery_execute_once.recover_one_demucs_task")
-    @patch("app.recovery_execute_once.terminalize_one_expired_exhausted_demucs_task")
+    @patch("app.runtime.recovery_execute_once.execute_recovered_demucs_task")
+    @patch("app.runtime.recovery_execute_once.recover_one_demucs_task")
+    @patch("app.runtime.recovery_execute_once.terminalize_one_expired_exhausted_demucs_task")
     def test_idle_scan_does_not_enter_the_execution_gate(self, terminalize, recover, execute) -> None:
         """No final/reclaimable candidate is normal idle rather than model work."""
 
@@ -93,9 +93,9 @@ class RecoveryExecuteOnceTests(unittest.TestCase):
         recover.assert_called_once_with(database=database)
         execute.assert_not_called()
 
-    @patch("app.recovery_execute_once.execute_recovered_demucs_task")
-    @patch("app.recovery_execute_once.recover_one_demucs_task")
-    @patch("app.recovery_execute_once.terminalize_one_expired_exhausted_demucs_task")
+    @patch("app.runtime.recovery_execute_once.execute_recovered_demucs_task")
+    @patch("app.runtime.recovery_execute_once.recover_one_demucs_task")
+    @patch("app.runtime.recovery_execute_once.terminalize_one_expired_exhausted_demucs_task")
     def test_committed_pair_executes_once_without_an_amqp_parameter(self, terminalize, recover, execute) -> None:
         """The gate receives the pair and regular dependencies, never a channel."""
 
@@ -136,9 +136,9 @@ class RecoveryExecuteOnceTests(unittest.TestCase):
             running_retry_after_seconds=47,
         )
 
-    @patch("app.recovery_execute_once.execute_recovered_demucs_task")
-    @patch("app.recovery_execute_once.recover_one_demucs_task")
-    @patch("app.recovery_execute_once.terminalize_one_expired_exhausted_demucs_task")
+    @patch("app.runtime.recovery_execute_once.execute_recovered_demucs_task")
+    @patch("app.runtime.recovery_execute_once.recover_one_demucs_task")
+    @patch("app.runtime.recovery_execute_once.terminalize_one_expired_exhausted_demucs_task")
     def test_final_attempt_terminalizes_without_claiming_or_executing(self, terminalize, recover, execute) -> None:
         """Terminal durable work has priority over a new recovery lease."""
 
@@ -158,9 +158,9 @@ class RecoveryExecuteOnceTests(unittest.TestCase):
         recover.assert_not_called()
         execute.assert_not_called()
 
-    @patch("app.recovery_execute_once.execute_recovered_demucs_task")
-    @patch("app.recovery_execute_once.recover_one_demucs_task")
-    @patch("app.recovery_execute_once.terminalize_one_expired_exhausted_demucs_task")
+    @patch("app.runtime.recovery_execute_once.execute_recovered_demucs_task")
+    @patch("app.runtime.recovery_execute_once.recover_one_demucs_task")
+    @patch("app.runtime.recovery_execute_once.terminalize_one_expired_exhausted_demucs_task")
     def test_invalid_recovery_or_execution_error_is_not_silently_mapped_to_idle(
         self,
         terminalize,

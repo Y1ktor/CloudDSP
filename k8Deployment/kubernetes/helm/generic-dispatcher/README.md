@@ -23,9 +23,9 @@ previously running Deployment.
 From the repository root:
 
 ```bash
-./k8Deployment/kubernetes/scripts/generic-dispatcher-release.rb plan
-./k8Deployment/kubernetes/scripts/generic-dispatcher-release.rb adopt
-./k8Deployment/kubernetes/scripts/generic-dispatcher-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/generic-dispatcher-release.rb plan
+./k8Deployment/kubernetes/scripts/releases/generic-dispatcher-release.rb adopt
+./k8Deployment/kubernetes/scripts/releases/generic-dispatcher-release.rb verify
 ```
 
 `plan` runs strict Helm lint, renders the one Deployment, checks the image

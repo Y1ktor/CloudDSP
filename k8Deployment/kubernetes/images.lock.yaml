@@ -152,18 +152,18 @@ images:
       # registry digest above nevertheless identifies the exact pushed bytes;
       # replace this working-tree note with a commit after the task is reviewed.
       sourceRevision: local-kubernetes-working-tree
-      sourceDirectory: kubernetes/services/api/app
-      dockerfile: kubernetes/services/api/Dockerfile
-      requirementsLock: kubernetes/services/api/requirements.lock
-      authenticationTests: kubernetes/services/api/tests/test_authentication.py
-      jobListTests: kubernetes/services/api/tests/test_jobs.py
-      directUploadContractTests: kubernetes/services/api/tests/test_direct_upload_contract.py
-      jobCreationTests: kubernetes/services/api/tests/test_job_creation.py
-      jobCreationRouteTests: kubernetes/services/api/tests/test_job_creation_route.py
-      jobDetailTests: kubernetes/services/api/tests/test_jobs.py
-      presignedDownloadTests: kubernetes/services/api/tests/test_presigned_download.py
-      finalizationMigrationTests: kubernetes/services/api/tests/test_job_finalization_migration.py
-      presignedUploadTests: kubernetes/services/api/tests/test_presigned_upload.py
+      sourceDirectory: kubernetes/services/job-api/app
+      dockerfile: kubernetes/services/job-api/Dockerfile
+      requirementsLock: kubernetes/services/job-api/requirements.lock
+      authenticationTests: kubernetes/services/job-api/tests/test_authentication.py
+      jobListTests: kubernetes/services/job-api/tests/test_jobs.py
+      directUploadContractTests: kubernetes/services/job-api/tests/test_direct_upload_contract.py
+      jobCreationTests: kubernetes/services/job-api/tests/test_job_creation.py
+      jobCreationRouteTests: kubernetes/services/job-api/tests/test_job_creation_route.py
+      jobDetailTests: kubernetes/services/job-api/tests/test_jobs.py
+      presignedDownloadTests: kubernetes/services/job-api/tests/test_presigned_download.py
+      finalizationMigrationTests: kubernetes/services/job-api/tests/test_job_finalization_migration.py
+      presignedUploadTests: kubernetes/services/job-api/tests/test_presigned_upload.py
       runtimeImageLock: images.api-python-runtime
       sourceLock: buildSources.api
     localDockerSizeBytes: 77919191
@@ -948,9 +948,9 @@ buildSources:
     # must deliberately rebuild, push, and record a new output digest; do not
     # deploy the mutable readable tag from the build script.
     baseImageLock: images.api-python-runtime
-    sourceDirectory: kubernetes/services/api/app
-    dockerfile: kubernetes/services/api/Dockerfile
-    requirementsLock: kubernetes/services/api/requirements.lock
+    sourceDirectory: kubernetes/services/job-api/app
+    dockerfile: kubernetes/services/job-api/Dockerfile
+    requirementsLock: kubernetes/services/job-api/requirements.lock
     intendedRepository: clouddsp-registry.localhost:5001/job-api
     publishedImageLock: images.job-api
     targetPlatform: linux/arm64
@@ -1065,15 +1065,6 @@ buildSources:
     publishedImageLock: images.basic-pitch
     targetPlatform: linux/arm64
     devicePolicy: cpu
-    localArm64CpuInferencePolicy:
-      # The local Linux/ARM64 image uses this child-only safety policy because
-      # Docker Desktop/k3d reproduced SIGILL in the default MKLDNN model path.
-      # It is not a generic Torch or future NVIDIA-GPU production policy.
-      # The subprocess runs from an isolated output directory, not `/app`.
-      # An absolute script preserves the narrow launcher/import boundary
-      # without exporting a broad PYTHONPATH into the worker Pod.
-      launcherScript: /app/app/demucs_cpu_cli.py
-      mkldnnEnabled: false
     pythonVersion: "3.11"
     # This exec-form command is part of the immutable image contract. Python
     # becomes PID 1 rather than a shell, so Kubernetes SIGTERM reaches the
@@ -1212,6 +1203,15 @@ buildSources:
     publishedImageLock: images.demucs
     targetPlatform: linux/arm64
     devicePolicy: cpu
+    localArm64CpuInferencePolicy:
+      # The Demucs build uses this child-only policy because Docker Desktop/k3d
+      # reproduced SIGILL in the default MKLDNN model path. This source recipe
+      # describes the grouped launcher for a future build; existing image
+      # digests continue to identify their original bytes.
+      # The subprocess runs in an isolated output directory. Its absolute
+      # launcher avoids exporting a broad PYTHONPATH into the worker Pod.
+      launcherScript: /app/app/processing/demucs_cpu_cli.py
+      mkldnnEnabled: false
     workerEntrypoint:
       # Exec-form Docker ENTRYPOINT runs this wrapper as PID 1, so Kubernetes
       # SIGTERM reaches the scoped graceful-shutdown bridge directly.

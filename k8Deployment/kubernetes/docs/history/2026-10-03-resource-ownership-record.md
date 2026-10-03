@@ -151,31 +151,31 @@ configuration. Live status is identity-only. Secret rows expose names only.
 | [services/adtof/adtof-minio-runtime-policy-smoke-job.yaml](../../services/adtof/adtof-minio-runtime-policy-smoke-job.yaml) | `Job/adtof-minio-runtime-policy-smoke` | `clouddsp-app` | Absent | `test` |
 | [services/adtof/adtof-rabbitmq-credentials.secret.example.yaml](../../services/adtof/adtof-rabbitmq-credentials.secret.example.yaml) | `Secret/clouddsp-adtof-rabbitmq-credentials` | `clouddsp-app` | Present | `secret` |
 | [services/adtof/adtof-scaledobject.yaml](../../services/adtof/adtof-scaledobject.yaml) | `ScaledObject/clouddsp-adtof-rabbitmq-scaler` | `clouddsp-app` | Present | `worker:adtof` |
-| [services/api/job-api-database-bootstrap-credentials.secret.example.yaml](../../services/api/job-api-database-bootstrap-credentials.secret.example.yaml) | `Secret/clouddsp-job-api-database-bootstrap-credentials` | `clouddsp-data` | Absent | `secret` |
-| [services/api/job-api-database-bootstrap-job.yaml](../../services/api/job-api-database-bootstrap-job.yaml) | `Job/job-api-database-bootstrap` | `clouddsp-data` | Absent | `bootstrap` |
-| [services/api/job-api-database-credentials.secret.example.yaml](../../services/api/job-api-database-credentials.secret.example.yaml) | `Secret/clouddsp-job-api-database-credentials` | `clouddsp-app` | Present | `secret` |
-| [services/api/job-api-deployment.yaml](../../services/api/job-api-deployment.yaml) | `Deployment/clouddsp-job-api` | `clouddsp-app` | Present | `app:api` |
-| [services/api/job-api-ingress.yaml](../../services/api/job-api-ingress.yaml) | `Ingress/clouddsp-job-api` | `clouddsp-app` | Present | `app:api` |
-| [services/api/job-api-minio-credentials.secret.example.yaml](../../services/api/job-api-minio-credentials.secret.example.yaml) | `Secret/clouddsp-job-api-minio-credentials` | `clouddsp-app` | Present | `secret` |
-| [services/api/job-api-schema-migration-v001-configmap.yaml](../../services/api/job-api-schema-migration-v001-configmap.yaml) | `ConfigMap/job-api-schema-migration-v001` | `clouddsp-app` | Present | `migration` |
-| [services/api/job-api-schema-migration-v001-job.yaml](../../services/api/job-api-schema-migration-v001-job.yaml) | `Job/job-api-schema-migration-v001` | `clouddsp-app` | Absent | `migration` |
-| [services/api/job-api-schema-migration-v002-outbox-configmap.yaml](../../services/api/job-api-schema-migration-v002-outbox-configmap.yaml) | `ConfigMap/job-api-schema-migration-v002-outbox` | `clouddsp-app` | Present | `migration` |
-| [services/api/job-api-schema-migration-v002-outbox-job.yaml](../../services/api/job-api-schema-migration-v002-outbox-job.yaml) | `Job/job-api-schema-migration-v002-outbox` | `clouddsp-app` | Absent | `migration` |
-| [services/api/job-api-schema-migration-v003-processing-tasks-configmap.yaml](../../services/api/job-api-schema-migration-v003-processing-tasks-configmap.yaml) | `ConfigMap/job-api-schema-migration-v003-processing-tasks` | `clouddsp-app` | Present | `migration` |
-| [services/api/job-api-schema-migration-v003-processing-tasks-job.yaml](../../services/api/job-api-schema-migration-v003-processing-tasks-job.yaml) | `Job/job-api-schema-migration-v003-processing-tasks` | `clouddsp-app` | Absent | `migration` |
-| [services/api/job-api-schema-migration-v004-downstream-outbox-configmap.yaml](../../services/api/job-api-schema-migration-v004-downstream-outbox-configmap.yaml) | `ConfigMap/job-api-schema-migration-v004-downstream-outbox` | `clouddsp-app` | Present | `migration` |
-| [services/api/job-api-schema-migration-v004-downstream-outbox-job.yaml](../../services/api/job-api-schema-migration-v004-downstream-outbox-job.yaml) | `Job/job-api-schema-migration-v004-downstream-outbox` | `clouddsp-app` | Absent | `migration` |
-| [services/api/job-api-schema-migration-v005-basic-pitch-processing-tasks-configmap.yaml](../../services/api/job-api-schema-migration-v005-basic-pitch-processing-tasks-configmap.yaml) | `ConfigMap/job-api-schema-migration-v005-basic-pitch-processing-tasks` | `clouddsp-app` | Present | `migration` |
-| [services/api/job-api-schema-migration-v005-basic-pitch-processing-tasks-job.yaml](../../services/api/job-api-schema-migration-v005-basic-pitch-processing-tasks-job.yaml) | `Job/job-api-schema-migration-v005-basic-pitch-processing-tasks` | `clouddsp-app` | Absent | `migration` |
-| [services/api/job-api-schema-migration-v006-adtof-processing-tasks-configmap.yaml](../../services/api/job-api-schema-migration-v006-adtof-processing-tasks-configmap.yaml) | `ConfigMap/job-api-schema-migration-v006-adtof-processing-tasks` | `clouddsp-app` | Present | `migration` |
-| [services/api/job-api-schema-migration-v006-adtof-processing-tasks-job.yaml](../../services/api/job-api-schema-migration-v006-adtof-processing-tasks-job.yaml) | `Job/job-api-schema-migration-v006-adtof-processing-tasks` | `clouddsp-app` | Absent | `migration` |
-| [services/api/job-api-schema-migration-v007-job-finalization-configmap.yaml](../../services/api/job-api-schema-migration-v007-job-finalization-configmap.yaml) | `ConfigMap/job-api-schema-migration-v007-job-finalization` | `clouddsp-app` | Present | `migration` |
-| [services/api/job-api-schema-migration-v007-job-finalization-job.yaml](../../services/api/job-api-schema-migration-v007-job-finalization-job.yaml) | `Job/job-api-schema-migration-v007-job-finalization` | `clouddsp-app` | Absent | `migration` |
-| [services/api/job-api-schema-migration-v008-partial-task-finalization-configmap.yaml](../../services/api/job-api-schema-migration-v008-partial-task-finalization-configmap.yaml) | `ConfigMap/job-api-schema-migration-v008-partial-task-finalization` | `clouddsp-app` | Present | `migration` |
-| [services/api/job-api-schema-migration-v008-partial-task-finalization-job.yaml](../../services/api/job-api-schema-migration-v008-partial-task-finalization-job.yaml) | `Job/job-api-schema-migration-v008-partial-task-finalization` | `clouddsp-app` | Absent | `migration` |
-| [services/api/job-api-schema-migration-v009-tempo-resolution-configmap.yaml](../../services/api/job-api-schema-migration-v009-tempo-resolution-configmap.yaml) | `ConfigMap/job-api-schema-migration-v009-tempo-resolution` | `clouddsp-app` | Present | `migration` |
-| [services/api/job-api-schema-migration-v009-tempo-resolution-job.yaml](../../services/api/job-api-schema-migration-v009-tempo-resolution-job.yaml) | `Job/job-api-schema-migration-v009-tempo-resolution` | `clouddsp-app` | Absent | `migration` |
-| [services/api/job-api-service.yaml](../../services/api/job-api-service.yaml) | `Service/clouddsp-job-api` | `clouddsp-app` | Present | `app:api` |
+| [services/api/job-api-database-bootstrap-credentials.secret.example.yaml](../../services/job-api/job-api-database-bootstrap-credentials.secret.example.yaml) | `Secret/clouddsp-job-api-database-bootstrap-credentials` | `clouddsp-data` | Absent | `secret` |
+| [services/api/job-api-database-bootstrap-job.yaml](../../services/job-api/job-api-database-bootstrap-job.yaml) | `Job/job-api-database-bootstrap` | `clouddsp-data` | Absent | `bootstrap` |
+| [services/api/job-api-database-credentials.secret.example.yaml](../../services/job-api/job-api-database-credentials.secret.example.yaml) | `Secret/clouddsp-job-api-database-credentials` | `clouddsp-app` | Present | `secret` |
+| [services/api/job-api-deployment.yaml](../../services/job-api/job-api-deployment.yaml) | `Deployment/clouddsp-job-api` | `clouddsp-app` | Present | `app:api` |
+| [services/api/job-api-ingress.yaml](../../services/job-api/job-api-ingress.yaml) | `Ingress/clouddsp-job-api` | `clouddsp-app` | Present | `app:api` |
+| [services/api/job-api-minio-credentials.secret.example.yaml](../../services/job-api/job-api-minio-credentials.secret.example.yaml) | `Secret/clouddsp-job-api-minio-credentials` | `clouddsp-app` | Present | `secret` |
+| [services/api/job-api-schema-migration-v001-configmap.yaml](../../services/job-api/job-api-schema-migration-v001-configmap.yaml) | `ConfigMap/job-api-schema-migration-v001` | `clouddsp-app` | Present | `migration` |
+| [services/api/job-api-schema-migration-v001-job.yaml](../../services/job-api/job-api-schema-migration-v001-job.yaml) | `Job/job-api-schema-migration-v001` | `clouddsp-app` | Absent | `migration` |
+| [services/api/job-api-schema-migration-v002-outbox-configmap.yaml](../../services/job-api/job-api-schema-migration-v002-outbox-configmap.yaml) | `ConfigMap/job-api-schema-migration-v002-outbox` | `clouddsp-app` | Present | `migration` |
+| [services/api/job-api-schema-migration-v002-outbox-job.yaml](../../services/job-api/job-api-schema-migration-v002-outbox-job.yaml) | `Job/job-api-schema-migration-v002-outbox` | `clouddsp-app` | Absent | `migration` |
+| [services/api/job-api-schema-migration-v003-processing-tasks-configmap.yaml](../../services/job-api/job-api-schema-migration-v003-processing-tasks-configmap.yaml) | `ConfigMap/job-api-schema-migration-v003-processing-tasks` | `clouddsp-app` | Present | `migration` |
+| [services/api/job-api-schema-migration-v003-processing-tasks-job.yaml](../../services/job-api/job-api-schema-migration-v003-processing-tasks-job.yaml) | `Job/job-api-schema-migration-v003-processing-tasks` | `clouddsp-app` | Absent | `migration` |
+| [services/api/job-api-schema-migration-v004-downstream-outbox-configmap.yaml](../../services/job-api/job-api-schema-migration-v004-downstream-outbox-configmap.yaml) | `ConfigMap/job-api-schema-migration-v004-downstream-outbox` | `clouddsp-app` | Present | `migration` |
+| [services/api/job-api-schema-migration-v004-downstream-outbox-job.yaml](../../services/job-api/job-api-schema-migration-v004-downstream-outbox-job.yaml) | `Job/job-api-schema-migration-v004-downstream-outbox` | `clouddsp-app` | Absent | `migration` |
+| [services/api/job-api-schema-migration-v005-basic-pitch-processing-tasks-configmap.yaml](../../services/job-api/job-api-schema-migration-v005-basic-pitch-processing-tasks-configmap.yaml) | `ConfigMap/job-api-schema-migration-v005-basic-pitch-processing-tasks` | `clouddsp-app` | Present | `migration` |
+| [services/api/job-api-schema-migration-v005-basic-pitch-processing-tasks-job.yaml](../../services/job-api/job-api-schema-migration-v005-basic-pitch-processing-tasks-job.yaml) | `Job/job-api-schema-migration-v005-basic-pitch-processing-tasks` | `clouddsp-app` | Absent | `migration` |
+| [services/api/job-api-schema-migration-v006-adtof-processing-tasks-configmap.yaml](../../services/job-api/job-api-schema-migration-v006-adtof-processing-tasks-configmap.yaml) | `ConfigMap/job-api-schema-migration-v006-adtof-processing-tasks` | `clouddsp-app` | Present | `migration` |
+| [services/api/job-api-schema-migration-v006-adtof-processing-tasks-job.yaml](../../services/job-api/job-api-schema-migration-v006-adtof-processing-tasks-job.yaml) | `Job/job-api-schema-migration-v006-adtof-processing-tasks` | `clouddsp-app` | Absent | `migration` |
+| [services/api/job-api-schema-migration-v007-job-finalization-configmap.yaml](../../services/job-api/job-api-schema-migration-v007-job-finalization-configmap.yaml) | `ConfigMap/job-api-schema-migration-v007-job-finalization` | `clouddsp-app` | Present | `migration` |
+| [services/api/job-api-schema-migration-v007-job-finalization-job.yaml](../../services/job-api/job-api-schema-migration-v007-job-finalization-job.yaml) | `Job/job-api-schema-migration-v007-job-finalization` | `clouddsp-app` | Absent | `migration` |
+| [services/api/job-api-schema-migration-v008-partial-task-finalization-configmap.yaml](../../services/job-api/job-api-schema-migration-v008-partial-task-finalization-configmap.yaml) | `ConfigMap/job-api-schema-migration-v008-partial-task-finalization` | `clouddsp-app` | Present | `migration` |
+| [services/api/job-api-schema-migration-v008-partial-task-finalization-job.yaml](../../services/job-api/job-api-schema-migration-v008-partial-task-finalization-job.yaml) | `Job/job-api-schema-migration-v008-partial-task-finalization` | `clouddsp-app` | Absent | `migration` |
+| [services/api/job-api-schema-migration-v009-tempo-resolution-configmap.yaml](../../services/job-api/job-api-schema-migration-v009-tempo-resolution-configmap.yaml) | `ConfigMap/job-api-schema-migration-v009-tempo-resolution` | `clouddsp-app` | Present | `migration` |
+| [services/api/job-api-schema-migration-v009-tempo-resolution-job.yaml](../../services/job-api/job-api-schema-migration-v009-tempo-resolution-job.yaml) | `Job/job-api-schema-migration-v009-tempo-resolution` | `clouddsp-app` | Absent | `migration` |
+| [services/api/job-api-service.yaml](../../services/job-api/job-api-service.yaml) | `Service/clouddsp-job-api` | `clouddsp-app` | Present | `app:api` |
 | [services/basic-pitch/basic-pitch-database-bootstrap-credentials.secret.example.yaml](../../services/basic-pitch/basic-pitch-database-bootstrap-credentials.secret.example.yaml) | `Secret/clouddsp-basic-pitch-database-bootstrap-credentials` | `clouddsp-data` | Absent | `secret` |
 | [services/basic-pitch/basic-pitch-database-bootstrap-job.yaml](../../services/basic-pitch/basic-pitch-database-bootstrap-job.yaml) | `Job/basic-pitch-database-bootstrap` | `clouddsp-data` | Absent | `bootstrap` |
 | [services/basic-pitch/basic-pitch-database-credentials.secret.example.yaml](../../services/basic-pitch/basic-pitch-database-credentials.secret.example.yaml) | `Secret/clouddsp-basic-pitch-database-credentials` | `clouddsp-app` | Present | `secret` |
@@ -450,17 +450,17 @@ CloudDSP charts should own neither the CRDs nor the generated HPAs.
 
 The read-only [plan/preflight command](../../scripts/deploy-local.sh) now checks
 current ownership, Secret names, image-lock consistency, and StatefulSet/PVC
-identity. The [Mailpit](../../scripts/mailpit-release.rb),
-[frontend](../../scripts/frontend-release.rb),
-[legacy dispatcher](../../scripts/dispatcher-release.rb),
-[generic dispatcher](../../scripts/generic-dispatcher-release.rb),
-[Job API](../../scripts/job-api-release.rb),
-[upload-intake](../../scripts/upload-intake-release.rb),
-[Keycloak](../../scripts/keycloak-release.rb),
-[PostgreSQL](../../scripts/postgresql-release.rb),
-[MinIO](../../scripts/minio-release.rb),
-[RabbitMQ](../../scripts/rabbitmq-release.rb), and
-[scaling-auth](../../scripts/scaling-auth-release.rb) release scripts separately check
+identity. The [Mailpit](../../scripts/releases/mailpit-release.rb),
+[frontend](../../scripts/releases/frontend-release.rb),
+[legacy dispatcher](../../scripts/releases/dispatcher-release.rb),
+[generic dispatcher](../../scripts/releases/generic-dispatcher-release.rb),
+[Job API](../../scripts/releases/job-api-release.rb),
+[upload-intake](../../scripts/releases/upload-intake-release.rb),
+[Keycloak](../../scripts/releases/keycloak-release.rb),
+[PostgreSQL](../../scripts/releases/postgresql-release.rb),
+[MinIO](../../scripts/releases/minio-release.rb),
+[RabbitMQ](../../scripts/releases/rabbitmq-release.rb), and
+[scaling-auth](../../scripts/releases/scaling-auth-release.rb) release scripts separately check
 rendered/source/live spec parity and Helm ownership. The general
 preflight does not perform chart-specific rendered diffs; each remaining
 component needs its own chart and adoption gate.

@@ -7,13 +7,13 @@ They do not install PostgreSQL or other services.
 
 ## Job API database ownership
 
-[job-api-database-bootstrap.rb](../../scripts/job-api-database-bootstrap.rb)
+[job-api-database-bootstrap.rb](../../scripts/stages/database/job-api-database-bootstrap.rb)
 accepts `plan`, `verify`, and `reconcile`:
 
 ```bash
-ruby ./k8Deployment/kubernetes/scripts/job-api-database-bootstrap.rb plan
-ruby ./k8Deployment/kubernetes/scripts/job-api-database-bootstrap.rb verify
-ruby ./k8Deployment/kubernetes/scripts/job-api-database-bootstrap.rb reconcile
+ruby ./k8Deployment/kubernetes/scripts/stages/database/job-api-database-bootstrap.rb plan
+ruby ./k8Deployment/kubernetes/scripts/stages/database/job-api-database-bootstrap.rb verify
+ruby ./k8Deployment/kubernetes/scripts/stages/database/job-api-database-bootstrap.rb reconcile
 ```
 
 It verifies the `clouddsp_job_api` database, restricted `clouddsp-job-api`
@@ -31,13 +31,13 @@ rotation or database/data restoration.
 
 ## Migration ledger and fresh ordering
 
-[job-api-migrations.rb](../../scripts/job-api-migrations.rb) supports:
+[job-api-migrations.rb](../../scripts/stages/database/job-api-migrations.rb) supports:
 
 ```bash
-ruby ./k8Deployment/kubernetes/scripts/job-api-migrations.rb plan
-ruby ./k8Deployment/kubernetes/scripts/job-api-migrations.rb verify
-ruby ./k8Deployment/kubernetes/scripts/job-api-migrations.rb reconcile-prerequisites
-ruby ./k8Deployment/kubernetes/scripts/job-api-migrations.rb reconcile
+ruby ./k8Deployment/kubernetes/scripts/stages/database/job-api-migrations.rb plan
+ruby ./k8Deployment/kubernetes/scripts/stages/database/job-api-migrations.rb verify
+ruby ./k8Deployment/kubernetes/scripts/stages/database/job-api-migrations.rb reconcile-prerequisites
+ruby ./k8Deployment/kubernetes/scripts/stages/database/job-api-migrations.rb reconcile
 ```
 
 `plan` reads the `schema_migrations` ledger and immutable SQL ConfigMaps;
@@ -62,13 +62,13 @@ without a matching ledger row remains for diagnosis; Job absence does not
 prove migration success. Repeated reconciliation of a complete ledger performs
 no migration write. Historic migration SQL is immutable.
 
-[job-api-postgresql-stage.rb](../../scripts/job-api-postgresql-stage.rb)
+[job-api-postgresql-stage.rb](../../scripts/stages/database/job-api-postgresql-stage.rb)
 combines database ownership and the complete migration runner:
 
 ```bash
-ruby ./k8Deployment/kubernetes/scripts/job-api-postgresql-stage.rb plan
-ruby ./k8Deployment/kubernetes/scripts/job-api-postgresql-stage.rb verify
-ruby ./k8Deployment/kubernetes/scripts/job-api-postgresql-stage.rb reconcile
+ruby ./k8Deployment/kubernetes/scripts/stages/database/job-api-postgresql-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/stages/database/job-api-postgresql-stage.rb verify
+ruby ./k8Deployment/kubernetes/scripts/stages/database/job-api-postgresql-stage.rb reconcile
 ```
 
 Its full reconcile is appropriate after worker roles exist. Fresh bootstrap
@@ -77,12 +77,12 @@ inspection until database creation is possible.
 
 ## Worker roles and other service databases
 
-[worker-database-stage.rb](../../scripts/worker-database-stage.rb) accepts
+[worker-database-stage.rb](../../scripts/stages/database/worker-database-stage.rb) accepts
 `basic-pitch|adtof plan|bootstrap|verify`:
 
 ```bash
-ruby ./k8Deployment/kubernetes/scripts/worker-database-stage.rb basic-pitch verify
-ruby ./k8Deployment/kubernetes/scripts/worker-database-stage.rb adtof verify
+ruby ./k8Deployment/kubernetes/scripts/stages/database/worker-database-stage.rb basic-pitch verify
+ruby ./k8Deployment/kubernetes/scripts/stages/database/worker-database-stage.rb adtof verify
 ```
 
 Fresh bootstrap checks its prerequisite migration and matching runtime/
@@ -92,11 +92,11 @@ provisioning Secret. Verification checks the role and live runtime Secret
 without changing either. Other application roles and the read-only KEDA
 observer use [application identity stages](credentials-and-identities.md).
 
-[keycloak-database-stage.rb](../../scripts/keycloak-database-stage.rb)
+[keycloak-database-stage.rb](../../scripts/stages/keycloak/keycloak-database-stage.rb)
 accepts `plan`, `bootstrap`, and `verify`:
 
 ```bash
-ruby ./k8Deployment/kubernetes/scripts/keycloak-database-stage.rb verify
+ruby ./k8Deployment/kubernetes/scripts/stages/keycloak/keycloak-database-stage.rb verify
 ```
 
 It owns the separate Keycloak role/database initialization. Plan distinguishes
@@ -114,12 +114,12 @@ data and is checked by the release verifier. Schema migrations, roles,
 runtime Secrets, and one-shot Jobs have separate ownership.
 
 ```bash
-ruby ./k8Deployment/kubernetes/scripts/postgresql-release.rb verify
+ruby ./k8Deployment/kubernetes/scripts/releases/postgresql-release.rb verify
 ```
 
 Fresh `install` refuses an existing release, workload, Service, matching Pod,
 or retained claim. Optional one-time `adopt` runs the versioned
-[backup/restore rehearsal](../../scripts/postgresql-backup-and-restore-test.sh)
+[backup/restore rehearsal](../../scripts/maintenance/postgresql-backup-and-restore-test.sh)
 before taking ownership; that maintenance test writes an owner-only archive
 and restores it in an isolated container. It is not part of fresh bootstrap
 and is not a general restore path. See [Helm release reference](helm-releases-and-scaling.md).

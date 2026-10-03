@@ -54,7 +54,7 @@ class DemucsDockerfileTests(unittest.TestCase):
 
         dockerfile = self.dockerfile()
         self.assertIn("cd /tmp/demucs-local-arm64-cpu-smoke/output", dockerfile)
-        self.assertIn("/usr/local/bin/python /app/app/demucs_cpu_cli.py", dockerfile)
+        self.assertIn("/usr/local/bin/python /app/app/processing/demucs_cpu_cli.py", dockerfile)
         self.assertIn("demucs-local-arm64-cpu-smoke", dockerfile)
         self.assertIn("no_vocals.wav", dockerfile)
         # The explanatory prose may wrap this phrase across source lines; the

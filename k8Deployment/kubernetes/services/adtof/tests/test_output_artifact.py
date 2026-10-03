@@ -14,16 +14,16 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from app.output_artifact import (
+from app.artifacts.output_artifact import (
     ADTOFOutputArtifactContractError,
     ADTOFOutputArtifactFormatError,
     ADTOFOutputArtifactPathError,
     verify_and_hash_adtof_output_artifact,
 )
-from app.output_object_plan import build_adtof_output_object_plans
-from app.stem_download import DownloadedADTOFStem
-from app.stem_task_start import RunningADTOFStem
-from app.task_claim import ADTOFTaskLease
+from app.artifacts.output_object_plan import build_adtof_output_object_plans
+from app.artifacts.stem_download import DownloadedADTOFStem
+from app.db.stem_task_start import RunningADTOFStem
+from app.db.task_claim import ADTOFTaskLease
 
 
 EVENT_ID = "93b31df9-ea8c-46bb-b2c0-19e9db5365d5"

@@ -12,13 +12,13 @@ from contextlib import AbstractContextManager
 from datetime import UTC, datetime
 from unittest.mock import patch
 
-from app.stem_task_retry_schedule import (
+from app.db.stem_task_retry_schedule import (
     DEFAULT_BASIC_PITCH_RETRY_AFTER_SECONDS,
     BasicPitchStemRetrySchedule,
     BasicPitchStemRetryScheduleCode,
 )
-from app.stem_task_retry_schedule_commit import commit_basic_pitch_stem_retry_schedule
-from app.task_lease import BasicPitchTaskLease
+from app.db.stem_task_retry_schedule_commit import commit_basic_pitch_stem_retry_schedule
+from app.db.task_lease import BasicPitchTaskLease
 
 
 EVENT_ID = "93b31df9-ea8c-46bb-b2c0-19e9db5365d5"
@@ -72,7 +72,7 @@ class RecordingDatabase:
 class BasicPitchStemRetryScheduleCommitTests(unittest.TestCase):
     """Prove retry evidence returns only after its SQL transaction scope exits."""
 
-    @patch("app.stem_task_retry_schedule_commit.schedule_leased_basic_pitch_stem_retry")
+    @patch("app.db.stem_task_retry_schedule_commit.schedule_leased_basic_pitch_stem_retry")
     def test_committed_retry_schedule_returns_after_normal_context_exit(self, schedule) -> None:
         """The composition forwards only explicit database/lease/delay/code inputs."""
 
@@ -101,7 +101,7 @@ class BasicPitchStemRetryScheduleCommitTests(unittest.TestCase):
             failure_code=BasicPitchStemRetryScheduleCode.STORAGE_UNAVAILABLE,
         )
 
-    @patch("app.stem_task_retry_schedule_commit.schedule_leased_basic_pitch_stem_retry")
+    @patch("app.db.stem_task_retry_schedule_commit.schedule_leased_basic_pitch_stem_retry")
     def test_no_schedule_commits_normally_without_manufacturing_retry_evidence(self, schedule) -> None:
         """A stale, recovered, or exhausted lease needs no competing worker result."""
 
@@ -124,7 +124,7 @@ class BasicPitchStemRetryScheduleCommitTests(unittest.TestCase):
             failure_code=BasicPitchStemRetryScheduleCode.STORAGE_UNAVAILABLE,
         )
 
-    @patch("app.stem_task_retry_schedule_commit.schedule_leased_basic_pitch_stem_retry")
+    @patch("app.db.stem_task_retry_schedule_commit.schedule_leased_basic_pitch_stem_retry")
     def test_adapter_error_escapes_so_context_can_roll_back(self, schedule) -> None:
         """No failed SQL/protocol result may be treated as durable retry evidence."""
 

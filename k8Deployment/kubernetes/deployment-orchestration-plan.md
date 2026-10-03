@@ -11,7 +11,7 @@ The one-command fresh deployment is implemented. From the repository root:
 
 `bootstrap-platform` currently composes **93 ordered stages**. Obtain the exact
 names from `deploy-local.sh stages`; the source of truth is
-[`deploy-local-platform.rb`](scripts/deploy-local-platform.rb). The completed
+[`deploy-local-platform.rb`](scripts/orchestration/deploy-local-platform.rb). The completed
 fresh and retained-registry paths have [dated VM trial records](docs/trials/).
 Those records describe the tested revisions and timings, not a guarantee for
 another machine.
@@ -101,7 +101,7 @@ validate NVIDIA GPU throughput or production high availability. Local linked
 media ingestion, user-facing job deletion, UTC quota enforcement, retention
 cleanup, and a realtime notification service are outside the current implemented
 local API scope; see [current architecture/status](../plan.md) and the
-[Job API contract](services/api/README.md).
+[Job API contract](services/job-api/README.md).
 
 The original design, adoption sequence, and incremental implementation milestones
 are preserved in [orchestration history](docs/history/deployment-orchestration-implementation-notes.md).

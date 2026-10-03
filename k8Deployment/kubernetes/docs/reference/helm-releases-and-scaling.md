@@ -36,13 +36,13 @@ for stateful services without treating Helm as data backup or restore.
 ## Component release helper modes
 
 Component helpers follow `COMPONENT-release.rb` under
-[`scripts/`](../../scripts/), using `job-api` and `generic-dispatcher` for those
+[`scripts/releases/`](../../scripts/releases/), using `job-api` and `generic-dispatcher` for those
 specific names. Examples:
 
 ```bash
-ruby ./k8Deployment/kubernetes/scripts/frontend-release.rb verify
-ruby ./k8Deployment/kubernetes/scripts/demucs-release.rb verify
-ruby ./k8Deployment/kubernetes/scripts/postgresql-release.rb verify
+ruby ./k8Deployment/kubernetes/scripts/releases/frontend-release.rb verify
+ruby ./k8Deployment/kubernetes/scripts/releases/demucs-release.rb verify
+ruby ./k8Deployment/kubernetes/scripts/releases/postgresql-release.rb verify
 ```
 
 | Mode | Preconditions and effect |
@@ -57,14 +57,14 @@ Each helper's supported subset is defined in its source/chart guide.
 `install` checks server schemas before mutation and leaves failed/partial
 releases for inspection. Repeating it against a partial installation is
 refused. One-time stateful adoption additionally runs component-specific
-[PostgreSQL](../../scripts/postgresql-backup-and-restore-test.sh),
-[MinIO](../../scripts/minio-backup-and-restore-test.py), or
-[RabbitMQ](../../scripts/rabbitmq-backup-and-restore-test.py) backup/recovery
+[PostgreSQL](../../scripts/maintenance/postgresql-backup-and-restore-test.sh),
+[MinIO](../../scripts/maintenance/minio-backup-and-restore-test.py), or
+[RabbitMQ](../../scripts/maintenance/rabbitmq-backup-and-restore-test.py) backup/recovery
 rehearsals. Those tests can pause services and write private archives; they
 are not fresh-bootstrap stages. Uninstalling an adopted release deletes
 resources Helm now owns and is not a retry strategy.
 
-The shared [stateless-release.rb](../../scripts/stateless-release.rb) helper
+The shared [helm-release.rb](../../scripts/lib/helm-release.rb) helper
 also manages guarded StatefulSet paths. Release readiness is a deployment
 check; process readiness alone does not prove a new processing event reaches
 its final result. Use the relevant [smoke runbook](image-builds-and-smoke-tools.md).
@@ -72,16 +72,16 @@ its final result. Use the relevant [smoke runbook](image-builds-and-smoke-tools.
 ## KEDA and shared authentication
 
 ```bash
-ruby ./k8Deployment/kubernetes/scripts/keda-release-stage.rb plan
-ruby ./k8Deployment/kubernetes/scripts/keda-release-stage.rb verify
-ruby ./k8Deployment/kubernetes/scripts/scaling-auth-release.rb verify-prerequisites
-ruby ./k8Deployment/kubernetes/scripts/scaling-auth-release.rb verify
+ruby ./k8Deployment/kubernetes/scripts/releases/keda-release-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/releases/keda-release-stage.rb verify
+ruby ./k8Deployment/kubernetes/scripts/releases/scaling-auth-release.rb verify-prerequisites
+ruby ./k8Deployment/kubernetes/scripts/releases/scaling-auth-release.rb verify
 ```
 
 Fresh KEDA `install` requires absent release/namespace/CRDs/metrics API
 registration, runs the pinned installer, then verifies chart/values, controller
 rollouts, six CRDs, and metrics registration. The underlying
-[install-keda.sh](../../scripts/install-keda.sh) is a separate explicit
+[install-keda.sh](../../scripts/releases/install-keda.sh) is a separate explicit
 install/upgrade entrypoint for that platform dependency; it does not enqueue
 work or install worker ScaledObjects.
 
@@ -102,7 +102,7 @@ validate a future NVIDIA profile.
 ## Scoped Demucs maintenance
 
 ```bash
-./k8Deployment/kubernetes/scripts/reconcile-demucs-scaling.sh
+./k8Deployment/kubernetes/scripts/maintenance/reconcile-demucs-scaling.sh
 ```
 
 This helper reasserts an already deployed, matching, idle Demucs profile. It
@@ -117,14 +117,14 @@ The root `reconcile` command does not invoke this scoped helper.
 Basic Pitch retains guarded historical transition modes
 `upgrade-scaling`, `upgrade-stabilization`, and `upgrade-numba` for their exact
 old chart baselines. See its [release guide](../../helm/basic-pitch/README.md)
-and [runner](../../scripts/basic-pitch-release.rb); they are not general fresh
+and [runner](../../scripts/releases/basic-pitch-release.rb); they are not general fresh
 installation or root reconciliation modes.
 
 ## Keycloak configuration beyond the chart
 
 ```bash
-ruby ./k8Deployment/kubernetes/scripts/keycloak-realm-stage.rb verify
-ruby ./k8Deployment/kubernetes/scripts/keycloak-config-verify.rb verify
+ruby ./k8Deployment/kubernetes/scripts/stages/keycloak/keycloak-realm-stage.rb verify
+ruby ./k8Deployment/kubernetes/scripts/stages/keycloak/keycloak-config-verify.rb verify
 ```
 
 The realm stage supports `plan|bootstrap|verify` and fresh initialization via

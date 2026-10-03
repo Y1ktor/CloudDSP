@@ -11,14 +11,14 @@ from pathlib import Path
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.adtof_requested_message import ADTOFRequestedMessage
-from app.claimed_task_success import ADTOFClaimedTaskSuccess, ADTOFClaimedTaskSuccessOutcome
-from app.recovered_task_execution import (
+from app.messaging.adtof_requested_message import ADTOFRequestedMessage
+from app.runtime.claimed_task_success import ADTOFClaimedTaskSuccess, ADTOFClaimedTaskSuccessOutcome
+from app.runtime.recovered_task_execution import (
     ADTOFRecoveredTaskExecutionError,
     execute_recovered_adtof_task,
 )
-from app.recovery import ADTOFRecoveredTask
-from app.task_claim import ADTOFTaskLease
+from app.db.recovery import ADTOFRecoveredTask
+from app.db.task_claim import ADTOFTaskLease
 
 
 EVENT_ID = "93b31df9-ea8c-46bb-b2c0-19e9db5365d5"
@@ -74,7 +74,7 @@ def recovered_task(**overrides: object) -> ADTOFRecoveredTask:
 class ADTOFRecoveredTaskExecutionTests(unittest.TestCase):
     """Prove recovery runs no model work unless both durable halves agree."""
 
-    @patch("app.recovered_task_execution.execute_claimed_adtof_task_success_path")
+    @patch("app.runtime.recovered_task_execution.execute_claimed_adtof_task_success_path")
     def test_forwards_exact_valid_recovery_pair_to_success_coordinator(self, execute) -> None:
         """Recovered work enters the same preflight/start/finalization path."""
 
@@ -107,7 +107,7 @@ class ADTOFRecoveredTaskExecutionTests(unittest.TestCase):
             process_runner=runner,
         )
 
-    @patch("app.recovered_task_execution.execute_claimed_adtof_task_success_path")
+    @patch("app.runtime.recovered_task_execution.execute_claimed_adtof_task_success_path")
     def test_cross_wired_or_nonrecovery_pair_stops_before_success_path(self, execute) -> None:
         """Another event, object, or first lease cannot impersonate recovery work."""
 
@@ -130,7 +130,7 @@ class ADTOFRecoveredTaskExecutionTests(unittest.TestCase):
 
         execute.assert_not_called()
 
-    @patch("app.recovered_task_execution.execute_claimed_adtof_task_success_path")
+    @patch("app.runtime.recovered_task_execution.execute_claimed_adtof_task_success_path")
     def test_forged_recovery_container_stops_before_success_path(self, execute) -> None:
         """A bypassed frozen dataclass constructor still cannot reach storage/CPU work."""
 

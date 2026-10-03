@@ -11,13 +11,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.midi_artifact_upload import (
+from app.artifacts.midi_artifact_upload import (
     BasicPitchMidiUploadConsistencyError,
     BasicPitchMidiUploadContractError,
     BasicPitchMidiUploadUnavailable,
     upload_basic_pitch_midi_object,
 )
-from app.midi_output_object import BasicPitchMidiOutputObject, build_basic_pitch_midi_output_object
+from app.artifacts.midi_output_object import BasicPitchMidiOutputObject, build_basic_pitch_midi_output_object
 from test_midi_output_object import artifact, lease, message
 
 

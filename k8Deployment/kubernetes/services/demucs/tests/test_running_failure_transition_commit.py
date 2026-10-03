@@ -12,18 +12,18 @@ from contextlib import AbstractContextManager
 from datetime import UTC, datetime
 from unittest.mock import patch
 
-from app.running_failure_classification import (
+from app.runtime.running_failure_classification import (
     DemucsRunningFailureClassification,
     DemucsRunningFailureDisposition,
     DemucsRunningRetryCode,
 )
-from app.running_failure_transition import (
+from app.db.running_failure_transition import (
     DemucsRunningFailureTransition,
     DemucsRunningFailureTransitionDisposition,
     DemucsRunningRetrySchedule,
 )
-from app.running_failure_transition_commit import commit_running_demucs_failure_transition
-from app.task_lease import DemucsTaskLease
+from app.db.running_failure_transition_commit import commit_running_demucs_failure_transition
+from app.db.task_lease import DemucsTaskLease
 
 
 TASK_ID = "00000000-0000-4000-8000-000000000001"
@@ -95,7 +95,7 @@ def classification() -> DemucsRunningFailureClassification:
 class DemucsRunningFailureTransitionCommitTests(unittest.TestCase):
     """Prove retry evidence cannot escape before commit-or-rollback exit."""
 
-    @patch("app.running_failure_transition_commit.transition_running_demucs_failure")
+    @patch("app.db.running_failure_transition_commit.transition_running_demucs_failure")
     def test_committed_transition_returns_after_normal_context_exit(self, transition) -> None:
         """The wrapper forwards only cursor, lease, classification, and delay."""
 
@@ -127,7 +127,7 @@ class DemucsRunningFailureTransitionCommitTests(unittest.TestCase):
             retry_after_seconds=30,
         )
 
-    @patch("app.running_failure_transition_commit.transition_running_demucs_failure")
+    @patch("app.db.running_failure_transition_commit.transition_running_demucs_failure")
     def test_no_row_commits_without_manufacturing_running_failure_evidence(self, transition) -> None:
         """Expiry/recovery races stop normally after the short transaction exits."""
 
@@ -150,7 +150,7 @@ class DemucsRunningFailureTransitionCommitTests(unittest.TestCase):
             retry_after_seconds=45,
         )
 
-    @patch("app.running_failure_transition_commit.transition_running_demucs_failure")
+    @patch("app.db.running_failure_transition_commit.transition_running_demucs_failure")
     def test_adapter_error_escapes_through_exceptional_context_exit(self, transition) -> None:
         """A failed SQL/protocol operation cannot be presented as committed work."""
 
@@ -170,7 +170,7 @@ class DemucsRunningFailureTransitionCommitTests(unittest.TestCase):
         self.assertIs(database.context.exit_arguments[0], RuntimeError)
         self.assertIs(database.context.exit_arguments[1], failure)
 
-    @patch("app.running_failure_transition_commit.transition_running_demucs_failure")
+    @patch("app.db.running_failure_transition_commit.transition_running_demucs_failure")
     def test_missing_database_capability_prevents_the_pure_transition(self, transition) -> None:
         """No result can be durable when the caller cannot open a transaction."""
 

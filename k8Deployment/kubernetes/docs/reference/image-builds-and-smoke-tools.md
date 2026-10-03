@@ -7,7 +7,7 @@ checks deployed configuration and does not run the active tests below.
 
 ## Image build helpers
 
-All builders below are under [`scripts/`](../../scripts/). They check the
+All builders below are under [`scripts/images/`](../../scripts/images/). They check the
 exact local registry, build reviewed ARM64 source/dependencies, push only an
 OCI image, and report an immutable digest and local image size. They do not
 install/update Kubernetes workloads. Their validation stages run the relevant
@@ -16,19 +16,19 @@ Dockerfiles/locks.
 
 | Builder | Source and validation boundary |
 | --- | --- |
-| [build-frontend-image.sh](../../scripts/build-frontend-image.sh) | Shared root `frontend/` named context; local Vite profile; NGINX runtime/CSP validation. |
-| [build-job-api-image.sh](../../scripts/build-job-api-image.sh) | API authentication, owner/job, upload/storage, and PostgreSQL helper tests. |
-| [build-upload-intake-image.sh](../../scripts/build-upload-intake-image.sh) | Strict event parser, atomic source/outbox transition, MinIO evidence, manual ACK, and reconnect/shutdown tests. |
-| [build-dispatcher-image.sh](../../scripts/build-dispatcher-image.sh) | Demucs-only and generic lease/routing, publisher-confirmation, transaction, and runtime tests. |
-| [build-demucs-image.sh](../../scripts/build-demucs-image.sh) | Full worker/model validation and real fixed two-stem CPU inference before publication. |
-| [build-basic-pitch-image.sh](../../scripts/build-basic-pitch-image.sh) | Worker tests, approved Basic Pitch command, and bundled TensorFlow Lite model. |
-| [build-adtof-image.sh](../../scripts/build-adtof-image.sh) | Worker/scratch-path/CPU-child tests and bundled ADTOF package/weights. |
-| [build-minio-source-intake-smoke-client-image.sh](../../scripts/build-minio-source-intake-smoke-client-image.sh) | Disposable MinIO-to-RabbitMQ client. |
-| [build-dispatcher-smoke-client-image.sh](../../scripts/build-dispatcher-smoke-client-image.sh) | Normal-upload smoke orchestration/verifier. |
-| [build-generic-dispatcher-basic-pitch-smoke-client-image.sh](../../scripts/build-generic-dispatcher-basic-pitch-smoke-client-image.sh) | Restricted Basic Pitch routing verifier. |
-| [build-basic-pitch-worker-smoke-client-image.sh](../../scripts/build-basic-pitch-worker-smoke-client-image.sh) | End-to-end Basic Pitch client with fixed database functions/object scope. |
-| [build-adtof-worker-smoke-client-image.sh](../../scripts/build-adtof-worker-smoke-client-image.sh) | End-to-end ADTOF client with fixed database functions/object scope. |
-| [build-demucs-worker-smoke-client-image.sh](../../scripts/build-demucs-worker-smoke-client-image.sh) | Demucs stage/downstream completion client; verifies pushed registry digest. |
+| [build-frontend-image.sh](../../scripts/images/build-frontend-image.sh) | Shared root `frontend/` named context; local Vite profile; NGINX runtime/CSP validation. |
+| [build-job-api-image.sh](../../scripts/images/build-job-api-image.sh) | API authentication, owner/job, upload/storage, and PostgreSQL helper tests. |
+| [build-upload-intake-image.sh](../../scripts/images/build-upload-intake-image.sh) | Strict event parser, atomic source/outbox transition, MinIO evidence, manual ACK, and reconnect/shutdown tests. |
+| [build-dispatcher-image.sh](../../scripts/images/build-dispatcher-image.sh) | Demucs-only and generic lease/routing, publisher-confirmation, transaction, and runtime tests. |
+| [build-demucs-image.sh](../../scripts/images/build-demucs-image.sh) | Full worker/model validation and real fixed two-stem CPU inference before publication. |
+| [build-basic-pitch-image.sh](../../scripts/images/build-basic-pitch-image.sh) | Worker tests, approved Basic Pitch command, and bundled TensorFlow Lite model. |
+| [build-adtof-image.sh](../../scripts/images/build-adtof-image.sh) | Worker/scratch-path/CPU-child tests and bundled ADTOF package/weights. |
+| [build-minio-source-intake-smoke-client-image.sh](../../scripts/images/build-minio-source-intake-smoke-client-image.sh) | Disposable MinIO-to-RabbitMQ client. |
+| [build-dispatcher-smoke-client-image.sh](../../scripts/images/build-dispatcher-smoke-client-image.sh) | Normal-upload smoke orchestration/verifier. |
+| [build-generic-dispatcher-basic-pitch-smoke-client-image.sh](../../scripts/images/build-generic-dispatcher-basic-pitch-smoke-client-image.sh) | Restricted Basic Pitch routing verifier. |
+| [build-basic-pitch-worker-smoke-client-image.sh](../../scripts/images/build-basic-pitch-worker-smoke-client-image.sh) | End-to-end Basic Pitch client with fixed database functions/object scope. |
+| [build-adtof-worker-smoke-client-image.sh](../../scripts/images/build-adtof-worker-smoke-client-image.sh) | End-to-end ADTOF client with fixed database functions/object scope. |
+| [build-demucs-worker-smoke-client-image.sh](../../scripts/images/build-demucs-worker-smoke-client-image.sh) | Demucs stage/downstream completion client; verifies pushed registry digest. |
 
 The dispatcher image keeps the Demucs-only runtime as its default entrypoint;
 the generic Deployment selects `app.dispatcher_generic_runtime` explicitly.
@@ -41,7 +41,7 @@ from ignored `k8Deployment/.local/frontend.env.production` and builds
 
 After a deliberate rebuild, review and update `images.lock.yaml`, the affected
 Helm image value, and retained workload/test source reference together. Publish
-its locked source through [image-registry-stage.rb](../../scripts/image-registry-stage.rb)
+its locked source through [image-registry-stage.rb](../../scripts/images/image-registry-stage.rb)
 when the public fresh-install path must consume it. A printed build tag alone
 is not a deployment input; workloads use the reviewed immutable digest.
 
@@ -93,9 +93,9 @@ these active authorization tests.
 ## Foundation and image/process tests
 
 ```bash
-./k8Deployment/kubernetes/scripts/verify-registry.sh
-./k8Deployment/kubernetes/scripts/verify-http-routing.sh
-./k8Deployment/kubernetes/scripts/verify-job-api-local-image.sh
+./k8Deployment/kubernetes/scripts/images/verify-registry.sh
+./k8Deployment/kubernetes/scripts/maintenance/verify-http-routing.sh
+./k8Deployment/kubernetes/scripts/images/verify-job-api-local-image.sh
 ```
 
 `verify-registry.sh` pushes BusyBox `1.37.0`, runs the reviewed registry Job
@@ -123,7 +123,7 @@ expectation is hardcoded in the helper and must match the intended revision.
 
 [Backup/recovery rehearsals](helm-releases-and-scaling.md) are active stateful
 maintenance tests, separate from these application smokes and fresh bootstrap.
-The [one-job upload recovery helper](../../scripts/reconcile-one-upload-intake-job.sh)
+The [one-job upload recovery helper](../../scripts/maintenance/reconcile-one-upload-intake-job.sh)
 accepts a canonical job UUID, uses the already-running intake Pod's restricted
 identities, and repeats the normal storage-evidence/atomic-outbox transition.
 It is an explicit operator repair, not part of read-only verification.

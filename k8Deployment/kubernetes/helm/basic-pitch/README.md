@@ -19,10 +19,10 @@ librosa tempo calculation on this ARM64 k3d node; the same calculation
 completed with Numba's portable CPU target.
 
 ```bash
-./k8Deployment/kubernetes/scripts/basic-pitch-release.rb plan
-./k8Deployment/kubernetes/scripts/basic-pitch-release.rb adopt
-./k8Deployment/kubernetes/scripts/basic-pitch-release.rb verify
-./k8Deployment/kubernetes/scripts/basic-pitch-release.rb smoke
+./k8Deployment/kubernetes/scripts/releases/basic-pitch-release.rb plan
+./k8Deployment/kubernetes/scripts/releases/basic-pitch-release.rb adopt
+./k8Deployment/kubernetes/scripts/releases/basic-pitch-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/basic-pitch-release.rb smoke
 ```
 
 An already adopted chart 0.1.0 can take the complete scaling fix with the
@@ -31,8 +31,8 @@ scaler and worker, then changes only the second trigger, scale-down window,
 portable Numba setting, and descriptive label:
 
 ```bash
-./k8Deployment/kubernetes/scripts/basic-pitch-release.rb upgrade-scaling
-./k8Deployment/kubernetes/scripts/basic-pitch-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/basic-pitch-release.rb upgrade-scaling
+./k8Deployment/kubernetes/scripts/releases/basic-pitch-release.rb verify
 ```
 
 For a cluster already at the intermediate chart 0.1.1, use
@@ -40,8 +40,8 @@ For a cluster already at the intermediate chart 0.1.1, use
 already stabilized chart 0.1.2, use the guarded Pod-template rollout:
 
 ```bash
-./k8Deployment/kubernetes/scripts/basic-pitch-release.rb upgrade-numba
-./k8Deployment/kubernetes/scripts/basic-pitch-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/basic-pitch-release.rb upgrade-numba
+./k8Deployment/kubernetes/scripts/releases/basic-pitch-release.rb verify
 ```
 
 All three upgrade paths preserve the existing Deployment, ScaledObject, and

@@ -1,13 +1,13 @@
 require 'json'
 require 'minitest/autorun'
 
-require_relative '../../scripts/stateless-release'
+require_relative '../../scripts/lib/helm-release'
 
 class RabbitmqFreshInstallTest < Minitest::Test
   # Simulate only the Kubernetes and Helm boundaries. The real runner's
   # source/chart comparison and live verification remain separate checks;
   # these cases prove no write occurs around an occupied broker identity.
-  class FakeRabbitmq < StatelessRelease
+  class FakeRabbitmq < HelmRelease
     attr_accessor :existing_release, :existing_object, :existing_pvc, :orphan_pod, :secret_valid
     attr_reader :events
 

@@ -26,7 +26,7 @@ upload-intake -> PostgreSQL outbox -> dispatcher -> RabbitMQ
 
 Every request requires persistent delivery (`delivery_mode=2`), JSON/UTF-8
 properties, `type=demucs.requested`, `message_id=outbox_events.event_id`, and
-`correlation_id=job_id`. The [strict parser](app/demucs_requested_message.py)
+`correlation_id=job_id`. The [strict parser](app/messaging/demucs_requested_message.py)
 rejects unknown fields, duplicate JSON members, non-canonical IDs, other buckets,
 foreign paths, and mismatched envelope properties. The
 [dispatcher contract](../dispatcher/README.md) describes publication and routing.
@@ -51,6 +51,23 @@ download model weights. The [Dockerfile](Dockerfile) and
 [images.lock.yaml](../../images.lock.yaml) and
 [chart values](../../helm/demucs/values.yaml) pin the deployable image digest.
 
+## Source layout
+
+The worker modules are grouped by responsibility:
+
+| Package | Responsibility |
+| --- | --- |
+| `app/db/` | Database access, task claims, leases, and guarded result transactions. |
+| `app/artifacts/` | Object coordinates, downloads/uploads, and stored-object evidence. |
+| `app/messaging/` | Request parsing, AMQP sessions, and delivery acknowledgement. |
+| `app/processing/` | Model commands, inference, and media/artifact validation. |
+| `app/runtime/` | Execution orchestration, recovery cadence, supervision, and shutdown. |
+
+`app/worker_main.py` remains the public `python -m app.worker_main` launcher;
+it delegates to [the runtime entry point](app/runtime/worker_main.py). Internal
+imports and the image's source-compilation checks include the nested packages.
+The launch command, task identities, and processing contracts are unchanged.
+
 ## Durable processing and acknowledgement
 
 - A short PostgreSQL transaction claims the unique task with a random lease
@@ -73,9 +90,9 @@ download model weights. The [Dockerfile](Dockerfile) and
 - The worker neither publishes downstream requests directly nor creates
   Kubernetes Jobs. PostgreSQL owns the result; RabbitMQ is at-least-once transport.
 
-The implementation boundaries are [task ownership](app/task_lease.py),
-[manual ACK](app/amqp_manual_ack.py), [audio validation](app/audio_probe.py),
-and [stem publication](app/demucs_stem_set_publish.py). Fixed failure categories
+The implementation boundaries are [task ownership](app/db/task_lease.py),
+[manual ACK](app/messaging/amqp_manual_ack.py), [audio validation](app/processing/audio_probe.py),
+and [stem publication](app/processing/demucs_stem_set_publish.py). Fixed failure categories
 keep raw media paths, credentials, URLs, and model diagnostics out of normal logs.
 
 ## Security and scaling
@@ -113,8 +130,8 @@ roles, policies, schema, and runtime Secrets in their ordered stages:
 For an already prepared cluster where this release and its resources are absent:
 
 ```bash
-./k8Deployment/kubernetes/scripts/demucs-release.rb install
-./k8Deployment/kubernetes/scripts/demucs-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/demucs-release.rb install
+./k8Deployment/kubernetes/scripts/releases/demucs-release.rb verify
 ```
 
 `install` checks the declared dependencies and rejects conflicting existing
@@ -133,7 +150,7 @@ helper does not bootstrap them or substitute administrator worker credentials.
 Once the release is idle and the fixture is clean:
 
 ```bash
-./k8Deployment/kubernetes/scripts/demucs-release.rb smoke
+./k8Deployment/kubernetes/scripts/releases/demucs-release.rb smoke
 ```
 
 This submits the fixed `demucs-worker-smoke` Job, waits up to 900 seconds, verifies

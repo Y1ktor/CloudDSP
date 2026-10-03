@@ -9,7 +9,7 @@ release owns the separate `/` route. This chart creates no namespace, Secret,
 database schema, bootstrap Job, image, or Keycloak configuration.
 
 The templates mirror the three original manifests in
-[`../../services/api/`](../../services/api/). Helm supplies release ownership
+[`../../services/job-api/`](../../services/job-api/). Helm supplies release ownership
 and namespace, plus the reviewed `images.job-api.immutableReference` from
 [`../../images.lock.yaml`](../../images.lock.yaml) and the unchanged local
 Ingress host. The Deployment selector, Pod labels, probes, resource/security
@@ -22,10 +22,10 @@ local Secrets, outside Helm values and release history.
 From the repository root:
 
 ```bash
-./k8Deployment/kubernetes/scripts/job-api-release.rb plan
-./k8Deployment/kubernetes/scripts/job-api-release.rb adopt
-./k8Deployment/kubernetes/scripts/job-api-release.rb install
-./k8Deployment/kubernetes/scripts/job-api-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/job-api-release.rb plan
+./k8Deployment/kubernetes/scripts/releases/job-api-release.rb adopt
+./k8Deployment/kubernetes/scripts/releases/job-api-release.rb install
+./k8Deployment/kubernetes/scripts/releases/job-api-release.rb verify
 ```
 
 `plan` performs strict Helm lint, image-lock verification, render/source/live
@@ -61,7 +61,7 @@ On 2026-09-26, the existing objects were adopted as release
 image digest, and protected same-origin routes were preserved.
 
 Use this chart for reviewed Job API delivery changes. Keep the raw Deployment,
-Service, and Ingress manifests in `services/api/` as the adoption comparison
+Service, and Ingress manifests in `services/job-api/` as the adoption comparison
 baseline; do not reapply them to these Helm-owned objects. Database migration
 and bootstrap manifests in that directory retain their separate one-time
 process.

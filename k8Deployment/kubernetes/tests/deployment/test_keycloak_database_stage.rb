@@ -4,7 +4,7 @@ require 'minitest/autorun'
 require 'stringio'
 require 'tmpdir'
 require 'yaml'
-require_relative '../../scripts/keycloak-database-stage'
+require_relative '../../scripts/stages/keycloak/keycloak-database-stage'
 
 class KeycloakDatabaseStageTest < Minitest::Test
   Status = Struct.new(:exitstatus) do
