@@ -15,6 +15,10 @@ HelmRelease.new(
   health_host: 'clouddsp.localhost',
   health_path: '/healthz',
   browser_shell: true,
+  # React owns these navigation paths, including the public architecture
+  # asset directory's name. Verify deep links without relying on client-side
+  # navigation or following an NGINX directory redirect.
+  browser_routes: %w[/architecture /architecture/ /k8 /cost],
   allow_fresh_install: true,
   before_install: [
     %w[ruby ./k8Deployment/kubernetes/scripts/stages/keycloak/keycloak-config-verify.rb verify],

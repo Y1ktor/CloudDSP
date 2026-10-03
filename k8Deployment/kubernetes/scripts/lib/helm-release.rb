@@ -26,6 +26,7 @@ class HelmRelease
   def initialize(component:, namespace:, release:, source_files:, resources:, pod_selector:, health_host: nil, health_path: nil,
                  source_directory: component, image_lock_key: component, verify_running_digest: false,
                  health_status: '200', additional_http_checks: [], smoke_job: nil, browser_shell: false,
+                 browser_routes: [],
                  workload_kind: 'Deployment', pvc_name: nil, before_adopt: nil,
                  expected_replicas: 1, smoke_timeout_seconds: 150,
                  allow_fresh_install: false, before_install: nil,
@@ -43,6 +44,7 @@ class HelmRelease
     @verify_running_digest = verify_running_digest
     @smoke_job = smoke_job
     @browser_shell = browser_shell
+    @browser_routes = browser_routes
     @workload_kind = workload_kind
     @pvc_name = pvc_name
     @before_adopt = before_adopt
@@ -559,6 +561,19 @@ class HelmRelease
     assets = [page.body[/<script[^>]+src="(\/assets\/[^\"]+\.js)"/, 1],
               page.body[/<link[^>]+href="(\/assets\/[^\"]+\.css)"/, 1]]
     ensure_true(assets.all?, "#{@component} app shell does not reference both bundled assets")
+    # A public asset directory can shadow a React route in NGINX even while
+    # `/` and `/healthz` pass. Require each configured direct route to serve
+    # the same static shell and policy. Net::HTTP does not follow redirects,
+    # so a directory redirect followed by a 403 cannot satisfy this check.
+    @browser_routes.each do |path|
+      route = http.request(Net::HTTP::Get.new(path, headers))
+      ensure_true(route.code == '200',
+                  "#{@component} app route #{path} returned HTTP #{route.code}, expected 200")
+      ensure_true(route.body == page.body,
+                  "#{@component} app route #{path} does not serve the reviewed app shell")
+      ensure_true(route['Content-Security-Policy'].to_s == csp,
+                  "#{@component} app route #{path} has a different CSP from the app shell")
+    end
     assets.each do |path|
       asset = http.request(Net::HTTP::Head.new(path, headers))
       ensure_true(asset.code == '200', "#{@component} bundled asset #{path} returned HTTP #{asset.code}")

@@ -1,10 +1,32 @@
-# Local CPU Demucs image recipe, version 1
+# Local CPU Demucs image recipe and build history
 
-This is the build decision for the local CPU Demucs worker image. The source
-[`Dockerfile`](Dockerfile) starts the reviewed AMQP worker wrapper, and the
-verified Linux/ARM64 output is now published in the local registry and recorded
-under `images.demucs`. It remains neither a Kubernetes workload nor a running
-worker: the Deployment is a separate later task.
+The current [`Dockerfile`](Dockerfile) builds the Linux/ARM64 CPU worker;
+[`images.demucs`](../../images.lock.yaml) records its deployable bytes, and the
+[Helm release](../../helm/demucs/README.md) owns its running Deployment and scaler.
+The original recipe and numbered milestones below preserve earlier build
+decisions. Their tags, digests, and references to future work are historical.
+
+## Current build and rollout: 2026-10-03
+
+`0.1.10-lease-refactor` uses worker source commit `2334921` and splits task-lease
+operations into focused modules while preserving SQL, transaction ownership,
+recovery, and completion behavior. The 480.11 MiB runtime is pinned at
+`sha256:6309797ec6911c5e4736efd1b8c6f1b10024e5d7021d679c1f82777db5e76fee`.
+Its image validation passed 321 tests and real two-second, two-stem CPU
+inference. Publication and verification passed for all 19 locked public
+`y1ktor/clouddsp` images, including `demucs-0.1.10-lease-refactor`.
+
+A normal Helm upgrade deployed chart `0.1.1` as Demucs release revision 3.
+The worker Pod's image reference and runtime image ID matched the new digest;
+Deployment, ScaledObject, and generated HPA UIDs were preserved.
+
+The live smoke proved first-attempt Demucs completion, both private stem byte
+hashes and metadata, two durable downstream events, and completed downstream
+Basic Pitch tasks and parent Job. It cleaned only the exact fixture and removed
+the disposable smoke Job. KEDA's ordinary five-minute warm cooldown follows
+processing; this smoke result does not by itself assert the later idle state.
+See the [dated rollout record](../../docs/trials/2026-10-03-frontend-demucs-refactor-rollout.md)
+for the complete frontend and Demucs trial evidence.
 
 ## Why this is a different image from the cloud worker
 
@@ -72,17 +94,16 @@ The Dockerfile uses two functional stages from the same immutable Python base:
    Kubernetes Secrets at Pod start, and uses exec-form `python -m
    app.worker_main` as PID 1.
 
-The current local output is built specifically for `linux/arm64`, pushed to the
-k3d local registry, and pinned as `images.demucs` in
-[`../../images.lock.yaml`](../../images.lock.yaml). Its registry-confirmed OCI
-index digest is
+The historical `0.1.1-worker-entrypoint-local-only` output was built specifically
+for `linux/arm64`, pushed to the k3d local registry, and recorded in the image
+lock at that milestone. Its registry-confirmed OCI index digest was
 `sha256:f8335a7a78108b74283d9d1d9fc46f82225d9dbe089b8fc961284c44da7f7db0`;
 the 479.76 MiB local image is not a CUDA image. The earlier 479.50 MiB image
 and its `9ff16a5…` digest predate the worker entrypoint and are superseded in
 the catalog. An AMD64 CPU build or CUDA GPU build is a later, separately locked
 artifact; neither is implied by the ARM64 digest.
 
-## Follow-on tasks
+## Historical first-image milestones
 
 1. Completed: `requirements.lock` contains the exact first-image Linux/ARM64
    Python runtime closure. A future x86 CPU/GPU task must extend it with its

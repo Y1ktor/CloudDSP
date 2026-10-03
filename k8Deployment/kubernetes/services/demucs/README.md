@@ -51,6 +51,13 @@ download model weights. The [Dockerfile](Dockerfile) and
 [images.lock.yaml](../../images.lock.yaml) and
 [chart values](../../helm/demucs/values.yaml) pin the deployable image digest.
 
+The 2026-10-03 `0.1.10-lease-refactor` build passed 321 image tests and real
+two-stem CPU inference, then a normal Helm upgrade and the live worker smoke.
+The [dated rollout record](../../docs/trials/2026-10-03-frontend-demucs-refactor-rollout.md)
+records the exact image, runtime identity, downstream completion, and fixture
+cleanup. The [image recipe](image-recipe.md) distinguishes that current build
+from the preserved first-image milestones.
+
 ## Source layout
 
 The worker modules are grouped by responsibility:

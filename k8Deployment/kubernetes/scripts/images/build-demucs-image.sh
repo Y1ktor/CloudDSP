@@ -24,9 +24,10 @@ readonly MODEL_ARTIFACTS_LOCK="${DEMUCS_DIRECTORY}/model-artifacts.lock.yaml"
 # the immutable repository digest printed after `docker push`.
 readonly REGISTRY_HOST="clouddsp-registry.localhost:5001"
 readonly IMAGE_REPOSITORY="${REGISTRY_HOST}/demucs"
-# This readable tag identifies the terminal 12-minute deadline policy.
+# This readable tag identifies the task-lease module refactor while retaining
+# the terminal 12-minute deadline and the same ownership/recovery contract.
 # Deployments still use the immutable digest printed after `docker push`.
-readonly IMAGE_NAME="${IMAGE_REPOSITORY}:0.1.9-terminal-deadline"
+readonly IMAGE_NAME="${IMAGE_REPOSITORY}:0.1.10-lease-refactor"
 readonly TARGET_PLATFORM="linux/arm64"
 
 usage() {

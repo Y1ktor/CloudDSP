@@ -16,12 +16,45 @@ Keycloak, access-token, MinIO sample, and browser-storage behavior was retained
 as the shared frontend's local profile. The cloud profile retains Cognito and
 AWS service integration.
 
-The local image `0.6.0-shared-profiles` consumes `frontend/` as a named BuildKit
+The local image `0.6.2-spa-route-fix` consumes `frontend/` as a named BuildKit
 context and runs `npm run build:local`. Only `dist/local/` reaches the NGINX
 runtime. Ignored public configuration moved from the earlier
 `app/.env.production` location to
 `k8Deployment/.local/frontend.env.production`; the helper passes its public
 values explicitly as build arguments.
+
+### Component refactor source validation
+
+The `0.6.1-component-refactor` build uses committed shared source `0c2499e`.
+The application controller, stem workspace, and MIDI editor were split by
+responsibility while preserving the profile adapters and shared audio clock.
+Before the image build, all 44 frontend tests and both cloud/local profile
+builds passed. Mocked browser workflow and route checks also passed. These
+source checks are separate from image publication and live rollout evidence.
+
+### Refactor rollout and routing correction: 2026-10-03
+
+The initial `0.6.1-component-refactor` image reached frontend Helm revision 4.
+Live browser testing then found that a direct `/architecture` request selected
+the illustration directory in NGINX and ended at a forbidden directory index.
+The final `0.6.2-spa-route-fix` image serves existing asset files before falling
+back to the React shell. Its shared application source remains `0c2499e`.
+
+The corrected image was published as
+`y1ktor/clouddsp:frontend-0.6.2-spa-route-fix` at manifest digest
+`sha256:31ca2de7233c94611eda4f380240026476c2c3737c0bff9afd6fc6271dc33fab`.
+All 19 local/public image locks passed publication checks. A normal Helm
+upgrade deployed chart `0.1.3` as frontend revision 5. Direct Architecture
+navigation and refresh, the K8 page, Cost page, and the Keycloak PKCE sign-in
+redirect were checked in the live browser.
+
+The versioned release verifier now requires `/architecture`, `/architecture/`,
+`/k8`, and `/cost` to return HTTP 200 with the same React shell and CSP as `/`.
+Seven regression tests cover route success, redirects, directory errors, wrong
+shells/policies, and unchanged checks for other releases. A disposable runtime
+check also proved the real architecture PNG retained its bytes and MIME type.
+See the [dated rollout record](../../docs/trials/2026-10-03-frontend-demucs-refactor-rollout.md)
+for the combined image and processing trial.
 
 ### Consolidation validation
 

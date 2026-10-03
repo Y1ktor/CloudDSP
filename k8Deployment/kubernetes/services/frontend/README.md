@@ -20,7 +20,7 @@ The helper requires Docker with BuildKit, the dedicated
 `clouddsp-registry.localhost:5001` k3d registry, and the ignored public browser
 configuration at `k8Deployment/.local/frontend.env.production`. It builds the
 Apple Silicon `linux/arm64` image, pushes the descriptive
-`frontend:0.6.0-shared-profiles` tag to that local registry, and prints the
+`frontend:0.6.2-spa-route-fix` tag to that local registry, and prints the
 immutable digest and image size. Review the digest before updating
 `images.lock.yaml`, the Helm image value, and the retained source manifest.
 This helper does not deploy the image.
@@ -110,4 +110,9 @@ and [drum-machine sample project](https://github.com/smpldsnds/drum-machines).
 explains the move to shared source. The local image version
 `0.6.0-shared-profiles` records that build-layout change. Deployment versions
 continue to identify reviewed immutable images independently of the shared
-frontend source layout.
+frontend source layout. `0.6.2-spa-route-fix` includes the responsibility
+splits of the application controller, stem workspace, and MIDI editor, plus
+the NGINX fallback correction for direct Architecture navigation. The
+[dated rollout record](../../docs/trials/2026-10-03-frontend-demucs-refactor-rollout.md)
+records the image publication, Helm upgrade, browser checks, and live Demucs
+smoke result.
