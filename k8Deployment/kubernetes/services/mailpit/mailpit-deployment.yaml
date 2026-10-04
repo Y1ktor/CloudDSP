@@ -81,10 +81,6 @@ spec:
               containerPort: 8025
               protocol: TCP
           env:
-            # This temporary instance label makes the Git-to-Flux-to-Helm
-            # rollout visible in Mailpit's sidebar and browser tab title.
-            - name: MP_LABEL
-              value: "CloudDSP - Flux test"
             # Store Mailpit's temporary SQLite file on the Pod-local emptyDir.
             # No PersistentVolumeClaim is used, so a replacement Pod starts with
             # a clean inbox even though the running Pod can retain messages.
