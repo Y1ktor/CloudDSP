@@ -1,0 +1,7 @@
+# Build the pinned controller installation together with its Git sync resources.
+# Explicit resource names prevent unrelated YAML from entering reconciliation.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - gotk-components.yaml
+  - gotk-sync.yaml

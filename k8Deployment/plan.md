@@ -4796,3 +4796,14 @@ Secret sources securely under `k8Deployment/.local/`. Run
 remove the working Mac cluster for this test. Normal `cleanup` keeps the VM's
 local image registry, so VM disposal should happen only after recording the
 results.
+
+### Opt-in Flux bootstrap (2026-10-04)
+
+The local cluster now has a versioned Flux v2.9.6 bootstrap under
+[`kubernetes/gitops/`](kubernetes/gitops/README.md). A dedicated
+`codex/flux-clouddsp-local` branch and explicit cluster directory initially
+reconcile only Flux's own installation. Public HTTPS Git reads require no
+GitHub credential in Kubernetes. Host cluster/registry creation, generated
+Secrets, external service bootstrap, and all application Helm releases retain
+the existing script ownership until separate component handoffs. This is an
+opt-in step after ordinary cluster creation, not an added root deployment stage.

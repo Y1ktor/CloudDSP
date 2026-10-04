@@ -1,0 +1,57 @@
+# source-controller downloads the public repository over verified HTTPS.
+# Cluster Git access is read-only and needs no Secret or host SSH private key.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: flux-system
+  namespace: flux-system
+spec:
+  interval: 1m
+  timeout: 60s
+  url: https://github.com/Y1ktor/CloudDSP.git
+  ref:
+    # This branch isolates bootstrap from pending local application changes.
+    # Update Git and this reference together when moving GitOps to main.
+    branch: codex/flux-clouddsp-local
+  # Keep the initial source artifact focused on versioned GitOps configuration.
+  # Include helm/ here when a later adoption reads charts from this repository.
+  sparseCheckout:
+    - k8Deployment/kubernetes/gitops
+---
+# kustomize-controller builds and applies only this cluster's explicit root.
+# This initial inventory contains Flux itself; there are no application releases.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: flux-system
+  namespace: flux-system
+spec:
+  interval: 1m
+  retryInterval: 30s
+  timeout: 3m
+  path: ./k8Deployment/kubernetes/gitops/clusters/clouddsp-local
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  # Pruning deletes only objects recorded in this Kustomization's inventory.
+  # Removing a tracked Flux resource is therefore a deliberate lifecycle change.
+  prune: true
+  # Check controller availability after applying manifests, without waiting on
+  # every CRD or checking the readiness of unrelated application resources.
+  healthChecks:
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: source-controller
+      namespace: flux-system
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: kustomize-controller
+      namespace: flux-system
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: helm-controller
+      namespace: flux-system
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: notification-controller
+      namespace: flux-system

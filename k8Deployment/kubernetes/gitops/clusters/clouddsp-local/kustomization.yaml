@@ -1,0 +1,8 @@
+# This file lists the only directories this cluster reconciles from Git.
+# It is a Kustomize build file, rather than a Flux Kustomization API resource.
+# Application handoffs must be added deliberately; retained raw manifests,
+# bootstrap Jobs, smoke fixtures, and ignored credentials stay outside this root.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - flux-system
