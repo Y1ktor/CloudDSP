@@ -4,6 +4,7 @@
 # install path requires an absent release and four absent objects. This entry
 # point supplies only Mailpit's reviewed names, route, and smoke Job.
 require_relative 'stateless-release'
+require_relative 'gitops/mailpit-flux-ownership'
 
 StatelessRelease.new(
   component: 'mailpit',
@@ -19,4 +20,4 @@ StatelessRelease.new(
     name: 'mailpit-smtp-capture-smoke',
     manifest: 'tests/mailpit-smoke/mailpit-smtp-capture-smoke-job.yaml'
   }
-).run(ARGV.length == 1 ? ARGV.first : nil)
+).extend(MailpitFluxOwnership).run(ARGV.length == 1 ? ARGV.first : nil)

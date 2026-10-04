@@ -14,12 +14,13 @@ spec:
     # Update Git and this reference together when moving GitOps to main.
     branch: codex/flux-clouddsp-local
   # Keep the initial source artifact focused on versioned GitOps configuration.
-  # Include helm/ here when a later adoption reads charts from this repository.
+  # Only the adopted Mailpit chart is added to the initial GitOps source.
   sparseCheckout:
     - k8Deployment/kubernetes/gitops
+    - k8Deployment/kubernetes/helm/mailpit
 ---
 # kustomize-controller builds and applies only this cluster's explicit root.
-# This initial inventory contains Flux itself; there are no application releases.
+# The explicit root includes Flux and the adopted Mailpit HelmRelease/RBAC.
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:

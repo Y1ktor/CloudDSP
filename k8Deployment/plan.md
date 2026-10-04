@@ -4807,3 +4807,12 @@ GitHub credential in Kubernetes. Host cluster/registry creation, generated
 Secrets, external service bootstrap, and all application Helm releases retain
 the existing script ownership until separate component handoffs. This is an
 opt-in step after ordinary cluster creation, not an added root deployment stage.
+
+### Mailpit native Helm handoff to Flux (2026-10-04)
+
+Mailpit is the first explicitly adopted HelmRelease in the local GitOps root.
+The release and storage remain `clouddsp-mailpit` / `clouddsp-data`. A scoped
+reconciliation service account performs Helm operations, and Revision chart
+packaging and drift correction are enabled. The release helper validates Flux
+metadata and blocks competing direct adoption/install. Other CloudDSP releases
+retain their existing owners. See the [handoff guide](kubernetes/gitops/mailpit.md).

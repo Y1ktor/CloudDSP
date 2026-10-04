@@ -86,3 +86,12 @@ After adoption, use the chart and a separately reviewed normal Helm upgrade
 for changes to Mailpit. Do not reapply the old raw `services/mailpit/`
 manifests. Keep the namespace, KEDA, and Traefik releases with their existing
 owners.
+
+## Flux ownership
+
+Mailpit is now the first native Helm release managed by Flux. Its existing
+release name and Helm storage namespace are preserved. Use the
+[Flux handoff guide](../../gitops/mailpit.md) for configuration, verification,
+SMTP smoke testing, and recovery. Ordinary changes are committed to the GitOps
+branch; the component helper blocks direct adoption/install while Flux owns
+the release and retains read-only verification and smoke testing.

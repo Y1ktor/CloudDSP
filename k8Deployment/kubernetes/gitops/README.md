@@ -1,10 +1,11 @@
 # Flux bootstrap for the local CloudDSP cluster
 
 This opt-in bootstrap installs **Flux v2.9.6** in `flux-system` and connects
-it to the public CloudDSP GitHub repository. It manages only its own
-installation initially. Application Helm releases and their bootstrap
-identities remain owned by the existing deployment scripts until an explicit
-component handoff is implemented.
+it to the public CloudDSP GitHub repository. It manages its own installation
+and the explicitly adopted Mailpit Helm release. Other application releases
+and their bootstrap identities retain their existing script ownership. See
+the [Mailpit handoff guide](mailpit.md) for its source, verification, and
+recovery rules.
 
 ## Git and cluster boundaries
 
@@ -25,9 +26,9 @@ move to `main` must publish these files there and update `spec.ref.branch` in
 The Flux `Kustomization` API resource selects the directory to apply. The
 `kustomization.yaml` files are Kustomize build inputs, with explicit resource
 lists so retained raw service manifests, one-time Jobs, tests, and credentials
-are not recursively adopted. The source uses sparse checkout for `gitops/`;
-include `k8Deployment/kubernetes/helm` when a future HelmRelease reads a chart
-from the same source.
+are not recursively adopted. The source uses sparse checkout for `gitops/`
+and the Mailpit chart. Add each later chart deliberately when its ownership
+handoff is implemented.
 
 ## Controllers and security
 
@@ -38,7 +39,7 @@ its generated internals.
 
 - **source-controller** fetches Git and other sources and serves their artifacts.
 - **kustomize-controller** applies declarative resource sets and reports health.
-- **helm-controller** will manage native Helm releases after explicit adoption.
+- **helm-controller** manages the explicitly adopted native Mailpit Helm release.
 - **notification-controller** provides optional alerts and webhook receivers.
 
 The cluster fetches public Git over HTTPS without a credential Secret. Host SSH
@@ -55,16 +56,19 @@ writers to this branch can change the cluster through reviewed manifests.
 Namespace-scoped service accounts can be introduced for application
 reconciliation during subsequent adoptions.
 
-`prune: true` removes previously managed objects when removed from Git. Its
-initial inventory contains only Flux resources. No CloudDSP workload or Secret
-is part of that inventory. Deleting the entire k3d cluster still removes Flux;
+`prune: true` removes previously managed objects when removed from Git. The
+root inventory includes Flux, Mailpit reconciliation RBAC, and the Mailpit
+HelmRelease. Mailpit workload objects and Helm revision Secrets belong to
+the native Helm release. Removing an active HelmRelease normally uninstalls
+that release; treat its removal as a deliberate cleanup operation. Deleting the entire k3d cluster still removes Flux;
 the normal host bootstrap must recreate the cluster before this optional
 bootstrap is run again. `k3d cluster stop/start` pauses and resumes controllers
 along with the other workloads.
 
 ## Bootstrap
 
-Prerequisites: an existing supported cluster, cluster-admin kubeconfig access,
+Prerequisites: an existing supported CloudDSP cluster with `clouddsp-data`
+and a verified native Mailpit release for adoption, cluster-admin kubeconfig access,
 `kubectl`, `git`, and the Flux CLI (`brew install fluxcd/tap/flux` on macOS).
 The node runtime must be able to pull `ghcr.io/fluxcd` controller images.
 These four images are separate from the existing CloudDSP image mirror and
@@ -100,8 +104,8 @@ flux reconcile kustomization flux-system --with-source \
 
 In Headlamp, inspect the `flux-system` namespace. The optional Headlamp Flux
 plugin adds source, reconciliation, and HelmRelease views after installation.
-A ready bootstrap confirms Flux's own configuration, not full application
-health. Continue using the CloudDSP verification command for application checks.
+Root readiness checks the Flux controller Deployments. Check Mailpit's
+HelmRelease readiness separately; it is not inferred from root readiness. Continue using the CloudDSP verification command for application checks.
 
 ## Regenerate the official installation
 
