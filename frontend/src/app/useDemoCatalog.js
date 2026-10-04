@@ -1,7 +1,7 @@
+/** Load only the validated static demo catalog, cancelling on unmount. */
 import { useEffect } from 'react';
 import { loadDemoCatalog } from '../utils/demoCatalog';
 
-/** Load only the validated static demo catalog, cancelling on unmount. */
 export function useDemoCatalog(setDemoCatalog) {
     useEffect(() => {
         const controller = new AbortController();

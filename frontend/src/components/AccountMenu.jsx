@@ -1,6 +1,6 @@
+/** Shared signed-in account controls, using the cloud workspace appearance. */
 import React from 'react';
 
-/** Shared signed-in account controls, using the cloud workspace appearance. */
 export default function AccountMenu({ session, quota, onSignOut, onOpenHistory }) {
     const [isAccountMenuOpen, setIsAccountMenuOpen] = React.useState(false);
     const [clock, setClock] = React.useState(Date.now());

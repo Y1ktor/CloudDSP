@@ -1,3 +1,7 @@
+/**
+ * Derives safe project download names and ordered original-audio, stem, and
+ * MIDI artifact descriptors.
+ */
 export function filenameFromDownloadUrl(url, fallbackName) {
     try {
         const pathname = new URL(url).pathname;

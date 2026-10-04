@@ -1,3 +1,7 @@
+/**
+ * Adapt Keycloak OIDC authentication to the shared workspace session interface,
+ * completing redirects before restoring sessions and using OAuth access tokens.
+ */
 import {
     beginSignIn,
     completeSignInFromCallback,

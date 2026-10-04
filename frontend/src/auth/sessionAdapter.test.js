@@ -1,3 +1,7 @@
+/**
+ * Verify provider-specific bearer-token selection and local session restoration,
+ * including validated callbacks, Keycloak action returns, and rejected callbacks.
+ */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createOidcSessionRestore, createSessionAdapter } from './sessionAdapter.js';

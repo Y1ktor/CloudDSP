@@ -1,3 +1,7 @@
+/**
+ * Track scroll and resize changes as tile-sized viewport bounds so timelines
+ * render only nearby content, including after a conditional scroll-area mount.
+ */
 import React from 'react';
 
 const DEFAULT_TILE_PX = 720;

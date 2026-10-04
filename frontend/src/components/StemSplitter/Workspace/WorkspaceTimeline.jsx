@@ -1,3 +1,7 @@
+/**
+ * Combines fixed track controls with the scrollable workspace ruler, playhead,
+ * and MIDI grid.
+ */
 import React from 'react';
 import TrackList from '../TrackList';
 import TrackGrid from '../TrackGrid';

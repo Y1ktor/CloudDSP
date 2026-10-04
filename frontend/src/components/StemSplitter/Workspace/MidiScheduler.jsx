@@ -1,3 +1,7 @@
+/**
+ * Connects a track's MIDI synthesizer to the shared audio transport and
+ * playback controls without rendering a visible component.
+ */
 import React from 'react';
 import { useMidiSynth } from '../../../hooks/useMidiSynth';
 

@@ -1,3 +1,7 @@
+/**
+ * Verifies cloud and local playback sample options, safe MinIO URLs, and browser
+ * audio-format fallbacks without allocating sampled instruments.
+ */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { localPianoStorage, midiSampleUrl, soundfontFormat } from '../src/utils/midiSampleAssets.js';

@@ -1,6 +1,6 @@
+/** Account-backed library reads/deletion; no browser-local job history. */
 import { useCallback, useEffect } from 'react';
 
-/** Account-backed library reads/deletion; no browser-local job history. */
 export function useJobHistory({
     authUsername, authenticatedFetch, updateAccountQuota,
     deletedJobIdsRef, jobRefreshBackoffRef, activeJobIdRef,

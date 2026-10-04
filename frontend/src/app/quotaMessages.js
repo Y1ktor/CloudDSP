@@ -1,3 +1,4 @@
+/** Format quota reset times and submission errors for direct uploads and media links. */
 export function quotaResetMessage(resetsAt, now = Date.now()) {
     const resetTime = new Date(resetsAt).getTime();
     if (!Number.isFinite(resetTime)) return 'Resets at midnight UTC.';

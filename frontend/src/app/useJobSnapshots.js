@@ -1,9 +1,9 @@
+/** De-duplicate snapshot requests and retain revision, URL, and retry guards. */
 import { useCallback } from 'react';
 import { profile } from '@platform/profile';
 import { readyArtifactNames, preserveReadyArtifactUrls } from './jobSnapshots';
 import { JOB_REFRESH_BACKOFF_INITIAL_MS, JOB_REFRESH_BACKOFF_MAX_MS } from './config';
 
-/** De-duplicate snapshot requests and retain revision, URL, and retry guards. */
 export function useJobSnapshots({
     authenticatedFetch, fetchPreviousJobs, jobRefreshInFlightRef,
     jobRefreshBackoffRef, setJobSnapshots, setPreviousJobs, setActiveJobId, setErrorMsg,

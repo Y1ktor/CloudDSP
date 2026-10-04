@@ -1,3 +1,4 @@
+/** Verifies deployment-specific CSP origins and rejection of unsafe endpoint settings. */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { contentSecurityPolicy } from '../csp.js';

@@ -1,3 +1,7 @@
+/**
+ * Tests MIDI note indexing and viewport selection, including source identity,
+ * sustained notes, and updates after edits.
+ */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { getVisibleMidiEditorNotes, indexMidiEditorNotes } from './midiEditorNotes.js';

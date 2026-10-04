@@ -1,3 +1,7 @@
+/**
+ * Test recognition of Keycloak required-action and cross-tab authorization
+ * returns, including issuer checks and precedence for real OAuth responses.
+ */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {

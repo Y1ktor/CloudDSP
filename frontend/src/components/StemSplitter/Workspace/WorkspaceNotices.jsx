@@ -1,3 +1,7 @@
+/**
+ * Displays workspace guidance and progress notices for demo mode, job activity,
+ * synchronized audio, and MIDI preparation.
+ */
 import React from 'react';
 
 /** Read-only demo guidance shown above the upload controls. */

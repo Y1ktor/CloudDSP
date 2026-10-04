@@ -1,3 +1,4 @@
+/** Socket notifications are hints; polling remains the durable recovery path. */
 import { useCallback, useEffect, useRef } from 'react';
 import { auth } from '@platform/auth';
 import { needsJobRefresh } from './jobSnapshots';
@@ -6,7 +7,6 @@ import {
     POLL_INTERVAL_MS,
 } from './config';
 
-/** Socket notifications are hints; polling remains the durable recovery path. */
 export function useJobRealtime({
     authUsername, activeJobId, activeJobIdRef, jobSnapshotsRef,
     fetchJobSnapshot, setAuthSession, setErrorMsg,

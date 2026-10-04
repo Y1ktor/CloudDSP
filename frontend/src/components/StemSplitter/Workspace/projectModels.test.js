@@ -1,3 +1,7 @@
+/**
+ * Tests source upload validation and workspace track, MIDI status, timeline,
+ * and download artifact models.
+ */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { validateSourceUpload } from './sourceUpload.js';

@@ -1,3 +1,7 @@
+/**
+ * Select job status, messages, and ready artifacts for the workspace, and merge
+ * refreshed snapshots while retaining usable presigned URLs for loaded media.
+ */
 const PRESIGNED_URL_REFRESH_SAFETY_MS = 60_000;
 
 export function isJobPending(job) {

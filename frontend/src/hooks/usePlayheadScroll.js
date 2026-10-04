@@ -1,3 +1,7 @@
+/**
+ * Provide the legacy playhead-position-based timeline scrolling hook, following
+ * playback and shifting the viewport when the playhead reaches its edge.
+ */
 import { useRef, useLayoutEffect } from 'react';
 
 /**

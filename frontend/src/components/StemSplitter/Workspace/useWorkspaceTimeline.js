@@ -1,3 +1,7 @@
+/**
+ * Manages workspace timeline geometry, viewport, seeking, cycle dragging, and
+ * playheads driven by the shared audio clock.
+ */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTransportPlayhead } from '../../../hooks/useTransportPlayhead';
 import { useTimelineViewport } from '../../../hooks/useTimelineViewport';

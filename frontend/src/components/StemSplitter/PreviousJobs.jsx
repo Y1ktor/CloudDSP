@@ -1,3 +1,7 @@
+/**
+ * Displays the authenticated user's saved-job library with refresh, reopen,
+ * retention information, and deletion confirmation.
+ */
 import React from 'react';
 
 function formatUpdatedAt(value) {

@@ -1,3 +1,7 @@
+/**
+ * Renders the MIDI editor context menu for note editing, undo, and MIDI export
+ * actions.
+ */
 import React from 'react';
 
 /** Menu actions invoke the existing MIDI operations, then close the menu. */

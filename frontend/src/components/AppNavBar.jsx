@@ -1,3 +1,4 @@
+/** Render the application navigation tabs and shared authentication controls. */
 import React from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import AuthPanel from './AuthPanel';

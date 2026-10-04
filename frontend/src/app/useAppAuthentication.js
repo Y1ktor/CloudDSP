@@ -1,3 +1,7 @@
+/**
+ * Restore provider sessions, authenticate API requests, and handle account actions.
+ * Keep pending signup email and display name available across browser reloads.
+ */
 import { useCallback, useEffect } from 'react';
 import { auth } from '@platform/auth';
 import { profile } from '@platform/profile';

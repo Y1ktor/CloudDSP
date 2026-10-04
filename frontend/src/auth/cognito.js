@@ -1,3 +1,7 @@
+/**
+ * Wrap browser Cognito User Pool sign-in, registration, confirmation, session
+ * restoration, and sign-out, exposing ID tokens and display-name metadata.
+ */
 import {
     AuthenticationDetails,
     CognitoUser,

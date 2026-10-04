@@ -1,3 +1,7 @@
+/**
+ * Bind workspace keyboard shortcuts for playback, looping, track mute/solo,
+ * and MIDI undo while leaving text input keystrokes alone.
+ */
 import React from 'react';
 
 /**

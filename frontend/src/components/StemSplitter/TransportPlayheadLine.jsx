@@ -1,3 +1,7 @@
+/**
+ * Renders the memoized timeline playhead line so direct audio-clock animation
+ * can update its position independently of React renders.
+ */
 import React from 'react';
 
 /**

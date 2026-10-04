@@ -1,3 +1,7 @@
+/**
+ * Provides selected-note velocity adjustment and independent horizontal and
+ * vertical MIDI editor zoom controls.
+ */
 import React from 'react';
 
 /** Selection velocity and independent popup zoom controls. */

@@ -1,3 +1,7 @@
+/**
+ * Assembles the melodic and drum MIDI editor popup from its toolbar, keyboard,
+ * timeline, note layers, and dialogs.
+ */
 import React from 'react';
 import TimelineRuler from './TimelineRuler';
 import TransportPlayheadLine from './TransportPlayheadLine';

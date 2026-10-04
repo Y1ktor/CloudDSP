@@ -1,3 +1,4 @@
+/** Route and dialog composition; workspace state remains mounted across tabs. */
 import React from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import ArchitecturePage from './components/ArchitecturePage';
@@ -13,7 +14,6 @@ import { JOB_API_URL, WEBSOCKET_URL } from './app/config';
 import { profile } from '@platform/profile';
 import './assets/css/styles.css';
 
-/** Route and dialog composition; workspace state remains mounted across tabs. */
 export default function App() {
     const {
         stemProps, authProps, authLoading, activeJobId, activeDemoId,

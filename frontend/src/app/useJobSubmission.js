@@ -1,8 +1,8 @@
+/** Submit durable jobs from audio files or media links and perform constrained POST uploads. */
 import { profile } from '@platform/profile';
 import { quotaErrorMessage } from './quotaMessages';
 import { MAX_SOURCE_UPLOAD_BYTES } from './config';
 
-/** Submit ordinary durable jobs and the required size-constrained POST upload. */
 export function useJobSubmission({
     stemFile, splitMode, authSession, authenticatedFetch, updateAccountQuota,
     fetchJobSnapshot, subscribeToActiveJob, socketRef, beginNewUpload,

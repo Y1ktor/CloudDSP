@@ -1,3 +1,4 @@
+/** Verifies deployment profiles, Vite mode selection, and isolation of public environment settings. */
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

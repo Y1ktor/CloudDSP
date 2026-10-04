@@ -1,3 +1,7 @@
+/**
+ * Adapt Cognito authentication to the shared workspace session interface while
+ * preserving the cloud API and WebSocket contract of using ID tokens.
+ */
 import {
     confirmSignUp,
     getCurrentSession,

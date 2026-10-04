@@ -1,3 +1,7 @@
+/**
+ * Renders piano pitch labels or ADTOF drum lanes with per-voice mute, solo, and
+ * gain controls, plus their slider styles.
+ */
 import React from 'react';
 import { ADTOF_DRUM_VOICES, getDrumVoiceTrackId } from '../../../utils/DrumMidi';
 import { DRUM_EDITOR_ROW_HEIGHT } from './midiEditorLayout';

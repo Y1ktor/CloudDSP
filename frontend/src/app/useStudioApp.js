@@ -1,3 +1,8 @@
+/**
+ * One owner for tab-local workspace/account state. Behavior hooks receive stable
+ * setters and refs; they do not duplicate active jobs or persist a job queue.
+ * Synchronize current-job refs before realtime effects consume them.
+ */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { auth } from '@platform/auth';
 import { profile } from '@platform/profile';
@@ -10,11 +15,6 @@ import { useJobSnapshots } from './useJobSnapshots';
 import { useJobRealtime } from './useJobRealtime';
 import { useJobSubmission } from './useJobSubmission';
 
-/**
- * One owner for tab-local workspace/account state. Behavior hooks receive stable
- * setters and refs; they do not duplicate active jobs or persist a job queue.
- * Synchronize current-job refs before realtime effects consume them.
- */
 export function useStudioApp() {
     const [stemFile, setStemFile] = useState(null);
     const [stemFileName, setStemFileName] = useState('No file loaded');

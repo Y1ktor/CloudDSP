@@ -1,3 +1,7 @@
+/**
+ * Displays project artifact selection and downloads the chosen audio and MIDI
+ * files individually or as a ZIP archive.
+ */
 import React from 'react';
 import JSZip from 'jszip';
 

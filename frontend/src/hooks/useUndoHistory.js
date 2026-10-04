@@ -1,3 +1,7 @@
+/**
+ * Keep bounded binary MIDI undo histories per track and restore earlier edits
+ * or the immutable original snapshot when the user requests undo or revert.
+ */
 import React from 'react';
 import { Midi } from '@tonejs/midi';
 

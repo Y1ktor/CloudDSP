@@ -1,14 +1,10 @@
+/**
+ * Parse MIDI bytes or URLs with Tone.js, calculate duration and bar metadata,
+ * and identify ADTOF drum files. Header tempo remains file metadata; the backend
+ * job supplies the workspace's master tempo.
+ */
 import { Midi } from '@tonejs/midi';
 import { isAdtofDrumMidi } from './DrumMidi';
-
-/**
- * MidiParser.js
- * 
- * Utility functions for parsing raw MIDI files utilizing Tone.js (@tonejs/midi).
- * This module transforms raw ArrayBuffers directly from S3 into structural JSON blocks 
- * suitable for rendering onto a React Canvas. The durable backend job owns master
- * tempo selection; MIDI header tempo is retained here only as per-file metadata.
- */
 
 /**
  * Parses a MIDI file and calculates project metadata like total bars.

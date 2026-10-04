@@ -1,5 +1,3 @@
-import { drumSampleBuffers } from '@platform/samples';
-
 /**
  * ADTOF emits one General MIDI pitch for each of its five drum classes.
  *
@@ -7,6 +5,8 @@ import { drumSampleBuffers } from '@platform/samples';
  * all agree on what an ADTOF drum note means. The ADTOF-PyTorch post processor
  * defines the pitches in this order: [35, 38, 47, 42, 49].
  */
+import { drumSampleBuffers } from '@platform/samples';
+
 export const ADTOF_DRUM_VOICES = Object.freeze([
     { id: 'kick', label: 'Kick', midi: 35, sample: 'kick', color: '#e57373', velocityScale: 1.35 },
     { id: 'snare', label: 'Snare', midi: 38, sample: 'snare', color: '#ffb74d', velocityScale: 1.18 },

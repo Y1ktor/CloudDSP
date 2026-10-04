@@ -1,3 +1,7 @@
+/**
+ * Renders interactive melodic or drum notes within the MIDI editor viewport
+ * while preserving their original editing indices.
+ */
 import React from 'react';
 import { getAdtofDrumVoice, getAdtofDrumVoiceIndex } from '../../../utils/DrumMidi';
 import { DRUM_EDITOR_ROW_HEIGHT } from './midiEditorLayout';

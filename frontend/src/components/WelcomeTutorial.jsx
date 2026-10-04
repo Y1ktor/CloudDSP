@@ -1,3 +1,7 @@
+/**
+ * Present the introductory workspace slides and manage keyboard navigation and focus.
+ * Record first display in local storage to suppress onboarding on later visits.
+ */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { profile } from '@platform/profile';

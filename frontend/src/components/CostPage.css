@@ -1,3 +1,5 @@
+/* Styles AWS cost breakdowns, assumptions, scenario summaries, and responsive
+   pricing tables. */
 .cost-page {
     width: min(1180px, calc(100vw - 40px));
     box-sizing: border-box;

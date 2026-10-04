@@ -1,3 +1,7 @@
+/**
+ * Explain the AWS architecture through diagrams and tabbed workflow walkthroughs
+ * covering source ingestion, processing, result delivery, and static hosting.
+ */
 import React, { useState } from 'react';
 import './ArchitecturePage.css';
 

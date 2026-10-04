@@ -1,3 +1,7 @@
+/**
+ * Draws note replication previews, drag lane highlights, and the selection
+ * rectangle in the MIDI editor.
+ */
 import React from 'react';
 import { ADTOF_DRUM_VOICES, getAdtofDrumVoice, getAdtofDrumVoiceIndex } from '../../../utils/DrumMidi';
 import { DRUM_EDITOR_ROW_HEIGHT } from './midiEditorLayout';

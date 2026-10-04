@@ -1,3 +1,7 @@
+/**
+ * Explain the local Kubernetes cluster with its architecture diagram, processing
+ * workflow, reliability and security controls, and deployment instructions.
+ */
 import { useRef, useState } from 'react';
 import './ArchitecturePage.css';
 import './K8Page.css';

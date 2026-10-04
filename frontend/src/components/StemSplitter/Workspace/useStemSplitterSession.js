@@ -1,3 +1,7 @@
+/**
+ * Coordinates workspace audio and MIDI engines, instrument lifecycles, track
+ * controls, tempo, editor state, undo, and shortcuts.
+ */
 import React from 'react';
 import { useAudioMultiTrackPlayer } from '../../../hooks/useAudioMultiTrackPlayer';
 import { useInstruments } from '../../../hooks/useInstruments';

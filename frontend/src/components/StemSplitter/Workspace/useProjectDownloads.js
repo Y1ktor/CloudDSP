@@ -1,3 +1,7 @@
+/**
+ * Manages the workspace download dialog, artifact selection, and derived
+ * project download list.
+ */
 import { useMemo, useState } from 'react';
 import { getProjectDownloadArtifacts, projectFolderName } from './projectDownloads';
 

@@ -1,3 +1,4 @@
+/** Verify quota reset wording and error messages across limit and fallback cases. */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { quotaErrorMessage, quotaResetMessage } from './quotaMessages.js';

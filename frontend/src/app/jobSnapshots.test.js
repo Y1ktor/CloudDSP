@@ -1,3 +1,4 @@
+/** Verify job refresh decisions, artifact selection, and presigned URL preservation. */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {

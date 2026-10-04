@@ -1,3 +1,7 @@
+/**
+ * Renders workspace playback, cycle, MIDI mode, tempo, time signature, and
+ * project download controls.
+ */
 import React from 'react';
 
 /** Master playback, MIDI, tempo, meter, and download controls. */

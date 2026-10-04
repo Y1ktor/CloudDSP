@@ -1,5 +1,3 @@
-import React from 'react';
-
 /**
  * Authentication is deliberately delegated to Keycloak instead of collecting
  * an email or password in this React application. Clicking the guest button
@@ -7,6 +5,8 @@ import React from 'react';
  * exposes self-registration, email verification, password recovery, and MFA
  * according to the realm policy configured in Kubernetes.
  */
+import React from 'react';
+
 export default function SignInPanel({ onSignIn }) {
     const [busy, setBusy] = React.useState(false);
     const [error, setError] = React.useState('');

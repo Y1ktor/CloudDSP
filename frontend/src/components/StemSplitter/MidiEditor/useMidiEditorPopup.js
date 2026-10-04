@@ -1,3 +1,7 @@
+/**
+ * Coordinates MIDI popup editing state, note operations, audition, export,
+ * scrolling, and playheads driven by the shared audio clock.
+ */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMidiEditorOperations } from '../../../hooks/useMidiEditorOperations';
 import { useMidiExport } from '../../../hooks/useMidiExport';

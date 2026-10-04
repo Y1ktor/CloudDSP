@@ -1,3 +1,7 @@
+/**
+ * Load generated MIDI by stable artifact identity, retain editable data and
+ * original binary snapshots, and queue sampler creation only when needed.
+ */
 import React from 'react';
 import { Sampler, SplendidGrandPiano, Soundfont } from 'smplr';
 import { parseMidiFile } from '../utils/MidiParser';

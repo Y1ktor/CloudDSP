@@ -1,3 +1,7 @@
+/**
+ * Assembles MIDI editor track status, playback, audition, undo, revert, help,
+ * and zoom controls.
+ */
 import React from 'react';
 import MidiEditorNoteControls from './MidiEditorNoteControls';
 import { MidiEditorHint } from './MidiEditorDialogs';

@@ -1,3 +1,4 @@
+/** Show the public example picker and let visitors open a demo in the workspace. */
 import React from 'react';
 
 export default function DemoLibrary({ isOpen, jobs, activeDemoId, onSelect, onClose }) {

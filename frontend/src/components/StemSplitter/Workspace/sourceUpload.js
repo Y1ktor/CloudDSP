@@ -1,3 +1,7 @@
+/**
+ * Validates source audio extensions and exact file sizes before the workspace
+ * submits an upload job.
+ */
 const MAX_SOURCE_UPLOAD_BYTES = 256 * 1024 * 1024;
 const SUPPORTED_AUDIO_EXTENSIONS = new Set([
     '.wav', '.mp3', '.flac', '.m4a', '.aac', '.ogg', '.opus', '.aiff', '.aif', '.webm',

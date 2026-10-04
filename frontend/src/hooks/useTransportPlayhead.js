@@ -1,3 +1,7 @@
+/**
+ * Move timeline playheads and follow-scroll directly from the Web Audio clock,
+ * keeping smooth playback and manual seeking outside per-frame React updates.
+ */
 import React from 'react';
 
 // Let the playhead move smoothly while the expensive viewport scroll advances

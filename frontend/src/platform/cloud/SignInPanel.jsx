@@ -1,3 +1,8 @@
+/**
+ * A dismissible authentication dialog. Verification identity is deliberately
+ * owned by App/localStorage rather than this component, so closing the dialog
+ * never abandons a confirmation email that Cognito has already sent.
+ */
 import React from 'react';
 
 const DISPLAY_NAME_PATTERN = /^[A-Za-z0-9_.-]{3,32}$/;
@@ -7,11 +12,6 @@ function passwordIsValid(password) {
     return password.length >= 8 && PASSWORD_SYMBOL_PATTERN.test(password);
 }
 
-/**
- * A dismissible authentication dialog. Verification identity is deliberately
- * owned by App/localStorage rather than this component, so closing the dialog
- * never abandons a confirmation email that Cognito has already sent.
- */
 export default function SignInPanel({
     pendingVerification,
     onSignIn,

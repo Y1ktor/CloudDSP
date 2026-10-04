@@ -1,3 +1,7 @@
+/**
+ * Provides the MIDI editor shortcut help panel and confirmation dialog for
+ * restoring generated MIDI.
+ */
 import React from 'react';
 
 /** Shortcut help anchored to its toolbar button; state remains with the popup. */

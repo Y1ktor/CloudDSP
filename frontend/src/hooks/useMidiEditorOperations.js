@@ -1,3 +1,7 @@
+/**
+ * Manage piano-roll and drum-grid selection, note creation, dragging, resizing,
+ * deletion, joining, and velocity changes with undo snapshots for edits.
+ */
 import React, { useState, useEffect } from 'react';
 import { ADTOF_DRUM_VOICES, getAdtofDrumVoiceIndex } from '../utils/DrumMidi';
 

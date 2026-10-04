@@ -1,3 +1,7 @@
+/**
+ * Composes the shared stem-splitting workspace, connecting source uploads,
+ * audio and MIDI playback, timeline editing, and downloads.
+ */
 import React from 'react';
 import ControlBar from './ControlBar';
 import MidiEditorPopup from './MidiEditorPopup';

@@ -1,3 +1,7 @@
+/**
+ * Configures cloud and local Vite builds, selecting platform adapters and public
+ * settings and emitting the selected deployment's Content Security Policy.
+ */
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';

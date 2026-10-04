@@ -1,3 +1,7 @@
+/**
+ * Derives workspace source and stem tracks, MIDI readiness states, and
+ * expandable ADTOF drum timeline rows.
+ */
 /** Assemble source and stem rows without changing their artifact references. */
 export function getTracksToRender(file, sourceUrl, stemUrls) {
     const tracks = {};

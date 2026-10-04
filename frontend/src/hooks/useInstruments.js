@@ -1,3 +1,7 @@
+/**
+ * Own melodic and drum-voice sampler references for MIDI playback, and dispose
+ * their audio nodes and sample buffers when a track or workspace is released.
+ */
 import React from 'react';
 
 function disposeSynth(synthRef) {

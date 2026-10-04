@@ -1,3 +1,7 @@
+/**
+ * Share gain limits and Web Audio/smplr conversions, plus melodic playback
+ * velocity balancing that leaves source audio and exported MIDI unchanged.
+ */
 export const TRACK_GAIN_MIN_DB = -12;
 export const TRACK_GAIN_MAX_DB = 12;
 

@@ -1,3 +1,7 @@
+/**
+ * Builds a time-sorted MIDI note index and selects viewport candidates without
+ * changing the source note order.
+ */
 function lowerBoundByTime(notes, time) {
     let low = 0;
     let high = notes.length;

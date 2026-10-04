@@ -1,3 +1,7 @@
+/**
+ * Download edited MIDI as a full track or a clipped cycle range, rebuilding
+ * export timing for the workspace's current tempo without changing the source.
+ */
 import { useCallback } from 'react';
 import { Midi } from '@tonejs/midi';
 

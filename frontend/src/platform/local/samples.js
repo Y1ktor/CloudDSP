@@ -1,3 +1,7 @@
+/**
+ * Provide piano, soundfont, and drum sampler options for the local profile,
+ * pointing shared MIDI playback at its mirrored read-only MinIO sample bank.
+ */
 import { localPianoStorage, midiSampleUrl, soundfontSampleUrl } from '../../utils/midiSampleAssets.js';
 
 // Bootstrap mirrors the same reviewed banks into a dedicated read-only MinIO

@@ -1,3 +1,5 @@
+/* Styles the shared architecture documentation, component cards, processing
+   diagrams, and responsive layouts used by the AWS and Kubernetes pages. */
 .architecture-page {
     width: min(1180px, calc(100vw - 40px));
     box-sizing: border-box;

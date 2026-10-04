@@ -1,3 +1,7 @@
+/**
+ * Present the AWS cost model with workload assumptions, per-job and shared costs,
+ * usage scenarios, and links to the pricing sources used by the estimates.
+ */
 import './CostPage.css';
 
 const pricingSources = {

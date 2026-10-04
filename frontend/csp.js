@@ -1,3 +1,4 @@
+/** Builds cloud and local Content Security Policy directives from public endpoint origins. */
 import { URL } from 'node:url';
 
 const commonDirectives = [

@@ -1,3 +1,7 @@
+/**
+ * Schedule melodic and drum MIDI against the shared Web Audio transport clock,
+ * applying tempo, gain, mute/solo, and edit changes through a bounded look-ahead.
+ */
 import React, { useEffect, useMemo, useRef } from 'react';
 import {
     getAdtofDrumVoice,

@@ -1,3 +1,7 @@
+/**
+ * Load and validate the public same-origin demo catalog, then turn its static
+ * audio and MIDI assets into completed workspace snapshots with demo IDs.
+ */
 const DEMO_MANIFEST_URL = '/demo/manifest.json';
 
 function sameOriginAssetUrl(value) {
