@@ -17,3 +17,4 @@ resources:
   - adtof
   - basic-pitch
   - demucs
+  - rabbitmq

@@ -1,0 +1,6 @@
+# Prepare the delivery identity before enabling the broker HelmRelease.
+# The source chart is fetched first; RBAC alone does not adopt a workload.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - reconciliation-rbac.yaml

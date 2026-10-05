@@ -1,0 +1,74 @@
+# Helm actions impersonate this identity; no workload mounts its API token.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: clouddsp-rabbitmq-helm
+  namespace: flux-system
+automountServiceAccountToken: false
+---
+# Deliver exactly the broker workload and networking kinds in the existing data
+# namespace. StatefulSet mutation can mount namespace Secrets and retained PVCs;
+# this trusted delivery role is not isolation from the other data services.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: clouddsp-rabbitmq-helm
+  namespace: clouddsp-data
+rules:
+  # Kubernetes cannot restrict create by resourceNames. All other mutations
+  # are restricted to the five reviewed chart identities below.
+  - apiGroups: [apps]
+    resources: [statefulsets]
+    verbs: [create]
+  - apiGroups: [apps]
+    resources: [statefulsets]
+    resourceNames: [clouddsp-rabbitmq]
+    verbs: [get, update, patch, delete]
+  - apiGroups: [apps]
+    resources: [statefulsets]
+    verbs: [list, watch]
+  - apiGroups: [""]
+    resources: [services]
+    verbs: [create]
+  - apiGroups: [""]
+    resources: [services]
+    resourceNames: [clouddsp-rabbitmq, clouddsp-rabbitmq-headless, clouddsp-rabbitmq-management]
+    verbs: [get, update, patch, delete]
+  - apiGroups: [""]
+    resources: [services]
+    verbs: [list, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [create]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    resourceNames: [clouddsp-rabbitmq-ingress]
+    verbs: [get, update, patch, delete]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [list, watch]
+  # Read-only Pods/claims support Helm readiness; generated PVCs remain retained.
+  # No PVC/PV mutation, exec, Job creation, or cluster API permission is granted.
+  - apiGroups: [""]
+    resources: [pods, persistentvolumeclaims]
+    verbs: [get, list, watch]
+  # Helm needs namespace-wide revision Secret storage. This also permits access
+  # to data-service credentials; RBAC cannot limit Helm's list to one prefix.
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, list, watch, create, update, patch, delete]
+---
+# Bind the Flux impersonation identity only into the existing data namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: clouddsp-rabbitmq-helm
+  namespace: clouddsp-data
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: clouddsp-rabbitmq-helm
+subjects:
+  - kind: ServiceAccount
+    name: clouddsp-rabbitmq-helm
+    namespace: flux-system

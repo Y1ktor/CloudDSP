@@ -14,7 +14,7 @@ spec:
     # Update Git and this reference together when moving GitOps to main.
     branch: codex/flux-clouddsp-local
   # Keep the source artifact focused on versioned GitOps configuration and
-  # the selected charts below; Demucs is prepared before its handoff.
+  # the selected charts below; RabbitMQ is prepared before its handoff.
   # Fetch the next chart before adding its HelmRelease to the root so
   # packaging cannot race the sparse source archive update. An available
   # chart alone grants no ownership.
@@ -30,9 +30,10 @@ spec:
     - k8Deployment/kubernetes/helm/adtof
     - k8Deployment/kubernetes/helm/basic-pitch
     - k8Deployment/kubernetes/helm/demucs
+    - k8Deployment/kubernetes/helm/rabbitmq
 ---
 # kustomize-controller builds and applies only this cluster's explicit root.
-# The explicit root includes Flux and the ten selected HelmRelease/RBAC sets.
+# The explicit root includes Flux and the explicitly selected HelmRelease/RBAC sets.
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
