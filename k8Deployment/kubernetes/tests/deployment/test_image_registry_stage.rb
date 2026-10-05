@@ -1,7 +1,7 @@
 require 'minitest/autorun'
 require 'stringio'
 
-require_relative '../../scripts/image-registry-stage'
+require_relative '../../scripts/images/image-registry-stage'
 
 class ImageRegistryStageTest < Minitest::Test
   class FakeStage < CloudDSPImageRegistryStage

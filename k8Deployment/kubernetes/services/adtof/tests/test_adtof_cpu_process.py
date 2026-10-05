@@ -15,7 +15,7 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.adtof_cpu_process import (
+from app.processing.adtof_cpu_process import (
     ADTOF_CPU_PROCESS_WORKING_DIRECTORY,
     DEFAULT_ADTOF_CPU_PROCESS_TIMEOUT_SECONDS,
     ADTOFCPUProcessContractError,
@@ -24,10 +24,10 @@ from app.adtof_cpu_process import (
     ADTOFCPUInferenceCommand,
     run_adtof_cpu_inference_process,
 )
-from app.adtof_inference_command import build_adtof_cpu_inference_command
-from app.stem_download import DownloadedADTOFStem
-from app.stem_task_start import RunningADTOFStem
-from app.task_claim import ADTOFTaskLease
+from app.processing.adtof_inference_command import build_adtof_cpu_inference_command
+from app.artifacts.stem_download import DownloadedADTOFStem
+from app.db.stem_task_start import RunningADTOFStem
+from app.db.task_claim import ADTOFTaskLease
 
 
 EVENT_ID = "93b31df9-ea8c-46bb-b2c0-19e9db5365d5"
@@ -155,11 +155,11 @@ class ADTOFCPUProcessRunnerTests(unittest.TestCase):
                 run_adtof_cpu_inference_process(inference, timeout_seconds=60, runner=timeout_runner)
             self.assertEqual(timeout_runner.calls, [(inference, 60)])
 
-    @patch("app.adtof_cpu_process.subprocess.Popen")
+    @patch("app.processing.adtof_cpu_process.subprocess.Popen")
     def test_real_runner_uses_the_fixed_application_directory_for_module_imports(self, popen) -> None:
         """The private output directory must not replace `/app` on ``sys.path``.
 
-        The approved command starts ``python -m app.adtof_cpu_inference_entrypoint``.
+        The approved command starts ``python -m app.processing.adtof_cpu_inference_entrypoint``.
         Python resolves that package from its CWD, so the subprocess must retain
         the image's fixed application directory rather than executing from the
         disposable output folder. Input and output files remain absolute command

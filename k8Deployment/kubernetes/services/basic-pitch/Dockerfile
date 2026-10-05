@@ -95,7 +95,7 @@ COPY --from=validation --chown=10004:10004 /app/app ./app
 
 # Compile each worker module without creating `.pyc` output. A syntax error
 # therefore blocks a registry push rather than becoming a failing Pod later.
-RUN python -c 'from pathlib import Path; [compile(path.read_text(encoding="utf-8"), str(path), "exec") for path in Path("app").glob("*.py")]'
+RUN python -c 'from pathlib import Path; [compile(path.read_text(encoding="utf-8"), str(path), "exec") for path in Path("app").rglob("*.py")]'
 
 USER 10004:10004
 

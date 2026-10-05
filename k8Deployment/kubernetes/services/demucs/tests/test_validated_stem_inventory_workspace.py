@@ -14,18 +14,18 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.demucs_artifacts import (
+from app.artifacts.demucs_artifacts import (
     DEMUCS_STEMS_BY_MODE,
     DemucsArtifactInventoryMismatch,
     ValidatedDemucsStemInventory,
 )
-from app.demucs_command import DemucsSeparationCommand
-from app.executed_separation_workspace import opened_executed_demucs_separation_workspace
-from app.preflight_task_start import DemucsRunningSource
-from app.running_source_workspace import DemucsRunningSourceWorkspace
-from app.source_preflight import ValidatedDemucsSource
-from app.task_lease import DemucsTaskLease
-from app.validated_stem_inventory_workspace import (
+from app.processing.demucs_command import DemucsSeparationCommand
+from app.processing.executed_separation_workspace import opened_executed_demucs_separation_workspace
+from app.db.preflight_task_start import DemucsRunningSource
+from app.processing.running_source_workspace import DemucsRunningSourceWorkspace
+from app.processing.source_preflight import ValidatedDemucsSource
+from app.db.task_lease import DemucsTaskLease
+from app.artifacts.validated_stem_inventory_workspace import (
     DemucsValidatedStemInventoryWorkspace,
     DemucsValidatedStemInventoryWorkspaceProtocolError,
     opened_validated_demucs_stem_inventory_workspace,
@@ -165,7 +165,7 @@ class ValidatedStemInventoryWorkspaceTests(unittest.TestCase):
                     artifacts=(),
                 )
                 with patch(
-                    "app.validated_stem_inventory_workspace.validate_demucs_stem_inventory",
+                    "app.artifacts.validated_stem_inventory_workspace.validate_demucs_stem_inventory",
                     return_value=substituted_inventory,
                 ):
                     with self.assertRaises(DemucsValidatedStemInventoryWorkspaceProtocolError):

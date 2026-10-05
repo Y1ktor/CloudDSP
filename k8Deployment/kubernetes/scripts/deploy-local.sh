@@ -18,7 +18,8 @@
 # retaining images; `purge-registry` is the separate explicit image deletion.
 set -euo pipefail
 
-readonly SCRIPT_DIRECTORY="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib/paths.sh"
+
 
 usage() {
   cat <<'USAGE'
@@ -87,10 +88,10 @@ fi
 # script's --confirm remains its direct-call guard; no Ruby runtime or cluster
 # API connection is required to tear down this fixed local k3d profile.
 if [[ "$1" == "cleanup" ]]; then
-  exec bash "${SCRIPT_DIRECTORY}/cleanup-cluster.sh" --confirm
+  exec bash "${CLOUDDSP_SCRIPTS_DIRECTORY}/maintenance/cleanup-cluster.sh" --confirm
 fi
 if [[ "$1" == "purge-registry" ]]; then
-  exec bash "${SCRIPT_DIRECTORY}/purge-registry.sh" --confirm
+  exec bash "${CLOUDDSP_SCRIPTS_DIRECTORY}/maintenance/purge-registry.sh" --confirm
 fi
 
 if ! command -v ruby >/dev/null 2>&1; then
@@ -101,18 +102,18 @@ fi
 case "$1" in
   secrets-init)
     if [[ "$#" -eq 3 ]]; then
-      exec ruby "${SCRIPT_DIRECTORY}/credential-init.rb" --input "$3"
+      exec ruby "${CLOUDDSP_SCRIPTS_DIRECTORY}/stages/credentials/credential-init.rb" --input "$3"
     fi
-    exec ruby "${SCRIPT_DIRECTORY}/credential-init.rb"
+    exec ruby "${CLOUDDSP_SCRIPTS_DIRECTORY}/stages/credentials/credential-init.rb"
     ;;
-  stages) exec ruby "${SCRIPT_DIRECTORY}/deploy-local-platform.rb" list ;;
-  plan) exec ruby "${SCRIPT_DIRECTORY}/deploy-local-plan.rb" ;;
-  prepare) exec ruby "${SCRIPT_DIRECTORY}/deploy-local-prepare.rb" ;;
-  bootstrap-mailpit) exec ruby "${SCRIPT_DIRECTORY}/deploy-local-mailpit.rb" ;;
-  bootstrap-postgresql) exec ruby "${SCRIPT_DIRECTORY}/deploy-local-postgresql.rb" ;;
-  bootstrap-rabbitmq) exec ruby "${SCRIPT_DIRECTORY}/deploy-local-rabbitmq.rb" ;;
-  bootstrap-minio) exec ruby "${SCRIPT_DIRECTORY}/deploy-local-minio.rb" ;;
-  bootstrap-platform) exec ruby "${SCRIPT_DIRECTORY}/deploy-local-platform.rb" ;;
-  verify) exec ruby "${SCRIPT_DIRECTORY}/deploy-local-verify.rb" ;;
-  reconcile) exec ruby "${SCRIPT_DIRECTORY}/deploy-local-reconcile.rb" ;;
+  stages) exec ruby "${CLOUDDSP_SCRIPTS_DIRECTORY}/orchestration/deploy-local-platform.rb" list ;;
+  plan) exec ruby "${CLOUDDSP_SCRIPTS_DIRECTORY}/orchestration/deploy-local-plan.rb" ;;
+  prepare) exec ruby "${CLOUDDSP_SCRIPTS_DIRECTORY}/orchestration/deploy-local-prepare.rb" ;;
+  bootstrap-mailpit) exec ruby "${CLOUDDSP_SCRIPTS_DIRECTORY}/orchestration/deploy-local-mailpit.rb" ;;
+  bootstrap-postgresql) exec ruby "${CLOUDDSP_SCRIPTS_DIRECTORY}/orchestration/deploy-local-postgresql.rb" ;;
+  bootstrap-rabbitmq) exec ruby "${CLOUDDSP_SCRIPTS_DIRECTORY}/orchestration/deploy-local-rabbitmq.rb" ;;
+  bootstrap-minio) exec ruby "${CLOUDDSP_SCRIPTS_DIRECTORY}/orchestration/deploy-local-minio.rb" ;;
+  bootstrap-platform) exec ruby "${CLOUDDSP_SCRIPTS_DIRECTORY}/orchestration/deploy-local-platform.rb" ;;
+  verify) exec ruby "${CLOUDDSP_SCRIPTS_DIRECTORY}/orchestration/deploy-local-verify.rb" ;;
+  reconcile) exec ruby "${CLOUDDSP_SCRIPTS_DIRECTORY}/orchestration/deploy-local-reconcile.rb" ;;
 esac

@@ -13,13 +13,13 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from app.adtof_cpu_process import ADTOFCPUProcessFailed
-from app.adtof_inference_command import ADTOFCPUInferenceCommand
-from app.local_task_execution import execute_running_adtof_local_task
-from app.output_artifact import ADTOFOutputArtifactFormatError
-from app.stem_download import DownloadedADTOFStem
-from app.stem_task_start import RunningADTOFStem
-from app.task_claim import ADTOFTaskLease
+from app.processing.adtof_cpu_process import ADTOFCPUProcessFailed
+from app.processing.adtof_inference_command import ADTOFCPUInferenceCommand
+from app.processing.local_task_execution import execute_running_adtof_local_task
+from app.artifacts.output_artifact import ADTOFOutputArtifactFormatError
+from app.artifacts.stem_download import DownloadedADTOFStem
+from app.db.stem_task_start import RunningADTOFStem
+from app.db.task_claim import ADTOFTaskLease
 
 
 EVENT_ID = "93b31df9-ea8c-46bb-b2c0-19e9db5365d5"

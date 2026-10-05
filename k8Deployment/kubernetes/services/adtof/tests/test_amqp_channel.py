@@ -10,8 +10,8 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock
 
-from app.amqp_channel import ADTOFAMQPChannelUnavailable, configure_adtof_rabbitmq_channel
-from app.amqp_connection import (
+from app.messaging.amqp_channel import ADTOFAMQPChannelUnavailable, configure_adtof_rabbitmq_channel
+from app.messaging.amqp_connection import (
     ADTOF_REQUEST_QUEUE,
     DEFAULT_ADTOF_AMQP_HOST,
     ADTOFAMQPConfigurationError,

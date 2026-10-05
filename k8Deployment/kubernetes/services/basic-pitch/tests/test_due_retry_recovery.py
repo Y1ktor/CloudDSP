@@ -14,14 +14,14 @@ from datetime import UTC, datetime
 from unittest.mock import patch
 from uuid import UUID
 
-from app.basic_pitch_requested_message import BasicPitchRequestedMessage
-from app.due_retry_recovery import (
+from app.messaging.basic_pitch_requested_message import BasicPitchRequestedMessage
+from app.db.due_retry_recovery import (
     BasicPitchDueRetryRecovery,
     BasicPitchDueRetryRecoveryInconsistency,
     BasicPitchDueRetryRecoveryProtocolError,
     recover_one_due_basic_pitch_retry,
 )
-from app.task_lease import DEFAULT_BASIC_PITCH_LEASE_SECONDS, BasicPitchTaskLease
+from app.db.task_lease import DEFAULT_BASIC_PITCH_LEASE_SECONDS, BasicPitchTaskLease
 
 
 EVENT_ID = "93b31df9-ea8c-46bb-b2c0-19e9db5365d5"
@@ -104,8 +104,8 @@ class FixedUuidFactory:
 class DueRetryRecoveryCompositionTests(unittest.TestCase):
     """Prove an atomic lease/evidence pair is the only successful recovery result."""
 
-    @patch("app.due_retry_recovery.read_current_basic_pitch_recovery_request")
-    @patch("app.due_retry_recovery.claim_next_due_basic_pitch_retry")
+    @patch("app.db.due_retry_recovery.read_current_basic_pitch_recovery_request")
+    @patch("app.db.due_retry_recovery.claim_next_due_basic_pitch_retry")
     def test_pair_returns_only_after_one_normal_transaction_exit(self, claim, read) -> None:
         """A later runtime sees no lease until its matching request is committed too."""
 
@@ -128,8 +128,8 @@ class DueRetryRecoveryCompositionTests(unittest.TestCase):
         )
         read.assert_called_once_with(database.context.cursor, lease=lease())
 
-    @patch("app.due_retry_recovery.read_current_basic_pitch_recovery_request")
-    @patch("app.due_retry_recovery.claim_next_due_basic_pitch_retry")
+    @patch("app.db.due_retry_recovery.read_current_basic_pitch_recovery_request")
+    @patch("app.db.due_retry_recovery.claim_next_due_basic_pitch_retry")
     def test_no_due_retry_commits_normally_without_reading_any_event(self, claim, read) -> None:
         """A genuinely idle indexed claim creates no phantom recovery work."""
 
@@ -141,8 +141,8 @@ class DueRetryRecoveryCompositionTests(unittest.TestCase):
         self.assertEqual(database.context.exit_arguments, (None, None, None))
         read.assert_not_called()
 
-    @patch("app.due_retry_recovery.read_current_basic_pitch_recovery_request")
-    @patch("app.due_retry_recovery.claim_next_due_basic_pitch_retry")
+    @patch("app.db.due_retry_recovery.read_current_basic_pitch_recovery_request")
+    @patch("app.db.due_retry_recovery.claim_next_due_basic_pitch_retry")
     def test_missing_evidence_after_claim_rolls_back_the_fresh_lease(self, claim, read) -> None:
         """A partial result must not strand an unusable new leased task."""
 
@@ -156,8 +156,8 @@ class DueRetryRecoveryCompositionTests(unittest.TestCase):
         assert database.context.exit_arguments is not None
         self.assertIs(database.context.exit_arguments[0], BasicPitchDueRetryRecoveryInconsistency)
 
-    @patch("app.due_retry_recovery.read_current_basic_pitch_recovery_request")
-    @patch("app.due_retry_recovery.claim_next_due_basic_pitch_retry")
+    @patch("app.db.due_retry_recovery.read_current_basic_pitch_recovery_request")
+    @patch("app.db.due_retry_recovery.claim_next_due_basic_pitch_retry")
     def test_adapter_error_escapes_so_the_one_scope_can_roll_back(self, claim, read) -> None:
         """Database/evidence faults must never return a partially durable pair."""
 

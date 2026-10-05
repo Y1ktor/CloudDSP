@@ -12,14 +12,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from app.amqp_manual_ack import DemucsConsumeOneOutcome, DemucsConsumeOneResult
-from app.pre_model_failure_runtime import DemucsOneTaskExecution, DemucsOneTaskExecutionOutcome
-from app.receive_execute_once import (
+from app.messaging.amqp_manual_ack import DemucsConsumeOneOutcome, DemucsConsumeOneResult
+from app.runtime.pre_model_failure_runtime import DemucsOneTaskExecution, DemucsOneTaskExecutionOutcome
+from app.runtime.receive_execute_once import (
     DemucsWorkerIterationOutcome,
     DemucsWorkerIterationResult,
     receive_and_execute_demucs_once,
 )
-from app.task_lease import DemucsTaskLease
+from app.db.task_lease import DemucsTaskLease
 
 
 TASK_ID = "00000000-0000-4000-8000-000000000001"
@@ -50,8 +50,8 @@ def acknowledged_result() -> DemucsConsumeOneResult:
 class DemucsReceiveExecuteOnceTests(unittest.TestCase):
     """Prove processing begins only after a manually acknowledged lease."""
 
-    @patch("app.receive_execute_once.execute_acknowledged_demucs_task_with_running_failure_policy")
-    @patch("app.receive_execute_once.consume_one_demucs_requested_delivery")
+    @patch("app.runtime.receive_execute_once.execute_acknowledged_demucs_task_with_running_failure_policy")
+    @patch("app.runtime.receive_execute_once.consume_one_demucs_requested_delivery")
     def test_acknowledged_lease_executes_once_with_explicit_dependencies(
         self,
         receive,
@@ -103,8 +103,8 @@ class DemucsReceiveExecuteOnceTests(unittest.TestCase):
             running_retry_after_seconds=47,
         )
 
-    @patch("app.receive_execute_once.execute_acknowledged_demucs_task_with_running_failure_policy")
-    @patch("app.receive_execute_once.consume_one_demucs_requested_delivery")
+    @patch("app.runtime.receive_execute_once.execute_acknowledged_demucs_task_with_running_failure_policy")
+    @patch("app.runtime.receive_execute_once.consume_one_demucs_requested_delivery")
     def test_normal_no_work_outcomes_never_enter_the_execution_gate(self, receive, execute) -> None:
         """Idle, duplicate/stale, and DLQ outcomes cannot begin source/CPU work."""
 
@@ -131,8 +131,8 @@ class DemucsReceiveExecuteOnceTests(unittest.TestCase):
 
         execute.assert_not_called()
 
-    @patch("app.receive_execute_once.execute_acknowledged_demucs_task_with_running_failure_policy")
-    @patch("app.receive_execute_once.consume_one_demucs_requested_delivery")
+    @patch("app.runtime.receive_execute_once.execute_acknowledged_demucs_task_with_running_failure_policy")
+    @patch("app.runtime.receive_execute_once.consume_one_demucs_requested_delivery")
     def test_receive_or_runtime_failure_propagates_without_iteration_result(self, receive, execute) -> None:
         """The later supervisor, rather than this join, owns reconnect/backoff."""
 

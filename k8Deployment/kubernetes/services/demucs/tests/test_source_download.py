@@ -11,14 +11,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.source_download import (
+from app.artifacts.source_download import (
     DEMUCS_SOURCE_DOWNLOAD_CHUNK_BYTES,
     DemucsSourceDownloadConsistencyError,
     DemucsSourceDownloadProtocolError,
     DemucsSourceDownloadUnavailable,
     downloaded_verified_demucs_source,
 )
-from app.source_object import VerifiedDemucsSourceObject
+from app.artifacts.source_object import VerifiedDemucsSourceObject
 
 
 class FakeBody:

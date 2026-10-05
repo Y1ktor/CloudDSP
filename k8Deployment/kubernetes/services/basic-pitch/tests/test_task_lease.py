@@ -12,8 +12,8 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import UUID
 
-from app.basic_pitch_requested_message import BasicPitchRequestedMessage
-from app.task_lease import (
+from app.messaging.basic_pitch_requested_message import BasicPitchRequestedMessage
+from app.db.task_lease import (
     BASIC_PITCH_JOB_CLAIM_LOCK_FUNCTION,
     CLAIM_NEXT_DUE_BASIC_PITCH_RETRY_SQL,
     DEFAULT_BASIC_PITCH_LEASE_SECONDS,

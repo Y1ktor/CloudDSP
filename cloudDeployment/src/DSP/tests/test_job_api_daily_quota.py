@@ -12,7 +12,7 @@ from unittest.mock import patch
 from botocore.exceptions import ClientError
 
 
-CLOUD_SOURCE_ROOT = Path(__file__).resolve().parents[1] / "src" / "Cloud"
+CLOUD_SOURCE_ROOT = Path(__file__).resolve().parents[1] / "cloud"
 sys.path.insert(0, str(CLOUD_SOURCE_ROOT))
 
 # job_api constructs boto3 clients at import time. No test may request instance

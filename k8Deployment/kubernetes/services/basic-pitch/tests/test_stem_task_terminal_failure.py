@@ -10,13 +10,13 @@ from __future__ import annotations
 import unittest
 from datetime import UTC, datetime
 
-from app.stem_task_terminal_failure import (
+from app.db.stem_task_terminal_failure import (
     FAIL_LEASED_BASIC_PITCH_STEM_TASK_SQL,
     BasicPitchStemTerminalFailureCode,
     BasicPitchStemTerminalFailureProtocolError,
     fail_leased_basic_pitch_stem_task,
 )
-from app.task_lease import BasicPitchTaskLease
+from app.db.task_lease import BasicPitchTaskLease
 
 
 EVENT_ID = "93b31df9-ea8c-46bb-b2c0-19e9db5365d5"

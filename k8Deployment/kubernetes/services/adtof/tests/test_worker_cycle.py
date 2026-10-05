@@ -11,11 +11,11 @@ from pathlib import Path
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.claimed_task_success import ADTOFClaimedTaskSuccess, ADTOFClaimedTaskSuccessOutcome
-from app.recovery_cadence import ADTOFWorkerCadenceAction, ADTOFWorkerCadenceState
-from app.recovery_execute_once import ADTOFRecoveryIterationOutcome, ADTOFRecoveryIterationResult
-from app.receive_execute_once import ADTOFWorkerIterationOutcome, ADTOFWorkerIterationResult
-from app.worker_cycle import ADTOFWorkerCycleResult, run_one_adtof_worker_cycle
+from app.runtime.claimed_task_success import ADTOFClaimedTaskSuccess, ADTOFClaimedTaskSuccessOutcome
+from app.runtime.recovery_cadence import ADTOFWorkerCadenceAction, ADTOFWorkerCadenceState
+from app.runtime.recovery_execute_once import ADTOFRecoveryIterationOutcome, ADTOFRecoveryIterationResult
+from app.runtime.receive_execute_once import ADTOFWorkerIterationOutcome, ADTOFWorkerIterationResult
+from app.runtime.worker_cycle import ADTOFWorkerCycleResult, run_one_adtof_worker_cycle
 
 
 def execution() -> ADTOFClaimedTaskSuccess:
@@ -27,8 +27,8 @@ def execution() -> ADTOFClaimedTaskSuccess:
 class ADTOFWorkerCycleTests(unittest.TestCase):
     """Prove each cycle invokes exactly the branch selected by its state."""
 
-    @patch("app.worker_cycle.receive_and_execute_adtof_once")
-    @patch("app.worker_cycle.recover_and_execute_adtof_once")
+    @patch("app.runtime.worker_cycle.receive_and_execute_adtof_once")
+    @patch("app.runtime.worker_cycle.recover_and_execute_adtof_once")
     def test_recovery_selected_cycle_never_passes_channel_to_normal_amqp_work(
         self,
         recover,
@@ -63,8 +63,8 @@ class ADTOFWorkerCycleTests(unittest.TestCase):
         )
         normal.assert_not_called()
 
-    @patch("app.worker_cycle.receive_and_execute_adtof_once")
-    @patch("app.worker_cycle.recover_and_execute_adtof_once")
+    @patch("app.runtime.worker_cycle.receive_and_execute_adtof_once")
+    @patch("app.runtime.worker_cycle.recover_and_execute_adtof_once")
     def test_normal_selected_cycle_passes_channel_only_to_normal_branch(self, recover, normal) -> None:
         """One normal AMQP result always advances the next cycle to recovery."""
 
@@ -102,8 +102,8 @@ class ADTOFWorkerCycleTests(unittest.TestCase):
         )
         recover.assert_not_called()
 
-    @patch("app.worker_cycle.receive_and_execute_adtof_once")
-    @patch("app.worker_cycle.recover_and_execute_adtof_once")
+    @patch("app.runtime.worker_cycle.receive_and_execute_adtof_once")
+    @patch("app.runtime.worker_cycle.recover_and_execute_adtof_once")
     def test_failed_or_forged_selected_branch_does_not_create_a_cycle_result(self, recover, normal) -> None:
         """The supervisor can retry the unchanged state rather than skip an action."""
 

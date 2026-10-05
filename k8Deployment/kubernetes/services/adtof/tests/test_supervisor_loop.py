@@ -11,18 +11,18 @@ from pathlib import Path
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.recovery_cadence import ADTOFWorkerCadenceAction, ADTOFWorkerCadenceState
-from app.shutdown_event import ADTOFShutdownWaiter
-from app.supervisor_action import ADTOFSupervisorActionOutcome, ADTOFSupervisorActionResult
-from app.supervisor_backoff import (
+from app.runtime.recovery_cadence import ADTOFWorkerCadenceAction, ADTOFWorkerCadenceState
+from app.runtime.shutdown_event import ADTOFShutdownWaiter
+from app.runtime.supervisor_action import ADTOFSupervisorActionOutcome, ADTOFSupervisorActionResult
+from app.runtime.supervisor_backoff import (
     ADTOFSupervisorAction,
     ADTOFSupervisorBackoffState,
     ADTOFSupervisorDecision,
     ADTOFSupervisorEvent,
 )
-from app.supervisor_loop import ADTOFSupervisorLoopOutcome, run_adtof_supervisor_until_stop
-from app.supervisor_once import ADTOFSupervisorOnceResult
-from app.supervisor_step import ADTOFSupervisorStepResult, ADTOFSupervisorStepState
+from app.runtime.supervisor_loop import ADTOFSupervisorLoopOutcome, run_adtof_supervisor_until_stop
+from app.runtime.supervisor_once import ADTOFSupervisorOnceResult
+from app.runtime.supervisor_step import ADTOFSupervisorStepResult, ADTOFSupervisorStepState
 
 
 def state(streak: int = 0) -> ADTOFSupervisorStepState:
@@ -75,7 +75,7 @@ def once_result(
 class ADTOFSupervisorLoopTests(unittest.TestCase):
     """Prove the only repeated path is a confirmed `continue` action result."""
 
-    @patch("app.supervisor_loop.run_one_adtof_supervisor_cycle")
+    @patch("app.runtime.supervisor_loop.run_one_adtof_supervisor_cycle")
     def test_preexisting_shutdown_stops_before_any_worker_cycle(self, run_once) -> None:
         """SIGTERM observed after setup cannot permit a first broker receive."""
 
@@ -98,7 +98,7 @@ class ADTOFSupervisorLoopTests(unittest.TestCase):
         self.assertIsNone(result.final_cycle)
         run_once.assert_not_called()
 
-    @patch("app.supervisor_loop.run_one_adtof_supervisor_cycle")
+    @patch("app.runtime.supervisor_loop.run_one_adtof_supervisor_cycle")
     def test_continue_repeats_once_then_shutdown_result_stops_loop(self, run_once) -> None:
         """Only a completed continue action permits exactly one additional cycle."""
 
@@ -129,7 +129,7 @@ class ADTOFSupervisorLoopTests(unittest.TestCase):
         self.assertEqual(run_once.call_count, 2)
         self.assertEqual(run_once.call_args_list[1].kwargs["state"], first.next_state)
 
-    @patch("app.supervisor_loop.run_one_adtof_supervisor_cycle")
+    @patch("app.runtime.supervisor_loop.run_one_adtof_supervisor_cycle")
     def test_signal_after_continue_stops_before_the_next_worker_cycle(self, run_once) -> None:
         """A SIGTERM during bounded work is observed before another broker poll."""
 
@@ -155,7 +155,7 @@ class ADTOFSupervisorLoopTests(unittest.TestCase):
         self.assertIs(result.final_cycle, continued)
         run_once.assert_called_once()
 
-    @patch("app.supervisor_loop.run_one_adtof_supervisor_cycle")
+    @patch("app.runtime.supervisor_loop.run_one_adtof_supervisor_cycle")
     def test_fatal_action_stops_loop_with_its_terminal_state(self, run_once) -> None:
         """Fatal static configuration never creates another worker cycle."""
 
@@ -176,7 +176,7 @@ class ADTOFSupervisorLoopTests(unittest.TestCase):
         self.assertIs(result.final_cycle, fatal)
         run_once.assert_called_once()
 
-    @patch("app.supervisor_loop.run_one_adtof_supervisor_cycle")
+    @patch("app.runtime.supervisor_loop.run_one_adtof_supervisor_cycle")
     def test_runner_failure_propagates_without_another_cycle(self, run_once) -> None:
         """Unclassified failure remains visible to the outer lifecycle owner."""
 

@@ -11,7 +11,7 @@ import json
 import unittest
 from types import SimpleNamespace
 
-from app.demucs_requested_message import (
+from app.messaging.demucs_requested_message import (
     DEMUCS_REQUESTED_ROUTING_KEY,
     MAX_DEMUCS_REQUEST_BODY_BYTES,
     PROCESSING_EXCHANGE,

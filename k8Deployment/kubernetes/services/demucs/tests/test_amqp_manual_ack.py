@@ -14,17 +14,17 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from app.amqp_manual_ack import (
+from app.messaging.amqp_manual_ack import (
     DEMUCS_REQUEST_QUEUE,
     DemucsAMQPUnavailable,
     DemucsConsumeOneOutcome,
     DemucsConsumeOneResult,
     consume_one_demucs_requested_delivery,
 )
-from app.delivery_claim import DemucsDeliveryClaim
-from app.demucs_requested_message import DemucsRequestContractError, DemucsRequestedMessage
-from app.postgresql import DemucsDatabaseUnavailable
-from app.task_lease import (
+from app.runtime.delivery_claim import DemucsDeliveryClaim
+from app.messaging.demucs_requested_message import DemucsRequestContractError, DemucsRequestedMessage
+from app.db.postgresql import DemucsDatabaseUnavailable
+from app.db.task_lease import (
     DemucsStaleRequestReason,
     DemucsTaskClaimDisposition,
     DemucsTaskClaimInconsistency,
@@ -98,7 +98,7 @@ class ManualAcknowledgementTests(unittest.TestCase):
         self.channel.basic_get.return_value = (None, None, None)
         database = object()
 
-        with patch("app.amqp_manual_ack.claim_demucs_requested_delivery") as bridge:
+        with patch("app.messaging.amqp_manual_ack.claim_demucs_requested_delivery") as bridge:
             result = consume_one_demucs_requested_delivery(self.channel, database=database)  # type: ignore[arg-type]
 
         self.assertEqual(result.outcome, DemucsConsumeOneOutcome.IDLE)
@@ -108,7 +108,7 @@ class ManualAcknowledgementTests(unittest.TestCase):
         self.channel.basic_ack.assert_not_called()
         self.channel.basic_nack.assert_not_called()
 
-    @patch("app.amqp_manual_ack.claim_demucs_requested_delivery")
+    @patch("app.messaging.amqp_manual_ack.claim_demucs_requested_delivery")
     def test_claimed_lease_is_preserved_only_after_ack_while_duplicate_stale_need_no_work(self, bridge) -> None:
         """The future runtime receives a lease only when this call owns work."""
 
@@ -143,7 +143,7 @@ class ManualAcknowledgementTests(unittest.TestCase):
                 self.channel.basic_ack.assert_called_once_with(42)
         self.channel.basic_nack.assert_not_called()
 
-    @patch("app.amqp_manual_ack.claim_demucs_requested_delivery")
+    @patch("app.messaging.amqp_manual_ack.claim_demucs_requested_delivery")
     def test_malformed_contract_is_nacked_without_requeue_and_never_acknowledged(self, bridge) -> None:
         """Permanent parser faults use the configured main-queue dead-letter path."""
 
@@ -157,7 +157,7 @@ class ManualAcknowledgementTests(unittest.TestCase):
         self.channel.basic_nack.assert_called_once_with(42, requeue=False)
         self.channel.basic_ack.assert_not_called()
 
-    @patch("app.amqp_manual_ack.claim_demucs_requested_delivery")
+    @patch("app.messaging.amqp_manual_ack.claim_demucs_requested_delivery")
     def test_database_or_identity_failure_remains_unacknowledged_for_later_policy(self, bridge) -> None:
         """Only a terminal-transition task may turn a durable inconsistency into an ack."""
 
@@ -178,7 +178,7 @@ class ManualAcknowledgementTests(unittest.TestCase):
                 self.channel.basic_ack.assert_not_called()
                 self.channel.basic_nack.assert_not_called()
 
-    @patch("app.amqp_manual_ack.claim_demucs_requested_delivery")
+    @patch("app.messaging.amqp_manual_ack.claim_demucs_requested_delivery")
     def test_claim_result_missing_its_lease_is_not_acknowledged(self, bridge) -> None:
         """A future regression cannot acknowledge work without returning its owner token."""
 
@@ -194,7 +194,7 @@ class ManualAcknowledgementTests(unittest.TestCase):
         self.channel.basic_ack.assert_not_called()
         self.channel.basic_nack.assert_not_called()
 
-    @patch("app.amqp_manual_ack.claim_demucs_requested_delivery")
+    @patch("app.messaging.amqp_manual_ack.claim_demucs_requested_delivery")
     def test_acknowledgement_failure_is_retryable_and_never_replaces_durable_claim(self, bridge) -> None:
         """A lost ack causes duplicate-safe redelivery rather than a second claim attempt here."""
 
@@ -208,7 +208,7 @@ class ManualAcknowledgementTests(unittest.TestCase):
         self.assertEqual(str(raised.exception), "RabbitMQ Demucs acknowledgement is unavailable.")
         self.channel.basic_nack.assert_not_called()
 
-    @patch("app.amqp_manual_ack.claim_demucs_requested_delivery")
+    @patch("app.messaging.amqp_manual_ack.claim_demucs_requested_delivery")
     def test_rejection_failure_leaves_malformed_delivery_unacknowledged(self, bridge) -> None:
         """A failed nack is not permission to silently discard malformed evidence."""
 

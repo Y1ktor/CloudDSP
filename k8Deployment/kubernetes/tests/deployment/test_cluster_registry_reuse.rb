@@ -4,7 +4,7 @@ require 'tmpdir'
 require 'yaml'
 
 class ClusterRegistryReuseTest < Minitest::Test
-  ENTRYPOINT = File.expand_path('../../scripts/cluster.sh', __dir__)
+  ENTRYPOINT = File.expand_path('../../scripts/orchestration/cluster.sh', __dir__)
 
   def with_fake_tools
     Dir.mktmpdir('clouddsp-registry-reuse-') do |directory|

@@ -1,7 +1,7 @@
 require 'json'
 require 'minitest/autorun'
 require 'yaml'
-require_relative '../../scripts/rabbitmq-processing-topology'
+require_relative '../../scripts/stages/rabbitmq/rabbitmq-processing-topology'
 
 class RabbitmqProcessingTopologyTest < Minitest::Test
   class FakeCluster

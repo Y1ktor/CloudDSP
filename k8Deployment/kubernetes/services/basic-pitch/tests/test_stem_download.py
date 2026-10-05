@@ -11,14 +11,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.stem_download import (
+from app.artifacts.stem_download import (
     BASIC_PITCH_STEM_DOWNLOAD_CHUNK_BYTES,
     BasicPitchStemDownloadConsistencyError,
     BasicPitchStemDownloadProtocolError,
     BasicPitchStemDownloadUnavailable,
     downloaded_verified_basic_pitch_stem,
 )
-from app.stem_object import VerifiedBasicPitchStemObject
+from app.artifacts.stem_object import VerifiedBasicPitchStemObject
 
 
 JOB_ID = "08ec1d44-3106-4fcb-91c8-5d0c78e7e046"

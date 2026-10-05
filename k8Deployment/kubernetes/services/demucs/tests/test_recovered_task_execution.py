@@ -11,15 +11,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from app.amqp_manual_ack import DemucsConsumeOneOutcome, DemucsConsumeOneResult
-from app.demucs_requested_message import DemucsRequestedMessage
-from app.pre_model_failure_runtime import DemucsOneTaskExecution, DemucsOneTaskExecutionOutcome
-from app.recovered_task_execution import (
+from app.messaging.amqp_manual_ack import DemucsConsumeOneOutcome, DemucsConsumeOneResult
+from app.messaging.demucs_requested_message import DemucsRequestedMessage
+from app.runtime.pre_model_failure_runtime import DemucsOneTaskExecution, DemucsOneTaskExecutionOutcome
+from app.runtime.recovered_task_execution import (
     DemucsRecoveredTaskExecutionError,
     execute_recovered_demucs_task,
 )
-from app.task_lease import DemucsTaskLease
-from app.task_maintenance import DemucsRecoveredTask
+from app.db.task_lease import DemucsTaskLease
+from app.db.task_maintenance import DemucsRecoveredTask
 
 
 TASK_ID = "00000000-0000-4000-8000-000000000001"
@@ -55,7 +55,7 @@ def recovered_task() -> DemucsRecoveredTask:
 class RecoveredTaskExecutionTests(unittest.TestCase):
     """Prove recovery reuses the task policy without making a broker action."""
 
-    @patch("app.recovered_task_execution.execute_acknowledged_demucs_task_with_running_failure_policy")
+    @patch("app.runtime.recovered_task_execution.execute_acknowledged_demucs_task_with_running_failure_policy")
     def test_valid_pair_forwards_only_its_lease_through_the_compatibility_envelope(self, execute) -> None:
         """The ordinary runtime sees the same current lease, not a broker frame."""
 
@@ -84,7 +84,7 @@ class RecoveredTaskExecutionTests(unittest.TestCase):
         self.assertEqual(kwargs["running_retry_after_seconds"], 47)
         self.assertNotIn("channel", kwargs)
 
-    @patch("app.recovered_task_execution.execute_acknowledged_demucs_task_with_running_failure_policy")
+    @patch("app.runtime.recovered_task_execution.execute_acknowledged_demucs_task_with_running_failure_policy")
     def test_non_pair_input_is_rejected_before_the_shared_runtime(self, execute) -> None:
         """An old message or hand-selected lease cannot enter recovery execution."""
 
@@ -99,7 +99,7 @@ class RecoveredTaskExecutionTests(unittest.TestCase):
 
         execute.assert_not_called()
 
-    @patch("app.recovered_task_execution.execute_acknowledged_demucs_task_with_running_failure_policy")
+    @patch("app.runtime.recovered_task_execution.execute_acknowledged_demucs_task_with_running_failure_policy")
     def test_shared_runtime_error_remains_its_original_error(self, execute) -> None:
         """The gate must not misclassify a later storage/model/runtime fault."""
 

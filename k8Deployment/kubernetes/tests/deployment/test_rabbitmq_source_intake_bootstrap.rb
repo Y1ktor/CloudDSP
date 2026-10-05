@@ -3,7 +3,7 @@ require 'json'
 require 'minitest/autorun'
 require 'tmpdir'
 require 'yaml'
-require_relative '../../scripts/rabbitmq-source-intake-bootstrap'
+require_relative '../../scripts/stages/rabbitmq/rabbitmq-source-intake-bootstrap'
 
 class RabbitmqSourceIntakeBootstrapTest < Minitest::Test
   MINIO_VALUES = {

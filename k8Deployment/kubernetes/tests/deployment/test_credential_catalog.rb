@@ -3,7 +3,7 @@ require 'stringio'
 require 'tempfile'
 require 'yaml'
 
-require_relative '../../scripts/credential-catalog'
+require_relative '../../scripts/lib/credential-catalog'
 
 class CredentialCatalogTest < Minitest::Test
   def setup

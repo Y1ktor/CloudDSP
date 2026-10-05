@@ -9,19 +9,19 @@ from __future__ import annotations
 
 import unittest
 
-from app.midi_artifact_upload import BasicPitchMidiUploadUnavailable
-from app.stem_download import (
+from app.artifacts.midi_artifact_upload import BasicPitchMidiUploadUnavailable
+from app.artifacts.stem_download import (
     BasicPitchStemDownloadConsistencyError,
     BasicPitchStemDownloadUnavailable,
 )
-from app.stem_object import (
+from app.artifacts.stem_object import (
     BasicPitchPermanentStemVerificationError,
     BasicPitchStemStorageProtocolError,
     BasicPitchStemStorageUnavailable,
     BasicPitchStemVerificationFailureCode,
 )
-from app.stem_retry_classification import classify_basic_pitch_pre_model_storage_retry
-from app.stem_task_retry_schedule import BasicPitchStemRetryScheduleCode
+from app.runtime.stem_retry_classification import classify_basic_pitch_pre_model_storage_retry
+from app.db.stem_task_retry_schedule import BasicPitchStemRetryScheduleCode
 
 
 class BasicPitchStemRetryClassificationTests(unittest.TestCase):

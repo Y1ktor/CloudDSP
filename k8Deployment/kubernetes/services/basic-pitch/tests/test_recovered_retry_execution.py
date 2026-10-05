@@ -12,17 +12,17 @@ from pathlib import Path
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.basic_pitch_requested_message import BasicPitchRequestedMessage
-from app.basic_pitch_task_execution import (
+from app.messaging.basic_pitch_requested_message import BasicPitchRequestedMessage
+from app.runtime.basic_pitch_task_execution import (
     BasicPitchClaimedTaskExecution,
     BasicPitchClaimedTaskExecutionOutcome,
 )
-from app.due_retry_recovery import BasicPitchDueRetryRecovery
-from app.recovered_retry_execution import (
+from app.db.due_retry_recovery import BasicPitchDueRetryRecovery
+from app.runtime.recovered_retry_execution import (
     BasicPitchRecoveredRetryExecutionError,
     execute_recovered_basic_pitch_retry,
 )
-from app.task_lease import BasicPitchTaskLease
+from app.db.task_lease import BasicPitchTaskLease
 
 
 EVENT_ID = "93b31df9-ea8c-46bb-b2c0-19e9db5365d5"
@@ -63,7 +63,7 @@ def recovery() -> BasicPitchDueRetryRecovery:
 class RecoveredRetryExecutionTests(unittest.TestCase):
     """Prove retry recovery reaches the same post-lease policy exactly once."""
 
-    @patch("app.recovered_retry_execution.execute_current_basic_pitch_lease")
+    @patch("app.runtime.recovered_retry_execution.execute_current_basic_pitch_lease")
     def test_committed_pair_forwards_to_shared_policy_without_a_broker_action(self, execute) -> None:
         """The shared policy owns all terminal/retry outcome handling."""
 
@@ -96,7 +96,7 @@ class RecoveredRetryExecutionTests(unittest.TestCase):
             process_runner=runner,
         )
 
-    @patch("app.recovered_retry_execution.execute_current_basic_pitch_lease")
+    @patch("app.runtime.recovered_retry_execution.execute_current_basic_pitch_lease")
     def test_noncommitted_or_missing_pair_stops_before_shared_policy(self, execute) -> None:
         """An old RabbitMQ body cannot be substituted for recovery evidence."""
 

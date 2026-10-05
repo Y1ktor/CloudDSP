@@ -9,7 +9,7 @@ recovery rules.
 
 ## Git and cluster boundaries
 
-| Setting | Initial configuration |
+| Setting | Current configuration |
 | --- | --- |
 | Kubernetes context | `k3d-clouddsp-local` |
 | Git repository | `https://github.com/Y1ktor/CloudDSP.git` |
@@ -17,18 +17,24 @@ recovery rules.
 | Reconciled directory | `k8Deployment/kubernetes/gitops/clusters/clouddsp-local` |
 | Git poll and reconciliation interval | One minute |
 
-The dedicated branch starts from the published repository to keep pending local
-commits separate. Changes made only on another branch are not deployed. A later
-move to `main` must publish these files there and update `spec.ref.branch` in
-`flux-system/gotk-sync.yaml` as one coordinated change.
+The dedicated branch carries the reviewed source alignment for the canonical
+[shared frontend](../../../frontend/), current [Helm charts](../helm/),
+[image lock](../images.lock.yaml), and organized [deployment helpers](../scripts/).
+This source alignment prepares later component adoptions; live reconciliation
+remains limited to Flux and Mailpit. Changes made only on another branch are not
+deployed. A later move to `main` must publish these files there and update
+`spec.ref.branch` in `flux-system/gotk-sync.yaml` as one coordinated change.
 
 `GitRepository` is a Flux API resource: source-controller downloads its branch.
 The Flux `Kustomization` API resource selects the directory to apply. The
 `kustomization.yaml` files are Kustomize build inputs, with explicit resource
 lists so retained raw service manifests, one-time Jobs, tests, and credentials
-are not recursively adopted. The source uses sparse checkout for `gitops/`
-and the Mailpit chart. Add each later chart deliberately when its ownership
-handoff is implemented.
+are not recursively adopted. The source uses sparse checkout only for
+`k8Deployment/kubernetes/gitops` and `k8Deployment/kubernetes/helm/mailpit`.
+Each later component needs a reviewed HelmRelease, suitable reconciliation RBAC,
+its required chart source paths, and an explicit entry in the cluster root as
+part of its ownership handoff. Aligned source files alone do not add a release
+to Flux reconciliation.
 
 ## Controllers and security
 
@@ -74,8 +80,11 @@ The node runtime must be able to pull `ghcr.io/fluxcd` controller images.
 These four images are separate from the existing CloudDSP image mirror and
 are pulled directly from GHCR for this opt-in installation.
 
-Check out the published GitOps branch, inspect the source URL and branch, then
-run from the repository root:
+The normal host `bootstrap-platform` command in
+[`deploy-local.sh`](../scripts/deploy-local.sh) does not install Flux automatically.
+After the local platform is ready, check out the published GitOps branch, inspect
+the source URL and branch, then run this separate opt-in bootstrap from the
+repository root:
 
 ```sh
 git switch codex/flux-clouddsp-local

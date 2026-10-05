@@ -14,7 +14,7 @@ objects and guarded database rows. The disposable Kubernetes smoke Job was
 removed. The worker returns to zero after KEDA's 180-second idle cooldown.
 
 The historical sections below describe how each narrow fixture boundary was
-built. Use the [ADTOF release script](../../scripts/adtof-release.rb) for a
+built. Use the [ADTOF release script](../../scripts/releases/adtof-release.rb) for a
 new smoke run; inspect any failed fixed-coordinate attempt before cleanup.
 
 This directory contains the deterministic input fixture, restricted database
@@ -485,7 +485,7 @@ Job, Pod, smoke object, durable event, or queue message.
 
 ## Non-interactive build-and-push script
 
-[`../../scripts/build-adtof-worker-smoke-client-image.sh`](../../scripts/build-adtof-worker-smoke-client-image.sh)
+[`../../scripts/images/build-adtof-worker-smoke-client-image.sh`](../../scripts/images/build-adtof-worker-smoke-client-image.sh)
 now makes the local rebuild/push path reproducible. It resolves the narrow
 client build context from its own path, requires Docker Desktop and the exact
 `clouddsp-registry.localhost` k3d registry, checks the Dockerfile, lock, every

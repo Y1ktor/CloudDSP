@@ -13,18 +13,18 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from app.amqp_manual_ack import BasicPitchConsumeOneOutcome, BasicPitchConsumeOneResult
-from app.basic_pitch_requested_message import BasicPitchRequestedMessage
-from app.basic_pitch_task_execution import (
+from app.messaging.amqp_manual_ack import BasicPitchConsumeOneOutcome, BasicPitchConsumeOneResult
+from app.messaging.basic_pitch_requested_message import BasicPitchRequestedMessage
+from app.runtime.basic_pitch_task_execution import (
     BasicPitchClaimedTaskExecution,
     BasicPitchClaimedTaskExecutionOutcome,
 )
-from app.receive_execute_once import (
+from app.runtime.receive_execute_once import (
     BasicPitchWorkerIterationOutcome,
     BasicPitchWorkerIterationResult,
     receive_and_execute_basic_pitch_once,
 )
-from app.task_lease import BasicPitchTaskLease
+from app.db.task_lease import BasicPitchTaskLease
 
 
 JOB_ID = "08ec1d44-3106-4fcb-91c8-5d0c78e7e046"
@@ -63,8 +63,8 @@ def acknowledged_result() -> BasicPitchConsumeOneResult:
 class BasicPitchReceiveExecuteOnceTests(unittest.TestCase):
     """Prove only an acknowledged first lease enters the execution gate."""
 
-    @patch("app.receive_execute_once.execute_acknowledged_basic_pitch_lease")
-    @patch("app.receive_execute_once.consume_one_basic_pitch_requested_delivery")
+    @patch("app.runtime.receive_execute_once.execute_acknowledged_basic_pitch_lease")
+    @patch("app.runtime.receive_execute_once.consume_one_basic_pitch_requested_delivery")
     def test_acknowledged_lease_executes_once_with_all_explicit_dependencies(
         self,
         receive,
@@ -104,8 +104,8 @@ class BasicPitchReceiveExecuteOnceTests(unittest.TestCase):
             process_runner=runner,
         )
 
-    @patch("app.receive_execute_once.execute_acknowledged_basic_pitch_lease")
-    @patch("app.receive_execute_once.consume_one_basic_pitch_requested_delivery")
+    @patch("app.runtime.receive_execute_once.execute_acknowledged_basic_pitch_lease")
+    @patch("app.runtime.receive_execute_once.consume_one_basic_pitch_requested_delivery")
     def test_normal_no_work_outcomes_never_enter_the_execution_gate(self, receive, execute) -> None:
         """Idle, duplicate/stale, and DLQ outcomes cannot initiate media work."""
 
@@ -129,8 +129,8 @@ class BasicPitchReceiveExecuteOnceTests(unittest.TestCase):
 
         execute.assert_not_called()
 
-    @patch("app.receive_execute_once.execute_acknowledged_basic_pitch_lease")
-    @patch("app.receive_execute_once.consume_one_basic_pitch_requested_delivery")
+    @patch("app.runtime.receive_execute_once.execute_acknowledged_basic_pitch_lease")
+    @patch("app.runtime.receive_execute_once.consume_one_basic_pitch_requested_delivery")
     def test_receive_or_execution_failure_propagates_without_an_iteration_result(self, receive, execute) -> None:
         """The future supervisor must own reconnect/retry classification and timing."""
 

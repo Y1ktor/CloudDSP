@@ -14,17 +14,17 @@ import unittest
 from datetime import UTC, datetime
 from pathlib import Path
 
-from app.basic_pitch_process import BasicPitchInferenceCommand, build_basic_pitch_inference_command
-from app.basic_pitch_requested_message import MIDI_CONTENT_TYPE
-from app.midi_artifact import (
+from app.processing.basic_pitch_process import BasicPitchInferenceCommand, build_basic_pitch_inference_command
+from app.messaging.basic_pitch_requested_message import MIDI_CONTENT_TYPE
+from app.artifacts.midi_artifact import (
     BasicPitchMidiArtifactContractError,
     BasicPitchMidiArtifactFormatError,
     BasicPitchMidiArtifactPathError,
     verify_and_hash_basic_pitch_midi,
 )
-from app.stem_download import DownloadedBasicPitchStem
-from app.stem_task_start import RunningBasicPitchStem
-from app.task_lease import BasicPitchTaskLease
+from app.artifacts.stem_download import DownloadedBasicPitchStem
+from app.db.stem_task_start import RunningBasicPitchStem
+from app.db.task_lease import BasicPitchTaskLease
 
 
 EVENT_ID = "93b31df9-ea8c-46bb-b2c0-19e9db5365d5"

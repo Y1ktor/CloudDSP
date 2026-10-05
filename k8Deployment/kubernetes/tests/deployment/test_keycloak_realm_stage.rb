@@ -1,6 +1,6 @@
 require 'minitest/autorun'
 require 'stringio'
-require_relative '../../scripts/keycloak-realm-stage'
+require_relative '../../scripts/stages/keycloak/keycloak-realm-stage'
 
 class KeycloakRealmStageTest < Minitest::Test
   Status = Struct.new(:exitstatus) do

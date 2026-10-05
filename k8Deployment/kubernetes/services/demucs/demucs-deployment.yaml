@@ -99,7 +99,7 @@ spec:
           # `images.lock.yaml` records the matching readable build tag and
           # provenance. The digest here—not that mutable tag—ensures every
           # replacement Pod uses the reviewed terminal-deadline build.
-          image: clouddsp-registry.localhost:5001/demucs@sha256:4aeab642921bc12108cd46f548029b270d7317dad76d416a9ae77d55de605bba
+          image: clouddsp-registry.localhost:5001/demucs@sha256:6309797ec6911c5e4736efd1b8c6f1b10024e5d7021d679c1f82777db5e76fee
           # A digest cannot change. K3s may reuse cached bytes or pull the
           # exact same image from this cluster's dedicated local registry.
           imagePullPolicy: IfNotPresent

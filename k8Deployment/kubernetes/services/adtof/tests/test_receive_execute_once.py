@@ -12,15 +12,15 @@ from pathlib import Path
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.adtof_requested_message import ADTOFRequestedMessage
-from app.amqp_manual_ack import ADTOFConsumeOneOutcome, ADTOFConsumeOneResult
-from app.claimed_task_success import ADTOFClaimedTaskSuccess, ADTOFClaimedTaskSuccessOutcome
-from app.receive_execute_once import (
+from app.messaging.adtof_requested_message import ADTOFRequestedMessage
+from app.messaging.amqp_manual_ack import ADTOFConsumeOneOutcome, ADTOFConsumeOneResult
+from app.runtime.claimed_task_success import ADTOFClaimedTaskSuccess, ADTOFClaimedTaskSuccessOutcome
+from app.runtime.receive_execute_once import (
     ADTOFWorkerIterationOutcome,
     ADTOFWorkerIterationResult,
     receive_and_execute_adtof_once,
 )
-from app.task_claim import ADTOFTaskLease
+from app.db.task_claim import ADTOFTaskLease
 
 
 JOB_ID = "08ec1d44-3106-4fcb-91c8-5d0c78e7e046"
@@ -59,8 +59,8 @@ def acknowledged_result() -> ADTOFConsumeOneResult:
 class ADTOFReceiveExecuteOnceTests(unittest.TestCase):
     """Prove exactly one acknowledged current lease can enter ADTOF execution."""
 
-    @patch("app.receive_execute_once.execute_acknowledged_adtof_lease")
-    @patch("app.receive_execute_once.consume_one_adtof_requested_delivery")
+    @patch("app.runtime.receive_execute_once.execute_acknowledged_adtof_lease")
+    @patch("app.runtime.receive_execute_once.consume_one_adtof_requested_delivery")
     def test_acknowledged_lease_executes_once_with_explicit_dependencies(self, receive, execute) -> None:
         """The join retains all bounds while leaving broker action upstream."""
 
@@ -96,8 +96,8 @@ class ADTOFReceiveExecuteOnceTests(unittest.TestCase):
             process_runner=runner,
         )
 
-    @patch("app.receive_execute_once.execute_acknowledged_adtof_lease")
-    @patch("app.receive_execute_once.consume_one_adtof_requested_delivery")
+    @patch("app.runtime.receive_execute_once.execute_acknowledged_adtof_lease")
+    @patch("app.runtime.receive_execute_once.consume_one_adtof_requested_delivery")
     def test_normal_no_work_outcomes_never_enter_execution_gate(self, receive, execute) -> None:
         """Idle, duplicate/stale, and malformed-DLQ outcomes cannot run CPU work."""
 
@@ -121,8 +121,8 @@ class ADTOFReceiveExecuteOnceTests(unittest.TestCase):
 
         execute.assert_not_called()
 
-    @patch("app.receive_execute_once.execute_acknowledged_adtof_lease")
-    @patch("app.receive_execute_once.consume_one_adtof_requested_delivery")
+    @patch("app.runtime.receive_execute_once.execute_acknowledged_adtof_lease")
+    @patch("app.runtime.receive_execute_once.consume_one_adtof_requested_delivery")
     def test_receive_or_execution_failure_propagates_without_iteration_result(self, receive, execute) -> None:
         """A later supervisor owns reconnect, retry, and restart policy."""
 

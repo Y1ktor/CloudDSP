@@ -11,15 +11,15 @@ import unittest
 from datetime import UTC, datetime
 from pathlib import Path
 
-from app.audio_probe import DemucsAudioProbeProtocolError
-from app.source_download import DemucsSourceDownloadConsistencyError
-from app.source_object import DemucsPermanentSourceVerificationError
-from app.source_preflight import (
+from app.processing.audio_probe import DemucsAudioProbeProtocolError
+from app.artifacts.source_download import DemucsSourceDownloadConsistencyError
+from app.artifacts.source_object import DemucsPermanentSourceVerificationError
+from app.processing.source_preflight import (
     OpenedValidatedDemucsSourceWorkspace,
     opened_validated_demucs_source_workspace,
     validate_claimed_demucs_source,
 )
-from app.task_lease import DemucsTaskLease
+from app.db.task_lease import DemucsTaskLease
 
 
 JOB_ID = "08ec1d44-3106-4fcb-91c8-5d0c78e7e046"

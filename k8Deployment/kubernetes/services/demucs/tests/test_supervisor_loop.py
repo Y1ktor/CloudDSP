@@ -11,18 +11,18 @@ from pathlib import Path
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.recovery_cadence import DemucsWorkerCadenceAction, DemucsWorkerCadenceState
-from app.shutdown_event import DemucsShutdownWaiter
-from app.supervisor_action import DemucsSupervisorActionOutcome, DemucsSupervisorActionResult
-from app.supervisor_backoff import (
+from app.runtime.recovery_cadence import DemucsWorkerCadenceAction, DemucsWorkerCadenceState
+from app.runtime.shutdown_event import DemucsShutdownWaiter
+from app.runtime.supervisor_action import DemucsSupervisorActionOutcome, DemucsSupervisorActionResult
+from app.runtime.supervisor_backoff import (
     DemucsSupervisorAction,
     DemucsSupervisorBackoffState,
     DemucsSupervisorDecision,
     DemucsSupervisorEvent,
 )
-from app.supervisor_loop import DemucsSupervisorLoopOutcome, run_demucs_supervisor_until_stop
-from app.supervisor_once import DemucsSupervisorOnceResult
-from app.supervisor_step import DemucsSupervisorStepResult, DemucsSupervisorStepState
+from app.runtime.supervisor_loop import DemucsSupervisorLoopOutcome, run_demucs_supervisor_until_stop
+from app.runtime.supervisor_once import DemucsSupervisorOnceResult
+from app.runtime.supervisor_step import DemucsSupervisorStepResult, DemucsSupervisorStepState
 
 
 def state(streak: int = 0) -> DemucsSupervisorStepState:
@@ -75,7 +75,7 @@ def once_result(
 class DemucsSupervisorLoopTests(unittest.TestCase):
     """Prove repetition occurs only after a confirmed `continue` control fact."""
 
-    @patch("app.supervisor_loop.run_one_demucs_supervisor_cycle")
+    @patch("app.runtime.supervisor_loop.run_one_demucs_supervisor_cycle")
     def test_preexisting_shutdown_stops_before_any_worker_cycle(self, run_once) -> None:
         """SIGTERM observed after setup cannot allow a first broker receive."""
 
@@ -99,7 +99,7 @@ class DemucsSupervisorLoopTests(unittest.TestCase):
         self.assertIsNone(result.final_cycle)
         run_once.assert_not_called()
 
-    @patch("app.supervisor_loop.run_one_demucs_supervisor_cycle")
+    @patch("app.runtime.supervisor_loop.run_one_demucs_supervisor_cycle")
     def test_continue_repeats_once_then_shutdown_result_stops_loop(self, run_once) -> None:
         """Only a completed continue fact permits one additional worker cycle."""
 
@@ -135,7 +135,7 @@ class DemucsSupervisorLoopTests(unittest.TestCase):
         self.assertEqual(run_once.call_args_list[1].kwargs["state"], first.next_state)
         self.assertIs(run_once.call_args_list[0].kwargs["demucs_runner"], demucs_runner)
 
-    @patch("app.supervisor_loop.run_one_demucs_supervisor_cycle")
+    @patch("app.runtime.supervisor_loop.run_one_demucs_supervisor_cycle")
     def test_signal_after_continue_stops_before_next_worker_cycle(self, run_once) -> None:
         """A SIGTERM during bounded work is observed before another broker poll."""
 
@@ -162,7 +162,7 @@ class DemucsSupervisorLoopTests(unittest.TestCase):
         self.assertIs(result.final_cycle, continued)
         run_once.assert_called_once()
 
-    @patch("app.supervisor_loop.run_one_demucs_supervisor_cycle")
+    @patch("app.runtime.supervisor_loop.run_one_demucs_supervisor_cycle")
     def test_fatal_action_stops_loop_with_terminal_state(self, run_once) -> None:
         """Fatal static configuration never permits another worker cycle."""
 
@@ -184,7 +184,7 @@ class DemucsSupervisorLoopTests(unittest.TestCase):
         self.assertIs(result.final_cycle, fatal)
         run_once.assert_called_once()
 
-    @patch("app.supervisor_loop.run_one_demucs_supervisor_cycle")
+    @patch("app.runtime.supervisor_loop.run_one_demucs_supervisor_cycle")
     def test_runner_failure_propagates_without_another_cycle(self, run_once) -> None:
         """Unclassified errors remain visible to the outer lifecycle owner."""
 

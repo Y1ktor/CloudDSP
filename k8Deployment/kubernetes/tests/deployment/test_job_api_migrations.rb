@@ -1,7 +1,7 @@
 require 'json'
 require 'minitest/autorun'
 require 'yaml'
-require_relative '../../scripts/job-api-migrations'
+require_relative '../../scripts/stages/database/job-api-migrations'
 
 class JobApiMigrationsTest < Minitest::Test
   # Exercise the stage's decisions without a database or Kubernetes writes.

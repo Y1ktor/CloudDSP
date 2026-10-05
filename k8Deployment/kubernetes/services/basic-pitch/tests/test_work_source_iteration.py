@@ -12,15 +12,15 @@ from pathlib import Path
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.basic_pitch_task_execution import (
+from app.runtime.basic_pitch_task_execution import (
     BasicPitchClaimedTaskExecution,
     BasicPitchClaimedTaskExecutionOutcome,
 )
-from app.due_retry_recovery import BasicPitchDueRetryRecovery
-from app.receive_execute_once import BasicPitchWorkerIterationOutcome, BasicPitchWorkerIterationResult
-from app.task_lease import BasicPitchTaskLease
-from app.work_schedule import BasicPitchWorkScheduleState, BasicPitchWorkSource
-from app.work_source_iteration import (
+from app.db.due_retry_recovery import BasicPitchDueRetryRecovery
+from app.runtime.receive_execute_once import BasicPitchWorkerIterationOutcome, BasicPitchWorkerIterationResult
+from app.db.task_lease import BasicPitchTaskLease
+from app.runtime.work_schedule import BasicPitchWorkScheduleState, BasicPitchWorkSource
+from app.runtime.work_source_iteration import (
     BasicPitchFairWorkIterationOutcome,
     BasicPitchFairWorkIterationResult,
     run_one_fair_basic_pitch_work_iteration,
@@ -36,7 +36,7 @@ RECOVERY_TOKEN = "63c9d8d2-11db-41c4-9cc5-79889f912f98"
 def recovered_pair() -> BasicPitchDueRetryRecovery:
     """Return valid committed evidence for a patched due-retry recovery call."""
 
-    from app.basic_pitch_requested_message import BasicPitchRequestedMessage
+    from app.messaging.basic_pitch_requested_message import BasicPitchRequestedMessage
 
     key = f"stems/{JOB_ID}/vocals.wav"
     return BasicPitchDueRetryRecovery(
@@ -67,9 +67,9 @@ def recovered_pair() -> BasicPitchDueRetryRecovery:
 class FairWorkSourceIterationTests(unittest.TestCase):
     """Prove one source cannot starve the other or mask two-source idleness."""
 
-    @patch("app.work_source_iteration.execute_recovered_basic_pitch_retry")
-    @patch("app.work_source_iteration.recover_one_due_basic_pitch_retry")
-    @patch("app.work_source_iteration.receive_and_execute_basic_pitch_once")
+    @patch("app.runtime.work_source_iteration.execute_recovered_basic_pitch_retry")
+    @patch("app.runtime.work_source_iteration.recover_one_due_basic_pitch_retry")
+    @patch("app.runtime.work_source_iteration.receive_and_execute_basic_pitch_once")
     def test_broker_progress_skips_recovery_until_the_next_fair_iteration(
         self, receive, recover, execute_recovery
     ) -> None:
@@ -96,9 +96,9 @@ class FairWorkSourceIterationTests(unittest.TestCase):
         recover.assert_not_called()
         execute_recovery.assert_not_called()
 
-    @patch("app.work_source_iteration.execute_recovered_basic_pitch_retry")
-    @patch("app.work_source_iteration.recover_one_due_basic_pitch_retry")
-    @patch("app.work_source_iteration.receive_and_execute_basic_pitch_once")
+    @patch("app.runtime.work_source_iteration.execute_recovered_basic_pitch_retry")
+    @patch("app.runtime.work_source_iteration.recover_one_due_basic_pitch_retry")
+    @patch("app.runtime.work_source_iteration.receive_and_execute_basic_pitch_once")
     def test_broker_idle_immediately_falls_back_to_due_recovery(
         self, receive, recover, execute_recovery
     ) -> None:
@@ -142,9 +142,9 @@ class FairWorkSourceIterationTests(unittest.TestCase):
             process_runner=None,
         )
 
-    @patch("app.work_source_iteration.execute_recovered_basic_pitch_retry")
-    @patch("app.work_source_iteration.recover_one_due_basic_pitch_retry")
-    @patch("app.work_source_iteration.receive_and_execute_basic_pitch_once")
+    @patch("app.runtime.work_source_iteration.execute_recovered_basic_pitch_retry")
+    @patch("app.runtime.work_source_iteration.recover_one_due_basic_pitch_retry")
+    @patch("app.runtime.work_source_iteration.receive_and_execute_basic_pitch_once")
     def test_only_two_empty_source_checks_produce_idle(
         self, receive, recover, execute_recovery
     ) -> None:
@@ -172,9 +172,9 @@ class FairWorkSourceIterationTests(unittest.TestCase):
         self.assertIsNone(returned.recovery_execution)
         execute_recovery.assert_not_called()
 
-    @patch("app.work_source_iteration.execute_recovered_basic_pitch_retry")
-    @patch("app.work_source_iteration.recover_one_due_basic_pitch_retry")
-    @patch("app.work_source_iteration.receive_and_execute_basic_pitch_once")
+    @patch("app.runtime.work_source_iteration.execute_recovered_basic_pitch_retry")
+    @patch("app.runtime.work_source_iteration.recover_one_due_basic_pitch_retry")
+    @patch("app.runtime.work_source_iteration.receive_and_execute_basic_pitch_once")
     def test_due_retry_preference_runs_without_polling_broker_first(
         self, receive, recover, execute_recovery
     ) -> None:
@@ -202,9 +202,9 @@ class FairWorkSourceIterationTests(unittest.TestCase):
         self.assertEqual(returned.next_state.next_source, BasicPitchWorkSource.RABBITMQ_DELIVERY)
         receive.assert_not_called()
 
-    @patch("app.work_source_iteration.execute_recovered_basic_pitch_retry")
-    @patch("app.work_source_iteration.recover_one_due_basic_pitch_retry")
-    @patch("app.work_source_iteration.receive_and_execute_basic_pitch_once")
+    @patch("app.runtime.work_source_iteration.execute_recovered_basic_pitch_retry")
+    @patch("app.runtime.work_source_iteration.recover_one_due_basic_pitch_retry")
+    @patch("app.runtime.work_source_iteration.receive_and_execute_basic_pitch_once")
     def test_leaf_exception_propagates_without_a_fake_idle_or_progress_result(
         self, receive, recover, execute_recovery
     ) -> None:

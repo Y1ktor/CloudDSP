@@ -10,7 +10,7 @@ from __future__ import annotations
 import threading
 import unittest
 
-from app.shutdown_event import DemucsShutdownWaiter, installed_demucs_shutdown_waiter
+from app.runtime.shutdown_event import DemucsShutdownWaiter, installed_demucs_shutdown_waiter
 
 
 class FakeSignalController:

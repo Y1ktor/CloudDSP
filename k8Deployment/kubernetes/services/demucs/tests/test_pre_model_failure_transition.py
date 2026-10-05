@@ -11,7 +11,7 @@ from __future__ import annotations
 import unittest
 from datetime import UTC, datetime, timedelta
 
-from app.pre_model_failure_transition import (
+from app.db.pre_model_failure_transition import (
     DEFAULT_DEMUCS_PRE_MODEL_RETRY_AFTER_SECONDS,
     FAIL_LEASED_DEMUCS_PRE_MODEL_TASK_AND_JOB_SQL,
     SCHEDULE_LEASED_DEMUCS_PRE_MODEL_RETRY_SQL,
@@ -19,13 +19,13 @@ from app.pre_model_failure_transition import (
     DemucsPreModelRetryExhaustionCode,
     transition_leased_demucs_pre_model_failure,
 )
-from app.source_failure_classification import (
+from app.runtime.source_failure_classification import (
     DemucsPreModelFailureClassification,
     DemucsPreModelFailureDisposition,
     DemucsPreModelRetryCode,
     DemucsPreModelTerminalFailureCode,
 )
-from app.task_lease import DemucsTaskLease
+from app.db.task_lease import DemucsTaskLease
 
 
 TASK_ID = "00000000-0000-4000-8000-000000000001"

@@ -1,7 +1,7 @@
 require 'minitest/autorun'
 require 'stringio'
 
-require_relative '../../scripts/deploy-local-verify'
+require_relative '../../scripts/orchestration/deploy-local-verify'
 
 class DeployLocalVerifyTest < Minitest::Test
   FakeStatus = Struct.new(:exitstatus) do

@@ -13,14 +13,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, call
 
-from app.midi_artifact_head_object import (
+from app.artifacts.midi_artifact_head_object import (
     BasicPitchMidiHeadObjectFailureCode,
     BasicPitchMidiHeadObjectProtocolError,
     BasicPitchMidiHeadObjectUnavailable,
     BasicPitchPermanentMidiHeadObjectError,
     verify_uploaded_basic_pitch_midi_head_object,
 )
-from app.midi_artifact_upload import UploadedBasicPitchMidiObject
+from app.artifacts.midi_artifact_upload import UploadedBasicPitchMidiObject
 from test_midi_artifact_upload import output_object
 
 

@@ -1,6 +1,6 @@
 require 'minitest/autorun'
 
-require_relative '../../scripts/scaling-auth-release'
+require_relative '../../scripts/releases/scaling-auth-release'
 
 class ScalingAuthInstallTest < Minitest::Test
   Status = Struct.new(:exitstatus) do
@@ -28,8 +28,8 @@ class ScalingAuthInstallTest < Minitest::Test
     stage.send(:check_fresh_install_boundary)
 
     assert_equal [
-      %w[ruby ./k8Deployment/kubernetes/scripts/application-identity-stage.rb rabbitmq keda-scaler verify],
-      %w[ruby ./k8Deployment/kubernetes/scripts/application-identity-stage.rb database keda-demucs verify]
+      %w[ruby ./k8Deployment/kubernetes/scripts/stages/credentials/application-identity-stage.rb rabbitmq keda-scaler verify],
+      %w[ruby ./k8Deployment/kubernetes/scripts/stages/credentials/application-identity-stage.rb database keda-demucs verify]
     ], commands
   end
 end

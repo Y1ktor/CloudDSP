@@ -10,21 +10,21 @@ from __future__ import annotations
 import unittest
 from datetime import UTC, datetime, timedelta
 
-from app.running_failure_classification import (
+from app.runtime.running_failure_classification import (
     DemucsRunningFailureClassification,
     DemucsRunningFailureDisposition,
     DemucsRunningRetryCode,
     DemucsRunningRetryExhaustionCode,
     DemucsRunningTerminalCode,
 )
-from app.running_failure_transition import (
+from app.db.running_failure_transition import (
     DEFAULT_DEMUCS_RUNNING_RETRY_AFTER_SECONDS,
     FAIL_FINAL_ATTEMPT_RUNNING_DEMUCS_TASK_AND_JOB_SQL,
     SCHEDULE_RUNNING_DEMUCS_TASK_RETRY_SQL,
     DemucsRunningFailureTransitionDisposition,
     transition_running_demucs_failure,
 )
-from app.task_lease import DemucsTaskLease
+from app.db.task_lease import DemucsTaskLease
 
 
 TASK_ID = "00000000-0000-4000-8000-000000000001"

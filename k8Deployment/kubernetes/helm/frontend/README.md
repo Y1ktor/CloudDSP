@@ -21,9 +21,9 @@ static image; no browser credential is placed in Helm values.
 From the repository root:
 
 ```bash
-./k8Deployment/kubernetes/scripts/frontend-release.rb plan
-./k8Deployment/kubernetes/scripts/frontend-release.rb adopt
-./k8Deployment/kubernetes/scripts/frontend-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/frontend-release.rb plan
+./k8Deployment/kubernetes/scripts/releases/frontend-release.rb adopt
+./k8Deployment/kubernetes/scripts/releases/frontend-release.rb verify
 ```
 
 `plan` runs Helm lint/template, checks the image lock, validates the render
@@ -31,7 +31,7 @@ through a Kubernetes server-side dry run, and compares all declared fields
 with the three original source and live objects. `adopt` repeats the checks,
 uses Helm's explicit ownership transfer, and verifies the three original
 resource UIDs, Service IP, and Pod UID are unchanged. The shared
-[`stateless-release.rb`](../../scripts/stateless-release.rb) helper uses
+[`helm-release.rb`](../../scripts/lib/helm-release.rb) helper uses
 `--force-conflicts` only after spec equality has passed. It
 never uses automatic uninstall/rollback during an adoption; deleting an
 adopted release could delete these original objects.

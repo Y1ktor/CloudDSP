@@ -22,9 +22,9 @@ previously running object. No Secret values enter Helm values or history.
 From the repository root:
 
 ```bash
-./k8Deployment/kubernetes/scripts/upload-intake-release.rb plan
-./k8Deployment/kubernetes/scripts/upload-intake-release.rb adopt
-./k8Deployment/kubernetes/scripts/upload-intake-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/upload-intake-release.rb plan
+./k8Deployment/kubernetes/scripts/releases/upload-intake-release.rb adopt
+./k8Deployment/kubernetes/scripts/releases/upload-intake-release.rb verify
 ```
 
 `plan` runs strict Helm lint, checks the image lock, renders exactly one

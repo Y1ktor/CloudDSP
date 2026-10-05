@@ -12,30 +12,30 @@ from pathlib import Path
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.acknowledged_lease_execution import (
+from app.runtime.acknowledged_lease_execution import (
     BasicPitchAcknowledgedLeaseExecutionError,
     execute_acknowledged_basic_pitch_lease,
 )
-from app.amqp_manual_ack import BasicPitchConsumeOneOutcome, BasicPitchConsumeOneResult
-from app.basic_pitch_requested_message import BasicPitchRequestedMessage
-from app.basic_pitch_task_execution import (
+from app.messaging.amqp_manual_ack import BasicPitchConsumeOneOutcome, BasicPitchConsumeOneResult
+from app.messaging.basic_pitch_requested_message import BasicPitchRequestedMessage
+from app.runtime.basic_pitch_task_execution import (
     BasicPitchClaimedTaskExecution,
     BasicPitchClaimedTaskExecutionOutcome,
 )
-from app.stem_task_terminal_failure import (
+from app.db.stem_task_terminal_failure import (
     BasicPitchStemTerminalFailure,
     BasicPitchStemTerminalFailureCode,
 )
-from app.stem_retry_handling import (
+from app.runtime.stem_retry_handling import (
     BasicPitchPreModelRetryHandling,
     BasicPitchPreModelRetryHandlingDisposition,
 )
-from app.stem_task_retry_exhaustion import (
+from app.db.stem_task_retry_exhaustion import (
     BasicPitchStemRetryExhaustion,
     BasicPitchStemRetryExhaustionCode,
 )
-from app.stem_task_retry_schedule import BasicPitchStemRetrySchedule, BasicPitchStemRetryScheduleCode
-from app.task_lease import MAX_BASIC_PITCH_TASK_ATTEMPTS, BasicPitchTaskLease
+from app.db.stem_task_retry_schedule import BasicPitchStemRetrySchedule, BasicPitchStemRetryScheduleCode
+from app.db.task_lease import MAX_BASIC_PITCH_TASK_ATTEMPTS, BasicPitchTaskLease
 
 
 JOB_ID = "08ec1d44-3106-4fcb-91c8-5d0c78e7e046"
@@ -88,7 +88,7 @@ def acknowledged_result(**lease_overrides: object) -> BasicPitchConsumeOneResult
 class BasicPitchAcknowledgedLeaseExecutionTests(unittest.TestCase):
     """Prove post-ack execution has exactly one permitted entry condition."""
 
-    @patch("app.acknowledged_lease_execution.execute_claimed_basic_pitch_task")
+    @patch("app.runtime.acknowledged_lease_execution.execute_claimed_basic_pitch_task")
     def test_acknowledged_lease_forwards_exact_validated_evidence_to_coordinator(self, execute) -> None:
         """The coordinator receives the same durable token and message provenance."""
 
@@ -121,7 +121,7 @@ class BasicPitchAcknowledgedLeaseExecutionTests(unittest.TestCase):
             process_runner=runner,
         )
 
-    @patch("app.acknowledged_lease_execution.execute_claimed_basic_pitch_task")
+    @patch("app.runtime.acknowledged_lease_execution.execute_claimed_basic_pitch_task")
     def test_all_other_normal_receive_outcomes_stop_before_execution(self, execute) -> None:
         """Idle, no-work, and DLQ outcomes cannot replay historical audio work."""
 
@@ -145,9 +145,9 @@ class BasicPitchAcknowledgedLeaseExecutionTests(unittest.TestCase):
 
         execute.assert_not_called()
 
-    @patch("app.acknowledged_lease_execution.commit_terminal_basic_pitch_stem_failure")
-    @patch("app.acknowledged_lease_execution.classify_basic_pitch_pre_model_terminal_failure")
-    @patch("app.acknowledged_lease_execution.execute_claimed_basic_pitch_task")
+    @patch("app.runtime.acknowledged_lease_execution.commit_terminal_basic_pitch_stem_failure")
+    @patch("app.runtime.acknowledged_lease_execution.classify_basic_pitch_pre_model_terminal_failure")
+    @patch("app.runtime.acknowledged_lease_execution.execute_claimed_basic_pitch_task")
     def test_known_permanent_pre_model_failure_becomes_a_durable_terminal_result(
         self,
         execute,
@@ -185,9 +185,9 @@ class BasicPitchAcknowledgedLeaseExecutionTests(unittest.TestCase):
             failure_code=BasicPitchStemTerminalFailureCode.METADATA_MISMATCH,
         )
 
-    @patch("app.acknowledged_lease_execution.commit_terminal_basic_pitch_stem_failure")
-    @patch("app.acknowledged_lease_execution.classify_basic_pitch_pre_model_terminal_failure")
-    @patch("app.acknowledged_lease_execution.execute_claimed_basic_pitch_task")
+    @patch("app.runtime.acknowledged_lease_execution.commit_terminal_basic_pitch_stem_failure")
+    @patch("app.runtime.acknowledged_lease_execution.classify_basic_pitch_pre_model_terminal_failure")
+    @patch("app.runtime.acknowledged_lease_execution.execute_claimed_basic_pitch_task")
     def test_terminal_failure_ownership_loss_stops_without_replacing_newer_state(
         self,
         execute,
@@ -210,9 +210,9 @@ class BasicPitchAcknowledgedLeaseExecutionTests(unittest.TestCase):
         self.assertEqual(returned.outcome, BasicPitchClaimedTaskExecutionOutcome.OWNERSHIP_LOST)
         self.assertIsNone(returned.terminal_failure)
 
-    @patch("app.acknowledged_lease_execution.handle_basic_pitch_pre_model_storage_retry")
-    @patch("app.acknowledged_lease_execution.classify_basic_pitch_pre_model_terminal_failure")
-    @patch("app.acknowledged_lease_execution.execute_claimed_basic_pitch_task")
+    @patch("app.runtime.acknowledged_lease_execution.handle_basic_pitch_pre_model_storage_retry")
+    @patch("app.runtime.acknowledged_lease_execution.classify_basic_pitch_pre_model_terminal_failure")
+    @patch("app.runtime.acknowledged_lease_execution.execute_claimed_basic_pitch_task")
     def test_unclassified_execution_failure_propagates_without_a_terminal_update(
         self,
         execute,
@@ -243,9 +243,9 @@ class BasicPitchAcknowledgedLeaseExecutionTests(unittest.TestCase):
             lease=acknowledged_lease(),
         )
 
-    @patch("app.acknowledged_lease_execution.handle_basic_pitch_pre_model_storage_retry")
-    @patch("app.acknowledged_lease_execution.classify_basic_pitch_pre_model_terminal_failure")
-    @patch("app.acknowledged_lease_execution.execute_claimed_basic_pitch_task")
+    @patch("app.runtime.acknowledged_lease_execution.handle_basic_pitch_pre_model_storage_retry")
+    @patch("app.runtime.acknowledged_lease_execution.classify_basic_pitch_pre_model_terminal_failure")
+    @patch("app.runtime.acknowledged_lease_execution.execute_claimed_basic_pitch_task")
     def test_storage_outage_with_remaining_attempts_returns_committed_retry_schedule(
         self,
         execute,
@@ -282,9 +282,9 @@ class BasicPitchAcknowledgedLeaseExecutionTests(unittest.TestCase):
         self.assertIsNone(returned.retry_exhaustion)
         handle_retry.assert_called_once_with(failure, database=database, lease=acknowledged_lease())
 
-    @patch("app.acknowledged_lease_execution.handle_basic_pitch_pre_model_storage_retry")
-    @patch("app.acknowledged_lease_execution.classify_basic_pitch_pre_model_terminal_failure")
-    @patch("app.acknowledged_lease_execution.execute_claimed_basic_pitch_task")
+    @patch("app.runtime.acknowledged_lease_execution.handle_basic_pitch_pre_model_storage_retry")
+    @patch("app.runtime.acknowledged_lease_execution.classify_basic_pitch_pre_model_terminal_failure")
+    @patch("app.runtime.acknowledged_lease_execution.execute_claimed_basic_pitch_task")
     def test_final_storage_outage_returns_committed_retry_exhaustion(
         self,
         execute,
@@ -324,9 +324,9 @@ class BasicPitchAcknowledgedLeaseExecutionTests(unittest.TestCase):
             lease=acknowledged_lease(attempt_count=MAX_BASIC_PITCH_TASK_ATTEMPTS),
         )
 
-    @patch("app.acknowledged_lease_execution.handle_basic_pitch_pre_model_storage_retry")
-    @patch("app.acknowledged_lease_execution.classify_basic_pitch_pre_model_terminal_failure")
-    @patch("app.acknowledged_lease_execution.execute_claimed_basic_pitch_task")
+    @patch("app.runtime.acknowledged_lease_execution.handle_basic_pitch_pre_model_storage_retry")
+    @patch("app.runtime.acknowledged_lease_execution.classify_basic_pitch_pre_model_terminal_failure")
+    @patch("app.runtime.acknowledged_lease_execution.execute_claimed_basic_pitch_task")
     def test_retry_guard_miss_becomes_normal_ownership_loss(
         self,
         execute,

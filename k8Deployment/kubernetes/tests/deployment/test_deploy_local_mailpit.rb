@@ -1,7 +1,7 @@
 require 'minitest/autorun'
 require 'stringio'
 
-require_relative '../../scripts/deploy-local-mailpit'
+require_relative '../../scripts/orchestration/deploy-local-mailpit'
 
 class DeployLocalMailpitTest < Minitest::Test
   def setup

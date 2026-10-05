@@ -1,7 +1,7 @@
 require 'minitest/autorun'
 require 'stringio'
 
-require_relative '../../scripts/minio-notification-stage'
+require_relative '../../scripts/stages/minio/minio-notification-stage'
 
 class MinioNotificationStageTest < Minitest::Test
   class FakeStage < MinioNotificationStage

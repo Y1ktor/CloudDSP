@@ -12,7 +12,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from app.amqp_connection import (
+from app.messaging.amqp_connection import (
     BASIC_PITCH_AMQP_VHOST,
     BASIC_PITCH_REQUEST_QUEUE,
     DEFAULT_BASIC_PITCH_AMQP_HOST,
@@ -117,7 +117,7 @@ class BasicPitchAMQPSettingsTests(unittest.TestCase):
 class BasicPitchAMQPConnectionTests(unittest.TestCase):
     """Prove Pika receives one bounded private AMQP connection configuration."""
 
-    @patch("app.amqp_connection._load_pika")
+    @patch("app.messaging.amqp_connection._load_pika")
     def test_open_connection_uses_restricted_identity_without_tls_options(self, load_pika) -> None:
         """Socket creation alone cannot consume, configure, or acknowledge broker state."""
 
@@ -138,7 +138,7 @@ class BasicPitchAMQPConnectionTests(unittest.TestCase):
         self.assertEqual(parameters["heartbeat"], 30)
         self.assertNotIn("ssl_options", parameters)
 
-    @patch("app.amqp_connection._load_pika")
+    @patch("app.messaging.amqp_connection._load_pika")
     def test_direct_construction_cannot_widen_before_pika_import(self, load_pika) -> None:
         """A frozen dataclass must not bypass the environment validation contract."""
 
@@ -154,7 +154,7 @@ class BasicPitchAMQPConnectionTests(unittest.TestCase):
 
         load_pika.assert_not_called()
 
-    @patch("app.amqp_connection._load_pika")
+    @patch("app.messaging.amqp_connection._load_pika")
     def test_connection_failure_becomes_safe_retryable_category(self, load_pika) -> None:
         """Raw Pika/broker diagnostics must not enter future normal worker logs."""
 

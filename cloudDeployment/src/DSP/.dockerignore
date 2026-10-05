@@ -5,6 +5,8 @@ venv*/
 output/
 assets/
 tests/
+# ZIP Lambda releases are uploaded separately and are not container inputs.
+cloud/lambdazip/
 .DS_Store
 .git/
 **/__pycache__/

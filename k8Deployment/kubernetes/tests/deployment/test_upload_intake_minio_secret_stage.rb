@@ -5,7 +5,7 @@ require 'stringio'
 require 'tmpdir'
 require 'yaml'
 
-require_relative '../../scripts/upload-intake-minio-secret-stage'
+require_relative '../../scripts/stages/credentials/upload-intake-minio-secret-stage'
 
 class UploadIntakeMinioSecretStageTest < Minitest::Test
   Status = Struct.new(:exitstatus) do

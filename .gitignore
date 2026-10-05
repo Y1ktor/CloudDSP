@@ -6,8 +6,12 @@
 # Local cloud-development dependencies now live below cloudDeployment/.
 cloudDeployment/src/DSP/venv3.11/
 cloudDeployment/src/DSP/venv3.14/
-cloudDeployment/frontend-react/node_modules/
-cloudDeployment/frontend-react/dist/
+frontend/node_modules/
+frontend/dist/
+# DSP stems, MIDI, and analysis are regenerated locally from source inputs.
+cloudDeployment/src/DSP/output/
+archive/dsp/output/
+archive/dsp/manual-checks/test_out_*.wav
 __pycache__/
 *.py[cod]
 

@@ -1,7 +1,7 @@
 require 'minitest/autorun'
 require 'stringio'
 
-require_relative '../../scripts/deploy-local-minio'
+require_relative '../../scripts/orchestration/deploy-local-minio'
 
 class DeployLocalMinioTest < Minitest::Test
   EXPECTED_CALLS = [

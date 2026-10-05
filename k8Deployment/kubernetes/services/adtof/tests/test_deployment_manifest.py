@@ -34,7 +34,9 @@ class ADTOFDeploymentManifestTests(unittest.TestCase):
         self.assertIn("name: clouddsp-adtof\n  namespace: clouddsp-app", manifest)
         self.assertNotIn("kind: Service", manifest)
         self.assertNotIn("kind: Ingress", manifest)
-        self.assertIn("replicas: 1", manifest)
+        # KEDA owns the Deployment's scale subresource. A source apply must
+        # not restore a handwritten replica count over that controller.
+        self.assertNotIn("\n  replicas:", manifest)
         self.assertIn("automountServiceAccountToken: false", manifest)
         self.assertIn("enableServiceLinks: false", manifest)
 

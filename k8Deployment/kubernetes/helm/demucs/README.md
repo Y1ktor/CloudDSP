@@ -6,16 +6,29 @@ the digest-pinned ARM64 CPU worker, private Secret references, scratch volume,
 and internal queue consumer. The ScaledObject retains both its RabbitMQ queue
 trigger and PostgreSQL due-work trigger. KEDA owns the generated HPA and
 writes the Deployment `/scale` subresource; this chart omits `spec.replicas`.
-The worker has no Service or Ingress, and zero active Pods is healthy when
-idle. A Pod already marked for deletion may remain visible while Kubernetes
-honors its 780-second grace period; the release check requires zero desired
-and observed replicas plus no Pod outside that termination path.
+The worker has no Service or Ingress. Its default scaling policy expects zero
+active Pods when idle. A Pod already marked for deletion may remain visible
+while Kubernetes honors its 780-second grace period; with the default zero
+minimum, the release check requires zero desired and observed replicas plus
+no Pod outside that termination path. A positive configured minimum instead
+requires a Ready worker count within the configured minimum/maximum.
+
+[`values.yaml`](values.yaml) exposes polling/cooldown, replica bounds, queue
+and due-work thresholds, and HPA scale-up/scale-down behavior under
+`autoscaling`. Defaults retain the previous policy, including the one-Pod CPU
+ceiling. Queue coordinates, SQL, authentication references, and worker resource
+limits remain in the templates. Follow the [scaling policy workflow](../../docs/reference/helm-releases-and-scaling.md#configure-a-worker-scaling-policy)
+to edit versioned values, lint/render, upgrade the worker release, and verify.
+`verify-idle` is the stricter maintenance check: it refuses a positive minimum
+and requires idle zero replicas/Pods. Fresh `install` allows up to 180 seconds
+of additional read-only checks after Helm returns for KEDA/HPA convergence;
+it does not repeat the Helm install or override the replica count.
 
 ```bash
-./k8Deployment/kubernetes/scripts/demucs-release.rb plan
-./k8Deployment/kubernetes/scripts/demucs-release.rb adopt
-./k8Deployment/kubernetes/scripts/demucs-release.rb verify
-./k8Deployment/kubernetes/scripts/demucs-release.rb smoke
+./k8Deployment/kubernetes/scripts/releases/demucs-release.rb plan
+./k8Deployment/kubernetes/scripts/releases/demucs-release.rb adopt
+./k8Deployment/kubernetes/scripts/releases/demucs-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/demucs-release.rb smoke
 ```
 
 `plan` checks the image lock, rendered chart, source and live specs, API
@@ -23,8 +36,10 @@ schema, both scaler authentication references, scaler readiness, and HPA
 ownership. The one-time Helm takeover preserved both resource UIDs, scaler
 generation, generated HPA UID, and zero idle Pods. `verify` checks Helm's
 stored manifest and the live relationships. The source manifests under
-`services/demucs/` remain a comparison baseline; use this chart for later
-Demucs delivery changes.
+`services/demucs/` remain the original default-policy comparison baseline;
+only the parameterized scaling fields may differ from that baseline. Stored
+and live ScaledObjects must match the rendered values exactly. Use this chart
+for later Demucs delivery changes.
 
 `smoke` creates the fixed-coordinate, digest-pinned Job described in the
 [test runbook](../../tests/demucs-worker-smoke/README.md), waits for the real

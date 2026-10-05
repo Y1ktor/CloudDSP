@@ -9,17 +9,17 @@ from __future__ import annotations
 
 import unittest
 
-from app.stem_download import (
+from app.artifacts.stem_download import (
     BasicPitchStemDownloadConsistencyError,
     BasicPitchStemDownloadUnavailable,
 )
-from app.stem_failure_classification import classify_basic_pitch_pre_model_terminal_failure
-from app.stem_object import (
+from app.runtime.stem_failure_classification import classify_basic_pitch_pre_model_terminal_failure
+from app.artifacts.stem_object import (
     BasicPitchPermanentStemVerificationError,
     BasicPitchStemStorageProtocolError,
     BasicPitchStemVerificationFailureCode,
 )
-from app.stem_task_terminal_failure import BasicPitchStemTerminalFailureCode
+from app.db.stem_task_terminal_failure import BasicPitchStemTerminalFailureCode
 
 
 class BasicPitchStemFailureClassificationTests(unittest.TestCase):

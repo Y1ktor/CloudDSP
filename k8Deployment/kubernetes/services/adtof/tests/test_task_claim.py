@@ -12,8 +12,8 @@ from datetime import UTC, datetime
 from typing import Mapping
 from uuid import UUID
 
-from app.adtof_requested_message import ADTOFRequestedMessage
-from app.task_claim import (
+from app.messaging.adtof_requested_message import ADTOFRequestedMessage
+from app.db.task_claim import (
     DEFAULT_ADTOF_LEASE_SECONDS,
     CLAIM_NEXT_EXPIRED_ADTOF_TASK_SQL,
     FINALIZE_NEXT_EXPIRED_EXHAUSTED_ADTOF_TASK_SQL,

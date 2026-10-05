@@ -32,8 +32,8 @@ RUN python -c "from demucs.pretrained import get_model; get_model('htdemucs'); g
 # NOTE: When building this image, the build context must be the `src/DSP` folder.
 # Run this command from src/DSP: 
 # docker build -t clouddsp-demucs -f docker/stem_split/Dockerfile .
-COPY src/Cloud/cloud_job_workflow.py /app/cloud_job_workflow.py
-COPY src/Cloud/BatchDemucs.py /app/BatchDemucs.py
+COPY cloud/cloud_job_workflow.py /app/cloud_job_workflow.py
+COPY cloud/BatchDemucs.py /app/BatchDemucs.py
 
 # The command that runs exactly when AWS Batch starts the container.
 # AWS Batch will pass the required environment variables (INPUT_BUCKET, etc.) behind the scenes.

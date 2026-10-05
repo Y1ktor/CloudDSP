@@ -1,5 +1,5 @@
 require 'minitest/autorun'
-require_relative '../../scripts/keycloak-release'
+require_relative '../../scripts/releases/keycloak-release'
 
 class KeycloakFreshInstallTest < Minitest::Test
   # Keep the actual thin runner configuration while replacing only external

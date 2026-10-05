@@ -12,14 +12,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.demucs_artifacts import (
+from app.artifacts.demucs_artifacts import (
     DEMUCS_STEMS_BY_MODE,
     DemucsArtifactContractError,
     DemucsArtifactInventoryMismatch,
     DemucsArtifactPathError,
     validate_demucs_stem_inventory,
 )
-from app.demucs_command import DemucsSeparationCommand, build_demucs_separation_command
+from app.processing.demucs_command import DemucsSeparationCommand, build_demucs_separation_command
 
 
 def separation_for_mode(

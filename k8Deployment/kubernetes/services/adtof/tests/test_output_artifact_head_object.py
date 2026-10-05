@@ -12,8 +12,8 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, call
 
-from app.minio_upload import UploadedADTOFObject, UploadedADTOFObjects
-from app.output_artifact_head_object import (
+from app.artifacts.minio_upload import UploadedADTOFObject, UploadedADTOFObjects
+from app.artifacts.output_artifact_head_object import (
     ADTOFOutputHeadObjectFailureCode,
     ADTOFOutputHeadObjectProtocolError,
     ADTOFOutputHeadObjectUnavailable,

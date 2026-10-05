@@ -26,8 +26,8 @@ then use each chart's versioned pause values:
 
 ```bash
 kubectl --context k3d-clouddsp-local -n clouddsp-data exec statefulset/clouddsp-rabbitmq -- rabbitmqctl list_queues -p /clouddsp name messages_ready messages_unacknowledged
-./k8Deployment/kubernetes/scripts/dispatcher-release.rb verify
-./k8Deployment/kubernetes/scripts/generic-dispatcher-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/dispatcher-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/generic-dispatcher-release.rb verify
 helm upgrade clouddsp-dispatcher k8Deployment/kubernetes/helm/dispatcher --kube-context k3d-clouddsp-local --namespace clouddsp-app --reset-values --values k8Deployment/kubernetes/helm/dispatcher/values.smoke-pause.yaml --wait --timeout 3m
 helm upgrade clouddsp-generic-dispatcher k8Deployment/kubernetes/helm/generic-dispatcher --kube-context k3d-clouddsp-local --namespace clouddsp-app --reset-values --values k8Deployment/kubernetes/helm/generic-dispatcher/values.smoke-pause.yaml --wait --timeout 3m
 kubectl --context k3d-clouddsp-local -n clouddsp-app get deployment clouddsp-dispatcher clouddsp-generic-dispatcher
@@ -45,9 +45,9 @@ on restoration. Do not delete unrelated Jobs or queue messages.
 kubectl --context k3d-clouddsp-local -n clouddsp-data delete job/source-to-outbox-smoke --wait=true
 helm upgrade clouddsp-dispatcher k8Deployment/kubernetes/helm/dispatcher --kube-context k3d-clouddsp-local --namespace clouddsp-app --reset-values --wait --timeout 3m
 helm upgrade clouddsp-generic-dispatcher k8Deployment/kubernetes/helm/generic-dispatcher --kube-context k3d-clouddsp-local --namespace clouddsp-app --reset-values --wait --timeout 3m
-./k8Deployment/kubernetes/scripts/dispatcher-release.rb verify
-./k8Deployment/kubernetes/scripts/generic-dispatcher-release.rb verify
-./k8Deployment/kubernetes/scripts/upload-intake-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/dispatcher-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/generic-dispatcher-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/upload-intake-release.rb verify
 ```
 
 On 2026-09-26, the first run failed at the duplicate publish because the

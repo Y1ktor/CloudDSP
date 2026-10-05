@@ -2,3 +2,40 @@
 # Keep runtime Secret names and queue coordinates in the source-parity template.
 image:
   reference: clouddsp-registry.localhost:5001/basic-pitch@sha256:e4ef1fc639a3571b3b8d4b2ab9cd0dacf3bb62ae1d194e3fad48c10066b0648a
+
+# KEDA observes inactive triggers at pollingInterval; its cooldown controls
+# the final transition to zero only when minReplicaCount is zero. The HPA
+# separately manages replica changes above zero through behavior below.
+# Keep these local defaults unless the cluster has capacity for more workers:
+# raising maxReplicaCount permits capacity but does not start extra Pods.
+# Set minReplicaCount above zero to retain that many warm workers when idle.
+autoscaling:
+  pollingInterval: 5
+  cooldownPeriod: 60
+  minReplicaCount: 0
+  maxReplicaCount: 3
+  rabbitmq:
+    # Desired messages per worker; activation requires depth above this
+    # activation threshold. Defaults activate for any available request.
+    queueLength: 1
+    activationValue: 0
+    # Bound each management API request in milliseconds.
+    timeout: 5000
+  postgresql:
+    # Count active leases and due retries after messages have been ACKed.
+    # Keep the activation threshold at zero to wake for any durable task.
+    targetQueryValue: 1
+    activationTargetQueryValue: 0
+  behavior:
+    # HPA stabilization windows are seconds; value limits the number of
+    # Pods added or removed during periodSeconds (not the replica ceiling).
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      value: 3
+      periodSeconds: 15
+    scaleDown:
+      # A longer window retains recent capacity across short metric dips.
+      # KEDA cooldown still controls the eventual idle transition to zero.
+      stabilizationWindowSeconds: 360
+      value: 3
+      periodSeconds: 60

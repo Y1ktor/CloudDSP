@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import unittest
 
-from app.basic_pitch_task_execution import (
+from app.runtime.basic_pitch_task_execution import (
     BasicPitchClaimedTaskExecution,
     BasicPitchClaimedTaskExecutionOutcome,
 )
-from app.receive_execute_once import BasicPitchWorkerIterationOutcome, BasicPitchWorkerIterationResult
-from app.supervisor_backoff import (
+from app.runtime.receive_execute_once import BasicPitchWorkerIterationOutcome, BasicPitchWorkerIterationResult
+from app.runtime.supervisor_backoff import (
     DEFAULT_BASIC_PITCH_IDLE_DELAY_SECONDS,
     DEFAULT_BASIC_PITCH_RETRY_MAX_DELAY_SECONDS,
     BasicPitchSupervisorAction,
@@ -25,8 +25,8 @@ from app.supervisor_backoff import (
     supervisor_event_for_basic_pitch_fair_work_iteration,
     supervisor_event_for_basic_pitch_iteration,
 )
-from app.work_schedule import BasicPitchWorkScheduleState, BasicPitchWorkSource
-from app.work_source_iteration import BasicPitchFairWorkIterationOutcome, BasicPitchFairWorkIterationResult
+from app.runtime.work_schedule import BasicPitchWorkScheduleState, BasicPitchWorkSource
+from app.runtime.work_source_iteration import BasicPitchFairWorkIterationOutcome, BasicPitchFairWorkIterationResult
 
 
 class BasicPitchSupervisorIterationClassificationTests(unittest.TestCase):

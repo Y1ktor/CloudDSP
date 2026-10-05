@@ -11,15 +11,15 @@ import unittest
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, call
 
-from app.basic_pitch_requested_message import BasicPitchRequestedMessage
-from app.stem_object import (
+from app.messaging.basic_pitch_requested_message import BasicPitchRequestedMessage
+from app.artifacts.stem_object import (
     BasicPitchPermanentStemVerificationError,
     BasicPitchStemStorageProtocolError,
     BasicPitchStemStorageUnavailable,
     BasicPitchStemVerificationFailureCode,
     verify_claimed_basic_pitch_stem_head_object,
 )
-from app.task_lease import BasicPitchTaskLease
+from app.db.task_lease import BasicPitchTaskLease
 
 
 EVENT_ID = "93b31df9-ea8c-46bb-b2c0-19e9db5365d5"

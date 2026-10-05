@@ -9,10 +9,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 import unittest
 
-from app.pre_model_failure_runtime import DemucsOneTaskExecution, DemucsOneTaskExecutionOutcome
-from app.receive_execute_once import DemucsWorkerIterationOutcome, DemucsWorkerIterationResult
-from app.recovery_execute_once import DemucsRecoveryIterationOutcome, DemucsRecoveryIterationResult
-from app.supervisor_backoff import (
+from app.runtime.pre_model_failure_runtime import DemucsOneTaskExecution, DemucsOneTaskExecutionOutcome
+from app.runtime.receive_execute_once import DemucsWorkerIterationOutcome, DemucsWorkerIterationResult
+from app.runtime.recovery_execute_once import DemucsRecoveryIterationOutcome, DemucsRecoveryIterationResult
+from app.runtime.supervisor_backoff import (
     DEFAULT_DEMUCS_IDLE_DELAY_SECONDS,
     DEFAULT_DEMUCS_RETRY_MAX_DELAY_SECONDS,
     DemucsSupervisorAction,
@@ -23,7 +23,7 @@ from app.supervisor_backoff import (
     supervisor_event_for_demucs_iteration,
     supervisor_event_for_demucs_recovery_iteration,
 )
-from app.task_lease import DEMUCS_EXHAUSTED_LEASE_ERROR_CODE, DemucsExpiredLeaseTerminalization
+from app.db.task_lease import DEMUCS_EXHAUSTED_LEASE_ERROR_CODE, DemucsExpiredLeaseTerminalization
 
 
 class DemucsSupervisorIterationClassificationTests(unittest.TestCase):

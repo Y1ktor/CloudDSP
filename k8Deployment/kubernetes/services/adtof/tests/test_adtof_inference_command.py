@@ -13,7 +13,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from app.adtof_inference_command import (
+from app.processing.adtof_inference_command import (
     ADTOF_CPU_ENTRYPOINT_MODULE,
     ADTOF_PYTHON_EXECUTABLE,
     ADTOFInferenceCommandContractError,
@@ -21,16 +21,16 @@ from app.adtof_inference_command import (
     ADTOF_OUTPUT_DIRECTORY_NAME,
     build_adtof_cpu_inference_command,
 )
-from app.model_configuration import (
+from app.processing.model_configuration import (
     ADTOF_CPU_DEVICE,
     ADTOF_FPS,
     ADTOF_MODEL_CONFIGURATION_ID,
     ADTOF_MODEL_SOURCE_REVISION,
     ADTOF_THRESHOLDS_ARGUMENT,
 )
-from app.stem_download import DownloadedADTOFStem
-from app.stem_task_start import RunningADTOFStem
-from app.task_claim import ADTOFTaskLease
+from app.artifacts.stem_download import DownloadedADTOFStem
+from app.db.stem_task_start import RunningADTOFStem
+from app.db.task_claim import ADTOFTaskLease
 
 
 EVENT_ID = "93b31df9-ea8c-46bb-b2c0-19e9db5365d5"

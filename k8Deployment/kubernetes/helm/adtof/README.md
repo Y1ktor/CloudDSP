@@ -5,15 +5,28 @@ This chart owns only `Deployment/clouddsp-adtof` and
 The Deployment retains the ARM64 CPU image, private Secret references,
 non-root account, bounded scratch volumes, and internal queue consumer.
 It has no Service or Ingress. The ScaledObject retains the reviewed RabbitMQ
-queue, shared KEDA authentication reference, and zero-to-two replica policy.
+queue, shared KEDA authentication reference, and default zero-to-two replica policy.
 KEDA owns the generated HPA and writes the Deployment `/scale` subresource;
 the chart deliberately omits `spec.replicas`.
 
+[`values.yaml`](values.yaml) exposes polling/cooldown, replica bounds,
+RabbitMQ queue thresholds, and HPA scale-up/scale-down behavior under
+`autoscaling`. Defaults retain the previous behavior. Queue coordinates,
+authentication references, and worker resource limits remain in the templates.
+Follow the [scaling policy workflow](../../docs/reference/helm-releases-and-scaling.md#configure-a-worker-scaling-policy)
+to edit versioned values, lint/render, upgrade the worker release, and verify.
+The default zero minimum keeps the strict idle zero-Pod check; a positive
+minimum requires a Ready worker count within the configured minimum/maximum.
+`verify-idle` requires a zero minimum and the strict idle zero-replica/Pod
+contract for maintenance. Fresh `install` allows up to 180 seconds of
+additional read-only checks after Helm returns for KEDA/HPA convergence;
+it does not repeat the Helm install or override the replica count.
+
 ```bash
-./k8Deployment/kubernetes/scripts/adtof-release.rb plan
-./k8Deployment/kubernetes/scripts/adtof-release.rb adopt
-./k8Deployment/kubernetes/scripts/adtof-release.rb verify
-./k8Deployment/kubernetes/scripts/adtof-release.rb smoke
+./k8Deployment/kubernetes/scripts/releases/adtof-release.rb plan
+./k8Deployment/kubernetes/scripts/releases/adtof-release.rb adopt
+./k8Deployment/kubernetes/scripts/releases/adtof-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/adtof-release.rb smoke
 ```
 
 `plan` compares the reviewed image lock and the rendered chart against both
@@ -21,7 +34,9 @@ source and live specs, then checks API-server schema, scaler readiness, and
 HPA ownership. `adopt` is a one-time metadata handoff; it preserved both
 resource UIDs, the ScaledObject generation, generated HPA UID, and zero idle
 Pods. `verify` checks Helm's stored manifest and those runtime relationships.
-The raw `services/adtof/` manifests remain a source baseline; use this chart
+The raw `services/adtof/` manifests retain the original default-policy source
+baseline; only the parameterized scaling fields may differ from it. Stored
+and live ScaledObjects must match the rendered values exactly. Use this chart
 for subsequent ADTOF delivery changes.
 
 `smoke` runs the versioned fixed-coordinate Job and removes it only on success.

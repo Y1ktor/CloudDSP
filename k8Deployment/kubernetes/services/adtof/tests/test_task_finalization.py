@@ -12,10 +12,10 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.local_task_execution import execute_running_adtof_local_task
-from app.minio_upload import ADTOFUploadUnavailable
-from app.task_completion import ADTOFTaskCompletion
-from app.task_finalization import finalize_running_adtof_task
+from app.processing.local_task_execution import execute_running_adtof_local_task
+from app.artifacts.minio_upload import ADTOFUploadUnavailable
+from app.db.task_completion import ADTOFTaskCompletion
+from app.runtime.task_finalization import finalize_running_adtof_task
 from test_upload_object import FakeRunner, running_stem
 
 
@@ -36,10 +36,10 @@ def local_outputs(work_directory: Path):
 class ADTOFTaskFinalizationTests(unittest.TestCase):
     """Prove post-inference work reaches commit only after both storage proofs."""
 
-    @patch("app.task_finalization.commit_verified_adtof_task")
-    @patch("app.task_finalization.verify_uploaded_adtof_output_head_objects")
-    @patch("app.task_finalization.upload_adtof_objects")
-    @patch("app.task_finalization.build_adtof_upload_objects")
+    @patch("app.runtime.task_finalization.commit_verified_adtof_task")
+    @patch("app.runtime.task_finalization.verify_uploaded_adtof_output_head_objects")
+    @patch("app.runtime.task_finalization.upload_adtof_objects")
+    @patch("app.runtime.task_finalization.build_adtof_upload_objects")
     def test_runs_upload_then_headobject_then_committed_completion(
         self,
         build_plans,
@@ -88,10 +88,10 @@ class ADTOFTaskFinalizationTests(unittest.TestCase):
                 tempo_candidate=outputs.tempo_candidate,
             )
 
-    @patch("app.task_finalization.commit_verified_adtof_task")
-    @patch("app.task_finalization.verify_uploaded_adtof_output_head_objects")
-    @patch("app.task_finalization.upload_adtof_objects")
-    @patch("app.task_finalization.build_adtof_upload_objects")
+    @patch("app.runtime.task_finalization.commit_verified_adtof_task")
+    @patch("app.runtime.task_finalization.verify_uploaded_adtof_output_head_objects")
+    @patch("app.runtime.task_finalization.upload_adtof_objects")
+    @patch("app.runtime.task_finalization.build_adtof_upload_objects")
     def test_upload_failure_stops_before_storage_proof_or_completion(
         self,
         build_plans,
@@ -115,10 +115,10 @@ class ADTOFTaskFinalizationTests(unittest.TestCase):
             verify.assert_not_called()
             commit.assert_not_called()
 
-    @patch("app.task_finalization.commit_verified_adtof_task")
-    @patch("app.task_finalization.verify_uploaded_adtof_output_head_objects")
-    @patch("app.task_finalization.upload_adtof_objects")
-    @patch("app.task_finalization.build_adtof_upload_objects")
+    @patch("app.runtime.task_finalization.commit_verified_adtof_task")
+    @patch("app.runtime.task_finalization.verify_uploaded_adtof_output_head_objects")
+    @patch("app.runtime.task_finalization.upload_adtof_objects")
+    @patch("app.runtime.task_finalization.build_adtof_upload_objects")
     def test_final_ownership_loss_returns_none_after_both_storage_boundaries(
         self,
         build_plans,

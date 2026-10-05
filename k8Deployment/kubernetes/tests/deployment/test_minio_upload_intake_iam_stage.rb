@@ -3,7 +3,7 @@ require 'minitest/autorun'
 require 'stringio'
 require 'yaml'
 
-require_relative '../../scripts/minio-upload-intake-iam-stage'
+require_relative '../../scripts/stages/minio/minio-upload-intake-iam-stage'
 
 class MinioUploadIntakeIamStageTest < Minitest::Test
   # This fake models only the resources owned by this stage. It keeps the

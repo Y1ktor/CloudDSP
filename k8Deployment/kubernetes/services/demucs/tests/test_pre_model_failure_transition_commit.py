@@ -13,20 +13,20 @@ from contextlib import AbstractContextManager
 from datetime import UTC, datetime
 from unittest.mock import patch
 
-from app.pre_model_failure_transition import (
+from app.db.pre_model_failure_transition import (
     DemucsPreModelFailureTransition,
     DemucsPreModelFailureTransitionDisposition,
     DemucsPreModelRetrySchedule,
 )
-from app.pre_model_failure_transition_commit import (
+from app.db.pre_model_failure_transition_commit import (
     commit_leased_demucs_pre_model_failure_transition,
 )
-from app.source_failure_classification import (
+from app.runtime.source_failure_classification import (
     DemucsPreModelFailureClassification,
     DemucsPreModelFailureDisposition,
     DemucsPreModelRetryCode,
 )
-from app.task_lease import DemucsTaskLease
+from app.db.task_lease import DemucsTaskLease
 
 
 TASK_ID = "00000000-0000-4000-8000-000000000001"
@@ -99,7 +99,7 @@ class DemucsPreModelFailureTransitionCommitTests(unittest.TestCase):
     """Prove a transition is visible only after commit-or-rollback exit."""
 
     @patch(
-        "app.pre_model_failure_transition_commit.transition_leased_demucs_pre_model_failure"
+        "app.db.pre_model_failure_transition_commit.transition_leased_demucs_pre_model_failure"
     )
     def test_committed_transition_returns_only_after_normal_context_exit(self, transition) -> None:
         """The wrapper forwards only the selected lease/classification/delay."""
@@ -133,7 +133,7 @@ class DemucsPreModelFailureTransitionCommitTests(unittest.TestCase):
         )
 
     @patch(
-        "app.pre_model_failure_transition_commit.transition_leased_demucs_pre_model_failure"
+        "app.db.pre_model_failure_transition_commit.transition_leased_demucs_pre_model_failure"
     )
     def test_ownership_loss_commits_normally_without_inventing_evidence(self, transition) -> None:
         """A no-row lease race is a committed stop signal, not a new outcome."""
@@ -158,7 +158,7 @@ class DemucsPreModelFailureTransitionCommitTests(unittest.TestCase):
         )
 
     @patch(
-        "app.pre_model_failure_transition_commit.transition_leased_demucs_pre_model_failure"
+        "app.db.pre_model_failure_transition_commit.transition_leased_demucs_pre_model_failure"
     )
     def test_adapter_error_escapes_through_exceptional_context_exit(self, transition) -> None:
         """A failed SQL/protocol decision cannot become a durable task result."""
@@ -180,7 +180,7 @@ class DemucsPreModelFailureTransitionCommitTests(unittest.TestCase):
         self.assertIs(database.context.exit_arguments[1], failure)
 
     @patch(
-        "app.pre_model_failure_transition_commit.transition_leased_demucs_pre_model_failure"
+        "app.db.pre_model_failure_transition_commit.transition_leased_demucs_pre_model_failure"
     )
     def test_missing_database_capability_stops_before_pure_sql_adapter(self, transition) -> None:
         """The caller must not classify a result as durable without a transaction."""

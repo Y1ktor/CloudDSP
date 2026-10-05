@@ -10,9 +10,9 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock
 
-from app.amqp_channel import DemucsAMQPChannelUnavailable, configure_demucs_rabbitmq_channel
-from app.amqp_connection import DEFAULT_DEMUCS_AMQP_HOST, DemucsAMQPSettings
-from app.amqp_manual_ack import DEMUCS_REQUEST_QUEUE
+from app.messaging.amqp_channel import DemucsAMQPChannelUnavailable, configure_demucs_rabbitmq_channel
+from app.messaging.amqp_connection import DEFAULT_DEMUCS_AMQP_HOST, DemucsAMQPSettings
+from app.messaging.amqp_manual_ack import DEMUCS_REQUEST_QUEUE
 
 
 def settings() -> DemucsAMQPSettings:

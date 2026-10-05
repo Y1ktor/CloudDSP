@@ -34,20 +34,21 @@ release and exact chart values before enabling the handoff on another cluster.
 
 ## Verify and run the SMTP smoke test
 
-Use the helper paths in this GitOps branch's checkout:
+Run the current release helper from the repository root:
 
 ```sh
 flux get helmreleases --context k3d-clouddsp-local --namespace flux-system
 helm --kube-context k3d-clouddsp-local history clouddsp-mailpit --namespace clouddsp-data
-./k8Deployment/kubernetes/scripts/mailpit-release.rb verify
-./k8Deployment/kubernetes/scripts/mailpit-release.rb smoke
+./k8Deployment/kubernetes/scripts/releases/mailpit-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/mailpit-release.rb smoke
 ```
 
-In the reorganized main workspace, the Mailpit entrypoint is under
-`scripts/releases/mailpit-release.rb` instead. The ownership adapter works
-with either shared helper layout. It validates the expected HelmRelease,
-current readiness, exact Flux label values, and the Git chart revision while
-preserving source/render/stored/live spec, image, and Pod readiness checks.
+The [release helper](../scripts/releases/mailpit-release.rb) uses the current
+[shared Helm helper](../scripts/lib/helm-release.rb) and
+[Flux ownership adapter](../scripts/gitops/mailpit-flux-ownership.rb). The adapter
+validates the expected HelmRelease, current readiness, exact Flux label values,
+and the Git chart revision while preserving source/render/stored/live spec,
+image, and Pod readiness checks.
 
 The helper refuses direct `install` or `adopt` whenever the matching Flux
 HelmRelease exists, including while suspended, unhealthy, or deleting. This

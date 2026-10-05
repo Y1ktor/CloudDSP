@@ -29,7 +29,8 @@ from urllib.request import Request, urlopen
 
 
 HERE = Path(__file__).resolve().parent
-FRONTEND_APP = HERE.parent / "frontend" / "app"
+# Catalog review reads the same pinned package as both browser profiles.
+FRONTEND_APP = HERE.parents[3] / "frontend"
 LOCK_PATH = HERE / "midi-sample-assets.lock.json"
 BUCKET = "clouddsp-midi-samples"
 ENDPOINT = "http://minio.localhost:8080"

@@ -11,7 +11,7 @@ import os
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.minio_client import (
+from app.artifacts.minio_client import (
     DEMUCS_MINIO_CONNECT_TIMEOUT_SECONDS,
     DEMUCS_MINIO_MAX_ATTEMPTS,
     DEMUCS_MINIO_READ_TIMEOUT_SECONDS,
@@ -109,7 +109,7 @@ class DemucsMinioSettingsTests(unittest.TestCase):
                 with self.assertRaises(DemucsMinioConfigurationError):
                     self.settings_from(overrides)
 
-    @patch("app.minio_client._load_boto3_client_factories")
+    @patch("app.artifacts.minio_client._load_boto3_client_factories")
     def test_factory_uses_explicit_minio_credentials_path_style_and_time_bounds(self, loader) -> None:
         """Factory construction is local; patched constructors prove no network call occurs."""
 

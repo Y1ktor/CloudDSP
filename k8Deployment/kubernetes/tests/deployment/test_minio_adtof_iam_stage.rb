@@ -4,7 +4,7 @@ require 'stringio'
 require 'tmpdir'
 require 'yaml'
 
-require_relative '../../scripts/minio-adtof-iam-stage'
+require_relative '../../scripts/stages/minio/minio-adtof-iam-stage'
 
 class MinioAdtofIamStageTest < Minitest::Test
   # This fake models only the resources owned by this stage. It keeps the

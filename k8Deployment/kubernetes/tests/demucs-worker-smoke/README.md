@@ -202,7 +202,7 @@ operator must first inspect the failed smoke Job, task and event rows, object
 keys, queue state, and scaler activity, then arrange an explicit quiet window
 for the exact diagnosed state. Do not apply the raw `services/demucs/` manifest
 or scale the Helm-owned Deployment as a restoration shortcut. The chart and
-[`demucs-release.rb`](../../scripts/demucs-release.rb) are the delivery and
+[`demucs-release.rb`](../../scripts/releases/demucs-release.rb) are the delivery and
 verification path for this worker.
 
 The first post-adoption failure had a different exact shape: Demucs and the
