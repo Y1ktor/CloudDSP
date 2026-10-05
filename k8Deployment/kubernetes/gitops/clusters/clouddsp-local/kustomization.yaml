@@ -8,3 +8,4 @@ resources:
   - flux-system
   - mailpit
   - frontend
+  - job-api

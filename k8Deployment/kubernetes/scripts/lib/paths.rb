@@ -18,6 +18,7 @@ module CloudDSPPaths
       bootstrap-flux.sh
       flux-ownership.rb
       frontend-flux-ownership.rb
+      job-api-flux-ownership.rb
       mailpit-flux-ownership.rb
     ],
     'images' => %w[

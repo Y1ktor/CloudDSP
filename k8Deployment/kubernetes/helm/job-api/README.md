@@ -19,6 +19,21 @@ local Secrets, outside Helm values and release history.
 
 ## Installation, adoption, and verification
 
+The [Job API Flux handoff](../../gitops/job-api.md) selects this existing native
+release, preserving its `clouddsp-app` target/storage and Helm history.
+Its namespace-scoped reconciliation identity changes only chart API kinds
+and Helm storage; credentials, migrations, and service bootstrap state remain
+outside the chart. Ordinary delivery changes after handoff go to the watched
+`codex/flux-clouddsp-local` chart and values.
+
+The release helper's [Flux adapter](../../scripts/gitops/job-api-flux-ownership.rb)
+blocks direct `install` and `adopt` whenever the matching HelmRelease exists,
+including failed, suspended, or deleting states. `verify` requires that
+HelmRelease to be Ready for its current generation and checks its exact chart
+revision and resource origin labels, alongside the original gates below.
+The `plan`/`adopt`/`install` commands below describe the pre-Flux workflow;
+fresh `install` retains all five bootstrap prerequisites when Flux is absent.
+
 From the repository root:
 
 ```bash
@@ -60,7 +75,8 @@ On 2026-09-26, the existing objects were adopted as release
 `clouddsp-job-api` revision 1. Their three resource UIDs, Service IP, Pod UID,
 image digest, and protected same-origin routes were preserved.
 
-Use this chart for reviewed Job API delivery changes. Keep the raw Deployment,
+Use the watched version of this chart for reviewed Job API delivery changes
+after its Flux handoff. Keep the raw Deployment,
 Service, and Ingress manifests in `services/job-api/` as the adoption comparison
 baseline; do not reapply them to these Helm-owned objects. Database migration
 and bootstrap manifests in that directory retain their separate one-time

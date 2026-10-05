@@ -1,0 +1,7 @@
+# Adopt exactly this native Helm release and its reconciliation identity.
+# The Job API chart continues to own its three workload/network resources.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - reconciliation-rbac.yaml
+  - helmrelease.yaml

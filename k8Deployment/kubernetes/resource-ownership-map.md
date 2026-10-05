@@ -20,14 +20,14 @@ installation or the current state of your machine.
 | `clouddsp-system`, `clouddsp-app`, `clouddsp-data` | [Namespace manifest](cluster/namespaces.yaml) and foundation runner | Outside application Helm releases; deleted with the cluster. |
 | CoreDNS, Traefik/CRDs, networking, metrics, local-path provisioner | K3s distribution in `kube-system` | Foundation verifies these components; CloudDSP charts do not take them over. |
 | KEDA controllers, RBAC, services, and CRDs | Pinned upstream `keda` Helm release | Locked by [release.lock.yaml](helm/keda/release.lock.yaml); installed before worker scaling resources. |
-| Optional Flux controllers, CRDs, RBAC, and Git reconciliation | Dedicated `codex/flux-clouddsp-local` GitOps branch | Opt-in bootstrap after ordinary cluster creation; the explicit root selects Flux and the Mailpit/frontend HelmRelease/RBAC; check their readiness independently. |
+| Optional Flux controllers, CRDs, RBAC, and Git reconciliation | Dedicated `codex/flux-clouddsp-local` GitOps branch | Opt-in bootstrap after ordinary cluster creation; the explicit root selects Flux and the Mailpit/frontend/Job API HelmRelease/RBAC; check their readiness independently. |
 | PostgreSQL StatefulSet and two Services | [`clouddsp-postgresql`](helm/postgresql/README.md) | Chart owns workload/service definitions; database contents and bootstrap state have separate ownership. |
 | MinIO StatefulSet, two Services, S3 Ingress | [`clouddsp-minio`](helm/minio/README.md) | Chart owns delivery/storage workload definitions; buckets, IAM, notification state, and objects are external state. |
 | RabbitMQ StatefulSet, three Services, ingress NetworkPolicy | [`clouddsp-rabbitmq`](helm/rabbitmq/README.md) | Chart owns broker workload/services/network rules; vhosts, queues, users, and messages are broker state. |
 | Keycloak Deployment, Service, Ingress | [`clouddsp-keycloak`](helm/keycloak/README.md) | Database, realm/client configuration, SMTP, and credentials use versioned bootstrap stages. |
 | Mailpit Deployment, SMTP/web Services, Ingress | Native [`clouddsp-mailpit`](helm/mailpit/README.md) Helm release; Flux manages its lifecycle after handoff | Existing release and storage remain in `clouddsp-data`; changes are committed to the GitOps branch. SMTP remains internal and only its inbox has a browser route. |
 | Frontend Deployment, Service, Ingress | Native [`clouddsp-frontend`](helm/frontend/README.md) Helm release; Flux configuration selects its lifecycle after handoff | Existing release and storage remain in `clouddsp-app`; serves the locked shared-frontend local build through NGINX and the reviewed browser origin. |
-| Job API Deployment, Service, Ingress | [`clouddsp-job-api`](helm/job-api/README.md) | Authenticated HTTP routes; database schema and service identities are separate stages. |
+| Job API Deployment, Service, Ingress | Native [`clouddsp-job-api`](helm/job-api/README.md) Helm release; Flux configuration selects its lifecycle after handoff | Release/storage remain in `clouddsp-app`; authenticated HTTP routes, database schema, runtime credentials, and service identities retain their separate boundaries. |
 | Upload-intake Deployment | [`clouddsp-upload-intake`](helm/upload-intake/README.md) | Outbound consumer without a Service or Ingress. |
 | Demucs-only dispatcher Deployment | [`clouddsp-dispatcher`](helm/dispatcher/README.md) | Legacy internal publisher retained in the current bootstrap. |
 | Generic dispatcher Deployment | [`clouddsp-generic-dispatcher`](helm/generic-dispatcher/README.md) | Separate internal publisher with explicit generic command and image. |
@@ -73,11 +73,13 @@ chart-specific source/live verification.
 
 The raw service manifests remain useful comparison/bootstrap inputs, but
 long-lived Helm-owned objects must be changed through their chart and release
-owner. Mailpit and frontend changes use the dedicated GitOps branch after
+owner. Mailpit, frontend, and Job API changes use the dedicated GitOps branch after
 their Flux handoffs; their current release helpers retain verification and
 block direct install/adopt while the matching HelmRelease exists. Mailpit
 retains its SMTP smoke command; frontend verifies health, app shell, CSP,
-JavaScript/CSS, and direct SPA routes. Other components retain their release
+JavaScript/CSS, and direct SPA routes. Job API retains running-digest and
+protected-route verification; its disposable authenticated smoke tests real
+Keycloak tokens and the PostgreSQL-backed owner job list. Other components retain their release
 runners. The ordinary fresh bootstrap still does not install Flux automatically.
 Do not reapply a raw Deployment/StatefulSet/Service to bypass that
 owner. Historic adoption backups and UID-preservation evidence remain in the

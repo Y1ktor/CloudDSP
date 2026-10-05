@@ -3,8 +3,11 @@
 # A fresh install requires the reviewed database/migrations, restricted MinIO
 # identity, and Keycloak realm; their Secrets and durable state remain outside
 # Helm. The frontend route and smoke Jobs keep separate lifecycle boundaries.
+# The opt-in Flux adapter reserves direct writes while its HelmRelease exists;
+# native Helm history, runtime checks, and fresh prerequisites remain intact.
 require_relative '../lib/paths'
 require_relative '../lib/helm-release'
+require_relative '../gitops/job-api-flux-ownership'
 
 module CloudDSPJobApiRelease
   def self.build
@@ -33,7 +36,7 @@ module CloudDSPJobApiRelease
         ['ruby', CloudDSPPaths.script('minio-job-api-iam-stage.rb').to_s, 'verify'],
         ['ruby', CloudDSPPaths.script('keycloak-config-verify.rb').to_s, 'verify']
       ]
-    )
+    ).extend(JobApiFluxOwnership)
   end
 end
 

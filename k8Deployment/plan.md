@@ -184,23 +184,32 @@ end-to-end smoke tests remain distinct from read-only verification.
 Flux v2.9.6 is an opt-in bootstrap for the existing local cluster, configured
 on the dedicated `codex/flux-clouddsp-local` GitOps branch. It reads the public
 repository over HTTPS without a GitHub credential in Kubernetes. The explicit
-cluster root selects Flux and the Mailpit/frontend HelmRelease/RBAC. Mailpit's
+cluster root selects Flux and the Mailpit/frontend/Job API HelmRelease/RBAC. Mailpit's
 native release and storage remain `clouddsp-mailpit` / `clouddsp-data`;
-frontend's remain `clouddsp-frontend` / `clouddsp-app`. Separate scoped
+frontend's remain `clouddsp-frontend` / `clouddsp-app`, and Job API's remain
+`clouddsp-job-api` / `clouddsp-app`. Separate scoped
 reconciliation identities perform Helm actions, with Git revision packaging
 and drift detection enabled. Frontend's chart remains `0.1.3` with unchanged
 values and locked image. Other releases and service bootstrap state retain
 their existing script owners; frontend has no artificial Flux dependencies on
-Keycloak or Job API.
+Keycloak or Job API. Job API's chart remains `0.1.0` with unchanged values,
+image, Secret references, and protected ingress paths. Its database/schema,
+MinIO identity, and Keycloak configuration remain separate bootstrap stages.
 
 The 2026-10-04 frontend handoff milestone defines its source, RBAC, and
 verification boundary. It does not record a completed live adoption or browser
-trial. Current Mailpit/frontend release helpers support direct Helm and Flux
+trial. Job API source preparation is published and its archive verified before
+enabling the HelmRelease, avoiding sparse-source packaging races. Current
+Mailpit/frontend/Job API release helpers support direct Helm and Flux
 layouts, retain strict read-only verification, and block direct adoption/install
 while the matching HelmRelease exists. Mailpit keeps SMTP smoke testing;
 frontend verifies health, shell, CSP, JavaScript/CSS, and direct SPA routes.
+Job API verifies the running digest and protected `/auth/me` and `/jobs`
+responses; its separate disposable authentication smoke uses a real Keycloak
+token and a PostgreSQL-backed owner-filtered job list.
 See the [frontend handoff guide](kubernetes/gitops/frontend.md) for current
-commands and recovery rules. GitOps manifests and operating instructions are
+commands and recovery rules, and the [Job API handoff guide](kubernetes/gitops/job-api.md)
+for the next explicit application boundary. GitOps manifests and operating instructions are
 maintained in the
 [dedicated branch](https://github.com/Y1ktor/CloudDSP/tree/codex/flux-clouddsp-local/k8Deployment/kubernetes/gitops).
 Cluster cleanup removes Flux too; the ordinary fresh deployment command does

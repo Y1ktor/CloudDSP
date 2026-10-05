@@ -1,4 +1,4 @@
-# Optional Flux verification for two explicitly reviewed native Helm releases.
+# Optional Flux verification for explicitly reviewed native Helm releases.
 # Component adapters opt in one instance; HelmRelease and the older
 # StatelessRelease keep their original behavior for every other component.
 # This helper reads only the HelmRelease API record. Native Helm manifests,
@@ -13,7 +13,9 @@ module FluxOwnership
     'mailpit' => { label: 'Mailpit', helmrelease_name: 'clouddsp-mailpit',
                    helmrelease_namespace: 'flux-system', release_namespace: 'clouddsp-data' },
     'frontend' => { label: 'Frontend', helmrelease_name: 'clouddsp-frontend',
-                    helmrelease_namespace: 'flux-system', release_namespace: 'clouddsp-app' }
+                    helmrelease_namespace: 'flux-system', release_namespace: 'clouddsp-app' },
+    'job-api' => { label: 'Job API', helmrelease_name: 'clouddsp-job-api',
+                   helmrelease_namespace: 'flux-system', release_namespace: 'clouddsp-app' }
   }.transform_values do |binding|
     binding.transform_values!(&:freeze)
     binding[:origin_labels] = {
