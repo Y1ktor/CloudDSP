@@ -43,7 +43,7 @@ class RabbitMQFluxChartTest < Minitest::Test
       assert_includes dependencies, { 'name' => 'clouddsp-rabbitmq', 'namespace' => 'flux-system' }
     end
     %w[adtof basic-pitch demucs].each do |worker|
-      assert_equal [{ 'name' => 'clouddsp-scaling-auth', 'namespace' => 'flux-system' }], YAML.load_file(root.join(worker, 'helmrelease.yaml')).dig('spec', 'dependsOn')
+      assert_includes YAML.load_file(root.join(worker, 'helmrelease.yaml')).dig('spec', 'dependsOn'), { 'name' => 'clouddsp-scaling-auth', 'namespace' => 'flux-system' }
     end
     rules = YAML.load_stream(root.join('rabbitmq/reconciliation-rbac.yaml').read).find { |o| o['kind'] == 'Role' }.fetch('rules')
     assert rules.any? { |r| r['resources'].include?('persistentvolumeclaims') && r['verbs'] == %w[get list watch] }

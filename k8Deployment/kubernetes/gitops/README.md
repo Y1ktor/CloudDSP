@@ -2,7 +2,7 @@
 
 This opt-in bootstrap installs **Flux v2.9.6** in `flux-system` and connects
 it to the public CloudDSP GitHub repository. It manages its own installation
-and selects thirteen native Helm releases: KEDA, PostgreSQL, RabbitMQ, Mailpit, frontend, Job API, upload-intake,
+and selects fourteen native Helm releases: KEDA, MinIO, PostgreSQL, RabbitMQ, Mailpit, frontend, Job API, upload-intake,
 generic-dispatcher, the legacy Demucs-only dispatcher, shared scaling-auth, and
 the ADTOF, Basic Pitch, and Demucs workers.
 Other application releases and their bootstrap identities retain their existing
@@ -13,7 +13,8 @@ script ownership. See the [Mailpit handoff guide](mailpit.md),
 [legacy dispatcher guide](dispatcher.md),
 [scaling authentication guide](scaling-auth.md), [ADTOF guide](adtof.md),
 [Basic Pitch guide](basic-pitch.md), [Demucs guide](demucs.md),
-[KEDA platform guide](keda.md), and [RabbitMQ guide](rabbitmq.md), and [PostgreSQL guide](postgresql.md) for source, verification, and
+[KEDA platform guide](keda.md), [RabbitMQ guide](rabbitmq.md),
+[PostgreSQL guide](postgresql.md), and [MinIO guide](minio.md) for source, verification, and
 recovery rules. These source definitions do not establish the current live handoff state;
 check each HelmRelease and its release helper before relying on adoption.
 
@@ -31,7 +32,7 @@ The dedicated branch carries the reviewed source alignment for the canonical
 [shared frontend](../../../frontend/), current [Helm charts](../helm/),
 [image lock](../images.lock.yaml), and organized [deployment helpers](../scripts/).
 This source alignment prepares later component adoptions. The explicit root
-configures reconciliation for Flux, KEDA, PostgreSQL, RabbitMQ, Mailpit, frontend, Job API, upload-intake,
+configures reconciliation for Flux, KEDA, MinIO, PostgreSQL, RabbitMQ, Mailpit, frontend, Job API, upload-intake,
 generic-dispatcher, the legacy dispatcher, scaling-auth, ADTOF, Basic Pitch, and Demucs. Changes made
 only on another branch are not deployed. A later move to `main` must publish these files there and update
 `spec.ref.branch` in `flux-system/gotk-sync.yaml` as one coordinated change.
@@ -51,7 +52,8 @@ are not recursively adopted. The source uses sparse checkout only for
 `k8Deployment/kubernetes/helm/basic-pitch`, and
 `k8Deployment/kubernetes/helm/demucs`, and
 `k8Deployment/kubernetes/helm/rabbitmq`, and
-`k8Deployment/kubernetes/helm/postgresql`.
+`k8Deployment/kubernetes/helm/postgresql`, and
+`k8Deployment/kubernetes/helm/minio`.
 Expand and verify the source artifact before enabling the next HelmRelease to
 avoid packaging against an earlier sparse archive. KEDA instead uses the
 official HelmRepository and an exact upstream chart version; its public inline
@@ -72,8 +74,8 @@ its generated internals.
 
 - **source-controller** fetches Git and other sources and serves their artifacts.
 - **kustomize-controller** applies declarative resource sets and reports health.
-- **helm-controller** manages the thirteen explicitly selected native
-  Helm releases. Twelve application identities use namespaced Roles; KEDA delivery
+- **helm-controller** manages the fourteen explicitly selected native
+  Helm releases. Thirteen application identities use namespaced Roles; KEDA delivery
   also needs named cluster resources and explicit RBAC bind/escalate rights.
 - **notification-controller** provides optional alerts and webhook receivers.
 
@@ -99,7 +101,7 @@ access. See its guide for the complete permission and TLS/CRD boundaries.
 
 `prune: true` removes previously managed objects when removed from Git. The
 root inventory includes Flux, each selected release's reconciliation RBAC, and
-the thirteen selected HelmReleases and KEDA's official HelmRepository. Workload objects and Helm revision Secrets
+the fourteen selected HelmReleases and KEDA's official HelmRepository. Workload objects and Helm revision Secrets
 belong to their native Helm releases. Removing an active HelmRelease normally
 uninstalls that release; treat its removal as a deliberate cleanup operation.
 Deleting the entire k3d cluster still removes Flux;
@@ -113,14 +115,16 @@ Prerequisites: an existing supported CloudDSP cluster with `clouddsp-data`
 and `clouddsp-app`, verified native `clouddsp-mailpit`, `clouddsp-frontend`,
 `clouddsp-job-api`, `clouddsp-upload-intake`, `clouddsp-generic-dispatcher`,
 `clouddsp-dispatcher`, `clouddsp-scaling-auth`, `clouddsp-adtof`, and
-`clouddsp-basic-pitch`, `clouddsp-demucs`, `clouddsp-postgresql`, and `clouddsp-rabbitmq`
+`clouddsp-basic-pitch`, `clouddsp-demucs`, `clouddsp-minio`, `clouddsp-postgresql`, and `clouddsp-rabbitmq`
 releases for adoption, cluster-admin kubeconfig access, `kubectl`, `git`, and
 the Flux CLI (`brew install fluxcd/tap/flux` on macOS). Frontend's Keycloak
 configuration, Job API, static image, registry, and browser origin must already
 be ready through the ordinary platform stages; the frontend HelmRelease has
 no artificial dependencies on services that remain outside Flux ownership.
-Job API depends on PostgreSQL readiness. Upload-intake and both dispatchers
-depend on PostgreSQL, Job API and RabbitMQ HelmRelease readiness. Its database,
+MinIO depends on RabbitMQ readiness. Job API depends on PostgreSQL and MinIO.
+Upload-intake depends on PostgreSQL, MinIO, Job API and RabbitMQ; both dispatchers
+depend on PostgreSQL, Job API and RabbitMQ HelmRelease readiness. The three
+workers depend on MinIO and shared scaling-auth. Its database,
 broker, and MinIO identities/notification state must already be provisioned by
 the ordinary bootstrap; its source-to-outbox smoke remains a separate runbook.
 KEDA adoption requires its existing pinned release/controllers/CRDs/metrics API
@@ -136,6 +140,9 @@ the same existing-worker prerequisites and a scoped replica exception, while
 retaining both RabbitMQ and PostgreSQL task triggers. Demucs has the same
 existing CPU worker/scaler/HPA requirements and dual authentication; the
 bootstrap verifies it before applying Flux.
+MinIO bootstrap also verifies the existing storage release and its bucket/IAM/
+notification configuration without changing them. Durable contents and
+credentials remain outside Flux.
 The node runtime must be able to pull `ghcr.io/fluxcd` controller images.
 These four images are separate from the existing CloudDSP image mirror and
 are pulled directly from GHCR for this opt-in installation.

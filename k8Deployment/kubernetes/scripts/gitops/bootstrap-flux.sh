@@ -44,6 +44,10 @@ if [[ "$context" != k3d-clouddsp-local ]]; then
   echo 'Flux bootstrap stopped: selected releases require k3d-clouddsp-local' >&2
   exit 1
 fi
+# Verify the existing object store and configuration without creating buckets,
+# rotating credentials or attaching notification rules.
+ruby "$script_dir/../releases/minio-release.rb" verify
+ruby "$script_dir/../stages/minio/minio-state-verify.rb" verify
 # Verify the existing database and bound claim; Flux never initializes data
 # or reapplies schema/grant Jobs as part of this delivery handoff.
 ruby "$script_dir/../releases/postgresql-release.rb" verify

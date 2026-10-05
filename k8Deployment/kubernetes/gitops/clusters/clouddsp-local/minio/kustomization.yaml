@@ -1,6 +1,7 @@
-# Prepare the object-store delivery identity before enabling its HelmRelease.
-# Source availability and RBAC alone do not transfer ownership of MinIO.
+# Deliver only the existing object-store workload and S3 route.
+# Buckets, IAM, notifications and retained data keep their separate owners.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - reconciliation-rbac.yaml
+  - helmrelease.yaml

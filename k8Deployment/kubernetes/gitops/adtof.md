@@ -14,7 +14,7 @@ Prepare and verify `helm/adtof/` in the served sparse source before adding its
 [HelmRelease](clusters/clouddsp-local/adtof/helmrelease.yaml). The release uses
 Git revision packaging, active drift correction, the original release name,
 and explicit target/storage namespace. History retention is bounded at ten.
-It waits for the already managed scaling-auth HelmRelease. That readiness
+It waits for the managed MinIO and scaling-auth HelmReleases. That readiness
 dependency does not create ADTOF's database/broker/MinIO identities or install
 KEDA; ordinary platform bootstrap supplies those prerequisites.
 

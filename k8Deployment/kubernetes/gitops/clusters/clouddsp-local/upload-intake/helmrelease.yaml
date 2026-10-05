@@ -18,7 +18,10 @@ spec:
   serviceAccountName: clouddsp-upload-intake-helm
   # Database/broker delivery and the existing Job API prerequisite must be Ready.
   # This readiness gate does not provision database, broker, or MinIO identities.
+  # Object storage must be Ready; bucket/IAM bootstrap remains separate.
   dependsOn:
+    - name: clouddsp-minio
+      namespace: flux-system
     - name: clouddsp-postgresql
       namespace: flux-system
     - name: clouddsp-job-api

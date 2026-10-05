@@ -17,7 +17,10 @@ spec:
   serviceAccountName: clouddsp-demucs-helm
   # This shared release must be Ready before delivery; it does not create
   # Demucs's database/MinIO/broker identities or install the KEDA controller.
+  # Object storage must be Ready; bucket/IAM bootstrap remains separate.
   dependsOn:
+    - name: clouddsp-minio
+      namespace: flux-system
     - name: clouddsp-scaling-auth
       namespace: flux-system
   chart:

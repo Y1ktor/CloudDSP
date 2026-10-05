@@ -206,7 +206,8 @@ class BasicPitchFluxOwnershipTest < Minitest::Test
       ->(r) { r['spec']['driftDetection']['ignore'].first['paths'] = [''] },
       ->(r) { r['spec']['driftDetection']['ignore'].first['target']['name'] = 'clouddsp-adtof' },
       ->(r) { r['spec']['driftDetection']['mode'] = 'disabled' },
-      ->(r) { r['spec']['dependsOn'] = [] }
+      ->(r) { r['spec']['dependsOn'] = [] },
+      ->(r) { r['spec']['dependsOn'].reject! { |d| d['name'] == 'clouddsp-minio' } }
     ]
     changes.each do |change|
       worker = runner; change.call(worker.record)

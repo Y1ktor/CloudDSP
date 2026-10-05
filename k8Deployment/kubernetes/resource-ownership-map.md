@@ -20,9 +20,9 @@ installation or the current state of your machine.
 | `clouddsp-system`, `clouddsp-app`, `clouddsp-data` | [Namespace manifest](cluster/namespaces.yaml) and foundation runner | Outside application Helm releases; deleted with the cluster. |
 | CoreDNS, Traefik/CRDs, networking, metrics, local-path provisioner | K3s distribution in `kube-system` | Foundation verifies these components; CloudDSP charts do not take them over. |
 | KEDA controllers, RBAC, services, and CRDs | Pinned upstream `keda` Helm release; Flux manages delivery after its [handoff](gitops/keda.md) | Exact upstream 2.20.2 and existing history/specs; one duplicate label input moved to explicit patches; named platform RBAC, runtime CA exceptions, six retained CRDs. Shared auth depends on KEDA; workers depend on auth. |
-| Optional Flux controllers, CRDs, RBAC, and Git reconciliation | Dedicated `codex/flux-clouddsp-local` GitOps branch | Opt-in bootstrap after ordinary cluster creation; the explicit root selects Flux and the Mailpit/frontend/Job API/upload-intake/generic-dispatcher/dispatcher/scaling-auth/ADTOF/Basic-Pitch/Demucs HelmRelease/RBAC; check their readiness independently. |
+| Optional Flux controllers, CRDs, RBAC, and Git reconciliation | Dedicated `codex/flux-clouddsp-local` GitOps branch | Opt-in bootstrap after ordinary cluster creation; the explicit root selects Flux and fourteen HelmRelease/RBAC sets including KEDA, MinIO, PostgreSQL, RabbitMQ and the ten previously selected application releases; check their readiness independently. |
 | PostgreSQL StatefulSet and two Services | [`clouddsp-postgresql`](helm/postgresql/README.md); Flux manages delivery after its [handoff](gitops/postgresql.md) | Chart owns workload/service definitions; database contents and bootstrap state have separate ownership. |
-| MinIO StatefulSet, two Services, S3 Ingress | [`clouddsp-minio`](helm/minio/README.md) | Chart owns delivery/storage workload definitions; buckets, IAM, notification state, and objects are external state. |
+| MinIO StatefulSet, two Services, S3 Ingress | [`clouddsp-minio`](helm/minio/README.md); Flux manages delivery after its [handoff](gitops/minio.md) | Chart owns delivery/storage workload definitions; buckets, IAM, notification state, and objects are external state. |
 | RabbitMQ StatefulSet, three Services, ingress NetworkPolicy | [`clouddsp-rabbitmq`](helm/rabbitmq/README.md); Flux manages delivery after its [handoff](gitops/rabbitmq.md) | Chart owns broker workload/services/network rules; vhosts, queues, users, and messages are broker state. |
 | Keycloak Deployment, Service, Ingress | [`clouddsp-keycloak`](helm/keycloak/README.md) | Database, realm/client configuration, SMTP, and credentials use versioned bootstrap stages. |
 | Mailpit Deployment, SMTP/web Services, Ingress | Native [`clouddsp-mailpit`](helm/mailpit/README.md) Helm release; Flux manages its lifecycle after handoff | Existing release and storage remain in `clouddsp-data`; changes are committed to the GitOps branch. SMTP remains internal and only its inbox has a browser route. |
@@ -109,3 +109,9 @@ Services. Generated claims/PVs, database contents, roles, grants, migrations,
 bootstrap Jobs and credential values remain external. Job API and database
 clients wait for its readiness; scaling-auth includes PostgreSQL so workers
 inherit that gate. Native install/adopt are reserved once Flux ownership exists.
+
+MinIO delivery uses its [Flux handoff](gitops/minio.md). The chart owns the
+unchanged StatefulSet, two Services and S3 Ingress; generated storage, buckets,
+objects, IAM, notifications and credentials remain external. MinIO waits for
+RabbitMQ, and Job API/intake/all three workers wait for MinIO. The release helper
+keeps HTTP/S3 smoke and exact image/claim checks, blocking competing native writes.

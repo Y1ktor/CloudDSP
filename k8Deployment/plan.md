@@ -184,9 +184,9 @@ end-to-end smoke tests remain distinct from read-only verification.
 Flux v2.9.6 is an opt-in bootstrap for the existing local cluster, configured
 on `codex/flux-clouddsp-local`. It reads the public repository over HTTPS
 without a GitHub credential in Kubernetes. The explicit root selects Flux
-and thirteen native Helm releases: KEDA, PostgreSQL, RabbitMQ, Mailpit, frontend, Job API,
+and fourteen native Helm releases: KEDA, MinIO, PostgreSQL, RabbitMQ, Mailpit, frontend, Job API,
 upload-intake, generic-dispatcher, the legacy Demucs-only dispatcher, shared
-scaling-auth, ADTOF, Basic Pitch, and Demucs. Mailpit/PostgreSQL/RabbitMQ target/storage remain `clouddsp-data`;
+scaling-auth, ADTOF, Basic Pitch, and Demucs. Mailpit/MinIO/PostgreSQL/RabbitMQ target/storage remain `clouddsp-data`;
 KEDA stays in `keda`, and nine application releases stay in `clouddsp-app`.
 Separate namespace-scoped identities perform Helm actions, with Git revision
 packaging and drift detection enabled. Base charts, values, locked images,
@@ -194,8 +194,9 @@ Secret references and runtime images remain intact. RabbitMQ deliberately
 updates its health probes; KEDA preserves effective values through its reviewed
 label transformation, retention annotations and CA drift exceptions.
 
-Job API waits for PostgreSQL readiness; upload-intake and both dispatchers
-wait for PostgreSQL, Job API and RabbitMQ readiness.
+MinIO waits for RabbitMQ. Job API waits for PostgreSQL and MinIO; upload-intake
+waits for PostgreSQL, MinIO, Job API and RabbitMQ. Both dispatchers wait for
+PostgreSQL, Job API and RabbitMQ; all workers wait for MinIO and scaling-auth.
 The other required database, broker, MinIO, and Keycloak bootstrap state
 retains its script ownership; a readiness dependency does not provision
 those identities or service settings. Upload-intake's chart owns only its
@@ -277,6 +278,14 @@ initialization, credential rotation or historical backup/restore gate is part of
 this native-to-Flux handoff. Job API and database clients depend on its readiness;
 shared authentication includes PostgreSQL and workers depend on authentication.
 Native install/adopt fail closed once its HelmRelease exists.
+
+MinIO delivery uses the [object-store guide](kubernetes/gitops/minio.md), preserving
+its native history, unchanged StatefulSet, Services, S3 route, running Pod and
+10Gi claim/PV. Buckets, objects, IAM, notifications and credentials retain their
+existing ownership. The handoff runs S3 smoke and configuration verification;
+it does not initialize, restore or restart the store. MinIO waits for RabbitMQ;
+Job API, intake and all workers wait for MinIO. Its native writes are blocked
+while Flux owns the release.
 
 ## Remaining product scope
 

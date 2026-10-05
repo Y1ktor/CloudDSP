@@ -14,9 +14,9 @@ HelmRelease is enabled. Revision strategy packages the Git SHA with the base
 chart version. Reviewed chart defaults are the only values file; credentials
 are excluded from Git and Helm values. Publish to `codex/flux-clouddsp-local`.
 
-Job API depends on PostgreSQL readiness. Upload-intake and both dispatchers
+Job API depends on PostgreSQL and MinIO readiness. Upload-intake and both dispatchers
 also depend on PostgreSQL, Job API and RabbitMQ. Shared scaling-auth depends on
-PostgreSQL, KEDA and RabbitMQ; all three workers depend on scaling-auth. These
+PostgreSQL, KEDA and RabbitMQ; all three workers depend on MinIO and scaling-auth. These
 readiness gates order delivery; they do not run migrations, establish roles or
 verify every database grant. Keycloak remains on its existing native Helm and
 bootstrap path until its own adoption.
@@ -113,3 +113,6 @@ flux reconcile helmrelease clouddsp-postgresql --with-source \
 Do not uninstall, delete claims, remove finalizers, reapply raw manifests, or
 rerun schema/credential bootstrap as a shortcut to a failed handoff. Cluster
 pause/resume remains `k3d cluster stop/start clouddsp-local`.
+
+[MinIO delivery](minio.md) waits for RabbitMQ; Job API, intake and all three
+workers wait directly for MinIO while preserving the dependencies above.

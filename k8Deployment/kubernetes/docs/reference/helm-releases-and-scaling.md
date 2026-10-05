@@ -299,3 +299,14 @@ RabbitMQ. Shared authentication depends on PostgreSQL, KEDA and RabbitMQ;
 workers inherit those gates. The release helper verifies either native or
 Flux ownership, runs the separate read/write smoke, and blocks competing
 native install/adopt. PostgreSQL delivery does not perform a database migration.
+
+## MinIO Flux delivery
+
+The [MinIO handoff](../../gitops/minio.md) reuses native release
+`clouddsp-data/clouddsp-minio` and existing history. Its four-object chart keeps
+its image, Pod template, private S3 route and retained claim unchanged. Buckets,
+objects, IAM, notifications and Secrets remain separate state. MinIO waits for
+RabbitMQ; Job API, intake and workers wait for MinIO, retaining their other
+delivery gates. The runner checks strict native/Flux ownership, bound storage,
+running digest and HTTP health; its separate S3 smoke creates and removes only
+a reserved bucket/object. Native install/adopt stop while Flux owns the release.

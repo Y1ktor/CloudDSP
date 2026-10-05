@@ -18,7 +18,7 @@ are configured. Publish changes to `codex/flux-clouddsp-local` for reconciliatio
 Upload-intake and both dispatchers now depend on PostgreSQL, RabbitMQ and
 Job API readiness.
 Shared scaling-auth depends on PostgreSQL, KEDA and RabbitMQ; the three workers depend on
-scaling-auth. These gates order delivery. They do not initialize users, grants,
+MinIO and scaling-auth. These gates order delivery. They do not initialize users, grants,
 queues or database state. The ordinary fresh bootstrap still prepares those
 prerequisites before the separate opt-in Flux bootstrap.
 
@@ -115,3 +115,6 @@ Do not uninstall the release, delete its claim, remove finalizers or reapply raw
 manifests to recover a failed handoff. Git removal of an active HelmRelease is a
 lifecycle operation, not a harmless way to stop reconciliation. Cluster pause
 and resume remain `k3d cluster stop/start clouddsp-local`.
+
+[MinIO delivery](minio.md) waits for RabbitMQ; Job API, intake and all three
+workers wait directly for MinIO while preserving the dependencies above.

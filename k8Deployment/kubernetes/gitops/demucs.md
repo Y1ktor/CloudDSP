@@ -14,7 +14,7 @@ Prepare and verify `helm/demucs/` in the served sparse source before adding
 its [HelmRelease](clusters/clouddsp-local/demucs/helmrelease.yaml). The
 release uses Git revision packaging, active drift correction, its original
 release name, explicit target/storage namespace, and ten-revision retention.
-It waits for the already managed scaling-auth HelmRelease. This readiness
+It waits for the managed MinIO and scaling-auth HelmReleases. This readiness
 dependency does not provision database/broker/MinIO identities or install KEDA;
 ordinary platform bootstrap supplies those prerequisites.
 

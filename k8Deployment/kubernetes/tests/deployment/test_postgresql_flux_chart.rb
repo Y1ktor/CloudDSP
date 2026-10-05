@@ -44,7 +44,7 @@ class PostgreSQLFluxChartTest < Minitest::Test
       assert_includes YAML.load_file(root.join(component, 'helmrelease.yaml')).dig('spec', 'dependsOn'), { 'name' => 'clouddsp-postgresql', 'namespace' => 'flux-system' }
     end
     %w[adtof basic-pitch demucs].each do |component|
-      assert_equal [{ 'name' => 'clouddsp-scaling-auth', 'namespace' => 'flux-system' }], YAML.load_file(root.join(component, 'helmrelease.yaml')).dig('spec', 'dependsOn')
+      assert_includes YAML.load_file(root.join(component, 'helmrelease.yaml')).dig('spec', 'dependsOn'), { 'name' => 'clouddsp-scaling-auth', 'namespace' => 'flux-system' }
     end
     hr = YAML.load_file(root.join('postgresql/helmrelease.yaml'))
     assert_equal 'clouddsp-data', hr.dig('spec', 'storageNamespace')
