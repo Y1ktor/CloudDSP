@@ -145,7 +145,7 @@ class MinIOFluxOwnershipTest < Minitest::Test
   def test_flux_unquoted_console_address_keeps_its_exact_kubernetes_string
     stage = runner; stage.unquoted_console = true
     status, _, error = execute(stage); assert_nil status, error
-    objects = stage.send(:documents, "args: [server, /data, --console-address, :9001]\n")
+    objects = stage.send(:documents, "args:\n  - server\n  - /data\n  - --console-address\n  - :9001\n")
     assert_equal ':9001', objects.first.fetch('args').last
     assert_instance_of String, objects.first.fetch('args').last
     stage = runner; stage.unquoted_console = true
