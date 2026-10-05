@@ -43,8 +43,11 @@ spec:
       remediateLastFailure: false
   upgrade:
     disableTakeOwnership: true
-    # Keep the existing CLI release's apply method during its ownership handoff.
-    serverSideApply: auto
+    # The existing broker has fields left by earlier apply managers. SSA merges
+    # omitted exec probe handlers with new TCP handlers, which Kubernetes rejects.
+    # Three-way merge removes the old handlers through a normal in-place patch;
+    # force replacement and automatic rollback/uninstall remain disabled.
+    serverSideApply: disabled
     force: false
     cleanupOnFail: false
     preserveValues: false

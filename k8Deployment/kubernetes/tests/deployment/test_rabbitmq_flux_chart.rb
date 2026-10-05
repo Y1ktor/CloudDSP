@@ -35,6 +35,7 @@ class RabbitMQFluxChartTest < Minitest::Test
 
   def test_flux_scope_orders_broker_clients_without_owning_data_bootstrap
     root = ROOT.join('gitops/clusters/clouddsp-local')
+    assert_equal 'disabled', YAML.load_file(root.join('rabbitmq/helmrelease.yaml')).dig('spec', 'upgrade', 'serverSideApply')
     assert YAML.load_file(root.join('kustomization.yaml')).fetch('resources').include?('rabbitmq')
     assert YAML.load_stream(root.join('flux-system/gotk-sync.yaml').read).first.dig('spec', 'sparseCheckout').include?('k8Deployment/kubernetes/helm/rabbitmq')
     %w[upload-intake generic-dispatcher dispatcher scaling-auth].each do |component|

@@ -73,7 +73,12 @@ Secrets or retained PVCs, so direct API denials do not establish isolation
 from the data namespace. This is a trusted delivery identity. Root Flux and
 trusted Git writers retain administrative authority. Force, takeover, automatic
 rollback/uninstall remediation, failed-upgrade cleanup and Helm test hooks are
-disabled; full drift correction remains enabled.
+disabled; full drift correction remains enabled. Upgrades explicitly use
+`serverSideApply: disabled`: the handoff encountered old exec handlers retained
+by server-side apply when adding TCP handlers. Helm's three-way merge removes
+the old handlers through an in-place patch. This changes only RabbitMQ's Helm
+apply method; drift correction still uses Flux's server-side comparison.
+See [Flux upgrade configuration](https://fluxcd.io/flux/components/helm/helmreleases/#upgrade-configuration).
 
 ## Verify and recover
 
