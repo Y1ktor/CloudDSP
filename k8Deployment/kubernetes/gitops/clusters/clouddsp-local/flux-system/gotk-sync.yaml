@@ -14,7 +14,7 @@ spec:
     # Update Git and this reference together when moving GitOps to main.
     branch: codex/flux-clouddsp-local
   # Keep the source artifact focused on versioned GitOps configuration and
-  # the selected charts below; ADTOF is prepared before its handoff.
+  # the selected charts below; Basic Pitch is prepared before its handoff.
   # Fetch the next chart before adding its HelmRelease to the root so
   # packaging cannot race the sparse source archive update. An available
   # chart alone grants no ownership.
@@ -28,6 +28,7 @@ spec:
     - k8Deployment/kubernetes/helm/dispatcher
     - k8Deployment/kubernetes/helm/scaling-auth
     - k8Deployment/kubernetes/helm/adtof
+    - k8Deployment/kubernetes/helm/basic-pitch
 ---
 # kustomize-controller builds and applies only this cluster's explicit root.
 # The explicit root includes Flux and the eight selected HelmRelease/RBAC sets.
