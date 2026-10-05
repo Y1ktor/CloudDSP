@@ -19,6 +19,7 @@ class RabbitMQFluxOwnershipTest < Minitest::Test
       @commands = []
       @record = YAML.load_file(HelmRelease::ROOT.join('gitops/clusters/clouddsp-local/rabbitmq/helmrelease.yaml'))
       @record['metadata']['generation'] = 1
+      @record['spec']['chart']['spec']['version'] = '*' # exact Git-chart API default
       @record['status'] = { 'observedGeneration' => 1, 'storageNamespace' => 'clouddsp-data',
                             'lastAttemptedRevision' => REVISION,
                             'conditions' => [{ 'type' => 'Ready', 'status' => 'True', 'observedGeneration' => 1 }] }
@@ -156,6 +157,7 @@ class RabbitMQFluxOwnershipTest < Minitest::Test
 
   def test_exact_source_storage_revision_and_generation_are_required
     changes = [
+      ->(r) { r['spec']['chart']['spec']['version'] = 'another-selector' },
       ->(r) { r['spec']['upgrade']['force'] = true },
       ->(r) { r['spec']['upgrade']['remediation']['retries'] = 1 },
       ->(r) { r['spec']['test']['enable'] = true },

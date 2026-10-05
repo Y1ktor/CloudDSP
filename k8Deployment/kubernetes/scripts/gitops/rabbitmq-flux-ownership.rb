@@ -29,6 +29,10 @@ module RabbitMQFluxOwnership
     # Safety settings are part of the reviewed lifecycle boundary too. Reject
     # force, rollback/uninstall remediation, hooks, or hidden values overrides.
     reviewed = YAML.load_file(self.class::ROOT.join('gitops/clusters/clouddsp-local/rabbitmq/helmrelease.yaml')).fetch('spec')
+    # The HelmChart API defaults version to '*' even for a Git chart, where
+    # Revision packaging uses Chart.yaml and the source SHA. Accept exactly
+    # that API default; native revision validation still pins the base version.
+    reviewed.fetch('chart').fetch('spec')['version'] ||= '*'
     ensure_true(spec == reviewed, 'RabbitMQ Flux spec differs from the reviewed lifecycle configuration')
   end
 end
