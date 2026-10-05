@@ -310,3 +310,14 @@ RabbitMQ; Job API, intake and workers wait for MinIO, retaining their other
 delivery gates. The runner checks strict native/Flux ownership, bound storage,
 running digest and HTTP health; its separate S3 smoke creates and removes only
 a reserved bucket/object. Native install/adopt stop while Flux owns the release.
+
+## Keycloak Flux delivery
+
+The [Keycloak handoff](../../gitops/keycloak.md) reuses native release
+`clouddsp-data/clouddsp-keycloak` with its unchanged three-object chart, issuer,
+image and Pod template. Keycloak waits for PostgreSQL and Mailpit; frontend and
+Job API wait for Keycloak. Database contents, administrator/database credentials,
+realm/client/SMTP state and bootstrap Jobs remain external. The helper verifies
+native or Flux ownership, strict specs, readiness and the public discovery route;
+the separate discovery/PKCE smokes and configuration verifier check OIDC state.
+Native install/adopt stop while its HelmRelease exists.

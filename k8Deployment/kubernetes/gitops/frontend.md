@@ -40,8 +40,9 @@ absent, this configuration can install it. Verify the existing release,
 source values, ready image, and browser route before enabling this root on
 another cluster. Ordinary fresh frontend installation retains the existing
 Keycloak configuration and Job API verification prerequisites in the release
-helper. These services remain outside Flux ownership, so the frontend
-HelmRelease does not declare `dependsOn` entries for them.
+helper. Its HelmRelease now waits for [Keycloak delivery](keycloak.md); that
+readiness gate does not bootstrap a realm, client or database. Job API has its
+own Flux release; the frontend does not claim its workload or credentials.
 
 The ordinary 93-stage `bootstrap-platform` command still creates the cluster,
 installs application releases, and provisions service state before the separate

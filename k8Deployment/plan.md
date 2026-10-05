@@ -184,9 +184,9 @@ end-to-end smoke tests remain distinct from read-only verification.
 Flux v2.9.6 is an opt-in bootstrap for the existing local cluster, configured
 on `codex/flux-clouddsp-local`. It reads the public repository over HTTPS
 without a GitHub credential in Kubernetes. The explicit root selects Flux
-and fourteen native Helm releases: KEDA, MinIO, PostgreSQL, RabbitMQ, Mailpit, frontend, Job API,
+and fifteen native Helm releases: KEDA, Keycloak, MinIO, PostgreSQL, RabbitMQ, Mailpit, frontend, Job API,
 upload-intake, generic-dispatcher, the legacy Demucs-only dispatcher, shared
-scaling-auth, ADTOF, Basic Pitch, and Demucs. Mailpit/MinIO/PostgreSQL/RabbitMQ target/storage remain `clouddsp-data`;
+scaling-auth, ADTOF, Basic Pitch, and Demucs. Keycloak/Mailpit/MinIO/PostgreSQL/RabbitMQ target/storage remain `clouddsp-data`;
 KEDA stays in `keda`, and nine application releases stay in `clouddsp-app`.
 Separate namespace-scoped identities perform Helm actions, with Git revision
 packaging and drift detection enabled. Base charts, values, locked images,
@@ -194,7 +194,8 @@ Secret references and runtime images remain intact. RabbitMQ deliberately
 updates its health probes; KEDA preserves effective values through its reviewed
 label transformation, retention annotations and CA drift exceptions.
 
-MinIO waits for RabbitMQ. Job API waits for PostgreSQL and MinIO; upload-intake
+Keycloak waits for PostgreSQL/Mailpit; frontend waits for Keycloak.
+MinIO waits for RabbitMQ. Job API waits for Keycloak, PostgreSQL and MinIO; upload-intake
 waits for PostgreSQL, MinIO, Job API and RabbitMQ. Both dispatchers wait for
 PostgreSQL, Job API and RabbitMQ; all workers wait for MinIO and scaling-auth.
 The other required database, broker, MinIO, and Keycloak bootstrap state
@@ -286,6 +287,18 @@ existing ownership. The handoff runs S3 smoke and configuration verification;
 it does not initialize, restore or restart the store. MinIO waits for RabbitMQ;
 Job API, intake and all workers wait for MinIO. Its native writes are blocked
 while Flux owns the release.
+
+Keycloak delivery uses the [identity guide](kubernetes/gitops/keycloak.md).
+Its unchanged Deployment, Service, Ingress, issuer and image keep native history
+and current Pod identity. PostgreSQL identity data, credential values and durable
+realm/client/SMTP settings retain their existing ownership. This metadata-only
+handoff runs OIDC discovery and PKCE checks and verifies database grants and
+realm configuration without rebootstrap, password reset or key rotation.
+Keycloak waits for PostgreSQL/Mailpit; frontend and Job API wait for Keycloak.
+Native install/adopt fail closed while Flux owns the release. All fifteen
+CloudDSP/KEDA application/platform releases are selected; Traefik/TraefikCRD
+remain K3s distribution-owned foundation releases. Host provisioning, durable
+bootstrap and secrets are still outside Flux.
 
 ## Remaining product scope
 

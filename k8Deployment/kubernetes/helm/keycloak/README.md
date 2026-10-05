@@ -60,3 +60,12 @@ Use this chart for reviewed Keycloak delivery changes. Keep the raw manifests
 as comparison baselines and do not reapply them to Helm-owned objects. A
 future issuer or database change is a separate migration because existing
 clients, token validation, and stored identities depend on those contracts.
+
+## Optional Flux delivery
+
+The [Flux guide](../../gitops/keycloak.md) reuses this native release and history
+with unchanged chart defaults and Pod template. PostgreSQL, credentials and
+realm/client/SMTP configuration keep their separate owners. Keycloak waits for
+PostgreSQL/Mailpit; frontend and Job API wait for Keycloak. Verify and OIDC smoke
+support native and Flux ownership. Native install/adopt fail closed whenever its
+HelmRelease exists; publish reviewed delivery changes to the watched Git branch.

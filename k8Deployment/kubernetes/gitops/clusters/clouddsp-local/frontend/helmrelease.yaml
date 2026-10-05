@@ -16,6 +16,10 @@ spec:
   targetNamespace: clouddsp-app
   storageNamespace: clouddsp-app
   serviceAccountName: clouddsp-frontend-helm
+  # OIDC configuration points at Keycloak; realm bootstrap remains separate.
+  dependsOn:
+    - name: clouddsp-keycloak
+      namespace: flux-system
   chart:
     spec:
       chart: ./k8Deployment/kubernetes/helm/frontend

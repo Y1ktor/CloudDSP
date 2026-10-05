@@ -6,6 +6,7 @@
 # identity data remain separate ownership boundaries.
 require_relative '../lib/paths'
 require_relative '../lib/helm-release'
+require_relative '../gitops/keycloak-flux-ownership'
 
 module CloudDSPKeycloakRelease
   def self.build
@@ -31,7 +32,7 @@ module CloudDSPKeycloakRelease
         name: 'keycloak-oidc-discovery-smoke',
         manifest: 'tests/keycloak-smoke/keycloak-oidc-discovery-smoke-job.yaml'
       }
-    )
+    ).extend(KeycloakFluxOwnership)
   end
 end
 

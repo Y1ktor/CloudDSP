@@ -44,6 +44,12 @@ if [[ "$context" != k3d-clouddsp-local ]]; then
   echo 'Flux bootstrap stopped: selected releases require k3d-clouddsp-local' >&2
   exit 1
 fi
+# Verify existing identity delivery and durable configuration. This optional
+# handoff never runs realm/client bootstrap or resets an administrator password.
+ruby "$script_dir/../releases/keycloak-release.rb" verify
+ruby "$script_dir/../stages/keycloak/keycloak-database-stage.rb" verify
+ruby "$script_dir/../stages/credentials/keycloak-admin-secret-stage.rb" verify
+ruby "$script_dir/../stages/keycloak/keycloak-config-verify.rb" verify
 # Verify the existing object store and configuration without creating buckets,
 # rotating credentials or attaching notification rules.
 ruby "$script_dir/../releases/minio-release.rb" verify

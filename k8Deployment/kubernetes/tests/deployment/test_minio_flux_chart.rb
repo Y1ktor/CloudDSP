@@ -78,6 +78,6 @@ class MinIOFluxChartTest < Minitest::Test
       active << name; graph.fetch(name).each { |child| visit.call(child) }; active.pop; done << name
     end
     graph.each_key { |name| visit.call(name) }
-    assert_equal 14, graph.length
+    assert_equal 15, graph.length
   end
 end

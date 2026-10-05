@@ -28,6 +28,7 @@ module CloudDSPPaths
       generic-dispatcher-smoke-values.rb
       frontend-flux-ownership.rb
       job-api-flux-ownership.rb
+      keycloak-flux-ownership.rb
       mailpit-flux-ownership.rb
       minio-flux-ownership.rb
       postgresql-flux-ownership.rb

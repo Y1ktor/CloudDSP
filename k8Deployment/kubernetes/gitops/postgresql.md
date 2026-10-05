@@ -18,8 +18,8 @@ Job API depends on PostgreSQL and MinIO readiness. Upload-intake and both dispat
 also depend on PostgreSQL, Job API and RabbitMQ. Shared scaling-auth depends on
 PostgreSQL, KEDA and RabbitMQ; all three workers depend on MinIO and scaling-auth. These
 readiness gates order delivery; they do not run migrations, establish roles or
-verify every database grant. Keycloak remains on its existing native Helm and
-bootstrap path until its own adoption.
+verify every database grant. [Keycloak delivery](keycloak.md) also depends on
+PostgreSQL; its database/realm bootstrap remains separate.
 
 Normal fresh platform bootstrap still installs the native database and provisions
 schemas/grants before the separate opt-in Flux bootstrap. The latter requires an

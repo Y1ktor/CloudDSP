@@ -20,7 +20,8 @@ broker. Job API, upload-intake and all three workers wait directly for MinIO.
 Their existing PostgreSQL, broker, Job API and shared scaling-auth gates remain.
 These gates order delivery; they do not create buckets, provision users, attach
 notifications or prove application processing. Dispatchers inherit the storage
-gate through Job API. Keycloak remains on its native deployment/bootstrap path.
+gate through Job API. [Keycloak delivery](keycloak.md) uses its own Flux release;
+identity configuration and storage remain separate bootstrap state.
 
 Ordinary fresh deployment installs the native release and provisions storage
 configuration before the separate opt-in Flux bootstrap. The latter verifies

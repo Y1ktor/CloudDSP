@@ -18,6 +18,8 @@ module FluxOwnership
                   helmrelease_namespace: 'flux-system', release_namespace: 'clouddsp-app' },
     'dispatcher' => { label: 'Legacy dispatcher', helmrelease_name: 'clouddsp-dispatcher',
                       helmrelease_namespace: 'flux-system', release_namespace: 'clouddsp-app' },
+    'keycloak' => { label: 'Keycloak', helmrelease_name: 'clouddsp-keycloak',
+                    helmrelease_namespace: 'flux-system', release_namespace: 'clouddsp-data' },
     'minio' => { label: 'MinIO', helmrelease_name: 'clouddsp-minio',
                  helmrelease_namespace: 'flux-system', release_namespace: 'clouddsp-data' },
     'postgresql' => { label: 'PostgreSQL', helmrelease_name: 'clouddsp-postgresql',
