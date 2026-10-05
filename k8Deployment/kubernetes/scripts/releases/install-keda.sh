@@ -76,6 +76,7 @@ require_prerequisites() {
   require_command helm
   require_command kubectl
   require_command grep
+  require_command ruby
   require_file "${KEDA_VALUES_FILE}"
   require_file "${KEDA_LOCK_FILE}"
 
@@ -100,6 +101,10 @@ require_prerequisites() {
     printf 'Required Kubernetes context is unavailable: %s\n' "${KUBECTL_CONTEXT}" >&2
     exit 1
   fi
+
+  # Fail closed before repo or release writes whenever Flux reserves KEDA,
+  # including failed/suspended/deleting records and API lookup failures.
+  ruby "${CLOUDDSP_SCRIPTS_DIRECTORY}/gitops/keda-flux-ownership.rb" guard-native
 }
 
 verify_release() {
@@ -140,10 +145,10 @@ main() {
   helm repo add "${CHART_REPOSITORY_NAME}" "${CHART_REPOSITORY_URL}" --force-update
   helm repo update "${CHART_REPOSITORY_NAME}"
 
-  # --atomic implies waiting and rolls back normal chart resources on failure;
-  # the chart CRDs are intentionally retained by Helm/Kubernetes because CRDs
-  # may have stored custom resources. Their lifecycle must be reviewed before
-  # any future uninstall, rather than deleted as an incidental rollback.
+  # This historical native path is reserved for pre-Flux clusters. --atomic
+  # implies waiting and failure remediation. KEDA's CRDs are normal templates;
+  # their deletion can delete stored resources. The optional Flux handoff adds
+  # explicit retention and disables automatic rollback/uninstall instead.
   helm upgrade --install "${RELEASE_NAME}" "${CHART_REPOSITORY_NAME}/${CHART_NAME}" \
     --kube-context "${KUBECTL_CONTEXT}" \
     --namespace "${RELEASE_NAMESPACE}" \

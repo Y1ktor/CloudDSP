@@ -1,0 +1,238 @@
+# Adopt the already installed upstream KEDA release without changing its version,
+# runtime values, or namespaces. This is delivery of the operator, not ownership
+# of application ScaledObjects, observer credentials, HPAs, or worker replicas.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: keda
+  namespace: flux-system
+spec:
+  interval: 5m
+  timeout: 5m
+  maxHistory: 10
+  releaseName: keda
+  targetNamespace: keda
+  storageNamespace: keda
+  serviceAccountName: clouddsp-keda-helm
+  # Poll known chart objects through kstatus; do not require cluster-wide watches.
+  waitStrategy:
+    name: poller
+  chart:
+    spec:
+      chart: keda
+      version: "2.20.2"
+      interval: 1h
+      reconcileStrategy: ChartVersion
+      sourceRef:
+        kind: HelmRepository
+        name: kedacore
+        namespace: flux-system
+  install:
+    createNamespace: false
+    disableTakeOwnership: true
+    # The pinned chart renders CRDs in templates/, so this setting does not
+    # exempt those resources from upgrades. Retention is handled below.
+    crds: Skip
+    strategy:
+      name: RemediateOnFailure
+    remediation:
+      retries: 0
+      remediateLastFailure: false
+  upgrade:
+    disableTakeOwnership: true
+    serverSideApply: auto
+    crds: Skip
+    force: false
+    cleanupOnFail: false
+    preserveValues: false
+    chartNameChangeStrategy: InPlaceUpdate
+    strategy:
+      name: RemediateOnFailure
+    remediation:
+      retries: 0
+      # Failed operator delivery must stay inspectable. An automatic uninstall
+      # would interrupt scaling and could remove CRDs containing live workers.
+      remediateLastFailure: false
+  test:
+    enable: false
+  driftDetection:
+    mode: enabled
+    ignore:
+      # KEDA's certificate controller injects these public CA bundles at runtime.
+      # Ignore only those fields; API routing, webhook rules, and TLS settings
+      # remain managed. Its TLS Secret is not rendered by the upstream chart.
+      - target:
+          group: apiregistration.k8s.io
+          version: v1
+          kind: APIService
+          name: ^v1beta1\.external\.metrics\.k8s\.io$
+        paths: [/spec/caBundle]
+      - target:
+          group: admissionregistration.k8s.io
+          version: v1
+          kind: ValidatingWebhookConfiguration
+          name: ^keda-admission$
+        paths:
+          - /webhooks/0/clientConfig/caBundle
+          - /webhooks/1/clientConfig/caBundle
+          - /webhooks/2/clientConfig/caBundle
+          - /webhooks/3/clientConfig/caBundle
+          - /webhooks/4/clientConfig/caBundle
+          - /webhooks/5/clientConfig/caBundle
+  postRenderers:
+    - kustomize:
+        patches:
+          # Upstream's shared labels already declare part-of. Supplying it in
+          # additionalLabels renders duplicate YAML keys, which Kustomize rejects.
+          # Omit only that input below and restore the existing effective label
+          # on the 24 non-CRD objects and three Pod templates. CRDs retain their
+          # original upstream part-of label; selectors are never rewritten.
+          - target:
+              labelSelector: app.kubernetes.io/instance=keda
+            patch: |-
+              - op: add
+                path: /metadata/labels/app.kubernetes.io~1part-of
+                value: clouddsp
+          - target:
+              group: apps
+              version: v1
+              kind: Deployment
+              namespace: keda
+              name: '^(keda-operator|keda-operator-metrics-apiserver|keda-admission-webhooks)$'
+            patch: |-
+              - op: add
+                path: /spec/template/metadata/labels/app.kubernetes.io~1part-of
+                value: clouddsp
+          # KEDA 2.20.2 emits six normal chart-owned CRD templates. Mark exactly
+          # those schemas for Helm retention, and deny CRD deletion in delivery
+          # RBAC. Removing this HelmRelease is still deliberate operator removal;
+          # deleting the k3d cluster remains the ordinary full cleanup boundary.
+          - target:
+              group: apiextensions.k8s.io
+              version: v1
+              kind: CustomResourceDefinition
+              name: '^(cloudeventsources\.eventing\.keda\.sh|clustercloudeventsources\.eventing\.keda\.sh|clustertriggerauthentications\.keda\.sh|scaledjobs\.keda\.sh|scaledobjects\.keda\.sh|triggerauthentications\.keda\.sh)$'
+            patch: |-
+              - op: add
+                path: /metadata/annotations/helm.sh~1resource-policy
+                value: keep
+  # This public mapping mirrors helm/keda/values.yaml except the one duplicate
+  # additionalLabels key restored by the postrenderer. An upstream
+  # HelmRepository cannot read values files from our separate Git source. The
+  # release verifier and regression suite require this exact transformation.
+  values:
+    # Values for CloudDSP's standard local KEDA installation.
+    #
+    # This file deliberately configures KEDA itself, not a worker scaling policy.
+    # KEDA is the cluster-wide controller that will later watch CloudDSP
+    # `ScaledObject` resources. Separate, small tasks will create one ScaledObject
+    # for each processing Deployment; none is created by these values alone.
+
+    # A descriptive name appears only in KEDA features such as CloudEvents. It is
+    # not the kubectl context name and does not create a second cluster.
+    clusterName: clouddsp-local
+    clusterDomain: cluster.local
+
+    # All current processing Deployments and their future ScaledObjects live in
+    # clouddsp-app. Limiting the watch scope avoids treating `clouddsp-data` or
+    # Kubernetes platform namespaces as accidental scaling targets. Expanding this
+    # scope later is a reviewed infrastructure change, not an ad-hoc annotation.
+    watchNamespace: clouddsp-app
+
+    # The chart version is pinned separately in release.lock.yaml. Explicit image
+    # tags make the three controller images visible in the rendered manifests,
+    # rather than relying on the chart's implicit appVersion default. Their ARM64
+    # resolved digests are recorded in images.lock.yaml after the local pull.
+    image:
+      keda:
+        registry: ghcr.io
+        repository: kedacore/keda
+        tag: "2.20.2"
+      metricsApiServer:
+        registry: ghcr.io
+        repository: kedacore/keda-metrics-apiserver
+        tag: "2.20.2"
+      webhooks:
+        registry: ghcr.io
+        repository: kedacore/keda-admission-webhooks
+        tag: "2.20.2"
+      # The pinned upstream controller images need not be downloaded on every Pod
+      # restart. A newly created k3d node still pulls them because its image cache
+      # starts empty.
+      pullPolicy: IfNotPresent
+
+    # One replica of each platform controller is sufficient for this single-host
+    # learning cluster. Higher controller replica counts are a high-availability
+    # choice: leader election means they do not increase normal scaling throughput.
+    operator:
+      replicaCount: 1
+    metricsServer:
+      replicaCount: 1
+    webhooks:
+      replicaCount: 1
+
+    # KEDA must retain the metrics API and admission webhook because ScaledObjects
+    # depend on them. Its self-managed TLS certificates are local cluster-internal
+    # certificates; they do not expose a browser endpoint or require Traefik.
+    crds:
+      install: true
+    certificates:
+      autoGenerated: true
+
+    # RabbitMQ trigger credentials will later be referenced from a namespaced
+    # TriggerAuthentication in clouddsp-app. Do not enable the chart's
+    # "secret: true" restriction: it would permit only the `keda` namespace and
+    # prevent KEDA from reading the deliberately restricted application secret.
+    permissions:
+      operator:
+        restrict:
+          secret: false
+      metricServer:
+        restrict:
+          secret: false
+
+    # These bounds reserve a small, explicit share of Docker Desktop's finite
+    # memory while leaving room for the CPU-heavy CloudDSP workers. They are a
+    # local baseline, not evidence that an HA or high-workload production cluster
+    # should use the same sizing; observe controller metrics before raising limits.
+    resources:
+      operator:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 256Mi
+      metricServer:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 256Mi
+      webhooks:
+        requests:
+          cpu: 50m
+          memory: 96Mi
+        limits:
+          cpu: 250m
+          memory: 192Mi
+
+    # These labels distinguish the add-on from application Pods when inspecting
+    # all namespaces. Helm keeps its own managed-by/release labels as well.
+    additionalLabels:
+      clouddsp.io/environment: local
+      clouddsp.io/component: event-autoscaler
+
+    logging:
+      operator:
+        level: info
+        format: console
+      webhooks:
+        level: info
+        format: console
+
+    # Legacy Service environment variables are unnecessary because KEDA uses
+    # Kubernetes DNS. Disabling them keeps each controller Pod's environment
+    # smaller and prevents unrelated Service names becoming implicit inputs.
+    enableServiceLinks: false

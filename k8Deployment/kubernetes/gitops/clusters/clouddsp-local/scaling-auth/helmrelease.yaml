@@ -15,8 +15,12 @@ spec:
   targetNamespace: clouddsp-app
   storageNamespace: clouddsp-app
   serviceAccountName: clouddsp-scaling-auth-helm
-  # KEDA has no Flux HelmRelease yet. Do not declare a fictional dependsOn;
-  # opt-in bootstrap checks its existing pinned release and CRDs first.
+  # Platform delivery must be Ready before the shared authentication mappings.
+  # Workers depend on this release, forming KEDA -> auth -> worker ordering.
+  # Credential provisioning remains an ordinary bootstrap prerequisite.
+  dependsOn:
+    - name: keda
+      namespace: flux-system
   chart:
     spec:
       chart: ./k8Deployment/kubernetes/helm/scaling-auth

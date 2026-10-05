@@ -32,6 +32,9 @@ class KedaReleaseStageTest < Minitest::Test
   end
 
   def fake_read(arguments)
+    if arguments.first == 'kubectl' && arguments.include?('customresourcedefinition/helmreleases.helm.toolkit.fluxcd.io')
+      return '' # Native bootstrap before Flux exists retains its fresh gates.
+    end
     if arguments.first == 'helm' && arguments.include?('list')
       releases = @installed ? [{ 'name' => 'keda', 'namespace' => 'keda',
                                  'chart' => 'keda-2.20.2', 'status' => 'deployed' }] : []

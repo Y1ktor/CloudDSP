@@ -247,6 +247,14 @@ class ScalingAuthFluxOwnershipTest < Minitest::Test
     rejected(stage, 'installed release manifest differs')
   end
 
+  def test_platform_dependency_cannot_be_removed_or_redirected
+    [[], [{ 'name' => 'another-platform', 'namespace' => 'flux-system' }]].each do |dependencies|
+      stage = runner
+      stage.record['spec']['dependsOn'] = dependencies
+      rejected(stage, 'dependency must be the reviewed KEDA HelmRelease')
+    end
+  end
+
   def test_flux_ready_does_not_relax_source_render_parity
     stage = runner
     stage.render_change = ->(data) { data.first['spec']['secretTargetRef'].first['name'] = 'wrong-secret' }

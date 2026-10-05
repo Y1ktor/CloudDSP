@@ -2,17 +2,18 @@
 
 This opt-in bootstrap installs **Flux v2.9.6** in `flux-system` and connects
 it to the public CloudDSP GitHub repository. It manages its own installation
-and selects ten native Helm releases: Mailpit, frontend, Job API, upload-intake,
+and selects eleven native Helm releases: KEDA, Mailpit, frontend, Job API, upload-intake,
 generic-dispatcher, the legacy Demucs-only dispatcher, shared scaling-auth, and
 the ADTOF, Basic Pitch, and Demucs workers.
 Other application releases and their bootstrap identities retain their existing
 script ownership. See the [Mailpit handoff guide](mailpit.md),
 [frontend handoff guide](frontend.md), [Job API handoff guide](job-api.md),
 [upload-intake handoff guide](upload-intake.md),
-[generic dispatcher guide](generic-dispatcher.md), and
-[legacy dispatcher guide](dispatcher.md), and
-[scaling authentication guide](scaling-auth.md), and [ADTOF guide](adtof.md) and [Basic Pitch guide](basic-pitch.md) and [Demucs guide](demucs.md)
-for source, verification, and
+[generic dispatcher guide](generic-dispatcher.md),
+[legacy dispatcher guide](dispatcher.md),
+[scaling authentication guide](scaling-auth.md), [ADTOF guide](adtof.md),
+[Basic Pitch guide](basic-pitch.md), [Demucs guide](demucs.md),
+and [KEDA platform guide](keda.md) for source, verification, and
 recovery rules. These source definitions do not establish the current live handoff state;
 check each HelmRelease and its release helper before relying on adoption.
 
@@ -30,7 +31,7 @@ The dedicated branch carries the reviewed source alignment for the canonical
 [shared frontend](../../../frontend/), current [Helm charts](../helm/),
 [image lock](../images.lock.yaml), and organized [deployment helpers](../scripts/).
 This source alignment prepares later component adoptions. The explicit root
-configures reconciliation for Flux, Mailpit, frontend, Job API, upload-intake,
+configures reconciliation for Flux, KEDA, Mailpit, frontend, Job API, upload-intake,
 generic-dispatcher, the legacy dispatcher, scaling-auth, ADTOF, Basic Pitch, and Demucs. Changes made
 only on another branch are not deployed. A later move to `main` must publish these files there and update
 `spec.ref.branch` in `flux-system/gotk-sync.yaml` as one coordinated change.
@@ -50,7 +51,11 @@ are not recursively adopted. The source uses sparse checkout only for
 `k8Deployment/kubernetes/helm/basic-pitch`, and
 `k8Deployment/kubernetes/helm/demucs`.
 Expand and verify the source artifact before enabling the next HelmRelease to
-avoid packaging against an earlier sparse archive. Each later component needs
+avoid packaging against an earlier sparse archive. KEDA instead uses the
+official HelmRepository and an exact upstream chart version; its public inline
+values must match the exact transformation of `helm/keda/values.yaml` described
+in its guide: omit one duplicate upstream label input and preserve its effective
+value through explicit postrenderer patches. Each later component needs
 a reviewed HelmRelease, suitable reconciliation RBAC, its required chart source
 paths, and an explicit entry in the cluster root as
 part of its ownership handoff. Aligned source files alone do not add a release
@@ -65,8 +70,9 @@ its generated internals.
 
 - **source-controller** fetches Git and other sources and serves their artifacts.
 - **kustomize-controller** applies declarative resource sets and reports health.
-- **helm-controller** manages the ten explicitly selected native
-  Helm releases through their namespace-scoped reconciliation identities.
+- **helm-controller** manages the eleven explicitly selected native
+  Helm releases. Ten application identities use namespaced Roles; KEDA delivery
+  also needs named cluster resources and explicit RBAC bind/escalate rights.
 - **notification-controller** provides optional alerts and webhook receivers.
 
 The cluster fetches public Git over HTTPS without a credential Secret. Host SSH
@@ -81,14 +87,17 @@ The installation grants the reconcilers cluster-wide administration. Restricting
 the Git path limits selected manifests; it is not an RBAC boundary. Trusted
 writers to this branch can change the cluster through reviewed manifests.
 Each selected release's Helm actions impersonate a separate service account bound
-into their existing release namespaces. Their Roles grant only chart API kinds
+into their existing release namespaces. Application Roles grant only chart API kinds
 and read-only readiness checks, plus namespace-wide Secret access required by
 Helm revision storage. The root controller can still change this RBAC; trusted
-Git writers remain responsible for reviewing application handoffs.
+Git writers remain responsible for reviewing handoffs. KEDA's separate platform
+identity can alter its powerful runtime roles and controller Pods; it is trusted
+platform administration. It grants no CRD deletion or direct app/data Secret
+access. See its guide for the complete permission and TLS/CRD boundaries.
 
 `prune: true` removes previously managed objects when removed from Git. The
 root inventory includes Flux, each selected release's reconciliation RBAC, and
-the ten selected HelmReleases. Workload objects and Helm revision Secrets
+the eleven selected HelmReleases and KEDA's official HelmRepository. Workload objects and Helm revision Secrets
 belong to their native Helm releases. Removing an active HelmRelease normally
 uninstalls that release; treat its removal as a deliberate cleanup operation.
 Deleting the entire k3d cluster still removes Flux;
@@ -111,7 +120,10 @@ no artificial dependencies on services that remain outside Flux ownership.
 Upload-intake depends on the already managed Job API HelmRelease. Its database,
 broker, and MinIO identities/notification state must already be provisioned by
 the ordinary bootstrap; its source-to-outbox smoke remains a separate runbook.
-Shared scaling-auth requires the pinned KEDA release/controllers/CRDs/metrics
+KEDA adoption requires its existing pinned release/controllers/CRDs/metrics API
+and namespaces. The opt-in bootstrap verifies it before applying Flux. Shared
+scaling-auth depends on its Flux HelmRelease and requires the same pinned
+controllers/CRDs/metrics
 API and existing observer Secrets. The opt-in bootstrap verifies those
 prerequisites before applying Flux; it does not provision their identities.
 ADTOF also requires its existing worker Deployment, Ready ScaledObject, and

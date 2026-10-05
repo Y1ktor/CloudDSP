@@ -6,6 +6,7 @@
 # A partial chart install remains visible for diagnosis instead of being
 # adopted or silently upgraded on a second bootstrap attempt.
 require_relative '../lib/paths'
+require_relative '../gitops/keda-flux-ownership'
 require 'json'
 require 'open3'
 require 'pathname'
@@ -37,13 +38,17 @@ class KedaReleaseStage
   def run(mode)
     ensure_true(%w[plan install verify].include?(mode), 'use plan, install, or verify')
     values = validate_source
+    ownership = KedaFluxOwnership.new(command: @command)
 
     if mode == 'verify'
-      verify_release(values)
+      flux_record = ownership.record
+      ownership.verify!(flux_record, values) if flux_record
+      verify_release(flux_record ? KedaFluxOwnership.chart_values(values) : values)
       @output.puts 'KEDA release verify: pinned Helm chart, values, controllers, and CRDs ready'
       return 0
     end
 
+    ownership.guard_native!
     check_fresh_boundary
     if mode == 'plan'
       @output.puts "KEDA release plan: pinned #{VERSION} install pending on an empty KEDA boundary"

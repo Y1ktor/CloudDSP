@@ -229,9 +229,17 @@ Operating guides: [Mailpit](kubernetes/gitops/mailpit.md),
 [scaling authentication](kubernetes/gitops/scaling-auth.md), and
 [ADTOF](kubernetes/gitops/adtof.md) and
 [Basic Pitch](kubernetes/gitops/basic-pitch.md), and
-[Demucs](kubernetes/gitops/demucs.md). Shared authentication
+[Demucs](kubernetes/gitops/demucs.md), and [KEDA](kubernetes/gitops/keda.md). Shared authentication
 uses fixed observer Secret references. Its maintenance runner respects Flux
-ownership; KEDA and worker charts remain separate, with a read-only five-metric
+ownership; KEDA's exact upstream chart now has separate Flux delivery, with
+shared authentication depending on KEDA and workers depending on authentication.
+Its controller templates/runtime RBAC remain unchanged. Flux omits one invalid
+duplicate upstream label input and restores its existing effective label through
+explicit patches. Narrow CA exceptions
+preserve certificate rotation, and six exact CRDs gain explicit Helm retention
+with no delivery CRD-delete permission. Named platform bind/escalate rights
+remain trusted administration. Both native KEDA entrypoints fail closed while
+Flux owns it. KEDA and worker charts remain separate, with a read-only five-metric
 smoke for credential access. ADTOF depends on shared authentication readiness,
 while KEDA retains its generated HPA and replica control through an exact
 Deployment replica drift exception. Its separate smoke exercises real queue

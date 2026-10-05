@@ -91,8 +91,14 @@ Fresh KEDA `install` requires absent release/namespace/CRDs/metrics API
 registration, runs the pinned installer, then verifies chart/values, controller
 rollouts, six CRDs, and metrics registration. The underlying
 [install-keda.sh](../../scripts/releases/install-keda.sh) is a separate explicit
-install/upgrade entrypoint for that platform dependency; it does not enqueue
-work or install worker ScaledObjects.
+install/upgrade entrypoint for pre-Flux clusters; both entrypoints reject native
+writes whenever `flux-system/keda` exists, including unhealthy states. The
+optional [KEDA Flux handoff](../../gitops/keda.md) retains exact upstream version
+2.20.2, effective resource specs, and native history. Flux values omit one
+duplicate upstream label input; explicit patches preserve all existing labels
+and Pod templates. Its verifier also checks the current
+Ready Flux source/release/chart. KEDA delivery remains separate from worker
+ScaledObjects and generated HPA/replica control.
 
 Scaling-auth supports `plan|install|adopt|verify|verify-prerequisites|reconcile`.
 Fresh install requires KEDA and the restricted PostgreSQL/RabbitMQ scaler
@@ -100,6 +106,8 @@ identities, plus absent auth and worker scaler resources.
 `verify-prerequisites` checks the release before fresh worker installation;
 full `verify` additionally checks all three Ready scalers, authentication
 references, worker targets, and correctly owned HPAs.
+Under Flux, shared authentication depends on KEDA readiness; the three workers
+depend on shared authentication. Credential bootstrap remains separate.
 
 The default policy expects idle workers at zero replicas. Demucs and Basic Pitch include a
 PostgreSQL due-work signal because a queue can empty after a durable task

@@ -35,9 +35,10 @@ done
 flux check --pre --context "$context"
 kubectl kustomize "$cluster_dir" >/dev/null
 
-# The selected authentication chart requires the existing pinned KEDA release,
-# established CRDs, metrics API, and observer Secrets. It cannot install those
-# prerequisites with its restricted reconciliation identity. These verifiers
+# KEDA itself is an adoption of the existing pinned platform release, established
+# CRDs, and metrics API. Its prepared identity cannot install arbitrary platform
+# resources or namespaces. Authentication also needs existing observer Secrets.
+# Neither handoff bootstraps missing credentials. These verifiers
 # use the standard profile context, so reject a different bootstrap target.
 if [[ "$context" != k3d-clouddsp-local ]]; then
   echo 'Flux bootstrap stopped: selected releases require k3d-clouddsp-local' >&2
