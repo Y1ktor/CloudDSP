@@ -18,3 +18,4 @@ resources:
   - basic-pitch
   - demucs
   - rabbitmq
+  - postgresql
