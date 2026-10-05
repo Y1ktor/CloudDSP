@@ -19,7 +19,7 @@ credentials, storage volume, SMTP exposure, or image change is part of adoption.
   not a complete multi-tenant security boundary.
 - The [existing chart](../helm/mailpit/) remains canonical. Its values preserve
   the locked image and `mailpit.localhost` route. The Git source includes
-  GitOps configuration and the explicitly selected Mailpit/frontend/Job API charts.
+  GitOps configuration and the explicitly selected Mailpit/frontend/Job API/upload-intake charts.
 - `reconcileStrategy: Revision` rebuilds the chart after source changes. Flux
   creates a chart version such as `0.1.0+abcdef123456.1`; the base chart remains
   `0.1.0`, and the suffix records Git revision and HelmChart generation.

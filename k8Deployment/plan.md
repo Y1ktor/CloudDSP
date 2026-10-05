@@ -182,38 +182,46 @@ end-to-end smoke tests remain distinct from read-only verification.
 ## Optional Flux reconciliation
 
 Flux v2.9.6 is an opt-in bootstrap for the existing local cluster, configured
-on the dedicated `codex/flux-clouddsp-local` GitOps branch. It reads the public
-repository over HTTPS without a GitHub credential in Kubernetes. The explicit
-cluster root selects Flux and the Mailpit/frontend/Job API HelmRelease/RBAC. Mailpit's
-native release and storage remain `clouddsp-mailpit` / `clouddsp-data`;
-frontend's remain `clouddsp-frontend` / `clouddsp-app`, and Job API's remain
-`clouddsp-job-api` / `clouddsp-app`. Separate scoped
-reconciliation identities perform Helm actions, with Git revision packaging
-and drift detection enabled. Frontend's chart remains `0.1.3` with unchanged
-values and locked image. Other releases and service bootstrap state retain
-their existing script owners; frontend has no artificial Flux dependencies on
-Keycloak or Job API. Job API's chart remains `0.1.0` with unchanged values,
-image, Secret references, and protected ingress paths. Its database/schema,
-MinIO identity, and Keycloak configuration remain separate bootstrap stages.
+on `codex/flux-clouddsp-local`. It reads the public repository over HTTPS
+without a GitHub credential in Kubernetes. The explicit root selects Flux
+and four native application releases: Mailpit, frontend, Job API, and
+upload-intake. Mailpit's target/storage remain `clouddsp-data`; the other
+three releases remain in `clouddsp-app`, preserving their original names.
+Separate namespace-scoped identities perform Helm actions, with Git revision
+packaging and drift detection enabled. Base charts, values, locked images,
+Pod templates, and Secret references are unchanged by these handoffs.
 
-The 2026-10-04 frontend handoff milestone defines its source, RBAC, and
-verification boundary. It does not record a completed live adoption or browser
-trial. Job API source preparation is published and its archive verified before
-enabling the HelmRelease, avoiding sparse-source packaging races. Current
-Mailpit/frontend/Job API release helpers support direct Helm and Flux
-layouts, retain strict read-only verification, and block direct adoption/install
-while the matching HelmRelease exists. Mailpit keeps SMTP smoke testing;
-frontend verifies health, shell, CSP, JavaScript/CSS, and direct SPA routes.
-Job API verifies the running digest and protected `/auth/me` and `/jobs`
-responses; its separate disposable authentication smoke uses a real Keycloak
-token and a PostgreSQL-backed owner-filtered job list.
-See the [frontend handoff guide](kubernetes/gitops/frontend.md) for current
-commands and recovery rules, and the [Job API handoff guide](kubernetes/gitops/job-api.md)
-for the next explicit application boundary. GitOps manifests and operating instructions are
-maintained in the
-[dedicated branch](https://github.com/Y1ktor/CloudDSP/tree/codex/flux-clouddsp-local/k8Deployment/kubernetes/gitops).
-Cluster cleanup removes Flux too; the ordinary fresh deployment command does
-not yet include this opt-in bootstrap.
+Upload-intake's HelmRelease waits for the already managed Job API release.
+The other required database, broker, MinIO, and Keycloak bootstrap state
+retains its script ownership; a readiness dependency does not provision
+those identities or service settings. Upload-intake's chart owns only its
+outbound Deployment and grants no Service, Ingress, or test Job permissions.
+Host cluster/registry lifecycle and durable service contents remain separate.
+
+Each new chart source is prepared and its archive verified before enabling
+its HelmRelease in the root. This avoids sparse-source packaging races.
+Versioned configuration establishes the intended reconciliation scope; check
+current-generation HelmRelease readiness and the release helpers on a running
+cluster. These helpers support direct Helm and Flux layouts, retain strict
+read-only verification, and block direct install/adopt while the matching
+HelmRelease exists, including failed, suspended, and deleting states.
+
+Mailpit retains SMTP smoke testing. Frontend verifies health, shell, CSP,
+JavaScript/CSS, and direct SPA routes. Job API verifies the running digest and
+protected routes; its disposable authenticated smoke checks real Keycloak
+tokens and the PostgreSQL-backed owner job list. Upload-intake verifies its
+running digest and Ready Pod, with a separate source-to-outbox smoke covering
+authenticated upload, native MinIO notifications, atomic outbox state, and
+duplicate delivery. That smoke pauses/restores both native dispatcher releases
+through their versioned Helm values; their later Flux handoffs must adapt
+those operations to their delivery owner.
+
+Operating guides: [Mailpit](kubernetes/gitops/mailpit.md),
+[frontend](kubernetes/gitops/frontend.md), [Job API](kubernetes/gitops/job-api.md),
+and [upload-intake](kubernetes/gitops/upload-intake.md). Source is maintained in
+the [dedicated branch](https://github.com/Y1ktor/CloudDSP/tree/codex/flux-clouddsp-local/k8Deployment/kubernetes/gitops).
+Cluster cleanup removes Flux too; ordinary fresh deployment still provisions
+all dependencies before the separate opt-in Flux bootstrap.
 
 ## Remaining product scope
 

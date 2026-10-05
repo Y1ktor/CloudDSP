@@ -2,12 +2,13 @@
 
 This opt-in bootstrap installs **Flux v2.9.6** in `flux-system` and connects
 it to the public CloudDSP GitHub repository. It manages its own installation
-and selects the native Mailpit, frontend, and Job API Helm releases for reconciliation.
+and selects the native Mailpit, frontend, Job API, and upload-intake Helm
+releases for reconciliation.
 Other application releases and their bootstrap identities retain their existing
-script ownership. See the [Mailpit handoff guide](mailpit.md) and
-[frontend handoff guide](frontend.md), and [Job API handoff guide](job-api.md)
-for source, verification, and recovery
-rules. These source definitions do not establish the current live handoff state;
+script ownership. See the [Mailpit handoff guide](mailpit.md),
+[frontend handoff guide](frontend.md), [Job API handoff guide](job-api.md), and
+[upload-intake handoff guide](upload-intake.md) for source, verification, and
+recovery rules. These source definitions do not establish the current live handoff state;
 check each HelmRelease and its release helper before relying on adoption.
 
 ## Git and cluster boundaries
@@ -24,7 +25,8 @@ The dedicated branch carries the reviewed source alignment for the canonical
 [shared frontend](../../../frontend/), current [Helm charts](../helm/),
 [image lock](../images.lock.yaml), and organized [deployment helpers](../scripts/).
 This source alignment prepares later component adoptions. The explicit root
-configures reconciliation only for Flux, Mailpit, frontend, and Job API. Changes made
+configures reconciliation only for Flux, Mailpit, frontend, Job API, and
+upload-intake. Changes made
 only on another branch are not deployed. A later move to `main` must publish these files there and update
 `spec.ref.branch` in `flux-system/gotk-sync.yaml` as one coordinated change.
 
@@ -35,8 +37,7 @@ lists so retained raw service manifests, one-time Jobs, tests, and credentials
 are not recursively adopted. The source uses sparse checkout only for
 `k8Deployment/kubernetes/gitops`, `k8Deployment/kubernetes/helm/mailpit`,
 `k8Deployment/kubernetes/helm/frontend`, `k8Deployment/kubernetes/helm/job-api`,
-and the prepared `k8Deployment/kubernetes/helm/upload-intake` source. This source
-preparation does not add upload-intake to the root or transfer its ownership.
+and `k8Deployment/kubernetes/helm/upload-intake`.
 Expand and verify the source artifact before enabling the next HelmRelease to
 avoid packaging against an earlier sparse archive. Each later component needs
 a reviewed HelmRelease, suitable reconciliation RBAC, its required chart source
@@ -53,7 +54,7 @@ its generated internals.
 
 - **source-controller** fetches Git and other sources and serves their artifacts.
 - **kustomize-controller** applies declarative resource sets and reports health.
-- **helm-controller** manages the explicitly selected native Mailpit, frontend, and Job API
+- **helm-controller** manages the four explicitly selected native
   Helm releases through their namespace-scoped reconciliation identities.
 - **notification-controller** provides optional alerts and webhook receivers.
 
@@ -68,7 +69,7 @@ notification webhook port 9292 have explicit ingress exceptions.
 The installation grants the reconcilers cluster-wide administration. Restricting
 the Git path limits selected manifests; it is not an RBAC boundary. Trusted
 writers to this branch can change the cluster through reviewed manifests.
-Mailpit, frontend, and Job API Helm actions impersonate separate service accounts bound
+Each selected release's Helm actions impersonate a separate service account bound
 into their existing release namespaces. Their Roles grant only chart API kinds
 and read-only readiness checks, plus namespace-wide Secret access required by
 Helm revision storage. The root controller can still change this RBAC; trusted
@@ -76,7 +77,7 @@ Git writers remain responsible for reviewing application handoffs.
 
 `prune: true` removes previously managed objects when removed from Git. The
 root inventory includes Flux, each selected release's reconciliation RBAC, and
-the Mailpit/frontend/Job API HelmReleases. Workload objects and Helm revision Secrets
+the four selected HelmReleases. Workload objects and Helm revision Secrets
 belong to their native Helm releases. Removing an active HelmRelease normally
 uninstalls that release; treat its removal as a deliberate cleanup operation.
 Deleting the entire k3d cluster still removes Flux;
@@ -87,12 +88,16 @@ along with the other workloads.
 ## Bootstrap
 
 Prerequisites: an existing supported CloudDSP cluster with `clouddsp-data`
-and `clouddsp-app`, verified native `clouddsp-mailpit`, `clouddsp-frontend`, and `clouddsp-job-api`
+and `clouddsp-app`, verified native `clouddsp-mailpit`, `clouddsp-frontend`,
+`clouddsp-job-api`, and `clouddsp-upload-intake`
 releases for adoption, cluster-admin kubeconfig access, `kubectl`, `git`, and
 the Flux CLI (`brew install fluxcd/tap/flux` on macOS). Frontend's Keycloak
 configuration, Job API, static image, registry, and browser origin must already
 be ready through the ordinary platform stages; the frontend HelmRelease has
 no artificial dependencies on services that remain outside Flux ownership.
+Upload-intake depends on the already managed Job API HelmRelease. Its database,
+broker, and MinIO identities/notification state must already be provisioned by
+the ordinary bootstrap; its source-to-outbox smoke remains a separate runbook.
 The node runtime must be able to pull `ghcr.io/fluxcd` controller images.
 These four images are separate from the existing CloudDSP image mirror and
 are pulled directly from GHCR for this opt-in installation.

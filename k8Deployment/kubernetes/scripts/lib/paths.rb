@@ -20,6 +20,7 @@ module CloudDSPPaths
       frontend-flux-ownership.rb
       job-api-flux-ownership.rb
       mailpit-flux-ownership.rb
+      upload-intake-flux-ownership.rb
     ],
     'images' => %w[
       build-adtof-image.sh

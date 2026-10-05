@@ -19,6 +19,20 @@ previously running object. No Secret values enter Helm values or history.
 
 ## Adoption and verification
 
+The [upload-intake Flux handoff](../../gitops/upload-intake.md) selects the
+existing native release and Helm storage in `clouddsp-app`. Its namespace-scoped
+Helm identity can change Deployments and storage Secrets and read readiness
+objects; it cannot create Services, Ingresses, or the integration smoke Job.
+Job API is its already managed Flux readiness dependency. Broker, storage,
+database bootstrap, and credentials keep their separate lifecycle boundaries.
+
+The [Flux adapter](../../scripts/gitops/upload-intake-flux-ownership.rb) preserves
+strict verification and blocks direct `install`/`adopt` whenever the matching
+HelmRelease exists. This includes failed, suspended, and deleting states.
+`verify` requires current-generation readiness and exact Flux labels/revision.
+The commands below describe the original pre-Flux adoption workflow; fresh
+`install` retains all six prerequisite checks when the HelmRelease is absent.
+
 From the repository root:
 
 ```bash
@@ -55,6 +69,7 @@ On 2026-09-26, the existing Deployment was adopted as release
 `clouddsp-upload-intake` revision 1. Its Deployment UID, Pod UID, and running
 image digest remained unchanged.
 
-Use this chart for reviewed upload-intake upgrades. Keep the raw Deployment
+Use the watched chart/values for reviewed upload-intake upgrades after its
+Flux handoff. Keep the raw Deployment
 manifest as the adoption comparison baseline; do not reapply it to the
 Helm-owned object.
