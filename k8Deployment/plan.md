@@ -1,7 +1,7 @@
 # CloudDSP local Kubernetes architecture and status
 
 This is the current implementation summary, reviewed against the versioned
-source on **2026-10-03**. For prerequisites, configuration, deployment,
+source on **2026-10-04**. For prerequisites, configuration, deployment,
 verification, and cleanup, use the [operator guide](kubernetes/scripts/README.md)
 and the [repository README](../README.md). The complete incremental implementation
 record is preserved in [history](kubernetes/docs/history/2026-10-03-kubernetes-implementation-log.md).
@@ -184,16 +184,24 @@ end-to-end smoke tests remain distinct from read-only verification.
 Flux v2.9.6 is an opt-in bootstrap for the existing local cluster, configured
 on the dedicated `codex/flux-clouddsp-local` GitOps branch. It reads the public
 repository over HTTPS without a GitHub credential in Kubernetes. The explicit
-cluster root manages Flux and the adopted Mailpit HelmRelease/RBAC. Mailpit's
-native release and storage remain `clouddsp-mailpit` / `clouddsp-data`; a scoped
-reconciliation identity performs Helm actions, with Git revision packaging and
-drift detection enabled. Other releases and service bootstrap state retain
-their existing script owners.
+cluster root selects Flux and the Mailpit/frontend HelmRelease/RBAC. Mailpit's
+native release and storage remain `clouddsp-mailpit` / `clouddsp-data`;
+frontend's remain `clouddsp-frontend` / `clouddsp-app`. Separate scoped
+reconciliation identities perform Helm actions, with Git revision packaging
+and drift detection enabled. Frontend's chart remains `0.1.3` with unchanged
+values and locked image. Other releases and service bootstrap state retain
+their existing script owners; frontend has no artificial Flux dependencies on
+Keycloak or Job API.
 
-The current workspace's Mailpit helper supports both layouts and retains
-strict read-only verification and SMTP smoke testing, while blocking direct
-adoption/install for a Flux-owned release. GitOps manifests and operating
-instructions are maintained in the
+The 2026-10-04 frontend handoff milestone defines its source, RBAC, and
+verification boundary. It does not record a completed live adoption or browser
+trial. Current Mailpit/frontend release helpers support direct Helm and Flux
+layouts, retain strict read-only verification, and block direct adoption/install
+while the matching HelmRelease exists. Mailpit keeps SMTP smoke testing;
+frontend verifies health, shell, CSP, JavaScript/CSS, and direct SPA routes.
+See the [frontend handoff guide](kubernetes/gitops/frontend.md) for current
+commands and recovery rules. GitOps manifests and operating instructions are
+maintained in the
 [dedicated branch](https://github.com/Y1ktor/CloudDSP/tree/codex/flux-clouddsp-local/k8Deployment/kubernetes/gitops).
 Cluster cleanup removes Flux too; the ordinary fresh deployment command does
 not yet include this opt-in bootstrap.

@@ -16,6 +16,8 @@ module CloudDSPPaths
   LOCATIONS = {
     'gitops' => %w[
       bootstrap-flux.sh
+      flux-ownership.rb
+      frontend-flux-ownership.rb
       mailpit-flux-ownership.rb
     ],
     'images' => %w[

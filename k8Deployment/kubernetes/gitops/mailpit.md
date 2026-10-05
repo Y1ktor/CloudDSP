@@ -18,8 +18,8 @@ credentials, storage volume, SMTP exposure, or image change is part of adoption.
   the HelmRelease or bootstrap RBAC; this is a scoped chart action identity,
   not a complete multi-tenant security boundary.
 - The [existing chart](../helm/mailpit/) remains canonical. Its values preserve
-  the locked image and `mailpit.localhost` route. The Git source includes only
-  GitOps configuration and this explicitly adopted chart.
+  the locked image and `mailpit.localhost` route. The Git source includes
+  GitOps configuration and the explicitly selected Mailpit/frontend charts.
 - `reconcileStrategy: Revision` rebuilds the chart after source changes. Flux
   creates a chart version such as `0.1.0+abcdef123456.1`; the base chart remains
   `0.1.0`, and the suffix records Git revision and HelmChart generation.

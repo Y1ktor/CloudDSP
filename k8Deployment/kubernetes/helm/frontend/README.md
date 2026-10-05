@@ -6,49 +6,70 @@ This chart owns the local `Deployment/clouddsp-frontend`,
 Ingress retains `clouddsp.localhost`, the exact local Keycloak redirect and
 logout origin. The chart creates no namespace, Secret, ConfigMap, or image.
 
-The templates mirror the legacy
-[`../../services/frontend/`](../../services/frontend/) manifests. During
-adoption, the rendered specs must match those manifests and the live objects.
-Helm supplies only release ownership metadata, the release namespace, the
-reviewed image digest from [`../../images.lock.yaml`](../../images.lock.yaml),
-and the unchanged local host value. The Pod template and immutable Deployment
-selector remain identical as Kubernetes objects. Public Vite
-configuration and the Content Security Policy are baked into the existing
-static image; no browser credential is placed in Helm values.
+The templates mirror the retained
+[`../../services/frontend/`](../../services/frontend/) manifests. The shared
+release helper compares the rendered specs with those manifests and the live
+objects. Helm supplies release ownership metadata, the release namespace,
+the reviewed image digest from [`../../images.lock.yaml`](../../images.lock.yaml),
+and the local host value. Public Vite configuration and the Content Security
+Policy are baked into the static image; browser credentials do not belong in
+Helm values.
 
-## One-time adoption and checks
+## Delivery owner and verification
+
+The [frontend Flux handoff](../../gitops/frontend.md) selects the existing
+native `clouddsp-frontend` release and its Helm storage in `clouddsp-app`.
+The HelmRelease and its impersonated service account live in `flux-system`;
+a namespace Role limits chart actions to the existing application namespace.
+The base chart remains `0.1.3`; Git revision packaging supplies Flux's revision
+suffix. Its image digest, values, Deployment Pod template, immutable selector,
+and browser origin are unchanged by this ownership configuration.
 
 From the repository root:
 
-```bash
-./k8Deployment/kubernetes/scripts/releases/frontend-release.rb plan
-./k8Deployment/kubernetes/scripts/releases/frontend-release.rb adopt
+```sh
 ./k8Deployment/kubernetes/scripts/releases/frontend-release.rb verify
 ```
 
-`plan` runs Helm lint/template, checks the image lock, validates the render
-through a Kubernetes server-side dry run, and compares all declared fields
-with the three original source and live objects. `adopt` repeats the checks,
-uses Helm's explicit ownership transfer, and verifies the three original
-resource UIDs, Service IP, and Pod UID are unchanged. The shared
-[`helm-release.rb`](../../scripts/lib/helm-release.rb) helper uses
-`--force-conflicts` only after spec equality has passed. It
-never uses automatic uninstall/rollback during an adoption; deleting an
-adopted release could delete these original objects.
+The current [release helper](../../scripts/releases/frontend-release.rb),
+[shared Helm helper](../../scripts/lib/helm-release.rb), and
+[Flux ownership adapter](../../scripts/gitops/frontend-flux-ownership.rb) check
+both direct Helm and Flux-owned layouts. They verify source/render/stored/live
+spec equality, Helm ownership, the locked image, Pod readiness, and exact Flux
+labels/chart revision when the matching HelmRelease is present.
 
-`verify` checks that Helm's stored release manifest still equals the chart,
-all three live specs and ownership markers match, the Pod is Ready, and
-Traefik serves `/healthz`, the HTML app shell, its Content Security Policy,
-and the linked JavaScript and CSS assets. This is a deployment-path smoke
-check; it does not replace an authenticated browser or end-to-end processing
-test.
+The browser check requests `/healthz`, the HTML app shell, its Content Security
+Policy, and linked JavaScript/CSS through Traefik. It also requires direct
+`/architecture`, `/architecture/`, `/k8`, and `/cost` navigation to return the
+same app shell and CSP without redirects. This deployment-path check does not
+replace authenticated browser or processing tests. The chart has no Helm test
+hook; Flux tests stay disabled.
 
-On 2026-09-26, the local adoption completed as release
-`clouddsp-frontend` revision 1. The three resource UIDs, Service IP, and Pod
-UID were unchanged. The `clouddsp.localhost:8080` health route, app shell,
-Content Security Policy, and bundled assets passed verification. Mailpit and
-all other component release boundaries remain separate.
+After the handoff, delivery changes go through the versioned chart and values
+on `codex/flux-clouddsp-local`. The helper blocks direct `install` and `adopt`
+while the matching Flux HelmRelease exists, including while it is suspended,
+unhealthy, or deleting. Read the [handoff recovery rules](../../gitops/frontend.md#change-or-recover-the-release)
+before changing release identity, deleting its HelmRelease, or attempting a
+manual recovery.
 
-After adoption, use this chart and a separately reviewed normal Helm upgrade
-for frontend delivery changes. The raw `services/frontend/` manifests remain
-as the adoption baseline and must not be reapplied to Helm-owned objects.
+## Initial installation and adoption history
+
+Without the matching Flux HelmRelease, the helper retains `plan`, `adopt`,
+and the fresh `install` path. `plan` runs Helm lint/template, image-lock and
+server-side dry-run checks, and compares all declared fields with the retained
+source and live objects. `adopt` transfers ownership only after equality checks
+and verifies resource UIDs, Service IP, and Pod UID are unchanged. Fresh
+installation verifies Keycloak configuration and the Job API first. The root
+`bootstrap-platform` sequence still uses these existing prerequisites and does
+not install Flux automatically.
+
+On 2026-09-26, the original direct Helm adoption completed as release
+`clouddsp-frontend` revision 1 with the three resource UIDs, Service IP, and Pod
+UID unchanged. That recorded trial passed health, shell, CSP, and bundled asset
+checks. The current Flux configuration does not itself establish a successful
+live frontend handoff; use the verification commands above to inspect the
+running cluster.
+
+The raw `services/frontend/` manifests remain comparison inputs and must not
+be reapplied to Helm-owned objects. Keycloak, Job API, Mailpit, and all other
+component release boundaries remain separate.

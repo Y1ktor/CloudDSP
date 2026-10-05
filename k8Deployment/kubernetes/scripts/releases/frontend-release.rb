@@ -1,9 +1,12 @@
 #!/usr/bin/env ruby
 # Frontend's exact local adoption boundary. Its OIDC redirect host, Service
 # selector, static-image digest, and Pod identity are checked by the shared
-# shared Helm release helper before any live ownership transition.
+# Helm release helper before any live ownership transition. The optional Flux
+# adapter reserves direct writes for an existing HelmRelease and verifies the
+# controller's precise native release revision and top-level origin labels.
 require_relative '../lib/paths'
 require_relative '../lib/helm-release'
+require_relative '../gitops/frontend-flux-ownership'
 
 HelmRelease.new(
   component: 'frontend',
@@ -24,4 +27,4 @@ HelmRelease.new(
     %w[ruby ./k8Deployment/kubernetes/scripts/stages/keycloak/keycloak-config-verify.rb verify],
     %w[ruby ./k8Deployment/kubernetes/scripts/releases/job-api-release.rb verify]
   ]
-).run(ARGV.length == 1 ? ARGV.first : nil)
+).extend(FrontendFluxOwnership).run(ARGV.length == 1 ? ARGV.first : nil)
