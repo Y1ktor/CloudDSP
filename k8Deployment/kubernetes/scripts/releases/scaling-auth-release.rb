@@ -4,6 +4,7 @@
 # KEDA itself, three worker ScaledObjects, their HPAs and Deployments retain
 # their existing owners and identities. `plan` and `verify` are read-only.
 require_relative '../lib/paths'
+require_relative '../gitops/scaling-auth-flux-ownership'
 require 'json'
 require 'open3'
 require 'pathname'
@@ -37,11 +38,16 @@ class ScalingAuthRelease
 
   def initialize(command: Open3.method(:capture3))
     @command = command
+    # The standalone authentication verifier uses the same fixed release
+    # identity as the shared Flux adapter, without becoming a Pod verifier.
+    @component = 'scaling-auth'
+    @namespace = NAMESPACE
+    @release = RELEASE
   end
 
   def run(mode)
-    abort 'Usage: ./k8Deployment/kubernetes/scripts/releases/scaling-auth-release.rb plan|install|adopt|verify|verify-prerequisites' unless %w[plan install adopt verify verify-prerequisites].include?(mode)
-    check_tools_and_keda
+    abort 'Usage: ./k8Deployment/kubernetes/scripts/releases/scaling-auth-release.rb plan|install|adopt|verify|verify-prerequisites|reconcile' unless %w[plan install adopt verify verify-prerequisites reconcile].include?(mode)
+    check_tools
     check_chart_and_source
 
     case mode
@@ -76,6 +82,13 @@ class ScalingAuthRelease
     when 'verify-prerequisites'
       check_cluster('Helm', require_scalers: false)
       puts 'scaling-auth release, both TriggerAuthentications, Secret references, and KEDA controller verified for worker installation.'
+    when 'reconcile'
+      # Maintenance may reassert an existing native release. When Flux owns
+      # delivery, its adapter verifies that Git is reconciled and skips this
+      # direct Helm write; no second writer competes with helm-controller.
+      check_cluster('Helm', require_scalers: false)
+      reconcile_release
+      check_cluster('Helm', require_scalers: false)
     end
   rescue StandardError => error
     warn "scaling-auth #{mode} stopped: #{error.message}"
@@ -126,6 +139,17 @@ class ScalingAuthRelease
     ensure_true(installed && installed['status'] == 'deployed' && installed['chart'] == "#{lock.fetch('name')}-#{lock.fetch('version')}",
                 'pinned KEDA controller release is not deployed')
     @keda_version = lock.fetch('version')
+  end
+
+  def check_tools
+    check_tools_and_keda
+  end
+
+  def reconcile_release
+    command('helm', 'upgrade', RELEASE, CHART.to_s,
+            '--kube-context', CONTEXT, '--namespace', NAMESPACE,
+            '--wait', '--timeout', '3m')
+    puts 'scaling-auth existing native Helm release reconciled.'
   end
 
   def check_chart_and_source
@@ -270,4 +294,12 @@ class ScalingAuthRelease
   end
 end
 
-ScalingAuthRelease.new.run(ARGV.length == 1 ? ARGV.first : nil) if $PROGRAM_NAME == __FILE__
+module CloudDSPScalingAuthRelease
+  # Preserve the original standalone KEDA/Secret/dependency gates, adding
+  # Flux ownership checks only to this explicitly selected release runner.
+  def self.build(command: Open3.method(:capture3))
+    ScalingAuthRelease.new(command: command).extend(ScalingAuthFluxOwnership)
+  end
+end
+
+CloudDSPScalingAuthRelease.build.run(ARGV.length == 1 ? ARGV.first : nil) if $PROGRAM_NAME == __FILE__

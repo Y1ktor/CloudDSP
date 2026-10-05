@@ -12,3 +12,4 @@ resources:
   - upload-intake
   - generic-dispatcher
   - dispatcher
+  - scaling-auth

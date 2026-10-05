@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Reassert the reviewed, already-installed Demucs CPU and KEDA configuration.
 # Helm owns the worker Deployment/ScaledObject and both shared scaler
-# authentications. Reuse the release verifiers before either Helm write so
+# authentications. Flux may manage authentication delivery. Reuse the release verifiers so
 # missing releases, ownership drift, changed profiles, or active work stop here.
 # Fresh bootstrap and credential rotation belong to their separate stages.
 set -euo pipefail
@@ -44,9 +44,8 @@ run_stage 'idle Demucs Helm preflight' \
 # scaling-auth owns both TriggerAuthentications; demucs owns the Deployment
 # and dual-trigger ScaledObject together. KEDA retains its controller, HPA,
 # and /scale ownership. A failed write remains inspectable in place.
-run_stage 'scaling-auth Helm upgrade' \
-  helm upgrade clouddsp-scaling-auth "$chart_dir/scaling-auth" \
-    --kube-context "$context" --namespace "$namespace" --wait --timeout 3m
+run_stage 'scaling-auth delivery reconciliation' \
+  ruby "$CLOUDDSP_SCRIPTS_DIRECTORY/releases/scaling-auth-release.rb" reconcile
 run_stage 'Demucs Helm upgrade' \
   helm upgrade clouddsp-demucs "$chart_dir/demucs" \
     --kube-context "$context" --namespace "$namespace" --wait --timeout 3m

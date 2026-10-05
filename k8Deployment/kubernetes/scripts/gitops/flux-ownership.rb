@@ -20,6 +20,8 @@ module FluxOwnership
                    helmrelease_namespace: 'flux-system', release_namespace: 'clouddsp-app' },
     'upload-intake' => { label: 'Upload-intake', helmrelease_name: 'clouddsp-upload-intake',
                          helmrelease_namespace: 'flux-system', release_namespace: 'clouddsp-app' },
+    'scaling-auth' => { label: 'Scaling authentication', helmrelease_name: 'clouddsp-scaling-auth',
+                        helmrelease_namespace: 'flux-system', release_namespace: 'clouddsp-app' },
     'generic-dispatcher' => { label: 'Generic dispatcher', helmrelease_name: 'clouddsp-generic-dispatcher',
                               helmrelease_namespace: 'flux-system', release_namespace: 'clouddsp-app' }
   }.transform_values do |binding|

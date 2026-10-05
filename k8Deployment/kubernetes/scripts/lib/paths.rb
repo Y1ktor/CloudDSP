@@ -25,6 +25,7 @@ module CloudDSPPaths
       frontend-flux-ownership.rb
       job-api-flux-ownership.rb
       mailpit-flux-ownership.rb
+      scaling-auth-flux-ownership.rb
       upload-intake-flux-ownership.rb
     ],
     'images' => %w[

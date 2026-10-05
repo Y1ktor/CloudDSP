@@ -13,7 +13,7 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cluster_dir="$script_dir/../../gitops/clusters/clouddsp-local"
 flux_dir="$cluster_dir/flux-system"
 
-for command_name in kubectl flux git; do
+for command_name in kubectl flux git ruby helm; do
   if ! command -v "$command_name" >/dev/null 2>&1; then
     echo "Flux bootstrap stopped: missing $command_name" >&2
     exit 1
@@ -34,6 +34,17 @@ done
 
 flux check --pre --context "$context"
 kubectl kustomize "$cluster_dir" >/dev/null
+
+# The selected authentication chart requires the existing pinned KEDA release,
+# established CRDs, metrics API, and observer Secrets. It cannot install those
+# prerequisites with its restricted reconciliation identity. These verifiers
+# use the standard profile context, so reject a different bootstrap target.
+if [[ "$context" != k3d-clouddsp-local ]]; then
+  echo 'Flux bootstrap stopped: selected releases require k3d-clouddsp-local' >&2
+  exit 1
+fi
+ruby "$script_dir/../releases/keda-release-stage.rb" verify
+ruby "$script_dir/../releases/scaling-auth-release.rb" verify-prerequisites
 
 # Install API definitions and controllers before submitting Flux custom objects.
 # Reuse the reconciler's field manager so bootstrap and subsequent Git applies

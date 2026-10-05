@@ -47,3 +47,15 @@ generated HPA UIDs, and the three worker Deployment UIDs were preserved.
 This metadata-only adoption did not enqueue work or start a worker Pod.
 Each worker's later release will adopt its Deployment and `ScaledObject`
 together, then run that worker's smoke test.
+
+## Optional Flux delivery
+
+The [Flux handoff guide](../../gitops/scaling-auth.md) selects this native
+release on `codex/flux-clouddsp-local` with the same target/storage namespace.
+The current runner verifies both native and Flux layouts and blocks direct
+`install`/`adopt` whenever its Flux HelmRelease exists. Do not run the one-time
+adoption commands above on a Flux-owned release. Change its Git configuration
+and use `verify` plus the read-only KEDA metric smoke. Maintenance `reconcile`
+verifies Flux ownership without a direct Helm write; the pre-Flux path retains
+guarded native upgrades. KEDA, observer Secret values, worker ScaledObjects,
+HPAs, and Deployments retain separate lifecycles.

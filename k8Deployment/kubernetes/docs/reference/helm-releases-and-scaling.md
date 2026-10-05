@@ -226,8 +226,11 @@ This helper reasserts an already deployed, matching, idle Demucs profile. It
 first verifies both scaler identities, scaling-auth, and Demucs using the
 worker's `verify-idle` mode. That mode refuses a positive minimum even when
 warm workers are healthy, preserving this helper's idle-only scope. Then it uses
-Helm to upgrade existing `clouddsp-scaling-auth` and `clouddsp-demucs` releases
-in that order with explicit context/namespace and three-minute waits, and
+the scaling-auth runner's `reconcile` mode: it upgrades the existing native
+release on a pre-Flux cluster, or verifies current Flux reconciliation without
+a competing Helm write after its [handoff](../../gitops/scaling-auth.md).
+It then upgrades existing `clouddsp-demucs` with Helm using an explicit
+context/namespace and a three-minute wait, and
 repeats the idle verification. It creates no bootstrap Secret/Job and takes no ownership
 from another controller. Missing/failed releases, drift, or active work stop
 before upgrades; desired chart changes need a separately reviewed rollout.

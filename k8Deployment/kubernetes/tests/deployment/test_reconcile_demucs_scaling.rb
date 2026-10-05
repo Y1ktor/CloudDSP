@@ -75,7 +75,7 @@ class ReconcileDemucsScalingTest < Minitest::Test
       %w[ruby application-identity-stage.rb rabbitmq keda-scaler verify],
       %w[ruby scaling-auth-release.rb verify-prerequisites],
       %w[ruby demucs-release.rb verify-idle],
-      ['helm', 'upgrade', 'clouddsp-scaling-auth', File.join(KUBERNETES, 'helm', 'scaling-auth'), *UPGRADE_OPTIONS],
+      %w[ruby scaling-auth-release.rb reconcile],
       ['helm', 'upgrade', 'clouddsp-demucs', File.join(KUBERNETES, 'helm', 'demucs'), *UPGRADE_OPTIONS],
       %w[ruby scaling-auth-release.rb verify-prerequisites],
       %w[ruby demucs-release.rb verify-idle]
@@ -105,7 +105,7 @@ class ReconcileDemucsScalingTest < Minitest::Test
     end
   end
 
-  def test_failed_scaling_auth_upgrade_prevents_demucs_upgrade
+  def test_failed_scaling_auth_delivery_reconciliation_prevents_demucs_upgrade
     status, commands = run_wrapper(fail_at: 5)
 
     refute status.success?

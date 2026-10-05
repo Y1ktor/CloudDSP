@@ -184,9 +184,10 @@ end-to-end smoke tests remain distinct from read-only verification.
 Flux v2.9.6 is an opt-in bootstrap for the existing local cluster, configured
 on `codex/flux-clouddsp-local`. It reads the public repository over HTTPS
 without a GitHub credential in Kubernetes. The explicit root selects Flux
-and six native application releases: Mailpit, frontend, Job API,
-upload-intake, generic-dispatcher, and the legacy Demucs-only dispatcher. Mailpit's target/storage remain `clouddsp-data`; the other
-five releases remain in `clouddsp-app`, preserving their original names.
+and seven native Helm releases: Mailpit, frontend, Job API,
+upload-intake, generic-dispatcher, the legacy Demucs-only dispatcher, and shared
+scaling-auth. Mailpit's target/storage remain `clouddsp-data`; the other
+six releases remain in `clouddsp-app`, preserving their original names.
 Separate namespace-scoped identities perform Helm actions, with Git revision
 packaging and drift detection enabled. Base charts, values, locked images,
 Pod templates, and Secret references are unchanged by these handoffs.
@@ -223,7 +224,11 @@ Operating guides: [Mailpit](kubernetes/gitops/mailpit.md),
 [frontend](kubernetes/gitops/frontend.md), [Job API](kubernetes/gitops/job-api.md),
 [upload-intake](kubernetes/gitops/upload-intake.md),
 [generic-dispatcher](kubernetes/gitops/generic-dispatcher.md), and
-[legacy dispatcher](kubernetes/gitops/dispatcher.md). Source is maintained in
+[legacy dispatcher](kubernetes/gitops/dispatcher.md), and
+[scaling authentication](kubernetes/gitops/scaling-auth.md). Shared authentication
+uses fixed observer Secret references. Its maintenance runner respects Flux
+ownership; KEDA and worker charts remain separate, with a read-only five-metric
+smoke for credential access. Source is maintained in
 the [dedicated branch](https://github.com/Y1ktor/CloudDSP/tree/codex/flux-clouddsp-local/k8Deployment/kubernetes/gitops).
 Cluster cleanup removes Flux too; ordinary fresh deployment still provisions
 all dependencies before the separate opt-in Flux bootstrap.
