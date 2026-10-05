@@ -125,11 +125,11 @@ spec:
         # scale-down from terminating its CPU child. A due retry also activates
         # a new Pod after the previous owner exited; future retries do not
         # consume an idle replica before their available_at time.
-        query: >-
-          SELECT COUNT(*)::bigint FROM public.processing_tasks
-          WHERE stage = 'demucs'
-            AND (status IN ('leased', 'running')
-              OR (status = 'retry_scheduled' AND available_at <= CURRENT_TIMESTAMP))
+        # Preserve the exact original SQL through Flux's YAML postrenderer.
+        # Folded YAML with deeper indentation can acquire blank lines when
+        # origin labels are added. Quoting explicit newlines keeps source,
+        # chart, stored Helm history, and live spec comparisons identical.
+        query: {{ "SELECT COUNT(*)::bigint FROM public.processing_tasks WHERE stage = 'demucs'\n  AND (status IN ('leased', 'running')\n    OR (status = 'retry_scheduled' AND available_at <= CURRENT_TIMESTAMP))" | quote }}
         targetQueryValue: {{ .Values.autoscaling.postgresql.targetQueryValue | quote }}
         activationTargetQueryValue: {{ .Values.autoscaling.postgresql.activationTargetQueryValue | quote }}
       authenticationRef:
