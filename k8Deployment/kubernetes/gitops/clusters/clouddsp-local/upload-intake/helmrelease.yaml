@@ -21,6 +21,8 @@ spec:
   dependsOn:
     - name: clouddsp-job-api
       namespace: flux-system
+    - name: clouddsp-rabbitmq
+      namespace: flux-system
   chart:
     spec:
       chart: ./k8Deployment/kubernetes/helm/upload-intake

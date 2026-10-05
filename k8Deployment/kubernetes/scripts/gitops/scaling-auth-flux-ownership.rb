@@ -25,8 +25,9 @@ module ScalingAuthFluxOwnership
                 @flux_ownership_helmrelease.dig('spec', 'valuesFrom').to_a.empty?,
                 'Scaling authentication Flux chart source or values differs from the reviewed configuration')
     ensure_true(@flux_ownership_helmrelease.dig('spec', 'dependsOn') ==
-                  [{ 'name' => 'keda', 'namespace' => 'flux-system' }],
-                'Scaling authentication Flux dependency must be the reviewed KEDA HelmRelease')
+                  [{ 'name' => 'keda', 'namespace' => 'flux-system' },
+                   { 'name' => 'clouddsp-rabbitmq', 'namespace' => 'flux-system' }],
+                'Scaling authentication Flux dependencies must be the reviewed KEDA and RabbitMQ HelmReleases')
   end
 
   def reconcile_release

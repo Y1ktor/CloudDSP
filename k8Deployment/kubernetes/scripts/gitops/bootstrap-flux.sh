@@ -44,6 +44,9 @@ if [[ "$context" != k3d-clouddsp-local ]]; then
   echo 'Flux bootstrap stopped: selected releases require k3d-clouddsp-local' >&2
   exit 1
 fi
+# Adopt only an existing healthy broker. Its retained claim and native history
+# must exist; this optional path never initializes empty durable broker data.
+ruby "$script_dir/../releases/rabbitmq-release.rb" verify
 ruby "$script_dir/../releases/keda-release-stage.rb" verify
 ruby "$script_dir/../releases/scaling-auth-release.rb" verify-prerequisites
 # Each selected worker must already have its native Deployment/scaler/HPA

@@ -18,6 +18,8 @@ module FluxOwnership
                   helmrelease_namespace: 'flux-system', release_namespace: 'clouddsp-app' },
     'dispatcher' => { label: 'Legacy dispatcher', helmrelease_name: 'clouddsp-dispatcher',
                       helmrelease_namespace: 'flux-system', release_namespace: 'clouddsp-app' },
+    'rabbitmq' => { label: 'RabbitMQ', helmrelease_name: 'clouddsp-rabbitmq',
+                    helmrelease_namespace: 'flux-system', release_namespace: 'clouddsp-data' },
     'mailpit' => { label: 'Mailpit', helmrelease_name: 'clouddsp-mailpit',
                    helmrelease_namespace: 'flux-system', release_namespace: 'clouddsp-data' },
     'frontend' => { label: 'Frontend', helmrelease_name: 'clouddsp-frontend',

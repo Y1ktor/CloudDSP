@@ -147,42 +147,32 @@ spec:
             # PVC name for ordinal 0 will be `rabbitmq-data-clouddsp-rabbitmq-0`.
             - name: rabbitmq-data
               mountPath: /var/lib/rabbitmq
-          # A startup probe prevents liveness restarts while RabbitMQ creates
-          # its initial durable store.  `ping` succeeds only when the Erlang
-          # runtime is running and the local diagnostics client can authenticate.
+          # Check the AMQP listener without starting an Erlang CLI process on
+          # every probe. RabbitMQ recommends TCP readiness and no liveness probe:
+          # CLI distribution joins add overhead and timeouts can restart a
+          # healthy broker. A resource alarm should be diagnosed, not restarted.
+          # https://www.rabbitmq.com/docs/monitoring#health-checks-as-readiness-probes
+          # Startup still bounds listener initialization to roughly 3 minutes.
           startupProbe:
-            exec:
-              command:
-                - rabbitmq-diagnostics
-                - -q
-                - ping
+            tcpSocket:
+              port: amqp
             periodSeconds: 5
             failureThreshold: 36
             timeoutSeconds: 5
-          # A ready broker has a running RabbitMQ application and no local
-          # resource alarm.  The upcoming AMQP ClusterIP Service therefore
-          # sends application traffic only to a broker that can accept work.
+          # TCP readiness proves listener availability, not credentials, queue
+          # health, or absence of alarms. The release verifier checks running/
+          # local alarms explicitly; separate AMQP/topology/scaler smokes check
+          # the authenticated path. Kubernetes removes an unavailable listener
+          # from Service endpoints without interrupting its durable process.
           readinessProbe:
-            exec:
-              command:
-                - sh
-                - -ec
-                - rabbitmq-diagnostics -q check_running && rabbitmq-diagnostics -q check_local_alarms
+            tcpSocket:
+              port: amqp
             periodSeconds: 10
             failureThreshold: 3
             timeoutSeconds: 5
-          # Liveness intentionally asks only whether the local runtime remains
-          # reachable.  Using the stricter alarm check here could restart a
-          # broker under memory/disk pressure instead of surfacing that condition.
-          livenessProbe:
-            exec:
-              command:
-                - rabbitmq-diagnostics
-                - -q
-                - ping
-            periodSeconds: 20
-            failureThreshold: 3
-            timeoutSeconds: 5
+          # No livenessProbe: Kubernetes still restarts an exited process. An
+          # alive but stuck broker requires diagnosis rather than a probe-driven
+          # restart that could obscure pressure or interrupt durable deliveries.
 
   volumeClaimTemplates:
     - metadata:

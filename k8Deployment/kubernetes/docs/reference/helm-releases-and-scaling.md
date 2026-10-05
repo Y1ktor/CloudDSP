@@ -277,3 +277,13 @@ client/mapper, and issuer. Root reconciliation verifies that state rather than
 rewriting it. The [service contract](../../services/keycloak/) and
 [credential/database references](credentials-and-identities.md) explain its
 separate identities and PostgreSQL boundary.
+
+## RabbitMQ Flux delivery
+
+The [RabbitMQ handoff](../../gitops/rabbitmq.md) reuses native
+`clouddsp-data/clouddsp-rabbitmq`; Flux owns broker delivery while its retained
+claim, messages, credentials and topology keep their existing owners. Chart
+`0.1.1` removes repeated Erlang exec probes using RabbitMQ's TCP readiness/no
+liveness guidance; the manual verifier keeps running/local-alarm checks.
+Publishers/intake depend on RabbitMQ; shared authentication depends on KEDA and
+RabbitMQ, and worker releases inherit those gates through authentication.

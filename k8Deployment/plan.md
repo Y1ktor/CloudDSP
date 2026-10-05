@@ -184,15 +184,17 @@ end-to-end smoke tests remain distinct from read-only verification.
 Flux v2.9.6 is an opt-in bootstrap for the existing local cluster, configured
 on `codex/flux-clouddsp-local`. It reads the public repository over HTTPS
 without a GitHub credential in Kubernetes. The explicit root selects Flux
-and ten native Helm releases: Mailpit, frontend, Job API,
+and twelve native Helm releases: KEDA, RabbitMQ, Mailpit, frontend, Job API,
 upload-intake, generic-dispatcher, the legacy Demucs-only dispatcher, shared
-scaling-auth, ADTOF, Basic Pitch, and Demucs. Mailpit's target/storage remain `clouddsp-data`; the other
-nine releases remain in `clouddsp-app`, preserving their original names.
+scaling-auth, ADTOF, Basic Pitch, and Demucs. Mailpit/RabbitMQ target/storage remain `clouddsp-data`;
+KEDA stays in `keda`, and nine application releases stay in `clouddsp-app`.
 Separate namespace-scoped identities perform Helm actions, with Git revision
 packaging and drift detection enabled. Base charts, values, locked images,
-Pod templates, and Secret references are unchanged by these handoffs.
+Secret references and runtime images remain intact. RabbitMQ deliberately
+updates its health probes; KEDA preserves effective values through its reviewed
+label transformation, retention annotations and CA drift exceptions.
 
-Upload-intake's HelmRelease waits for the already managed Job API release.
+Upload-intake's HelmRelease waits for Job API and RabbitMQ readiness.
 The other required database, broker, MinIO, and Keycloak bootstrap state
 retains its script ownership; a readiness dependency does not provision
 those identities or service settings. Upload-intake's chart owns only its
@@ -255,6 +257,15 @@ competing native upgrade. Source is maintained in
 the [dedicated branch](https://github.com/Y1ktor/CloudDSP/tree/codex/flux-clouddsp-local/k8Deployment/kubernetes/gitops).
 Cluster cleanup removes Flux too; ordinary fresh deployment still provisions
 all dependencies before the separate opt-in Flux bootstrap.
+
+RabbitMQ delivery now also uses Flux through the [broker guide](kubernetes/gitops/rabbitmq.md).
+It retains native history and its existing PVC/PV, topology, accounts, messages,
+locked image and network boundaries. Chart `0.1.1` removes repeated Erlang
+exec probes using RabbitMQ's TCP readiness/no-liveness recommendation; manual
+verification retains running/local-alarm checks. The probe update rolls one
+broker Pod and briefly interrupts this single-node broker. Publishers/intake
+depend on broker readiness; authentication depends on KEDA and RabbitMQ,
+workers on authentication. Native install/adopt fail closed while Flux owns it.
 
 ## Remaining product scope
 

@@ -23,7 +23,7 @@ installation or the current state of your machine.
 | Optional Flux controllers, CRDs, RBAC, and Git reconciliation | Dedicated `codex/flux-clouddsp-local` GitOps branch | Opt-in bootstrap after ordinary cluster creation; the explicit root selects Flux and the Mailpit/frontend/Job API/upload-intake/generic-dispatcher/dispatcher/scaling-auth/ADTOF/Basic-Pitch/Demucs HelmRelease/RBAC; check their readiness independently. |
 | PostgreSQL StatefulSet and two Services | [`clouddsp-postgresql`](helm/postgresql/README.md) | Chart owns workload/service definitions; database contents and bootstrap state have separate ownership. |
 | MinIO StatefulSet, two Services, S3 Ingress | [`clouddsp-minio`](helm/minio/README.md) | Chart owns delivery/storage workload definitions; buckets, IAM, notification state, and objects are external state. |
-| RabbitMQ StatefulSet, three Services, ingress NetworkPolicy | [`clouddsp-rabbitmq`](helm/rabbitmq/README.md) | Chart owns broker workload/services/network rules; vhosts, queues, users, and messages are broker state. |
+| RabbitMQ StatefulSet, three Services, ingress NetworkPolicy | [`clouddsp-rabbitmq`](helm/rabbitmq/README.md); Flux manages delivery after its [handoff](gitops/rabbitmq.md) | Chart owns broker workload/services/network rules; vhosts, queues, users, and messages are broker state. |
 | Keycloak Deployment, Service, Ingress | [`clouddsp-keycloak`](helm/keycloak/README.md) | Database, realm/client configuration, SMTP, and credentials use versioned bootstrap stages. |
 | Mailpit Deployment, SMTP/web Services, Ingress | Native [`clouddsp-mailpit`](helm/mailpit/README.md) Helm release; Flux manages its lifecycle after handoff | Existing release and storage remain in `clouddsp-data`; changes are committed to the GitOps branch. SMTP remains internal and only its inbox has a browser route. |
 | Frontend Deployment, Service, Ingress | Native [`clouddsp-frontend`](helm/frontend/README.md) Helm release; Flux configuration selects its lifecycle after handoff | Existing release and storage remain in `clouddsp-app`; serves the locked shared-frontend local build through NGINX and the reviewed browser origin. |
@@ -73,7 +73,7 @@ chart-specific source/live verification.
 
 The raw service manifests remain useful comparison/bootstrap inputs, but
 long-lived Helm-owned objects must be changed through their chart and release
-owner. Mailpit, frontend, Job API, upload-intake, generic-dispatcher, legacy dispatcher, scaling-auth, ADTOF, Basic Pitch, and Demucs changes use the dedicated GitOps branch after
+owner. RabbitMQ, Mailpit, frontend, Job API, upload-intake, generic-dispatcher, legacy dispatcher, scaling-auth, ADTOF, Basic Pitch, and Demucs changes use the dedicated GitOps branch after
 their Flux handoffs; their current release helpers retain verification and
 block direct install/adopt while the matching HelmRelease exists. Mailpit
 retains its SMTP smoke command; frontend verifies health, app shell, CSP,
@@ -94,3 +94,11 @@ including PVC data. It retains the image registry and `.local/` configuration.
 creates empty databases and user-artifact storage rather than restoring an old
 installation. See the [current architecture/status](../plan.md) and
 [operator guide](scripts/README.md) before changing these lifecycle boundaries.
+
+RabbitMQ delivery now uses its [Flux handoff](gitops/rabbitmq.md). Its native
+release retains `clouddsp-data` storage/history and the retained broker claim.
+Flux manages the broker's five chart objects; messages, identities, topology,
+Secrets and generated PVC/PV stay with their existing authorities. Publishers
+and intake depend on RabbitMQ; scaling-auth depends on KEDA and RabbitMQ and
+workers depend on authentication. The release helper keeps verify/AMQP smoke,
+checks local alarms explicitly, and blocks competing native install/adopt.

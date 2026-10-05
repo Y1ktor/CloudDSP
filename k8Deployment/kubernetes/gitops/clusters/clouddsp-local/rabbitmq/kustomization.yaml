@@ -1,6 +1,7 @@
-# Prepare the delivery identity before enabling the broker HelmRelease.
-# The source chart is fetched first; RBAC alone does not adopt a workload.
+# Reconcile the prepared delivery identity and the existing broker release.
+# Bootstrap identities/topology and test Jobs remain outside this explicit root.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - reconciliation-rbac.yaml
+  - helmrelease.yaml

@@ -251,7 +251,7 @@ class ScalingAuthFluxOwnershipTest < Minitest::Test
     [[], [{ 'name' => 'another-platform', 'namespace' => 'flux-system' }]].each do |dependencies|
       stage = runner
       stage.record['spec']['dependsOn'] = dependencies
-      rejected(stage, 'dependency must be the reviewed KEDA HelmRelease')
+      rejected(stage, 'dependencies must be the reviewed KEDA and RabbitMQ HelmReleases')
     end
   end
 

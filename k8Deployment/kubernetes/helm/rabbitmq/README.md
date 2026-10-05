@@ -107,3 +107,19 @@ name, then verify broker definitions, queues, application credentials,
 management access, and AMQP smoke before switching clients. There is no
 automated in-place restore command because that could overwrite authoritative
 current message state.
+
+## Flux delivery and probe revision
+
+Chart `0.1.1` replaces repeated Erlang exec startup/readiness/liveness checks
+with AMQP TCP startup/readiness and no liveness probe, following RabbitMQ's
+published guidance. Manual release verification still checks running/local
+alarms. This changes only probes and deliberately rolls the single broker Pod;
+its retained storage, locked image, security, selectors and networking remain.
+
+After the [Flux handoff](../../gitops/rabbitmq.md), publish chart/configuration
+changes to `codex/flux-clouddsp-local`. Flux retains the existing native release,
+storage namespace and history; direct `install`/`adopt` stop as soon as the
+HelmRelease exists. `verify`/`smoke` retain strict native manifest/live spec,
+bound-PVC, running-digest and local-health checks. Broker data and credential/
+topology bootstrap remain outside this release. The historical backup/restore
+workflow above describes raw-to-Helm adoption; it is not run for Helm-to-Flux.

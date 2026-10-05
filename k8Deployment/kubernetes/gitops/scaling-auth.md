@@ -78,3 +78,7 @@ chooses the backend source; native KEDA responses may have null metric labels.
 See the pinned [KEDA metric provider](https://github.com/kedacore/keda/blob/v2.20.2/pkg/provider/provider.go).
 This proves metric access with existing credentials, while worker burst and
 end-to-end processing tests remain separate checks for worker adoption.
+
+RabbitMQ readiness now joins KEDA as a Flux dependency. Workers inherit both
+readiness gates through this release. Identity/topology provisioning stays an
+ordinary bootstrap prerequisite; see the [RabbitMQ guide](rabbitmq.md).
