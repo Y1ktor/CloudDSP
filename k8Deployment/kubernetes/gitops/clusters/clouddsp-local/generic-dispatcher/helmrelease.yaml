@@ -36,7 +36,7 @@ spec:
       valuesFiles:
         - ./k8Deployment/kubernetes/helm/generic-dispatcher/values.yaml
         # Enabled only by a committed pause; later files override earlier values.
-        # - ./k8Deployment/kubernetes/helm/generic-dispatcher/values.smoke-pause.yaml
+        - ./k8Deployment/kubernetes/helm/generic-dispatcher/values.smoke-pause.yaml
       ignoreMissingValuesFiles: false
   install:
     createNamespace: false
