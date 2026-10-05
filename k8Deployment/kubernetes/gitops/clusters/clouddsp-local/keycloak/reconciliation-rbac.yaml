@@ -52,7 +52,11 @@ rules:
   # all durable identity state belongs to its separately managed PostgreSQL DB.
   # No PVC/PV access, exec, Job creation, or cluster API permission is granted.
   - apiGroups: [""]
-    resources: [pods, replicasets]
+    resources: [pods]
+    verbs: [get, list, watch]
+  # ReplicaSets belong to apps, while Pods belong to the core API group.
+  - apiGroups: [apps]
+    resources: [replicasets]
     verbs: [get, list, watch]
   # Helm needs namespace-wide revision Secret storage. This also permits access
   # to data-service credentials; RBAC cannot limit Helm's list to one prefix.
