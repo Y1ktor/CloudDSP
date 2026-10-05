@@ -560,6 +560,10 @@ app-namespace Secrets above plus their restricted PostgreSQL functions and
 MinIO policy/user; do not recreate either bootstrap merely because its expired
 Job object is absent.
 
+After an ADTOF [Flux handoff](../../gitops/adtof.md), the same versioned smoke
+continues to run outside Helm hooks. Flux stays active while KEDA changes the
+worker replica count; its exact replica drift exception protects this boundary.
+
 ### 2. Deliberately start one run
 
 ```bash
@@ -602,3 +606,25 @@ appear successful.
 The Job and Pod TTL-clean about ten minutes after either outcome, so inspect or
 save safe diagnostics before then. The release script ran the equivalent procedure on 2026-09-27, observed a
 passing result, and removed the disposable Job.
+
+### 4. Retire identities created only for a disposable trial
+
+If this run provisioned new test-only identities, use
+[the retirement Jobs](adtof-worker-smoke-retire-jobs.yaml) only after successful
+client artifact/database cleanup. They refuse remaining reserved evidence and
+remove only the three smoke functions/test role and exact-key MinIO test
+user/policy; they never delete application rows or objects. Preserve a failed
+run for inspection. Existing reusable test identities need not be retired.
+
+```sh
+kubectl --context k3d-clouddsp-local create \
+  -f k8Deployment/kubernetes/tests/adtof-worker-smoke/adtof-worker-smoke-retire-jobs.yaml
+kubectl --context k3d-clouddsp-local -n clouddsp-data wait \
+  job/adtof-worker-smoke-database-retire job/adtof-worker-smoke-minio-retire \
+  --for=condition=complete --timeout=180s
+```
+
+Inspect both Job outcomes, then delete their exact resources, the two
+app-namespace smoke credential Secrets, any temporary data-namespace bootstrap
+copies, and `clouddsp-adtof-worker-smoke-objects-policy-v001` ConfigMap. Wait for
+KEDA's idle cooldown and worker Pod termination, then run `verify-idle`.

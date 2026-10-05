@@ -4,6 +4,7 @@
 # their existing owners. Helm values select idle zero or a Ready warm minimum.
 require_relative '../lib/paths'
 require_relative '../lib/helm-release'
+require_relative '../gitops/adtof-flux-ownership'
 
 class AdtofRelease < HelmRelease
   SCALER = 'clouddsp-adtof-rabbitmq-scaler'
@@ -60,4 +61,12 @@ class AdtofRelease < HelmRelease
   end
 end
 
-AdtofRelease.new.run(ARGV.length == 1 ? ARGV.first : nil)
+module CloudDSPAdtofRelease
+  # Tests and CLI use this same runner, retaining the worker's native HPA,
+  # policy, idle/warm, and versioned smoke gates with optional Flux delivery.
+  def self.build
+    AdtofRelease.new.extend(AdtofFluxOwnership)
+  end
+end
+
+CloudDSPAdtofRelease.build.run(ARGV.length == 1 ? ARGV.first : nil) if $PROGRAM_NAME == __FILE__

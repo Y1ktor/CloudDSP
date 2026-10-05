@@ -13,3 +13,4 @@ resources:
   - generic-dispatcher
   - dispatcher
   - scaling-auth
+  - adtof

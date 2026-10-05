@@ -53,3 +53,14 @@ KEDA, shared `scaling-auth`, runtime Secrets, database bootstrap, MinIO policy,
 RabbitMQ queue, and generated HPA remain outside this release. Do not
 uninstall an adopted release as a retry strategy: Helm would consider the
 existing Deployment and ScaledObject its resources to delete.
+
+## Optional Flux delivery
+
+The [Flux handoff guide](../../gitops/adtof.md) selects this native release
+with the same name and target/storage namespace. After handoff, publish chart
+and scaling-value changes to `codex/flux-clouddsp-local` for Flux to reconcile.
+The one-time `plan`/`adopt` commands above describe the pre-Flux transition;
+direct `install`/`adopt` is blocked while its HelmRelease exists. Continue using
+`verify`, `verify-idle`, and the separate administrator-driven `smoke`.
+The exact Deployment replica field is ignored by Flux drift correction so
+KEDA retains scale decisions; Pod template and scaler policy remain protected.

@@ -20,7 +20,7 @@ installation or the current state of your machine.
 | `clouddsp-system`, `clouddsp-app`, `clouddsp-data` | [Namespace manifest](cluster/namespaces.yaml) and foundation runner | Outside application Helm releases; deleted with the cluster. |
 | CoreDNS, Traefik/CRDs, networking, metrics, local-path provisioner | K3s distribution in `kube-system` | Foundation verifies these components; CloudDSP charts do not take them over. |
 | KEDA controllers, RBAC, services, and CRDs | Pinned upstream `keda` Helm release | Locked by [release.lock.yaml](helm/keda/release.lock.yaml); installed before worker scaling resources. |
-| Optional Flux controllers, CRDs, RBAC, and Git reconciliation | Dedicated `codex/flux-clouddsp-local` GitOps branch | Opt-in bootstrap after ordinary cluster creation; the explicit root selects Flux and the Mailpit/frontend/Job API/upload-intake/generic-dispatcher/dispatcher/scaling-auth HelmRelease/RBAC; check their readiness independently. |
+| Optional Flux controllers, CRDs, RBAC, and Git reconciliation | Dedicated `codex/flux-clouddsp-local` GitOps branch | Opt-in bootstrap after ordinary cluster creation; the explicit root selects Flux and the Mailpit/frontend/Job API/upload-intake/generic-dispatcher/dispatcher/scaling-auth/ADTOF HelmRelease/RBAC; check their readiness independently. |
 | PostgreSQL StatefulSet and two Services | [`clouddsp-postgresql`](helm/postgresql/README.md) | Chart owns workload/service definitions; database contents and bootstrap state have separate ownership. |
 | MinIO StatefulSet, two Services, S3 Ingress | [`clouddsp-minio`](helm/minio/README.md) | Chart owns delivery/storage workload definitions; buckets, IAM, notification state, and objects are external state. |
 | RabbitMQ StatefulSet, three Services, ingress NetworkPolicy | [`clouddsp-rabbitmq`](helm/rabbitmq/README.md) | Chart owns broker workload/services/network rules; vhosts, queues, users, and messages are broker state. |
@@ -33,7 +33,7 @@ installation or the current state of your machine.
 | Generic dispatcher Deployment | Native [`clouddsp-generic-dispatcher`](helm/generic-dispatcher/README.md) Helm release; Flux manages its lifecycle after handoff | Route-aware outbound publisher; target/storage remain `clouddsp-app`. Smoke pause/restore is committed in its HelmRelease valuesFiles. |
 | Demucs Deployment and ScaledObject | [`clouddsp-demucs`](helm/demucs/README.md) | Long-running CPU worker; KEDA observes RabbitMQ plus durable PostgreSQL work. |
 | Basic Pitch Deployment and ScaledObject | [`clouddsp-basic-pitch`](helm/basic-pitch/README.md) | Long-running pitched-stem worker; zero idle replicas is valid. |
-| ADTOF Deployment and ScaledObject | [`clouddsp-adtof`](helm/adtof/README.md) | Long-running drum worker; zero idle replicas is valid. |
+| ADTOF Deployment and ScaledObject | [`clouddsp-adtof`](helm/adtof/README.md); Flux manages delivery after its [handoff](gitops/adtof.md) | Long-running drum worker; KEDA owns the generated HPA and /scale, with an exact Deployment replica drift exception. |
 | Shared TriggerAuthentication resources | [`clouddsp-scaling-auth`](helm/scaling-auth/README.md); Flux manages delivery after its [handoff](gitops/scaling-auth.md) | Keeps release/storage in `clouddsp-app`; fixed observer Secret references, no credential values. KEDA and worker scaling retain separate ownership. |
 
 The current source has **14 CloudDSP component charts** plus the upstream KEDA
@@ -73,7 +73,7 @@ chart-specific source/live verification.
 
 The raw service manifests remain useful comparison/bootstrap inputs, but
 long-lived Helm-owned objects must be changed through their chart and release
-owner. Mailpit, frontend, Job API, upload-intake, generic-dispatcher, legacy dispatcher, and scaling-auth changes use the dedicated GitOps branch after
+owner. Mailpit, frontend, Job API, upload-intake, generic-dispatcher, legacy dispatcher, scaling-auth, and ADTOF changes use the dedicated GitOps branch after
 their Flux handoffs; their current release helpers retain verification and
 block direct install/adopt while the matching HelmRelease exists. Mailpit
 retains its SMTP smoke command; frontend verifies health, app shell, CSP,

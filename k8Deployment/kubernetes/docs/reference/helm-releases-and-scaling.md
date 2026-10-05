@@ -94,7 +94,7 @@ rollouts, six CRDs, and metrics registration. The underlying
 install/upgrade entrypoint for that platform dependency; it does not enqueue
 work or install worker ScaledObjects.
 
-Scaling-auth supports `plan|install|adopt|verify|verify-prerequisites`.
+Scaling-auth supports `plan|install|adopt|verify|verify-prerequisites|reconcile`.
 Fresh install requires KEDA and the restricted PostgreSQL/RabbitMQ scaler
 identities, plus absent auth and worker scaler resources.
 `verify-prerequisites` checks the release before fresh worker installation;
@@ -120,6 +120,13 @@ values file:
 All three releases live in `clouddsp-app`. Change the worker release when
 tuning a worker; the upstream `keda` release installs the operator
 rather than the worker's ScaledObject policy.
+
+After the [ADTOF Flux handoff](../../gitops/adtof.md), publish its chart/values
+changes to the watched GitOps branch. Flux performs the Helm upgrade and
+preserves KEDA's Deployment replica control through a narrowly targeted drift
+exception. Use Git to restore earlier desired values; a competing direct
+Helm upgrade/rollback would disagree with the active Flux configuration. The
+Basic Pitch example below still uses its native Helm delivery path.
 
 | Values field under `autoscaling` | Demucs default | Basic Pitch default | ADTOF default | Purpose |
 | --- | --- | --- | --- | --- |

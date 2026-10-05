@@ -184,10 +184,10 @@ end-to-end smoke tests remain distinct from read-only verification.
 Flux v2.9.6 is an opt-in bootstrap for the existing local cluster, configured
 on `codex/flux-clouddsp-local`. It reads the public repository over HTTPS
 without a GitHub credential in Kubernetes. The explicit root selects Flux
-and seven native Helm releases: Mailpit, frontend, Job API,
-upload-intake, generic-dispatcher, the legacy Demucs-only dispatcher, and shared
-scaling-auth. Mailpit's target/storage remain `clouddsp-data`; the other
-six releases remain in `clouddsp-app`, preserving their original names.
+and eight native Helm releases: Mailpit, frontend, Job API,
+upload-intake, generic-dispatcher, the legacy Demucs-only dispatcher, shared
+scaling-auth, and ADTOF. Mailpit's target/storage remain `clouddsp-data`; the other
+seven releases remain in `clouddsp-app`, preserving their original names.
 Separate namespace-scoped identities perform Helm actions, with Git revision
 packaging and drift detection enabled. Base charts, values, locked images,
 Pod templates, and Secret references are unchanged by these handoffs.
@@ -223,12 +223,18 @@ and restores normal scaling after cleanup.
 Operating guides: [Mailpit](kubernetes/gitops/mailpit.md),
 [frontend](kubernetes/gitops/frontend.md), [Job API](kubernetes/gitops/job-api.md),
 [upload-intake](kubernetes/gitops/upload-intake.md),
-[generic-dispatcher](kubernetes/gitops/generic-dispatcher.md), and
-[legacy dispatcher](kubernetes/gitops/dispatcher.md), and
-[scaling authentication](kubernetes/gitops/scaling-auth.md). Shared authentication
+[generic-dispatcher](kubernetes/gitops/generic-dispatcher.md),
+[legacy dispatcher](kubernetes/gitops/dispatcher.md),
+[scaling authentication](kubernetes/gitops/scaling-auth.md), and
+[ADTOF](kubernetes/gitops/adtof.md). Shared authentication
 uses fixed observer Secret references. Its maintenance runner respects Flux
 ownership; KEDA and worker charts remain separate, with a read-only five-metric
-smoke for credential access. Source is maintained in
+smoke for credential access. ADTOF depends on shared authentication readiness,
+while KEDA retains its generated HPA and replica control through an exact
+Deployment replica drift exception. Its separate smoke exercises real queue
+activation and private MIDI/tempo output before artifact/row cleanup and
+temporary test-identity retirement. Basic Pitch and Demucs remain native
+worker releases. Source is maintained in
 the [dedicated branch](https://github.com/Y1ktor/CloudDSP/tree/codex/flux-clouddsp-local/k8Deployment/kubernetes/gitops).
 Cluster cleanup removes Flux too; ordinary fresh deployment still provisions
 all dependencies before the separate opt-in Flux bootstrap.

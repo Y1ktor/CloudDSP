@@ -15,6 +15,7 @@ module CloudDSPPaths
   # catalog owns where those commands live within scripts/.
   LOCATIONS = {
     'gitops' => %w[
+      adtof-flux-ownership.rb
       bootstrap-flux.sh
       flux-ownership.rb
       dispatcher-flux-ownership.rb

@@ -2,15 +2,17 @@
 
 This opt-in bootstrap installs **Flux v2.9.6** in `flux-system` and connects
 it to the public CloudDSP GitHub repository. It manages its own installation
-and selects seven native Helm releases: Mailpit, frontend, Job API, upload-intake,
-generic-dispatcher, the legacy Demucs-only dispatcher, and shared scaling-auth.
+and selects eight native Helm releases: Mailpit, frontend, Job API, upload-intake,
+generic-dispatcher, the legacy Demucs-only dispatcher, shared scaling-auth, and
+the ADTOF worker.
 Other application releases and their bootstrap identities retain their existing
 script ownership. See the [Mailpit handoff guide](mailpit.md),
 [frontend handoff guide](frontend.md), [Job API handoff guide](job-api.md),
 [upload-intake handoff guide](upload-intake.md),
 [generic dispatcher guide](generic-dispatcher.md), and
 [legacy dispatcher guide](dispatcher.md), and
-[scaling authentication guide](scaling-auth.md) for source, verification, and
+[scaling authentication guide](scaling-auth.md), and [ADTOF guide](adtof.md)
+for source, verification, and
 recovery rules. These source definitions do not establish the current live handoff state;
 check each HelmRelease and its release helper before relying on adoption.
 
@@ -29,7 +31,7 @@ The dedicated branch carries the reviewed source alignment for the canonical
 [image lock](../images.lock.yaml), and organized [deployment helpers](../scripts/).
 This source alignment prepares later component adoptions. The explicit root
 configures reconciliation for Flux, Mailpit, frontend, Job API, upload-intake,
-generic-dispatcher, the legacy dispatcher, and scaling-auth. Changes made
+generic-dispatcher, the legacy dispatcher, scaling-auth, and ADTOF. Changes made
 only on another branch are not deployed. A later move to `main` must publish these files there and update
 `spec.ref.branch` in `flux-system/gotk-sync.yaml` as one coordinated change.
 
@@ -42,8 +44,9 @@ are not recursively adopted. The source uses sparse checkout only for
 `k8Deployment/kubernetes/helm/frontend`, `k8Deployment/kubernetes/helm/job-api`,
 `k8Deployment/kubernetes/helm/upload-intake`,
 `k8Deployment/kubernetes/helm/generic-dispatcher`,
-`k8Deployment/kubernetes/helm/dispatcher`, and
-`k8Deployment/kubernetes/helm/scaling-auth`.
+`k8Deployment/kubernetes/helm/dispatcher`,
+`k8Deployment/kubernetes/helm/scaling-auth`, and
+`k8Deployment/kubernetes/helm/adtof`.
 Expand and verify the source artifact before enabling the next HelmRelease to
 avoid packaging against an earlier sparse archive. Each later component needs
 a reviewed HelmRelease, suitable reconciliation RBAC, its required chart source
@@ -60,7 +63,7 @@ its generated internals.
 
 - **source-controller** fetches Git and other sources and serves their artifacts.
 - **kustomize-controller** applies declarative resource sets and reports health.
-- **helm-controller** manages the seven explicitly selected native
+- **helm-controller** manages the eight explicitly selected native
   Helm releases through their namespace-scoped reconciliation identities.
 - **notification-controller** provides optional alerts and webhook receivers.
 
@@ -83,7 +86,7 @@ Git writers remain responsible for reviewing application handoffs.
 
 `prune: true` removes previously managed objects when removed from Git. The
 root inventory includes Flux, each selected release's reconciliation RBAC, and
-the seven selected HelmReleases. Workload objects and Helm revision Secrets
+the eight selected HelmReleases. Workload objects and Helm revision Secrets
 belong to their native Helm releases. Removing an active HelmRelease normally
 uninstalls that release; treat its removal as a deliberate cleanup operation.
 Deleting the entire k3d cluster still removes Flux;
@@ -96,7 +99,7 @@ along with the other workloads.
 Prerequisites: an existing supported CloudDSP cluster with `clouddsp-data`
 and `clouddsp-app`, verified native `clouddsp-mailpit`, `clouddsp-frontend`,
 `clouddsp-job-api`, `clouddsp-upload-intake`, `clouddsp-generic-dispatcher`,
-`clouddsp-dispatcher`, and `clouddsp-scaling-auth`
+`clouddsp-dispatcher`, `clouddsp-scaling-auth`, and `clouddsp-adtof`
 releases for adoption, cluster-admin kubeconfig access, `kubectl`, `git`, and
 the Flux CLI (`brew install fluxcd/tap/flux` on macOS). Frontend's Keycloak
 configuration, Job API, static image, registry, and browser origin must already
@@ -108,6 +111,9 @@ the ordinary bootstrap; its source-to-outbox smoke remains a separate runbook.
 Shared scaling-auth requires the pinned KEDA release/controllers/CRDs/metrics
 API and existing observer Secrets. The opt-in bootstrap verifies those
 prerequisites before applying Flux; it does not provision their identities.
+ADTOF also requires its existing worker Deployment, Ready ScaledObject, and
+KEDA-owned HPA; bootstrap checks its native/Flux release through the worker
+verifier. Its exact replica drift exception preserves KEDA scaling.
 The node runtime must be able to pull `ghcr.io/fluxcd` controller images.
 These four images are separate from the existing CloudDSP image mirror and
 are pulled directly from GHCR for this opt-in installation.

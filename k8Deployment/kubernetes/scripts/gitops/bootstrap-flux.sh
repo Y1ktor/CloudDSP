@@ -45,6 +45,9 @@ if [[ "$context" != k3d-clouddsp-local ]]; then
 fi
 ruby "$script_dir/../releases/keda-release-stage.rb" verify
 ruby "$script_dir/../releases/scaling-auth-release.rb" verify-prerequisites
+# The first selected worker must already have its native Deployment/scaler/HPA
+# and configured idle/warm readiness. Its credential bootstrap remains separate.
+ruby "$script_dir/../releases/adtof-release.rb" verify
 
 # Install API definitions and controllers before submitting Flux custom objects.
 # Reuse the reconciler's field manager so bootstrap and subsequent Git applies
