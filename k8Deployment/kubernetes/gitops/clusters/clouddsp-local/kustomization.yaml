@@ -20,3 +20,4 @@ resources:
   - rabbitmq
   - postgresql
   - minio
+  - keycloak

@@ -1,0 +1,76 @@
+# Helm actions impersonate this identity; no workload mounts its API token.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: clouddsp-keycloak-helm
+  namespace: flux-system
+automountServiceAccountToken: false
+---
+# Deliver exactly the Keycloak workload, Service and browser Ingress kinds in the existing data
+# namespace. Deployment mutation can mount namespace Secrets and retained PVCs;
+# this trusted delivery role is not isolation from the other data services.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: clouddsp-keycloak-helm
+  namespace: clouddsp-data
+rules:
+  # Kubernetes cannot restrict create by resourceNames. All other mutations
+  # are restricted to the three reviewed chart identities below.
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [create]
+  - apiGroups: [apps]
+    resources: [deployments]
+    resourceNames: [clouddsp-keycloak]
+    verbs: [get, update, patch, delete]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [list, watch]
+  - apiGroups: [""]
+    resources: [services]
+    verbs: [create]
+  - apiGroups: [""]
+    resources: [services]
+    resourceNames: [clouddsp-keycloak]
+    verbs: [get, update, patch, delete]
+  - apiGroups: [""]
+    resources: [services]
+    verbs: [list, watch]
+  # The browser OIDC route must retain its host and port; console is unexposed.
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    verbs: [create]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    resourceNames: [clouddsp-keycloak]
+    verbs: [get, update, patch, delete]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    verbs: [list, watch]
+  # Read-only Pods/ReplicaSets support Helm readiness. Keycloak has no claim;
+  # all durable identity state belongs to its separately managed PostgreSQL DB.
+  # No PVC/PV access, exec, Job creation, or cluster API permission is granted.
+  - apiGroups: [""]
+    resources: [pods, replicasets]
+    verbs: [get, list, watch]
+  # Helm needs namespace-wide revision Secret storage. This also permits access
+  # to data-service credentials; RBAC cannot limit Helm's list to one prefix.
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, list, watch, create, update, patch, delete]
+---
+# Bind the Flux impersonation identity only into the existing data namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: clouddsp-keycloak-helm
+  namespace: clouddsp-data
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: clouddsp-keycloak-helm
+subjects:
+  - kind: ServiceAccount
+    name: clouddsp-keycloak-helm
+    namespace: flux-system

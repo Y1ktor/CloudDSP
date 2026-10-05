@@ -33,6 +33,7 @@ spec:
     - k8Deployment/kubernetes/helm/rabbitmq
     - k8Deployment/kubernetes/helm/postgresql
     - k8Deployment/kubernetes/helm/minio
+    - k8Deployment/kubernetes/helm/keycloak
 ---
 # kustomize-controller builds and applies only this cluster's explicit root.
 # The explicit root includes Flux and the explicitly selected HelmRelease/RBAC sets.
