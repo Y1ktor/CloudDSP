@@ -43,8 +43,12 @@ Bootstrap output contains no passwords; never dump the ignored Secret files.
 
 Run only when Basic Pitch has no ordinary queue messages, active task leases,
 or retries and there are no worker Pods. Pause cannot be used on a busy cluster.
-Basic Pitch is currently directly managed by Helm; stop and adapt this runbook
-if its HelmRelease has subsequently been adopted by Flux.
+The commands in this section apply only before Basic Pitch Flux adoption.
+The current GitOps root selects its HelmRelease; do not run these competing
+native Helm upgrades on that cluster. A reviewed GitOps pause/restore path is
+required for this synthetic routing test. Use the separate
+[worker processing smoke](../basic-pitch-worker-smoke/README.md) to verify the
+Flux-owned worker through the real dispatcher and inference path.
 
 ```sh
 kubectl --context k3d-clouddsp-local -n clouddsp-data exec statefulset/clouddsp-rabbitmq -- rabbitmqctl list_queues -p /clouddsp name messages_ready messages_unacknowledged

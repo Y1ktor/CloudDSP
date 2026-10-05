@@ -121,12 +121,13 @@ All three releases live in `clouddsp-app`. Change the worker release when
 tuning a worker; the upstream `keda` release installs the operator
 rather than the worker's ScaledObject policy.
 
-After the [ADTOF Flux handoff](../../gitops/adtof.md), publish its chart/values
+After the [ADTOF](../../gitops/adtof.md) or
+[Basic Pitch Flux handoff](../../gitops/basic-pitch.md), publish that worker's chart/values
 changes to the watched GitOps branch. Flux performs the Helm upgrade and
 preserves KEDA's Deployment replica control through a narrowly targeted drift
 exception. Use Git to restore earlier desired values; a competing direct
 Helm upgrade/rollback would disagree with the active Flux configuration. The
-Basic Pitch example below still uses its native Helm delivery path.
+Basic Pitch example below publishes its desired policy through Git after adoption.
 
 | Values field under `autoscaling` | Demucs default | Basic Pitch default | ADTOF default | Purpose |
 | --- | --- | --- | --- | --- |
@@ -156,7 +157,8 @@ the existing behavior.
 
 ### Example: keep Basic Pitch warm for a busy period
 
-Run the following commands from the repository root. First edit
+Use the watched `codex/flux-clouddsp-local` checkout for these commands,
+with unrelated edits kept in another checkout. From its repository root, edit
 `k8Deployment/kubernetes/helm/basic-pitch/values.yaml` and change only the
 minimum in its existing policy, retaining the other fields:
 
@@ -181,20 +183,24 @@ helm lint "$chart_dir"
 helm template clouddsp-basic-pitch "$chart_dir" \
   --namespace clouddsp-app
 
-helm upgrade clouddsp-basic-pitch "$chart_dir" \
-  --kube-context k3d-clouddsp-local \
-  --namespace clouddsp-app \
-  --reset-values --values "$chart_dir/values.yaml" \
-  --wait --timeout 3m
+git add "$chart_dir/values.yaml"
+git commit -m "feat(k8s): keep Basic Pitch warm for busy hours"
+git push origin HEAD:codex/flux-clouddsp-local
+
+flux reconcile kustomization flux-system --with-source \
+  --context k3d-clouddsp-local --namespace flux-system
+flux reconcile helmrelease clouddsp-basic-pitch \
+  --context k3d-clouddsp-local --namespace flux-system
 
 ruby ./k8Deployment/kubernetes/scripts/releases/basic-pitch-release.rb verify
 ```
 
-The first two commands work without a running cluster. The upgrade and
-verification need the existing cluster, KEDA, and worker release. Helm updates
+The lint/render commands work without a running cluster. Reconciliation and
+verification need the existing cluster, Flux, KEDA, and worker release. Flux
+performs the Helm upgrade, which updates
 the ScaledObject; KEDA and the generated HPA adjust the worker count. A policy
 change that leaves the Deployment Pod template unchanged does not replace
-Pods through a Deployment rollout. `--wait` does not replace the final
+Pods through a Deployment rollout. Reconciliation does not replace the final
 component verification of scaler readiness and HPA ownership.
 
 Use checked-in values rather than a one-off `--set` override. Release helpers
@@ -208,16 +214,15 @@ check passes.
 ### Return to the normal policy
 
 Restore `minReplicaCount: 0` in the same values file, lint/render again, and
-repeat the upgrade and verification commands. This changes the policy while
+publish that change and repeat reconciliation and verification. This changes the policy while
 preserving the current worker image and other desired configuration. KEDA's
 cooldown and the HPA stabilization window govern when idle Pods disappear.
 
-`helm rollback` is an alternative for undoing a problematic release, but it
-restores the entire selected release, including any older image or other
-settings. Inspect `helm history clouddsp-basic-pitch` with the same context
-and namespace, select an explicit revision, and restore the corresponding
-chart/values in Git so subsequent verification and upgrades agree with the
-rolled-back release. Helm rollback does not edit repository files.
+For the Flux-owned worker, restore or revert the desired values in Git and
+publish them. Inspect native Helm history for diagnosis; a competing direct
+`helm rollback` would disagree with the active Git configuration. On a
+pre-Flux cluster, native upgrade/rollback remain possible, and source values
+must still match the resulting release for verification.
 
 The charts currently expose queue/task scaling settings only. A scheduled
 warm-worker policy would require adding a reviewed KEDA cron trigger; it is

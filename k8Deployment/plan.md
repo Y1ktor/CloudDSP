@@ -184,10 +184,10 @@ end-to-end smoke tests remain distinct from read-only verification.
 Flux v2.9.6 is an opt-in bootstrap for the existing local cluster, configured
 on `codex/flux-clouddsp-local`. It reads the public repository over HTTPS
 without a GitHub credential in Kubernetes. The explicit root selects Flux
-and eight native Helm releases: Mailpit, frontend, Job API,
+and nine native Helm releases: Mailpit, frontend, Job API,
 upload-intake, generic-dispatcher, the legacy Demucs-only dispatcher, shared
-scaling-auth, and ADTOF. Mailpit's target/storage remain `clouddsp-data`; the other
-seven releases remain in `clouddsp-app`, preserving their original names.
+scaling-auth, ADTOF, and Basic Pitch. Mailpit's target/storage remain `clouddsp-data`; the other
+eight releases remain in `clouddsp-app`, preserving their original names.
 Separate namespace-scoped identities perform Helm actions, with Git revision
 packaging and drift detection enabled. Base charts, values, locked images,
 Pod templates, and Secret references are unchanged by these handoffs.
@@ -216,9 +216,10 @@ authenticated upload, native MinIO notifications, atomic outbox state, and
 duplicate delivery. That smoke stages both publishers' pause/restore through a shared editor and
 committed Flux valuesFiles. Each read-only pause verifier requires every
 publisher Pod, including terminating ones, to disappear.
-The generic routing smoke temporarily pauses the native Basic Pitch scaler
-through a reviewed maintenance values file, checks an exact synthetic delivery,
-and restores normal scaling after cleanup.
+Before Basic Pitch Flux adoption, the generic routing smoke pauses its native
+scaler through a reviewed maintenance file. That synthetic queue-reader test
+requires a reviewed GitOps pause/restore path after the handoff; its old native
+Helm commands must not compete with Flux. Worker processing smokes need no pause.
 
 Operating guides: [Mailpit](kubernetes/gitops/mailpit.md),
 [frontend](kubernetes/gitops/frontend.md), [Job API](kubernetes/gitops/job-api.md),
@@ -226,15 +227,18 @@ Operating guides: [Mailpit](kubernetes/gitops/mailpit.md),
 [generic-dispatcher](kubernetes/gitops/generic-dispatcher.md),
 [legacy dispatcher](kubernetes/gitops/dispatcher.md),
 [scaling authentication](kubernetes/gitops/scaling-auth.md), and
-[ADTOF](kubernetes/gitops/adtof.md). Shared authentication
+[ADTOF](kubernetes/gitops/adtof.md) and
+[Basic Pitch](kubernetes/gitops/basic-pitch.md). Shared authentication
 uses fixed observer Secret references. Its maintenance runner respects Flux
 ownership; KEDA and worker charts remain separate, with a read-only five-metric
 smoke for credential access. ADTOF depends on shared authentication readiness,
 while KEDA retains its generated HPA and replica control through an exact
 Deployment replica drift exception. Its separate smoke exercises real queue
 activation and private MIDI/tempo output before artifact/row cleanup and
-temporary test-identity retirement. Basic Pitch and Demucs remain native
-worker releases. Source is maintained in
+temporary test-identity retirement. Basic Pitch retains its dual triggers and
+has the same narrow replica exception; its processing smoke verifies real
+private MIDI output and scoped cleanup/identity retirement. Demucs remains a
+native worker release. Source is maintained in
 the [dedicated branch](https://github.com/Y1ktor/CloudDSP/tree/codex/flux-clouddsp-local/k8Deployment/kubernetes/gitops).
 Cluster cleanup removes Flux too; ordinary fresh deployment still provisions
 all dependencies before the separate opt-in Flux bootstrap.

@@ -246,7 +246,7 @@ class FrontendFluxOwnershipTest < Minitest::Test
       assert_includes stopped(runner), 'requires the reviewed Frontend release identity'
       assert_no_chart_or_write(runner)
     end
-    assert_equal %w[adtof dispatcher frontend generic-dispatcher job-api mailpit scaling-auth upload-intake], FluxOwnership::BINDINGS.keys.sort
+    assert_equal %w[adtof basic-pitch dispatcher frontend generic-dispatcher job-api mailpit scaling-auth upload-intake], FluxOwnership::BINDINGS.keys.sort
     assert_equal 'clouddsp-mailpit', MailpitFluxOwnership::HELMRELEASE_NAME
     assert_equal 'clouddsp-data', MailpitFluxOwnership::RELEASE_NAMESPACE
   end

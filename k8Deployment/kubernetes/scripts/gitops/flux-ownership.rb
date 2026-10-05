@@ -10,6 +10,8 @@ module FluxOwnership
   # Flux's default storage namespace would create a different native release,
   # so target and storage must both match the existing component namespace.
   BINDINGS = {
+    'basic-pitch' => { label: 'Basic Pitch', helmrelease_name: 'clouddsp-basic-pitch',
+                       helmrelease_namespace: 'flux-system', release_namespace: 'clouddsp-app' },
     'adtof' => { label: 'ADTOF', helmrelease_name: 'clouddsp-adtof',
                  helmrelease_namespace: 'flux-system', release_namespace: 'clouddsp-app' },
     'dispatcher' => { label: 'Legacy dispatcher', helmrelease_name: 'clouddsp-dispatcher',
@@ -45,6 +47,12 @@ module FluxOwnership
 
   private
 
+  # Components with historical native upgrade modes extend this reserved set.
+  # A release lookup must happen before any mode can authorize a Helm write.
+  def flux_direct_write_modes
+    %w[adopt install]
+  end
+
   def flux_ownership_binding
     BINDINGS.fetch(flux_ownership_component)
   end
@@ -61,7 +69,7 @@ module FluxOwnership
     # Existence reserves this release before its first reconciliation. Failed,
     # suspended, or deleting HelmReleases still own upgrade/uninstall, so direct
     # installation or adoption must stop before any chart or prerequisite work.
-    ensure_true(!%w[adopt install].include?(@flux_ownership_mode),
+    ensure_true(!flux_direct_write_modes.include?(@flux_ownership_mode),
                 "#{binding.fetch(:label)} is owned by Flux HelmRelease #{binding.fetch(:helmrelease_namespace)}/#{binding.fetch(:helmrelease_name)}; change its GitOps configuration instead of direct #{@flux_ownership_mode}")
     validate_flux_ownership_record
   end

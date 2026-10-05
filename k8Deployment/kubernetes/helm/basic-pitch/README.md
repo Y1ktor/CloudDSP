@@ -94,5 +94,22 @@ uses `values.routing-smoke-pause.yaml` to set
 zero so the restricted smoke reader can validate its exact synthetic delivery.
 Run only with empty queues, no ordinary tasks or retries, and no worker Pods.
 Restore normal values after the event/message is removed; never use the
-maintenance switch for normal capacity changes. Basic Pitch remains a native
-Helm release here. Adapt these operations before its eventual Flux handoff.
+maintenance switch for normal capacity changes. Those native pause/restore
+commands apply only before Flux adoption. A reviewed GitOps maintenance path
+is required for the synthetic routing test after the handoff. The worker
+processing smoke needs no pause or policy override.
+
+## Optional Flux delivery
+
+The [Basic Pitch handoff guide](../../gitops/basic-pitch.md) selects the existing
+release and storage in `clouddsp-app`. Flux manages the Deployment and
+ScaledObject; KEDA owns its generated HPA and replica control. The chart omits
+replicas, and Flux ignores only `/spec/replicas` on the exact worker Deployment.
+Both shared RabbitMQ and PostgreSQL authentication references remain unchanged.
+
+Publish chart/values changes to the watched GitOps branch. The ownership-aware
+runner verifies native manifests, policy, idle/warm readiness, HPA ownership,
+and current Flux reconciliation, and blocks direct install/adopt and the three
+historical native upgrade modes whenever its HelmRelease exists. Smoke Jobs
+and identity bootstrap/retirement remain separate, versioned administrator
+operations outside the reconciled root.

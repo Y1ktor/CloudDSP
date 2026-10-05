@@ -4,6 +4,7 @@
 # their existing owners. Helm values select idle zero or a Ready warm minimum.
 require_relative '../lib/paths'
 require_relative '../lib/helm-release'
+require_relative '../gitops/basic-pitch-flux-ownership'
 
 class BasicPitchRelease < HelmRelease
   SCALER = 'clouddsp-basic-pitch-rabbitmq-scaler'
@@ -251,4 +252,12 @@ class BasicPitchRelease < HelmRelease
   end
 end
 
-BasicPitchRelease.new.run(ARGV.length == 1 ? ARGV.first : nil)
+module CloudDSPBasicPitchRelease
+  # CLI and regressions share the same worker runner. The adapter adds Flux
+  # ownership checks without replacing policy, HPA, or smoke verification.
+  def self.build
+    BasicPitchRelease.new.extend(BasicPitchFluxOwnership)
+  end
+end
+
+CloudDSPBasicPitchRelease.build.run(ARGV.length == 1 ? ARGV.first : nil) if $PROGRAM_NAME == __FILE__
