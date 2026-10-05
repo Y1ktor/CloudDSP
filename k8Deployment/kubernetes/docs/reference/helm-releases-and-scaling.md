@@ -287,3 +287,15 @@ claim, messages, credentials and topology keep their existing owners. Chart
 liveness guidance; the manual verifier keeps running/local-alarm checks.
 Publishers/intake depend on RabbitMQ; shared authentication depends on KEDA and
 RabbitMQ, and worker releases inherit those gates through authentication.
+
+## PostgreSQL Flux delivery
+
+The [PostgreSQL handoff](../../gitops/postgresql.md) reuses native release
+`clouddsp-data/clouddsp-postgresql` and its history. Its unchanged chart owns
+only the StatefulSet and two Services; database state, generated storage,
+Secrets and schema/identity bootstrap stay external. Job API depends on
+PostgreSQL; intake and both dispatchers depend on PostgreSQL, Job API and
+RabbitMQ. Shared authentication depends on PostgreSQL, KEDA and RabbitMQ;
+workers inherit those gates. The release helper verifies either native or
+Flux ownership, runs the separate read/write smoke, and blocks competing
+native install/adopt. PostgreSQL delivery does not perform a database migration.

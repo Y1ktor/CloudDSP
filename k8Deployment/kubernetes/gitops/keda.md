@@ -38,7 +38,7 @@ platform definition must be published to `codex/flux-clouddsp-local`.
 
 ## Dependencies and scaling
 
-Shared scaling-auth now depends on the KEDA and RabbitMQ HelmReleases. All three worker
+Shared scaling-auth now depends on the PostgreSQL, KEDA and RabbitMQ HelmReleases. All three worker
 HelmReleases depend on scaling-auth: **KEDA/RabbitMQ → shared authentication → workers**.
 The ordinary fresh platform bootstrap still installs KEDA, creates observer
 identities, and installs the application releases before opt-in Flux adoption.

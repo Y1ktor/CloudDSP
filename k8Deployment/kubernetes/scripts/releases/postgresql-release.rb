@@ -7,22 +7,31 @@
 # bootstrap Jobs remain outside the Helm release and are never deleted here.
 require_relative '../lib/paths'
 require_relative '../lib/helm-release'
+require_relative '../gitops/postgresql-flux-ownership'
 
-HelmRelease.new(
-  component: 'postgresql',
-  namespace: 'clouddsp-data',
-  release: 'clouddsp-postgresql',
-  source_files: %w[postgresql-statefulset.yaml postgresql-service.yaml postgresql-headless-service.yaml],
-  resources: %w[statefulset/clouddsp-postgresql service/clouddsp-postgresql service/clouddsp-postgresql-headless],
-  pod_selector: 'app.kubernetes.io/name=postgresql,app.kubernetes.io/instance=clouddsp-postgresql,app.kubernetes.io/component=database',
-  workload_kind: 'StatefulSet',
-  pvc_name: 'postgres-data-clouddsp-postgresql-0',
-  before_adopt: [CloudDSPPaths.script('postgresql-backup-and-restore-test.sh').to_s],
-  allow_fresh_install: true,
-  before_install: ['ruby', CloudDSPPaths.script('postgresql-secret-stage.rb').to_s, 'verify'],
-  fresh_install_timeout: '5m',
-  smoke_job: {
-    name: 'postgresql-read-write-smoke',
-    manifest: 'tests/postgresql-smoke/postgresql-read-write-smoke-job.yaml'
-  }
-).run(ARGV.length == 1 ? ARGV.first : nil)
+module CloudDSPPostgreSQLRelease
+  # The real CLI and regression tests use the same guarded runner. Native
+  # bootstrap remains available only when Flux ownership is explicitly absent.
+  def self.build
+    HelmRelease.new(
+      component: 'postgresql',
+      namespace: 'clouddsp-data',
+      release: 'clouddsp-postgresql',
+      source_files: %w[postgresql-statefulset.yaml postgresql-service.yaml postgresql-headless-service.yaml],
+      resources: %w[statefulset/clouddsp-postgresql service/clouddsp-postgresql service/clouddsp-postgresql-headless],
+      pod_selector: 'app.kubernetes.io/name=postgresql,app.kubernetes.io/instance=clouddsp-postgresql,app.kubernetes.io/component=database',
+      workload_kind: 'StatefulSet',
+      pvc_name: 'postgres-data-clouddsp-postgresql-0',
+      before_adopt: [CloudDSPPaths.script('postgresql-backup-and-restore-test.sh').to_s],
+      allow_fresh_install: true,
+      before_install: ['ruby', CloudDSPPaths.script('postgresql-secret-stage.rb').to_s, 'verify'],
+      fresh_install_timeout: '5m',
+      smoke_job: {
+        name: 'postgresql-read-write-smoke',
+        manifest: 'tests/postgresql-smoke/postgresql-read-write-smoke-job.yaml'
+      }
+    ).extend(PostgreSQLFluxOwnership)
+  end
+end
+
+CloudDSPPostgreSQLRelease.build.run(ARGV.length == 1 ? ARGV.first : nil) if $PROGRAM_NAME == __FILE__

@@ -23,8 +23,9 @@ readiness and the release verifier to establish the state of a running cluster.
   settings retain their separate bootstrap stages. Secret references remain in
   the Pod spec; credential values are excluded from Git and chart values.
 - Before enabling reconciliation, verify the deployed native release and its
-  dependencies through the existing bootstrap gates. Job API has no artificial
-  `dependsOn` entries for services that are not yet Flux HelmReleases. A missing
+  dependencies through the existing bootstrap gates. Job API now depends on the
+  [PostgreSQL HelmRelease](postgresql.md); database readiness does not provision
+  its roles or schema. MinIO and Keycloak keep their bootstrap ownership. A missing
   release can be installed by this configuration; there is no adopt-only mode.
 - The source artifact must contain `helm/job-api/` before adding its
   HelmRelease to the root. Source-path preparation is published and verified

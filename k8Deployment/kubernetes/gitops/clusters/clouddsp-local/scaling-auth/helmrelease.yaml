@@ -16,9 +16,11 @@ spec:
   storageNamespace: clouddsp-app
   serviceAccountName: clouddsp-scaling-auth-helm
   # Platform delivery must be Ready before the shared authentication mappings.
-  # Workers depend on this release, forming KEDA/broker -> auth -> workers.
+  # Workers depend on this release, forming database/KEDA/broker -> auth -> workers.
   # Credential provisioning remains an ordinary bootstrap prerequisite.
   dependsOn:
+    - name: clouddsp-postgresql
+      namespace: flux-system
     - name: keda
       namespace: flux-system
     - name: clouddsp-rabbitmq

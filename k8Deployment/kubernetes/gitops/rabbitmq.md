@@ -15,8 +15,9 @@ base chart version. The only values file is the reviewed chart default; no
 inline credentials, external values sources, floating images or image automation
 are configured. Publish changes to `codex/flux-clouddsp-local` for reconciliation.
 
-Upload-intake and both dispatchers now depend on RabbitMQ and Job API readiness.
-Shared scaling-auth depends on KEDA and RabbitMQ; the three workers depend on
+Upload-intake and both dispatchers now depend on PostgreSQL, RabbitMQ and
+Job API readiness.
+Shared scaling-auth depends on PostgreSQL, KEDA and RabbitMQ; the three workers depend on
 scaling-auth. These gates order delivery. They do not initialize users, grants,
 queues or database state. The ordinary fresh bootstrap still prepares those
 prerequisites before the separate opt-in Flux bootstrap.

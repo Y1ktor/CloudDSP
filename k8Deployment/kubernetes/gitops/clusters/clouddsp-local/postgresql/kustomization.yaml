@@ -1,6 +1,7 @@
-# Prepare the delivery identity before enabling PostgreSQL reconciliation.
-# Chart availability and RBAC alone do not adopt its existing native release.
+# Deliver only the reviewed existing database workload and two Services.
+# Data, generated volumes, credentials, schemas and bootstrap Jobs stay external.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - reconciliation-rbac.yaml
+  - helmrelease.yaml

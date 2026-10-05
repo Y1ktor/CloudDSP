@@ -184,9 +184,9 @@ end-to-end smoke tests remain distinct from read-only verification.
 Flux v2.9.6 is an opt-in bootstrap for the existing local cluster, configured
 on `codex/flux-clouddsp-local`. It reads the public repository over HTTPS
 without a GitHub credential in Kubernetes. The explicit root selects Flux
-and twelve native Helm releases: KEDA, RabbitMQ, Mailpit, frontend, Job API,
+and thirteen native Helm releases: KEDA, PostgreSQL, RabbitMQ, Mailpit, frontend, Job API,
 upload-intake, generic-dispatcher, the legacy Demucs-only dispatcher, shared
-scaling-auth, ADTOF, Basic Pitch, and Demucs. Mailpit/RabbitMQ target/storage remain `clouddsp-data`;
+scaling-auth, ADTOF, Basic Pitch, and Demucs. Mailpit/PostgreSQL/RabbitMQ target/storage remain `clouddsp-data`;
 KEDA stays in `keda`, and nine application releases stay in `clouddsp-app`.
 Separate namespace-scoped identities perform Helm actions, with Git revision
 packaging and drift detection enabled. Base charts, values, locked images,
@@ -194,7 +194,8 @@ Secret references and runtime images remain intact. RabbitMQ deliberately
 updates its health probes; KEDA preserves effective values through its reviewed
 label transformation, retention annotations and CA drift exceptions.
 
-Upload-intake's HelmRelease waits for Job API and RabbitMQ readiness.
+Job API waits for PostgreSQL readiness; upload-intake and both dispatchers
+wait for PostgreSQL, Job API and RabbitMQ readiness.
 The other required database, broker, MinIO, and Keycloak bootstrap state
 retains its script ownership; a readiness dependency does not provision
 those identities or service settings. Upload-intake's chart owns only its
@@ -264,8 +265,18 @@ locked image and network boundaries. Chart `0.1.1` removes repeated Erlang
 exec probes using RabbitMQ's TCP readiness/no-liveness recommendation; manual
 verification retains running/local-alarm checks. The probe update rolls one
 broker Pod and briefly interrupts this single-node broker. Publishers/intake
-depend on broker readiness; authentication depends on KEDA and RabbitMQ,
+depend on broker readiness; authentication depends on PostgreSQL, KEDA and RabbitMQ,
 workers on authentication. Native install/adopt fail closed while Flux owns it.
+
+
+PostgreSQL delivery uses the [database guide](kubernetes/gitops/postgresql.md)
+and retains its native history, unchanged workload/Services/Pod template and
+existing claim/PV. Database contents, roles, grants, schemas, migrations and
+credentials remain separate bootstrap state. No database restart, image upgrade,
+initialization, credential rotation or historical backup/restore gate is part of
+this native-to-Flux handoff. Job API and database clients depend on its readiness;
+shared authentication includes PostgreSQL and workers depend on authentication.
+Native install/adopt fail closed once its HelmRelease exists.
 
 ## Remaining product scope
 

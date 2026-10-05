@@ -1,29 +1,24 @@
-# helm-controller reuses the installed clouddsp-job-api release and its history.
+# helm-controller reuses the installed clouddsp-postgresql release and its history.
 # This resource is reconciliation configuration; Helm still owns the rendered
-# Deployment, Service, and Ingress in the existing clouddsp-app namespace.
+# StatefulSet and two Services in the existing clouddsp-data namespace.
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
-  name: clouddsp-job-api
+  name: clouddsp-postgresql
   namespace: flux-system
 spec:
   interval: 5m
-  timeout: 3m
+  timeout: 5m
   maxHistory: 10
   # Explicit names avoid Flux's default namespace-prefixed release naming and
   # preserve the namespace where the existing Helm revision Secrets are stored.
-  releaseName: clouddsp-job-api
-  targetNamespace: clouddsp-app
-  storageNamespace: clouddsp-app
-  serviceAccountName: clouddsp-job-api-helm
-  # PostgreSQL delivery must be Ready; existing schemas/grants are provisioned
-  # by separate bootstrap stages rather than this readiness dependency.
-  dependsOn:
-    - name: clouddsp-postgresql
-      namespace: flux-system
+  releaseName: clouddsp-postgresql
+  targetNamespace: clouddsp-data
+  storageNamespace: clouddsp-data
+  serviceAccountName: clouddsp-postgresql-helm
   chart:
     spec:
-      chart: ./k8Deployment/kubernetes/helm/job-api
+      chart: ./k8Deployment/kubernetes/helm/postgresql
       interval: 1m
       # Rebuild when Git changes, even if Chart.yaml's base version is unchanged.
       # Flux appends a source SHA and values-file generation to the chart version.
@@ -34,7 +29,7 @@ spec:
         namespace: flux-system
       # Git chart values-file paths are relative to the repository root.
       valuesFiles:
-        - ./k8Deployment/kubernetes/helm/job-api/values.yaml
+        - ./k8Deployment/kubernetes/helm/postgresql/values.yaml
       ignoreMissingValuesFiles: false
   install:
     createNamespace: false
@@ -48,7 +43,8 @@ spec:
       remediateLastFailure: false
   upgrade:
     disableTakeOwnership: true
-    # Keep the existing CLI release's apply method during its ownership handoff.
+    # Preserve the native release apply method; the unchanged Pod template
+    # and immutable claim identity must not cause a workload replacement.
     serverSideApply: auto
     force: false
     cleanupOnFail: false
@@ -61,9 +57,8 @@ spec:
       retries: 0
       # An adopted release must not be automatically rolled back or uninstalled.
       remediateLastFailure: false
-  # The chart has no Helm test hook. The release helper checks the running
-  # digest and protected routes; a separate disposable Job tests real OIDC
-  # authentication and a PostgreSQL-backed empty job list. It is not chart-owned.
+  # Read/write smoke is a separate versioned Job. Runtime credentials, schema,
+  # migrations and retained storage are outside the delivery identity.
   test:
     enable: false
   # After the release is in sync, correct live drift against its stored manifest.

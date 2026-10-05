@@ -21,7 +21,7 @@ installation or the current state of your machine.
 | CoreDNS, Traefik/CRDs, networking, metrics, local-path provisioner | K3s distribution in `kube-system` | Foundation verifies these components; CloudDSP charts do not take them over. |
 | KEDA controllers, RBAC, services, and CRDs | Pinned upstream `keda` Helm release; Flux manages delivery after its [handoff](gitops/keda.md) | Exact upstream 2.20.2 and existing history/specs; one duplicate label input moved to explicit patches; named platform RBAC, runtime CA exceptions, six retained CRDs. Shared auth depends on KEDA; workers depend on auth. |
 | Optional Flux controllers, CRDs, RBAC, and Git reconciliation | Dedicated `codex/flux-clouddsp-local` GitOps branch | Opt-in bootstrap after ordinary cluster creation; the explicit root selects Flux and the Mailpit/frontend/Job API/upload-intake/generic-dispatcher/dispatcher/scaling-auth/ADTOF/Basic-Pitch/Demucs HelmRelease/RBAC; check their readiness independently. |
-| PostgreSQL StatefulSet and two Services | [`clouddsp-postgresql`](helm/postgresql/README.md) | Chart owns workload/service definitions; database contents and bootstrap state have separate ownership. |
+| PostgreSQL StatefulSet and two Services | [`clouddsp-postgresql`](helm/postgresql/README.md); Flux manages delivery after its [handoff](gitops/postgresql.md) | Chart owns workload/service definitions; database contents and bootstrap state have separate ownership. |
 | MinIO StatefulSet, two Services, S3 Ingress | [`clouddsp-minio`](helm/minio/README.md) | Chart owns delivery/storage workload definitions; buckets, IAM, notification state, and objects are external state. |
 | RabbitMQ StatefulSet, three Services, ingress NetworkPolicy | [`clouddsp-rabbitmq`](helm/rabbitmq/README.md); Flux manages delivery after its [handoff](gitops/rabbitmq.md) | Chart owns broker workload/services/network rules; vhosts, queues, users, and messages are broker state. |
 | Keycloak Deployment, Service, Ingress | [`clouddsp-keycloak`](helm/keycloak/README.md) | Database, realm/client configuration, SMTP, and credentials use versioned bootstrap stages. |
@@ -102,3 +102,10 @@ Secrets and generated PVC/PV stay with their existing authorities. Publishers
 and intake depend on RabbitMQ; scaling-auth depends on KEDA and RabbitMQ and
 workers depend on authentication. The release helper keeps verify/AMQP smoke,
 checks local alarms explicitly, and blocks competing native install/adopt.
+
+PostgreSQL delivery uses its [Flux handoff](gitops/postgresql.md). It reuses
+`clouddsp-data` native history and owns only the existing StatefulSet and two
+Services. Generated claims/PVs, database contents, roles, grants, migrations,
+bootstrap Jobs and credential values remain external. Job API and database
+clients wait for its readiness; scaling-auth includes PostgreSQL so workers
+inherit that gate. Native install/adopt are reserved once Flux ownership exists.

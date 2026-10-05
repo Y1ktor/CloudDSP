@@ -10,8 +10,9 @@ database/broker identities and lease-backed outbox boundary through bootstrap.
 
 The [HelmRelease](clusters/clouddsp-local/dispatcher/helmrelease.yaml) fixes
 the existing release name and target/storage namespace. It uses Git revision
-packaging and drift correction, with a Job API readiness dependency matching
-the original fresh-install prerequisite. That dependency does not provision
+packaging and drift correction, with PostgreSQL, Job API and RabbitMQ readiness
+dependencies. Job API verification remains an ordinary fresh prerequisite.
+Those delivery dependencies do not provision
 database schema or broker identities. The [chart](../helm/dispatcher/) retains
 base version `0.1.0` and the locked `images.dispatcher-demucs-only` image,
 Pod template, selector, Secret references, resources, and security settings.

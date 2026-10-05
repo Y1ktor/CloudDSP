@@ -26,8 +26,9 @@ conditions/history and repair Git before continuing. Removing this active
 HelmRelease normally uninstalls its authentications, disrupting dependent
 scalers; treat removal as a deliberate lifecycle operation.
 
-KEDA remains in its separately installed `keda` Helm release. There is no
-KEDA Flux HelmRelease to reference in `dependsOn` yet. Worker charts still own
+KEDA remains in its separately delivered `keda` native Helm release, now owned
+by its Flux HelmRelease. Shared authentication depends on PostgreSQL, KEDA and
+RabbitMQ readiness. Worker charts still own
 their Deployments and ScaledObjects; KEDA owns their generated HPAs and scale
 decisions. Authentication adoption changes only release/origin metadata;
 credential references and the two authentication specs remain identical.
@@ -79,6 +80,6 @@ See the pinned [KEDA metric provider](https://github.com/kedacore/keda/blob/v2.2
 This proves metric access with existing credentials, while worker burst and
 end-to-end processing tests remain separate checks for worker adoption.
 
-RabbitMQ readiness now joins KEDA as a Flux dependency. Workers inherit both
-readiness gates through this release. Identity/topology provisioning stays an
-ordinary bootstrap prerequisite; see the [RabbitMQ guide](rabbitmq.md).
+PostgreSQL and RabbitMQ readiness join KEDA as Flux dependencies. Workers inherit
+all three readiness gates through this release. Identity/topology provisioning stays an
+ordinary bootstrap prerequisite; see the [RabbitMQ](rabbitmq.md) and [PostgreSQL](postgresql.md) guides.

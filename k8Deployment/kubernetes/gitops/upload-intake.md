@@ -25,12 +25,14 @@ verifier to establish the state of a running cluster.
   notifications/IAM, and runtime Secrets retain their bootstrap ownership.
   Credentials are excluded from Git and chart values.
 - `dependsOn` waits for the already managed `flux-system/clouddsp-job-api`
-  HelmRelease to be Ready. Job API verification is also an existing fresh
+  HelmRelease and the PostgreSQL/RabbitMQ HelmReleases to be Ready.
+  Job API verification is also an existing fresh
   installation prerequisite. This gate does not bootstrap or verify all
   database, broker, or storage identities; the ordinary fresh workflow still
   runs all six original prerequisite checks before direct installation.
-- Broker, PostgreSQL, and MinIO remain outside Flux ownership. Both
-  dispatchers have their own separate Flux handoffs. Their names are not fabricated as Flux dependencies.
+- PostgreSQL and RabbitMQ delivery now have separate Flux handoffs; their
+  contents/identities remain bootstrap-owned. MinIO remains outside Flux. Both
+  dispatchers have separate handoffs and are not dependencies of this consumer.
   A missing native release can be installed by this configuration; there is
   no adopt-only mode. Prepare and verify dependency state before opting in.
 

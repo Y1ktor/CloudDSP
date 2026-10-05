@@ -16,9 +16,11 @@ spec:
   targetNamespace: clouddsp-app
   storageNamespace: clouddsp-app
   serviceAccountName: clouddsp-generic-dispatcher-helm
-  # Job API is already a Flux-managed prerequisite in the fresh workflow.
+  # Database/broker delivery and the existing Job API prerequisite must be Ready.
   # This readiness gate does not provision database, broker, or MinIO identities.
   dependsOn:
+    - name: clouddsp-postgresql
+      namespace: flux-system
     - name: clouddsp-job-api
       namespace: flux-system
     - name: clouddsp-rabbitmq

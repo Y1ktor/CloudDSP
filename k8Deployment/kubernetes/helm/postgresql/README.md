@@ -49,7 +49,7 @@ generated PVC, and matching Pod. It rechecks the credential Secret, uses
 ordinary Helm install without takeover flags, waits for the StatefulSet,
 and verifies its Pod and bound claim. It does not run the adoption backup
 gate because this path starts without a data claim. A failed or partial
-install is retained for inspection; a clean-cluster trial remains pending.
+install is retained for inspection; fresh-cluster trials are recorded under [deployment trials](../../docs/trials/).
 
 ## Protected adoption and checks
 
@@ -107,3 +107,13 @@ and Job API authenticated reads before routing traffic to the replacement.
 The tested script provides the exact isolated restore rehearsal. Restoration
 into the current live PVC is intentionally not automated because it would
 overwrite authoritative identity and job data.
+
+## Optional Flux delivery
+
+The [PostgreSQL Flux guide](../../gitops/postgresql.md) adopts the existing
+healthy native release and history without changing this chart, restarting its
+Pod, or reinitializing storage. The ownership-aware helper retains `verify` and
+`smoke`, and refuses native `install`/`adopt` whenever its HelmRelease exists.
+Change the versioned GitOps configuration for delivery; schemas, roles, runtime
+Secrets and generated PVC/PV remain external. Ordinary fresh native bootstrap
+continues to work when Flux ownership is absent.

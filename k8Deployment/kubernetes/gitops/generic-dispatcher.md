@@ -10,8 +10,9 @@ dispatcher is a separate native Helm release with its own Flux handoff.
 ## Delivery boundary
 
 The [HelmRelease](clusters/clouddsp-local/generic-dispatcher/helmrelease.yaml)
-fixes release name, target/storage namespace, and a Job API readiness dependency
-that mirrors the existing fresh-install prerequisite. PostgreSQL schema and
+fixes release name and target/storage namespace, with PostgreSQL, Job API and
+RabbitMQ readiness dependencies. Job API verification remains an ordinary fresh
+prerequisite. PostgreSQL schema and
 dispatcher database/broker identities must already exist through bootstrap.
 The readiness dependency does not provision or check those service contents.
 There is no inbound listener, Service, Ingress, storage claim, or chart test Job.
