@@ -58,6 +58,24 @@ spec:
       remediateLastFailure: false
   test:
     enable: false
+  # Temporary maintenance for the expired, fixed Demucs smoke fixture after
+  # the host Docker engine outage. KEDA owns the scale operation and stops
+  # lease owners before exact-coordinate cleanup. Remove this renderer after
+  # that cleanup; normal queue and database scaling then resumes.
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              group: keda.sh
+              version: v1alpha1
+              kind: ScaledObject
+              name: clouddsp-demucs
+              namespace: clouddsp-app
+            patch: |
+              - op: add
+                path: /metadata/annotations
+                value:
+                  autoscaling.keda.sh/paused-replicas: "0"
   driftDetection:
     mode: enabled
     # Ignore exactly the Deployment replica field controlled by KEDA/HPA.
