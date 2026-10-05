@@ -184,9 +184,9 @@ end-to-end smoke tests remain distinct from read-only verification.
 Flux v2.9.6 is an opt-in bootstrap for the existing local cluster, configured
 on `codex/flux-clouddsp-local`. It reads the public repository over HTTPS
 without a GitHub credential in Kubernetes. The explicit root selects Flux
-and five native application releases: Mailpit, frontend, Job API,
-upload-intake, and generic-dispatcher. Mailpit's target/storage remain `clouddsp-data`; the other
-four releases remain in `clouddsp-app`, preserving their original names.
+and six native application releases: Mailpit, frontend, Job API,
+upload-intake, generic-dispatcher, and the legacy Demucs-only dispatcher. Mailpit's target/storage remain `clouddsp-data`; the other
+five releases remain in `clouddsp-app`, preserving their original names.
 Separate namespace-scoped identities perform Helm actions, with Git revision
 packaging and drift detection enabled. Base charts, values, locked images,
 Pod templates, and Secret references are unchanged by these handoffs.
@@ -212,16 +212,18 @@ protected routes; its disposable authenticated smoke checks real Keycloak
 tokens and the PostgreSQL-backed owner job list. Upload-intake verifies its
 running digest and Ready Pod, with a separate source-to-outbox smoke covering
 authenticated upload, native MinIO notifications, atomic outbox state, and
-duplicate delivery. That smoke pauses/restores generic-dispatcher through
-committed Flux valuesFiles and the legacy dispatcher through native Helm values.
+duplicate delivery. That smoke stages both publishers' pause/restore through a shared editor and
+committed Flux valuesFiles. Each read-only pause verifier requires every
+publisher Pod, including terminating ones, to disappear.
 The generic routing smoke temporarily pauses the native Basic Pitch scaler
 through a reviewed maintenance values file, checks an exact synthetic delivery,
 and restores normal scaling after cleanup.
 
 Operating guides: [Mailpit](kubernetes/gitops/mailpit.md),
 [frontend](kubernetes/gitops/frontend.md), [Job API](kubernetes/gitops/job-api.md),
-[upload-intake](kubernetes/gitops/upload-intake.md), and
-[generic-dispatcher](kubernetes/gitops/generic-dispatcher.md). Source is maintained in
+[upload-intake](kubernetes/gitops/upload-intake.md),
+[generic-dispatcher](kubernetes/gitops/generic-dispatcher.md), and
+[legacy dispatcher](kubernetes/gitops/dispatcher.md). Source is maintained in
 the [dedicated branch](https://github.com/Y1ktor/CloudDSP/tree/codex/flux-clouddsp-local/k8Deployment/kubernetes/gitops).
 Cluster cleanup removes Flux too; ordinary fresh deployment still provisions
 all dependencies before the separate opt-in Flux bootstrap.

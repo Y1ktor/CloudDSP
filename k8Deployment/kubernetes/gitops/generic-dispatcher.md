@@ -5,7 +5,7 @@ The existing native release, history Secrets, and single outbound Deployment
 remain in `clouddsp-app`. Its base chart is `0.1.0`; its image, explicit
 `app.dispatcher_generic_runtime` command, selector, Pod template, and Secret
 references retain the reviewed source configuration. The legacy Demucs-only
-dispatcher is a separate native Helm release and retains its existing owner.
+dispatcher is a separate native Helm release with its own Flux handoff.
 
 ## Delivery boundary
 
@@ -58,9 +58,10 @@ The [source-to-outbox smoke](../tests/source-intake-smoke/README.md) pauses both
 publishers while observing one pending outbox row. Generic-dispatcher's pause
 is a committed HelmRelease `valuesFiles` change, selecting the reviewed
 `values.smoke-pause.yaml` after normal values. The small
-[values editor](../scripts/gitops/generic-dispatcher-smoke-values.rb) stages
-only that one line in the watched checkout; commit/push and reconciliation
-remain explicit. It never changes the cluster or publishes Git automatically.
+[shared values editor](../scripts/gitops/dispatchers-smoke-values.rb) validates
+both HelmReleases and stages only their pause lines in the watched checkout; commit/push and reconciliation
+remain explicit. It never changes the cluster or publishes Git automatically. The generic-only
+entrypoint remains available for targeted routing maintenance.
 `verify-smoke-pause` requires current-generation Ready, the exact pause
 configuration, full stored/live parity, and **no Pods, including terminating
 publishers**. Normal `verify` continues to require one replica and running

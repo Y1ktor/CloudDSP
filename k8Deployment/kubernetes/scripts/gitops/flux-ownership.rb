@@ -10,6 +10,8 @@ module FluxOwnership
   # Flux's default storage namespace would create a different native release,
   # so target and storage must both match the existing component namespace.
   BINDINGS = {
+    'dispatcher' => { label: 'Legacy dispatcher', helmrelease_name: 'clouddsp-dispatcher',
+                      helmrelease_namespace: 'flux-system', release_namespace: 'clouddsp-app' },
     'mailpit' => { label: 'Mailpit', helmrelease_name: 'clouddsp-mailpit',
                    helmrelease_namespace: 'flux-system', release_namespace: 'clouddsp-data' },
     'frontend' => { label: 'Frontend', helmrelease_name: 'clouddsp-frontend',

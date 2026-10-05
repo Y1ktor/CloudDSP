@@ -17,6 +17,9 @@ module CloudDSPPaths
     'gitops' => %w[
       bootstrap-flux.sh
       flux-ownership.rb
+      dispatcher-flux-ownership.rb
+      dispatcher-flux-verification.rb
+      dispatchers-smoke-values.rb
       generic-dispatcher-flux-ownership.rb
       generic-dispatcher-smoke-values.rb
       frontend-flux-ownership.rb

@@ -28,7 +28,7 @@ spec:
     - k8Deployment/kubernetes/helm/dispatcher
 ---
 # kustomize-controller builds and applies only this cluster's explicit root.
-# The explicit root includes Flux and the five selected HelmRelease/RBAC sets.
+# The explicit root includes Flux and the six selected HelmRelease/RBAC sets.
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:

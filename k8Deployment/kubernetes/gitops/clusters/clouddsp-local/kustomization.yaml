@@ -11,3 +11,4 @@ resources:
   - job-api
   - upload-intake
   - generic-dispatcher
+  - dispatcher
