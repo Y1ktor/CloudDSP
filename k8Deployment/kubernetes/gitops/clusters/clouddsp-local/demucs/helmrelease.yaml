@@ -69,7 +69,7 @@ spec:
               group: keda.sh
               version: v1alpha1
               kind: ScaledObject
-              name: clouddsp-demucs
+              name: clouddsp-demucs-rabbitmq-scaler
               namespace: clouddsp-app
             patch: |
               - op: add
