@@ -19,3 +19,4 @@ resources:
   - demucs
   - rabbitmq
   - postgresql
+  - minio

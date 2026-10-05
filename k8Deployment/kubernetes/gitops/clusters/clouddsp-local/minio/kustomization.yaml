@@ -1,0 +1,6 @@
+# Prepare the object-store delivery identity before enabling its HelmRelease.
+# Source availability and RBAC alone do not transfer ownership of MinIO.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - reconciliation-rbac.yaml
