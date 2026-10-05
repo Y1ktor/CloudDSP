@@ -34,8 +34,9 @@ The Flux `Kustomization` API resource selects the directory to apply. The
 lists so retained raw service manifests, one-time Jobs, tests, and credentials
 are not recursively adopted. The source uses sparse checkout only for
 `k8Deployment/kubernetes/gitops`, `k8Deployment/kubernetes/helm/mailpit`,
-`k8Deployment/kubernetes/helm/frontend`, and
-`k8Deployment/kubernetes/helm/job-api`.
+`k8Deployment/kubernetes/helm/frontend`, `k8Deployment/kubernetes/helm/job-api`,
+and the prepared `k8Deployment/kubernetes/helm/upload-intake` source. This source
+preparation does not add upload-intake to the root or transfer its ownership.
 Expand and verify the source artifact before enabling the next HelmRelease to
 avoid packaging against an earlier sparse archive. Each later component needs
 a reviewed HelmRelease, suitable reconciliation RBAC, its required chart source
