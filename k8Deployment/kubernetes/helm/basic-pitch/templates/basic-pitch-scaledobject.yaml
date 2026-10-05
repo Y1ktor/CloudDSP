@@ -141,11 +141,11 @@ spec:
         # and before model inference. Count active leases so queue drain does
         # not scale away an executing Pod. A due retry also wakes a zero-Pod
         # worker; future retries do not reserve an idle replica.
-        query: >-
-          SELECT COUNT(*)::bigint FROM public.processing_tasks
-          WHERE stage = 'basic-pitch'
-            AND (status IN ('leased', 'running')
-              OR (status = 'retry_scheduled' AND available_at <= CURRENT_TIMESTAMP))
+        # Emit a quoted string with explicit newlines. Flux's label postrenderer
+        # reserializes YAML; a folded scalar with deeper indentation previously
+        # gained blank lines there. Keep the exact original SQL string through
+        # Helm, postrendering, stored history, and live spec comparisons.
+        query: {{ "SELECT COUNT(*)::bigint FROM public.processing_tasks WHERE stage = 'basic-pitch'\n  AND (status IN ('leased', 'running')\n    OR (status = 'retry_scheduled' AND available_at <= CURRENT_TIMESTAMP))" | quote }}
         targetQueryValue: {{ .Values.autoscaling.postgresql.targetQueryValue | quote }}
         activationTargetQueryValue: {{ .Values.autoscaling.postgresql.activationTargetQueryValue | quote }}
       authenticationRef:
