@@ -14,7 +14,7 @@ spec:
     # Update Git and this reference together when moving GitOps to main.
     branch: codex/flux-clouddsp-local
   # Keep the source artifact focused on versioned GitOps configuration and
-  # the four explicitly selected application charts below.
+  # the selected application charts below; generic-dispatcher is prepared first.
   # Fetch the next chart before adding its HelmRelease to the root so
   # packaging cannot race the sparse source archive update. An available
   # chart alone grants no ownership.
@@ -24,6 +24,7 @@ spec:
     - k8Deployment/kubernetes/helm/frontend
     - k8Deployment/kubernetes/helm/job-api
     - k8Deployment/kubernetes/helm/upload-intake
+    - k8Deployment/kubernetes/helm/generic-dispatcher
 ---
 # kustomize-controller builds and applies only this cluster's explicit root.
 # The explicit root includes Flux and the four selected HelmRelease/RBAC sets.
