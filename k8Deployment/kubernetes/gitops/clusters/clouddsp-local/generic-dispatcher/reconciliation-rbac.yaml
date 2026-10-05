@@ -1,0 +1,51 @@
+# Helm actions impersonate this identity in the HelmRelease's namespace.
+# No Pod uses it and no mounted service-account token is needed for impersonation.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: clouddsp-generic-dispatcher-helm
+  namespace: flux-system
+automountServiceAccountToken: false
+---
+# Scope chart operations and Helm release storage to the existing application
+# namespace. This outbound-only chart owns no Service or Ingress.
+# No namespace creation, CRDs, cluster RBAC, PVCs, Jobs, or other API kinds are
+# granted. Pods and ReplicaSets are read-only for Deployment readiness checks.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: clouddsp-generic-dispatcher-helm
+  namespace: clouddsp-app
+rules:
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [replicasets]
+    verbs: [get, list, watch]
+  # Helm's existing release history is stored in Secrets here. Helm needs to
+  # list and write revision Secrets, so this grant covers namespace Secrets;
+  # it is not a restriction to only one Secret name. Preserve this storage
+  # namespace during adoption to retain the existing release and history.
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, list, watch, create, update, patch, delete]
+---
+# Bind the Flux-namespace impersonation identity into only the application
+# namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: clouddsp-generic-dispatcher-helm
+  namespace: clouddsp-app
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: clouddsp-generic-dispatcher-helm
+subjects:
+  - kind: ServiceAccount
+    name: clouddsp-generic-dispatcher-helm
+    namespace: flux-system

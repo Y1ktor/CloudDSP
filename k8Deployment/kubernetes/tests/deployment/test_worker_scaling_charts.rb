@@ -13,6 +13,18 @@ class WorkerScalingChartsTest < Minitest::Test
   WORKERS = %w[demucs basic-pitch adtof].freeze
   SCALING_FIELDS = %w[pollingInterval cooldownPeriod minReplicaCount maxReplicaCount].freeze
 
+  def test_routing_smoke_pause_changes_only_basic_pitch_scaler_annotation
+    normal = render('basic-pitch')
+    output, error, status = Open3.capture3('helm', 'template', 'clouddsp-basic-pitch',
+      ROOT.join('helm/basic-pitch').to_s, '--namespace', 'clouddsp-app',
+      '--values', ROOT.join('helm/basic-pitch/values.routing-smoke-pause.yaml').to_s)
+    assert status.success?, error
+    paused = YAML.load_stream(output).compact
+    scaler = resource(paused, 'ScaledObject')
+    assert_equal({ 'autoscaling.keda.sh/paused-replicas' => '0' }, scaler.fetch('metadata').delete('annotations'))
+    assert_equal normal, paused
+  end
+
   def test_default_charts_preserve_reviewed_source_manifests
     WORKERS.each do |worker|
       rendered = render(worker)

@@ -2,12 +2,13 @@
 
 This opt-in bootstrap installs **Flux v2.9.6** in `flux-system` and connects
 it to the public CloudDSP GitHub repository. It manages its own installation
-and selects the native Mailpit, frontend, Job API, and upload-intake Helm
+and selects the native Mailpit, frontend, Job API, upload-intake, and generic-dispatcher Helm
 releases for reconciliation.
 Other application releases and their bootstrap identities retain their existing
 script ownership. See the [Mailpit handoff guide](mailpit.md),
-[frontend handoff guide](frontend.md), [Job API handoff guide](job-api.md), and
-[upload-intake handoff guide](upload-intake.md) for source, verification, and
+[frontend handoff guide](frontend.md), [Job API handoff guide](job-api.md),
+[upload-intake handoff guide](upload-intake.md), and
+[generic dispatcher guide](generic-dispatcher.md) for source, verification, and
 recovery rules. These source definitions do not establish the current live handoff state;
 check each HelmRelease and its release helper before relying on adoption.
 
@@ -54,7 +55,7 @@ its generated internals.
 
 - **source-controller** fetches Git and other sources and serves their artifacts.
 - **kustomize-controller** applies declarative resource sets and reports health.
-- **helm-controller** manages the four explicitly selected native
+- **helm-controller** manages the five explicitly selected native
   Helm releases through their namespace-scoped reconciliation identities.
 - **notification-controller** provides optional alerts and webhook receivers.
 
@@ -77,7 +78,7 @@ Git writers remain responsible for reviewing application handoffs.
 
 `prune: true` removes previously managed objects when removed from Git. The
 root inventory includes Flux, each selected release's reconciliation RBAC, and
-the four selected HelmReleases. Workload objects and Helm revision Secrets
+the five selected HelmReleases. Workload objects and Helm revision Secrets
 belong to their native Helm releases. Removing an active HelmRelease normally
 uninstalls that release; treat its removal as a deliberate cleanup operation.
 Deleting the entire k3d cluster still removes Flux;
@@ -89,7 +90,7 @@ along with the other workloads.
 
 Prerequisites: an existing supported CloudDSP cluster with `clouddsp-data`
 and `clouddsp-app`, verified native `clouddsp-mailpit`, `clouddsp-frontend`,
-`clouddsp-job-api`, and `clouddsp-upload-intake`
+`clouddsp-job-api`, `clouddsp-upload-intake`, and `clouddsp-generic-dispatcher`
 releases for adoption, cluster-admin kubeconfig access, `kubectl`, `git`, and
 the Flux CLI (`brew install fluxcd/tap/flux` on macOS). Frontend's Keycloak
 configuration, Job API, static image, registry, and browser origin must already

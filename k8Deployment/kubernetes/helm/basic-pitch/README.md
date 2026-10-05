@@ -84,3 +84,15 @@ The shared `scaling-auth` release, KEDA controller, runtime Secrets, database
 bootstrap, MinIO policy, and RabbitMQ queue are separate dependencies. Never
 uninstall this adopted release as a retry strategy: Helm would then consider
 the existing Deployment and ScaledObject its resources to delete.
+
+## Dispatcher routing smoke maintenance
+
+The [generic routing runbook](../../tests/generic-dispatcher-smoke/README.md)
+uses `values.routing-smoke-pause.yaml` to set
+`maintenance.pauseForRoutingSmoke: true`. This adds only KEDA's
+`autoscaling.keda.sh/paused-replicas: "0"` annotation. KEDA holds the worker at
+zero so the restricted smoke reader can validate its exact synthetic delivery.
+Run only with empty queues, no ordinary tasks or retries, and no worker Pods.
+Restore normal values after the event/message is removed; never use the
+maintenance switch for normal capacity changes. Basic Pitch remains a native
+Helm release here. Adapt these operations before its eventual Flux handoff.

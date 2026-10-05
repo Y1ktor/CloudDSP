@@ -1,3 +1,4 @@
-# Temporarily stop this publisher while the source-to-outbox test asserts one
-# pending row. The runner restores values.yaml's one replica in all outcomes.
+# Temporarily stop this publisher while source-to-outbox asserts one pending
+# row. Flux selects this file AFTER values.yaml in its committed valuesFiles.
+# Restore normal Git configuration only after the smoke confirms cleanup.
 replicas: 0

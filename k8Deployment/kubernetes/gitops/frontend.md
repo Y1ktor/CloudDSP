@@ -22,7 +22,7 @@ a completed live adoption or a passing browser trial.
   names. It grants no PVCs, Jobs, CRDs, namespace creation, or cluster RBAC.
   Trusted Git writers can still change the HelmRelease and bootstrap RBAC.
 - The [existing chart](../helm/frontend/) stays canonical. The Git source
-  includes GitOps configuration and the explicitly selected Mailpit/frontend/Job API/upload-intake
+  includes GitOps configuration and the explicitly selected Mailpit/frontend/Job API/upload-intake/generic-dispatcher
   charts. Frontend owns no Keycloak or Job API resource, Secret, or image build.
 - `reconcileStrategy: Revision` rebuilds the Git chart after source changes.
   Flux packages a version such as `0.1.3+abcdef123456.1`; the base chart remains

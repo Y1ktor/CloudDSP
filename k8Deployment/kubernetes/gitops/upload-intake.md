@@ -29,8 +29,8 @@ verifier to establish the state of a running cluster.
   installation prerequisite. This gate does not bootstrap or verify all
   database, broker, or storage identities; the ordinary fresh workflow still
   runs all six original prerequisite checks before direct installation.
-- Broker, PostgreSQL, MinIO, and the two dispatchers remain outside Flux
-  ownership here. Their names are not fabricated as Flux dependencies.
+- Broker, PostgreSQL, MinIO, and the legacy dispatcher remain outside Flux
+  ownership. Generic-dispatcher has its own separate Flux handoff. Their names are not fabricated as Flux dependencies.
   A missing native release can be installed by this configuration; there is
   no adopt-only mode. Prepare and verify dependency state before opting in.
 
@@ -70,7 +70,8 @@ one pending `demucs.requested` outbox row. It publishes one duplicate source
 notification and requires the same single row to remain.
 
 The runbook checks an empty source queue and healthy dispatchers, then pauses
-both native dispatcher Helm releases using their versioned smoke values. This
+the legacy dispatcher using native Helm smoke values and generic-dispatcher
+through committed Flux valuesFiles. This
 keeps the deliberately tiny test WAV out of DSP processing while the pending
 row is asserted. After cleanup, delete the exact disposable Job, restore both
 dispatcher charts' normal values, verify both releases, and check the queues.
@@ -80,9 +81,9 @@ not printed.
 
 A failed or interrupted test needs its safe log and cleanup state inspected
 before restoring dispatchers; an orphaned synthetic row must not be published
-as real work. These dispatchers are still directly managed by Helm. Their
-later Flux handoffs must first adapt this runbook's pause/restore operations
-to their new delivery owner.
+as real work. Generic-dispatcher's Flux handoff includes a read-only pause verifier that
+requires all publisher Pods, including terminating Pods, to disappear. The
+legacy dispatcher remains directly managed by Helm.
 
 The smoke is a separate administrator-driven, disposable Job in
 `clouddsp-data`. It is not owned by this chart or a Helm test hook, and the

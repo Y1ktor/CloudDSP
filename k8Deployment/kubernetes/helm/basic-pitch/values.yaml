@@ -39,3 +39,8 @@ autoscaling:
       stabilizationWindowSeconds: 360
       value: 3
       periodSeconds: 60
+
+# Maintenance is separate from capacity planning. Use the reviewed smoke file
+# only after confirming empty queues and no active/retry PostgreSQL leases.
+maintenance:
+  pauseForRoutingSmoke: false

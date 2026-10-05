@@ -10,3 +10,4 @@ resources:
   - frontend
   - job-api
   - upload-intake
+  - generic-dispatcher

@@ -169,6 +169,18 @@
           "description": "HPA behavior above zero; each fixed Pods policy controls the rate of replica changes."
         }
       }
+    },
+    "maintenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pauseForRoutingSmoke"
+      ],
+      "properties": {
+        "pauseForRoutingSmoke": {
+          "type": "boolean"
+        }
+      }
     }
   }
 }

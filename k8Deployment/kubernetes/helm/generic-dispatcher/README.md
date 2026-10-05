@@ -60,6 +60,18 @@ the test's cleanup, the release returned to one Ready replica at revision 3.
 That scale operation replaced the Pod; the Pod UID preservation above refers
 to the original adoption.
 
-After adoption, use this chart for reviewed generic dispatcher upgrades. Keep
+## Optional Flux ownership
+
+The [Flux guide](../../gitops/generic-dispatcher.md) selects this existing
+native release without changing its Pod template or locked image. Once its
+HelmRelease exists, `install` and `adopt` are blocked even if Flux is suspended
+or failed. `verify` requires current-generation Ready, the precise Git-packaged
+chart revision, full source/stored/live parity, and one Ready locked-image Pod.
+Use Git changes for upgrades and the [source smoke runbook](../../tests/source-intake-smoke/README.md)
+for a committed `values.smoke-pause.yaml` pause and restoration. The separate
+`verify-smoke-pause` mode requires exactly zero Pods, including terminating ones;
+it cannot authorize a direct Helm write or replace ordinary verification.
+
+After adoption, use this chart through its current delivery owner for reviewed generic dispatcher upgrades. Keep
 the raw service manifest as a comparison baseline; do not reapply it to the
 Helm-owned Deployment.
