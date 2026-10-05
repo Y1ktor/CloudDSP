@@ -50,6 +50,8 @@ ruby "$script_dir/../releases/scaling-auth-release.rb" verify-prerequisites
 ruby "$script_dir/../releases/adtof-release.rb" verify
 # Basic Pitch retains both RabbitMQ and PostgreSQL trigger authentication.
 ruby "$script_dir/../releases/basic-pitch-release.rb" verify
+# Demucs is a CPU worker with queue/task triggers and the same shared auth.
+ruby "$script_dir/../releases/demucs-release.rb" verify
 
 # Install API definitions and controllers before submitting Flux custom objects.
 # Reuse the reconciler's field manager so bootstrap and subsequent Git applies

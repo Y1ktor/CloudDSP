@@ -184,10 +184,10 @@ end-to-end smoke tests remain distinct from read-only verification.
 Flux v2.9.6 is an opt-in bootstrap for the existing local cluster, configured
 on `codex/flux-clouddsp-local`. It reads the public repository over HTTPS
 without a GitHub credential in Kubernetes. The explicit root selects Flux
-and nine native Helm releases: Mailpit, frontend, Job API,
+and ten native Helm releases: Mailpit, frontend, Job API,
 upload-intake, generic-dispatcher, the legacy Demucs-only dispatcher, shared
-scaling-auth, ADTOF, and Basic Pitch. Mailpit's target/storage remain `clouddsp-data`; the other
-eight releases remain in `clouddsp-app`, preserving their original names.
+scaling-auth, ADTOF, Basic Pitch, and Demucs. Mailpit's target/storage remain `clouddsp-data`; the other
+nine releases remain in `clouddsp-app`, preserving their original names.
 Separate namespace-scoped identities perform Helm actions, with Git revision
 packaging and drift detection enabled. Base charts, values, locked images,
 Pod templates, and Secret references are unchanged by these handoffs.
@@ -228,7 +228,8 @@ Operating guides: [Mailpit](kubernetes/gitops/mailpit.md),
 [legacy dispatcher](kubernetes/gitops/dispatcher.md),
 [scaling authentication](kubernetes/gitops/scaling-auth.md), and
 [ADTOF](kubernetes/gitops/adtof.md) and
-[Basic Pitch](kubernetes/gitops/basic-pitch.md). Shared authentication
+[Basic Pitch](kubernetes/gitops/basic-pitch.md), and
+[Demucs](kubernetes/gitops/demucs.md). Shared authentication
 uses fixed observer Secret references. Its maintenance runner respects Flux
 ownership; KEDA and worker charts remain separate, with a read-only five-metric
 smoke for credential access. ADTOF depends on shared authentication readiness,
@@ -237,8 +238,12 @@ Deployment replica drift exception. Its separate smoke exercises real queue
 activation and private MIDI/tempo output before artifact/row cleanup and
 temporary test-identity retirement. Basic Pitch retains its dual triggers and
 has the same narrow replica exception; its processing smoke verifies real
-private MIDI output and scoped cleanup/identity retirement. Demucs remains a
-native worker release. Source is maintained in
+private MIDI output and scoped cleanup/identity retirement. Demucs preserves
+its dual triggers and exact replica exception; its separate smoke verifies
+private stems and waits for completed downstream Basic Pitch tasks before
+cleanup. Demucs maintenance delegates both delivery decisions to the
+ownership-aware release runners, verifying Flux reconciliation without a
+competing native upgrade. Source is maintained in
 the [dedicated branch](https://github.com/Y1ktor/CloudDSP/tree/codex/flux-clouddsp-local/k8Deployment/kubernetes/gitops).
 Cluster cleanup removes Flux too; ordinary fresh deployment still provisions
 all dependencies before the separate opt-in Flux bootstrap.

@@ -59,3 +59,21 @@ KEDA, shared `scaling-auth`, runtime Secrets, database bootstrap, MinIO
 policy, RabbitMQ topology, and the generated HPA remain outside this release.
 Do not uninstall an adopted release as a retry strategy: Helm would consider
 the existing Deployment and ScaledObject its resources to delete.
+
+## Optional Flux delivery
+
+The [Demucs handoff guide](../../gitops/demucs.md) selects the existing release
+and storage in `clouddsp-app`. Flux delivers only the Deployment and
+ScaledObject, while KEDA owns its generated HPA and replica control. The chart
+omits replicas, and Flux ignores only `/spec/replicas` on this exact Deployment.
+Both shared queue/task authentication references and the CPU worker template
+remain unchanged. SQL is emitted as a quoted string to preserve its exact
+original value through origin-label postrendering.
+
+Publish desired values to the watched branch. The ownership-aware runner
+retains strict native manifest, source/live, policy, idle/warm, and HPA checks.
+Direct install/adopt is blocked whenever its HelmRelease exists. Maintenance
+`reconcile` verifies current Flux delivery without a direct native upgrade;
+pre-Flux clusters retain the gated native upgrade path. The maintenance shell
+wrapper delegates delivery for both Demucs and shared authentication. Smoke
+Jobs and restricted test identities stay outside the reconciled root.

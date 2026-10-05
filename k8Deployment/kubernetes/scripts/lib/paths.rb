@@ -17,6 +17,7 @@ module CloudDSPPaths
     'gitops' => %w[
       adtof-flux-ownership.rb
       basic-pitch-flux-ownership.rb
+      demucs-flux-ownership.rb
       bootstrap-flux.sh
       flux-ownership.rb
       dispatcher-flux-ownership.rb

@@ -6,8 +6,6 @@ require_relative '../../scripts/lib/paths'
 
 class ReconcileDemucsScalingTest < Minitest::Test
   SCRIPT = File.expand_path('../../scripts/maintenance/reconcile-demucs-scaling.sh', __dir__)
-  KUBERNETES = File.expand_path('../..', __dir__)
-  UPGRADE_OPTIONS = %w[--kube-context k3d-clouddsp-local --namespace clouddsp-app --wait --timeout 3m].freeze
 
   def setup
     @temporary_directory = Dir.mktmpdir('clouddsp-demucs-reconcile')
@@ -76,7 +74,7 @@ class ReconcileDemucsScalingTest < Minitest::Test
       %w[ruby scaling-auth-release.rb verify-prerequisites],
       %w[ruby demucs-release.rb verify-idle],
       %w[ruby scaling-auth-release.rb reconcile],
-      ['helm', 'upgrade', 'clouddsp-demucs', File.join(KUBERNETES, 'helm', 'demucs'), *UPGRADE_OPTIONS],
+      %w[ruby demucs-release.rb reconcile],
       %w[ruby scaling-auth-release.rb verify-prerequisites],
       %w[ruby demucs-release.rb verify-idle]
     ]
@@ -88,11 +86,7 @@ class ReconcileDemucsScalingTest < Minitest::Test
     assert status.success?, error
     assert_equal expected_commands, commands
     refute commands.any? { |command| command.first == 'kubectl' }
-    commands.select { |command| command.first == 'helm' }.each do |command|
-      refute_includes command, '--install'
-      refute_includes command, '--take-ownership'
-      refute_includes command, '--force-conflicts'
-    end
+    refute commands.any? { |command| command.first == 'helm' }
   end
 
   def test_identity_or_release_preflight_failure_prevents_every_upgrade

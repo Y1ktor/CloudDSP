@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Reassert the reviewed, already-installed Demucs CPU and KEDA configuration.
 # Helm owns the worker Deployment/ScaledObject and both shared scaler
-# authentications. Flux may manage authentication delivery. Reuse the release verifiers so
+# authentications. Flux may manage both releases. Reuse the release verifiers so
 # missing releases, ownership drift, changed profiles, or active work stop here.
 # Fresh bootstrap and credential rotation belong to their separate stages.
 set -euo pipefail
@@ -13,10 +13,6 @@ if [ "$#" -ne 0 ]; then
   exit 64
 fi
 
-repo_root="$REPOSITORY_DIRECTORY"
-context="k3d-clouddsp-local"
-namespace="clouddsp-app"
-chart_dir="$repo_root/k8Deployment/kubernetes/helm"
 
 run_stage() {
   local stage="$1"
@@ -40,15 +36,16 @@ run_stage 'scaling-auth Helm preflight' \
 run_stage 'idle Demucs Helm preflight' \
   ruby "$CLOUDDSP_SCRIPTS_DIRECTORY/releases/demucs-release.rb" verify-idle
 
-# Upgrade only existing releases, using their checked-in chart defaults.
+# Reconcile only existing releases through their ownership-aware runners.
+# Flux-owned releases are verified without direct native writes; pre-Flux
+# releases still use their reviewed chart defaults for native Helm upgrades.
 # scaling-auth owns both TriggerAuthentications; demucs owns the Deployment
 # and dual-trigger ScaledObject together. KEDA retains its controller, HPA,
 # and /scale ownership. A failed write remains inspectable in place.
 run_stage 'scaling-auth delivery reconciliation' \
   ruby "$CLOUDDSP_SCRIPTS_DIRECTORY/releases/scaling-auth-release.rb" reconcile
-run_stage 'Demucs Helm upgrade' \
-  helm upgrade clouddsp-demucs "$chart_dir/demucs" \
-    --kube-context "$context" --namespace "$namespace" --wait --timeout 3m
+run_stage 'Demucs delivery reconciliation' \
+  ruby "$CLOUDDSP_SCRIPTS_DIRECTORY/releases/demucs-release.rb" reconcile
 
 # These checks cover stored Helm manifests, resource ownership, both Secret
 # references, scaler readiness, the generated HPA, and the idle worker state.
@@ -56,4 +53,4 @@ run_stage 'scaling-auth Helm verification' \
   ruby "$CLOUDDSP_SCRIPTS_DIRECTORY/releases/scaling-auth-release.rb" verify-prerequisites
 run_stage 'Demucs Helm verification' \
   ruby "$CLOUDDSP_SCRIPTS_DIRECTORY/releases/demucs-release.rb" verify-idle
-printf 'Demucs scaling reconcile completed through Helm.\n'
+printf 'Demucs scaling reconcile completed through the release delivery owners.\n'

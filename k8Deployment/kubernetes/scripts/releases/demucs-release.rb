@@ -4,10 +4,30 @@
 # their existing owners. Helm values select idle zero or a Ready warm minimum.
 require_relative '../lib/paths'
 require_relative '../lib/helm-release'
+require_relative '../gitops/demucs-flux-ownership'
 
 class DemucsRelease < HelmRelease
   SCALER = 'clouddsp-demucs-rabbitmq-scaler'
   HPA = "keda-hpa-#{SCALER}"
+
+  # Maintenance is allowed only for an already deployed, strictly idle
+  # release. The optional Flux adapter replaces just the delivery write;
+  # complete source/stored/live and stable resource identity checks remain.
+  def run(mode)
+    return super unless mode == 'reconcile'
+
+    check_tools
+    check_chart_and_source
+    ensure_true(@expected_replicas.zero?, 'reconcile requires autoscaling.minReplicaCount: 0')
+    before = check_cluster('Helm')
+    reconcile_release
+    after = check_cluster('Helm')
+    verify_stable_identity(before, after)
+    puts 'demucs delivery reconciliation verified; worker, scaler, HPA, and idle state preserved.'
+  rescue StandardError => error
+    warn "demucs #{mode} stopped: #{error.message}"
+    exit 1
+  end
 
   def initialize
     super(
@@ -33,6 +53,18 @@ class DemucsRelease < HelmRelease
   end
 
   private
+
+  def usage
+    super + '|reconcile'
+  end
+
+  def reconcile_release
+    output = command('helm', 'upgrade', @release, @chart.to_s,
+                     '--kube-context', CONTEXT, '--namespace', @namespace,
+                     '--wait', '--timeout', '3m')
+    puts output.lines.grep(/^(NAME|NAMESPACE|STATUS|REVISION):/)
+  end
+
 
   def check_cluster(owner, allow_failed_release: false)
     result = super
@@ -61,4 +93,11 @@ class DemucsRelease < HelmRelease
   end
 end
 
-DemucsRelease.new.run(ARGV.length == 1 ? ARGV.first : nil)
+module CloudDSPDemucsRelease
+  # Tests and CLI use the same runner, retaining its worker/HPA and smoke gates.
+  def self.build
+    DemucsRelease.new.extend(DemucsFluxOwnership)
+  end
+end
+
+CloudDSPDemucsRelease.build.run(ARGV.length == 1 ? ARGV.first : nil) if $PROGRAM_NAME == __FILE__

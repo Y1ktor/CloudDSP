@@ -121,8 +121,9 @@ All three releases live in `clouddsp-app`. Change the worker release when
 tuning a worker; the upstream `keda` release installs the operator
 rather than the worker's ScaledObject policy.
 
-After the [ADTOF](../../gitops/adtof.md) or
-[Basic Pitch Flux handoff](../../gitops/basic-pitch.md), publish that worker's chart/values
+After the [ADTOF](../../gitops/adtof.md),
+[Basic Pitch](../../gitops/basic-pitch.md), or
+[Demucs Flux handoff](../../gitops/demucs.md), publish that worker's chart/values
 changes to the watched GitOps branch. Flux performs the Helm upgrade and
 preserves KEDA's Deployment replica control through a narrowly targeted drift
 exception. Use Git to restore earlier desired values; a competing direct
@@ -237,12 +238,12 @@ not installed by these values.
 This helper reasserts an already deployed, matching, idle Demucs profile. It
 first verifies both scaler identities, scaling-auth, and Demucs using the
 worker's `verify-idle` mode. That mode refuses a positive minimum even when
-warm workers are healthy, preserving this helper's idle-only scope. Then it uses
-the scaling-auth runner's `reconcile` mode: it upgrades the existing native
-release on a pre-Flux cluster, or verifies current Flux reconciliation without
-a competing Helm write after its [handoff](../../gitops/scaling-auth.md).
-It then upgrades existing `clouddsp-demucs` with Helm using an explicit
-context/namespace and a three-minute wait, and
+warm workers are healthy, preserving this helper's idle-only scope. Then it
+uses both runners' `reconcile` modes. On pre-Flux clusters they upgrade their
+existing native releases using the reviewed charts. After their
+[scaling-auth](../../gitops/scaling-auth.md) and
+[Demucs](../../gitops/demucs.md) handoffs, they verify current Flux delivery
+without competing native Helm writes. The wrapper then
 repeats the idle verification. It creates no bootstrap Secret/Job and takes no ownership
 from another controller. Missing/failed releases, drift, or active work stop
 before upgrades; desired chart changes need a separately reviewed rollout.
