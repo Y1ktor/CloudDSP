@@ -12,7 +12,7 @@ class MinIOFluxOwnershipTest < Minitest::Test
   module ExternalResponses
     attr_accessor :record, :api_error, :native_chart, :native_namespace, :native_status,
                   :manifest_change, :live_change, :claim_change, :pod_ready,
-                  :pod_digest, :http_failure, :render_change
+                  :pod_digest, :http_failure, :render_change, :unquoted_console
     attr_reader :commands
 
     def prepare
@@ -62,7 +62,12 @@ class MinIOFluxOwnershipTest < Minitest::Test
                                 'status' => @native_status, 'chart' => @native_chart }])
       end
       if args.first == 'helm' && args.include?('manifest')
-        data = stored; @manifest_change&.call(data); return data.map(&:to_yaml).join
+        data = stored; @manifest_change&.call(data)
+        text = data.map(&:to_yaml).join
+        # Model source-controller/helm-controller's real unquoted serialization,
+        # exercising the YAML parser rather than stubbing parsed structures.
+        text = text.gsub(/^(\s*- )['"]:9001['"]$/, '\1:9001') if @unquoted_console
+        return text
       end
       if args.include?('pvc/minio-data-clouddsp-minio-0')
         data = { 'metadata' => { 'name' => 'minio-data-clouddsp-minio-0', 'uid' => 'retained-claim' },
@@ -135,6 +140,17 @@ class MinIOFluxOwnershipTest < Minitest::Test
       assert stage.commands.any? { |a| a.include?('pvc/minio-data-clouddsp-minio-0') }
       assert_includes stage.commands, [:separate_smoke] if mode == 'smoke'
     end
+  end
+
+  def test_flux_unquoted_console_address_keeps_its_exact_kubernetes_string
+    stage = runner; stage.unquoted_console = true
+    status, _, error = execute(stage); assert_nil status, error
+    objects = stage.send(:documents, "args: [server, /data, --console-address, :9001]\n")
+    assert_equal ':9001', objects.first.fetch('args').last
+    assert_instance_of String, objects.first.fetch('args').last
+    stage = runner; stage.unquoted_console = true
+    stage.manifest_change = ->(a) { a.find { |o| o['kind'] == 'StatefulSet' }.dig('spec', 'template', 'spec', 'containers', 0, 'args')[3] = ':9002' }
+    rejected(stage, 'manifest differs')
   end
 
   def test_existence_reserves_writes_before_chart_secret_or_backup_work

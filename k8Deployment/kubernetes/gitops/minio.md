@@ -95,7 +95,9 @@ The [release runner](../scripts/releases/minio-release.rb) requires current
 Flux generation Ready, exact reviewed HelmRelease settings, source/value
 selection, matching native target/storage/revision, complete source/render/stored/
 live parity, Ready Pod, exact running single-platform image digest, bound claim
-and HTTP health through the existing S3 Ingress. The state verifier independently
+and HTTP health through the existing S3 Ingress. Its YAML decoder preserves
+Flux's unquoted `:9001` as the same exact Kubernetes string, avoiding Ruby's
+Symbol interpretation without skipping a manifest field. The state verifier independently
 checks the two standard buckets, private/public boundaries, all six IAM policies,
 five users and exact notification rule without printing credentials.
 

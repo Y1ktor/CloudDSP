@@ -9,6 +9,24 @@ module MinIOFluxOwnership
 
   private
 
+  # Flux's YAML serializer emits the console argument as plain :9001.
+  # Kubernetes treats it as the string ":9001", but Psych interprets that
+  # scalar as a Ruby Symbol and loses the leading colon. Mark only this exact
+  # untagged scalar as quoted before decoding. No manifest field is ignored:
+  # altered arguments, tags and all other source/stored/live drift still fail.
+  def documents(yaml)
+    stream = Psych.parse_stream(yaml)
+    quote_console = lambda do |node|
+      if node.is_a?(Psych::Nodes::Scalar) && node.tag.nil? && node.plain && node.value == ':9001'
+        node.plain = false
+        node.quoted = true
+      end
+      Array(node.children).each { |child| quote_console.call(child) }
+    end
+    quote_console.call(stream)
+    stream.children.map(&:to_ruby).compact
+  end
+
   def flux_ownership_component
     'minio'
   end
