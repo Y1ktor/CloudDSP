@@ -12,7 +12,7 @@ image:
 autoscaling:
   pollingInterval: 15
   cooldownPeriod: 300
-  minReplicaCount: 1
+  minReplicaCount: 0
   maxReplicaCount: 1
   rabbitmq:
     # Desired messages per worker; activation requires depth above this
