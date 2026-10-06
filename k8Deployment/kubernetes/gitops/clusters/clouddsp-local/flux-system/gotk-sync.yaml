@@ -12,7 +12,7 @@ spec:
   ref:
     # This branch isolates bootstrap from pending local application changes.
     # Update Git and this reference together when moving GitOps to main.
-    branch: codex/flux-clouddsp-local
+    branch: main
   # Keep the source artifact focused on versioned GitOps configuration and
   # the selected charts below; each chart is prepared before its handoff.
   # Fetch the next chart before adding its HelmRelease to the root so
