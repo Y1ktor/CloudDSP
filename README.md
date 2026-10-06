@@ -160,6 +160,53 @@ stops initialization, and overrides cannot replace an existing set. This
 command initializes a fresh installation; it does not rotate live service
 passwords. Keep populated files private and out of Git.
 
+### Optional: manage releases with Flux
+
+The local cluster works without Flux. The normal `bootstrap-platform` command
+installs the Helm releases, and cloning this repository or installing the Flux
+CLI does not enable Git reconciliation. Flux is a separate, optional handoff
+after the local platform and its credentials are ready.
+
+For a dedicated CloudDSP cluster, run the following from a clean checkout of
+the published `main` branch after the normal deployment completes. On macOS,
+install the Flux CLI with Homebrew; other platforms can use the
+[official installation instructions](https://fluxcd.io/flux/installation/).
+
+```bash
+brew install fluxcd/tap/flux
+./k8Deployment/kubernetes/scripts/gitops/bootstrap-flux.sh
+flux get sources git --context k3d-clouddsp-local --namespace flux-system
+flux get kustomizations --context k3d-clouddsp-local --namespace flux-system
+flux get helmreleases --context k3d-clouddsp-local --namespace flux-system
+```
+
+The script checks the existing platform, installs the pinned Flux controllers,
+and connects the Git source and reconciliation resources. It manages the
+dedicated `flux-system` installation and sync configuration; an existing Flux
+installation that manages another repository needs a reviewed integration
+before using this script. Once enabled, Flux manages its own installation and
+the fifteen selected Helm releases. Cluster creation, the image registry,
+credential generation, and database/realm/bucket bootstrap remain in the
+normal deployment scripts. Check that the Git source, root Kustomization, and
+each HelmRelease report `Ready`; root readiness alone does not verify all
+application releases.
+
+By default, Flux reads `https://github.com/Y1ktor/CloudDSP.git` on `main`, using
+`k8Deployment/kubernetes/gitops/clusters/clouddsp-local`. Merged changes to the
+selected manifests and charts can update every cluster configured to follow
+that source. Flux runs inside each user's cluster and applies the configuration
+there; a user who deploys without Flux receives no automatic Git updates.
+
+To control updates independently, clone your own public fork and change the
+existing `GitRepository` in
+[`gotk-sync.yaml`](k8Deployment/kubernetes/gitops/clusters/clouddsp-local/flux-system/gotk-sync.yaml)
+to use your fork's URL and desired branch. Commit and **push to that fork**
+before running the optional bootstrap. Flux reads published Git commits;
+uncommitted edits and local commits that have not been pushed are not deployed.
+A fork receives upstream deployment changes only after you merge them into its
+watched branch. See the [Flux setup guide](k8Deployment/kubernetes/gitops/README.md)
+for the source settings, fork commands, permissions, and reconciliation checks.
+
 ### Verify and clean up
 
 Run the read-only verification command whenever you want to check the

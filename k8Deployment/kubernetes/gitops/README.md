@@ -5,8 +5,10 @@ it to the public CloudDSP GitHub repository. It manages its own installation
 and selects fifteen native Helm releases: KEDA, Keycloak, MinIO, PostgreSQL, RabbitMQ, Mailpit, frontend, Job API, upload-intake,
 generic-dispatcher, the legacy Demucs-only dispatcher, shared scaling-auth, and
 the ADTOF, Basic Pitch, and Demucs workers.
-Other application releases and their bootstrap identities retain their existing
-script ownership. See the [Mailpit handoff guide](mailpit.md),
+Cluster and registry provisioning, credential generation, and application
+bootstrap state retain their existing script ownership. The local cluster can
+run without Flux; this handoff adds continuous reconciliation from published
+Git commits. See the [Mailpit handoff guide](mailpit.md),
 [frontend handoff guide](frontend.md), [Job API handoff guide](job-api.md),
 [upload-intake handoff guide](upload-intake.md),
 [generic dispatcher guide](generic-dispatcher.md),
@@ -25,47 +27,43 @@ check each HelmRelease and its release helper before relying on adoption.
 | --- | --- |
 | Kubernetes context | `k3d-clouddsp-local` |
 | Git repository | `https://github.com/Y1ktor/CloudDSP.git` |
-| GitOps branch | `codex/flux-clouddsp-local` |
+| GitOps branch | `main` |
 | Reconciled directory | `k8Deployment/kubernetes/gitops/clusters/clouddsp-local` |
-| Git poll and reconciliation interval | One minute |
+| Git poll and root reconciliation interval | One minute |
 
-The dedicated branch carries the reviewed source alignment for the canonical
+The `main` branch carries the canonical
 [shared frontend](../../../frontend/), current [Helm charts](../helm/),
 [image lock](../images.lock.yaml), and organized [deployment helpers](../scripts/).
-This source alignment prepares later component adoptions. The explicit root
+The explicit root
 configures reconciliation for Flux, KEDA, Keycloak, MinIO, PostgreSQL, RabbitMQ, Mailpit, frontend, Job API, upload-intake,
-generic-dispatcher, the legacy dispatcher, scaling-auth, ADTOF, Basic Pitch, and Demucs. Changes made
-only on another branch are not deployed. A later move to `main` must publish these files there and update
-`spec.ref.branch` in `flux-system/gotk-sync.yaml` as one coordinated change.
+generic-dispatcher, the legacy dispatcher, scaling-auth, ADTOF, Basic Pitch, and Demucs.
+Flux fetches the published repository, so a local commit must be pushed before
+the cluster can see it. Changes on another branch are deployed only after they
+reach the configured branch, normally through a merged pull request.
+
+Every cluster configured to follow CloudDSP's `main` can receive merged changes
+to its selected manifests and charts. Each cluster's Flux controllers fetch and
+apply those changes using their own Kubernetes credentials. Cloning this
+repository or installing the Flux CLI alone does not connect a cluster to it.
+For independent updates, use a fork as described below; upstream changes reach
+that cluster only after they are merged into the fork's watched branch.
 
 `GitRepository` is a Flux API resource: source-controller downloads its branch.
 The Flux `Kustomization` API resource selects the directory to apply. The
 `kustomization.yaml` files are Kustomize build inputs, with explicit resource
 lists so retained raw service manifests, one-time Jobs, tests, and credentials
-are not recursively adopted. The source uses sparse checkout only for
-`k8Deployment/kubernetes/gitops`, `k8Deployment/kubernetes/helm/mailpit`,
-`k8Deployment/kubernetes/helm/frontend`, `k8Deployment/kubernetes/helm/job-api`,
-`k8Deployment/kubernetes/helm/upload-intake`,
-`k8Deployment/kubernetes/helm/generic-dispatcher`,
-`k8Deployment/kubernetes/helm/dispatcher`,
-`k8Deployment/kubernetes/helm/scaling-auth`,
-`k8Deployment/kubernetes/helm/adtof`,
-`k8Deployment/kubernetes/helm/basic-pitch`, and
-`k8Deployment/kubernetes/helm/demucs`, and
-`k8Deployment/kubernetes/helm/rabbitmq`, and
-`k8Deployment/kubernetes/helm/postgresql`, and
-`k8Deployment/kubernetes/helm/minio`, and
-`k8Deployment/kubernetes/helm/keycloak`.
-Expand and verify the source artifact before enabling the next HelmRelease to
-avoid packaging against an earlier sparse archive. KEDA instead uses the
-official HelmRepository and an exact upstream chart version; its public inline
+are not recursively adopted. The source uses sparse checkout for the GitOps
+directory and fourteen application chart directories listed in
+[`gotk-sync.yaml`](clusters/clouddsp-local/flux-system/gotk-sync.yaml).
+KEDA uses the official HelmRepository and an exact upstream chart version; its public inline
 values must match the exact transformation of `helm/keda/values.yaml` described
 in its guide: omit one duplicate upstream label input and preserve its effective
-value through explicit postrenderer patches. Each later component needs
+value through explicit postrenderer patches. An additional component needs
 a reviewed HelmRelease, suitable reconciliation RBAC, its required chart source
 paths, and an explicit entry in the cluster root as
-part of its ownership handoff. Aligned source files alone do not add a release
-to Flux reconciliation.
+part of its ownership handoff. Expand and verify the source artifact before
+enabling its HelmRelease so packaging can find the chart. Source files alone
+do not add a release to Flux reconciliation.
 
 ## Controllers and security
 
@@ -153,33 +151,111 @@ are pulled directly from GHCR for this opt-in installation.
 
 The normal host `bootstrap-platform` command in
 [`deploy-local.sh`](../scripts/deploy-local.sh) does not install Flux automatically.
-After the local platform is ready, check out the published GitOps branch, inspect
-the source URL and branch, then run this separate opt-in bootstrap from the
-repository root:
+Complete that deployment first using the [local deployment instructions](../../../README.md#local).
+This opt-in script adopts existing healthy releases; it does not create the
+k3d cluster or initialize an empty application installation.
+
+For the upstream CloudDSP source, use a clean checkout of the published `main`
+branch and inspect the URL and branch in
+[`gotk-sync.yaml`](clusters/clouddsp-local/flux-system/gotk-sync.yaml).
+Then run the bootstrap from the repository root:
 
 ```sh
-git switch codex/flux-clouddsp-local
+git switch main
+git pull --ff-only origin main
 ./k8Deployment/kubernetes/scripts/gitops/bootstrap-flux.sh
 ```
 
-On a clone where the branch is not present locally, fetch it first. For a fork,
-update the source URL and branch, commit and publish those changes before
-running the script. Do not switch branches with unrelated local edits; use a
-separate checkout or worktree in that case.
+Use a separate checkout or worktree when the existing checkout has unrelated
+local edits. The supplied script manages the dedicated `flux-system`
+installation and sync configuration in `k3d-clouddsp-local`. Having the Flux CLI
+installed does not mean the controllers or Git sync are installed. If controllers
+already exist in this dedicated cluster, the script applies the reviewed pinned
+installation and sync resources. A cluster with an existing Flux root for
+another repository needs a reviewed integration before using this script.
 
 The script rejects untracked or modified install manifests, checks prerequisites,
 installs controller resources, waits for CRDs and controller availability, then
 creates the Git source and reconciliation resource. It requests reconciliation
 and reports Flux health. It does not publish Git automatically.
 
+### Follow your own fork
+
+Clone your public fork, complete the normal local deployment, then edit the
+existing `GitRepository` in
+[`gotk-sync.yaml`](clusters/clouddsp-local/flux-system/gotk-sync.yaml).
+Change its `spec.url` and `spec.ref.branch`, preserving the rest of the manifest:
+
+```yaml
+spec:
+  url: https://github.com/YOUR_USERNAME/CloudDSP.git
+  ref:
+    branch: main
+```
+
+Confirm that `origin` points to your fork, then commit and push the source
+change before bootstrapping Flux:
+
+```sh
+git remote -v
+git add k8Deployment/kubernetes/gitops/clusters/clouddsp-local/flux-system/gotk-sync.yaml
+git commit -m "chore(gitops): track my CloudDSP fork"
+git push origin main
+./k8Deployment/kubernetes/scripts/gitops/bootstrap-flux.sh
+```
+
+This example uses `main`; substitute your branch in the manifest and Git
+commands if you choose another branch. Later, commit and push chart or GitOps
+changes to the same fork and branch. A pull request merged into upstream
+CloudDSP updates clusters tracking upstream; it does not update a fork until
+that change is merged into the fork's watched branch. Private repositories
+require a dedicated read-only Git credential as described in the security
+section above.
+
+### Change an existing Git source
+
+First commit and push the desired source URL and branch in the destination
+repository's `gotk-sync.yaml`. When the current source is available, publish the
+matching source change there too so Flux can observe the cutover. If the current
+source is unavailable, such as after deleting its watched branch, update the
+live GitRepository once so Flux can fetch the new declaration. For a switch to
+CloudDSP's `main`:
+
+```sh
+kubectl --context k3d-clouddsp-local --namespace flux-system \
+  patch gitrepository flux-system --type=merge \
+  -p '{"spec":{"url":"https://github.com/Y1ktor/CloudDSP.git","ref":{"branch":"main"}}}'
+flux reconcile source git flux-system \
+  --context k3d-clouddsp-local --namespace flux-system
+flux reconcile kustomization flux-system --with-source \
+  --context k3d-clouddsp-local --namespace flux-system
+```
+
+The committed declaration must match the live patch. Otherwise the root
+Kustomization can restore the earlier source settings on its next apply.
+Reconciliation fetches and applies published configuration; it does not push
+local commits or change the selected Git branch by itself.
+
 ## Inspect and reconcile
 
 ```sh
 flux check --context k3d-clouddsp-local
-flux get all --context k3d-clouddsp-local --namespace flux-system
+flux get sources git --context k3d-clouddsp-local --namespace flux-system
+flux get kustomizations --context k3d-clouddsp-local --namespace flux-system
+flux get helmreleases --context k3d-clouddsp-local --namespace flux-system
 kubectl --context k3d-clouddsp-local get pods --namespace flux-system
 flux reconcile kustomization flux-system --with-source \
   --context k3d-clouddsp-local --namespace flux-system
+```
+
+With the upstream configuration, the Git source and root Kustomization should
+show a `main@sha1:...` revision and `Ready=True`; each of the fifteen
+HelmReleases should also be Ready. A cached artifact can still display an old
+revision when a fresh fetch fails, so check readiness and the live source spec:
+
+```sh
+kubectl --context k3d-clouddsp-local --namespace flux-system \
+  get gitrepository flux-system -o jsonpath='{.spec.url}{"\n"}{.spec.ref.branch}{"\n"}'
 ```
 
 In Headlamp, inspect the `flux-system` namespace. The optional Headlamp Flux
@@ -198,8 +274,8 @@ flux install --export --version=v2.9.6 \
 ```
 
 For a Flux upgrade, generate the intended version, review the manifest changes,
-validate the Kustomize build, and publish the commit to the GitOps branch. Flux
-will reconcile the controller upgrade. Do not introduce image automation or
+validate the Kustomize build, and publish the commit to the configured branch
+(`main` by default). Flux will reconcile the controller upgrade. Do not introduce image automation or
 application HelmReleases without their separate ownership handoffs.
 
 Official references: [installation](https://fluxcd.io/flux/installation/),
