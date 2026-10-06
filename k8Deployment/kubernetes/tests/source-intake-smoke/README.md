@@ -18,7 +18,14 @@ management access to the long-running upload-intake Pod.
 
 ## Flux cluster run (both dispatchers adopted)
 
-Use a clean checkout of the watched `codex/flux-clouddsp-local` branch.
+Use a clean checkout of the branch selected by `spec.ref.branch` in the
+committed [`gotk-sync.yaml`](../../gitops/clusters/clouddsp-local/flux-system/gotk-sync.yaml):
+`main` for CloudDSP, or your configured fork branch. Confirm the live Flux
+GitRepository uses that repository and branch, and that `origin` pushes to
+the same repository. Publish and reconcile source configuration changes before
+starting this smoke. The editor rejects detached HEAD, a different branch,
+uncommitted source changes, and sources pinned by tag/semver/name/commit.
+Keep this checkout on the same branch through pause, test, and restoration.
 Both publishers have separate HelmReleases. The editor validates both manifests
 before staging either pause line; publish both changes in the same commit.
 Never directly upgrade a Flux-owned dispatcher, even while its HelmRelease is
@@ -29,10 +36,11 @@ kubectl --context k3d-clouddsp-local -n clouddsp-data exec statefulset/clouddsp-
 ruby k8Deployment/kubernetes/scripts/releases/dispatcher-release.rb verify
 ruby k8Deployment/kubernetes/scripts/releases/generic-dispatcher-release.rb verify
 ruby k8Deployment/kubernetes/scripts/gitops/dispatchers-smoke-values.rb pause
+smoke_branch="$(git branch --show-current)"
 git diff -- k8Deployment/kubernetes/gitops/clusters/clouddsp-local/dispatcher/helmrelease.yaml k8Deployment/kubernetes/gitops/clusters/clouddsp-local/generic-dispatcher/helmrelease.yaml
 git add k8Deployment/kubernetes/gitops/clusters/clouddsp-local/dispatcher/helmrelease.yaml k8Deployment/kubernetes/gitops/clusters/clouddsp-local/generic-dispatcher/helmrelease.yaml
 git commit -m 'test(k8s): pause both Flux dispatchers for source intake smoke'
-git push origin codex/flux-clouddsp-local
+git push origin "HEAD:refs/heads/${smoke_branch}"
 flux reconcile kustomization flux-system --with-source --context k3d-clouddsp-local --namespace flux-system --timeout=3m
 for release in clouddsp-dispatcher clouddsp-generic-dispatcher; do
   flux reconcile helmrelease "$release" --with-source --context k3d-clouddsp-local --namespace flux-system --timeout=3m
@@ -65,10 +73,11 @@ from a shell exit trap or delete unrelated rows/queue messages.
 ```sh
 kubectl --context k3d-clouddsp-local -n clouddsp-data delete job/source-to-outbox-smoke --wait=true
 ruby k8Deployment/kubernetes/scripts/gitops/dispatchers-smoke-values.rb restore
+smoke_branch="$(git branch --show-current)"
 git diff -- k8Deployment/kubernetes/gitops/clusters/clouddsp-local/dispatcher/helmrelease.yaml k8Deployment/kubernetes/gitops/clusters/clouddsp-local/generic-dispatcher/helmrelease.yaml
 git add k8Deployment/kubernetes/gitops/clusters/clouddsp-local/dispatcher/helmrelease.yaml k8Deployment/kubernetes/gitops/clusters/clouddsp-local/generic-dispatcher/helmrelease.yaml
 git commit -m 'test(k8s): restore both Flux dispatchers after source intake smoke'
-git push origin codex/flux-clouddsp-local
+git push origin "HEAD:refs/heads/${smoke_branch}"
 flux reconcile kustomization flux-system --with-source --context k3d-clouddsp-local --namespace flux-system --timeout=3m
 for release in clouddsp-dispatcher clouddsp-generic-dispatcher; do
   flux reconcile helmrelease "$release" --with-source --context k3d-clouddsp-local --namespace flux-system --timeout=3m
