@@ -1,0 +1,5 @@
+# Isolate a controlled publisher delivery from real Basic Pitch workers.
+# This native Helm maintenance operation applies only before worker Flux adoption.
+# Restore ordinary values after the synthetic event/message is removed.
+maintenance:
+  pauseForRoutingSmoke: true

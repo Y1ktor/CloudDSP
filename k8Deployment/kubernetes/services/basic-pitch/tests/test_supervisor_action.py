@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import unittest
 
-from app.supervisor_action import (
+from app.runtime.supervisor_action import (
     BasicPitchSupervisorActionOutcome,
     apply_basic_pitch_supervisor_decision,
 )
-from app.supervisor_backoff import (
+from app.runtime.supervisor_backoff import (
     DEFAULT_BASIC_PITCH_IDLE_DELAY_SECONDS,
     BasicPitchSupervisorAction,
     BasicPitchSupervisorBackoffState,

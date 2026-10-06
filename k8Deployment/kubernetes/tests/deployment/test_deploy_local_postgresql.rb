@@ -1,7 +1,7 @@
 require 'minitest/autorun'
 require 'stringio'
 
-require_relative '../../scripts/deploy-local-postgresql'
+require_relative '../../scripts/orchestration/deploy-local-postgresql'
 
 class DeployLocalPostgresqlTest < Minitest::Test
   def setup

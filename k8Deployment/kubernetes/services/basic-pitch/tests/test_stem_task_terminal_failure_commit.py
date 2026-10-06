@@ -12,12 +12,12 @@ from contextlib import AbstractContextManager
 from datetime import UTC, datetime
 from unittest.mock import patch
 
-from app.stem_task_terminal_failure import (
+from app.db.stem_task_terminal_failure import (
     BasicPitchStemTerminalFailure,
     BasicPitchStemTerminalFailureCode,
 )
-from app.stem_task_terminal_failure_commit import commit_terminal_basic_pitch_stem_failure
-from app.task_lease import BasicPitchTaskLease
+from app.db.stem_task_terminal_failure_commit import commit_terminal_basic_pitch_stem_failure
+from app.db.task_lease import BasicPitchTaskLease
 
 
 EVENT_ID = "93b31df9-ea8c-46bb-b2c0-19e9db5365d5"
@@ -71,7 +71,7 @@ class RecordingDatabase:
 class BasicPitchStemTerminalFailureCommitTests(unittest.TestCase):
     """Prove evidence returns only after the pure statement's transaction scope."""
 
-    @patch("app.stem_task_terminal_failure_commit.fail_leased_basic_pitch_stem_task")
+    @patch("app.db.stem_task_terminal_failure_commit.fail_leased_basic_pitch_stem_task")
     def test_committed_terminal_failure_returns_after_normal_context_exit(self, fail) -> None:
         """The composition forwards only explicit task/lease/code dependencies."""
 
@@ -98,7 +98,7 @@ class BasicPitchStemTerminalFailureCommitTests(unittest.TestCase):
             failure_code=BasicPitchStemTerminalFailureCode.METADATA_MISMATCH,
         )
 
-    @patch("app.stem_task_terminal_failure_commit.fail_leased_basic_pitch_stem_task")
+    @patch("app.db.stem_task_terminal_failure_commit.fail_leased_basic_pitch_stem_task")
     def test_normal_ownership_loss_commits_no_mutation_and_returns_none(self, fail) -> None:
         """A stale worker must not turn its no-row result into a failure retry."""
 
@@ -114,7 +114,7 @@ class BasicPitchStemTerminalFailureCommitTests(unittest.TestCase):
         )
         self.assertEqual(database.context.exit_arguments, (None, None, None))
 
-    @patch("app.stem_task_terminal_failure_commit.fail_leased_basic_pitch_stem_task")
+    @patch("app.db.stem_task_terminal_failure_commit.fail_leased_basic_pitch_stem_task")
     def test_adapter_error_escapes_so_context_can_roll_back(self, fail) -> None:
         """No failed SQL/protocol result may be mistaken for durable evidence."""
 

@@ -11,15 +11,15 @@ from pathlib import Path
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.amqp_connection import ADTOFAMQPConfigurationError, ADTOFAMQPConnectionUnavailable
-from app.claimed_task_success import ADTOFClaimedTaskSuccess, ADTOFClaimedTaskSuccessOutcome
-from app.recovery_cadence import ADTOFWorkerCadenceAction, ADTOFWorkerCadenceState
-from app.recovery_execute_once import ADTOFRecoveryIterationOutcome, ADTOFRecoveryIterationResult
-from app.receive_execute_once import ADTOFWorkerIterationOutcome, ADTOFWorkerIterationResult
-from app.stem_object import ADTOFStemStorageProtocolError
-from app.supervisor_backoff import ADTOFSupervisorAction, ADTOFSupervisorBackoffState, ADTOFSupervisorEvent
-from app.supervisor_step import ADTOFSupervisorStepState, run_one_adtof_supervisor_step
-from app.worker_cycle import ADTOFWorkerCycleResult
+from app.messaging.amqp_connection import ADTOFAMQPConfigurationError, ADTOFAMQPConnectionUnavailable
+from app.runtime.claimed_task_success import ADTOFClaimedTaskSuccess, ADTOFClaimedTaskSuccessOutcome
+from app.runtime.recovery_cadence import ADTOFWorkerCadenceAction, ADTOFWorkerCadenceState
+from app.runtime.recovery_execute_once import ADTOFRecoveryIterationOutcome, ADTOFRecoveryIterationResult
+from app.runtime.receive_execute_once import ADTOFWorkerIterationOutcome, ADTOFWorkerIterationResult
+from app.artifacts.stem_object import ADTOFStemStorageProtocolError
+from app.runtime.supervisor_backoff import ADTOFSupervisorAction, ADTOFSupervisorBackoffState, ADTOFSupervisorEvent
+from app.runtime.supervisor_step import ADTOFSupervisorStepState, run_one_adtof_supervisor_step
+from app.runtime.worker_cycle import ADTOFWorkerCycleResult
 
 
 def execution() -> ADTOFClaimedTaskSuccess:
@@ -51,7 +51,7 @@ def normal_cycle(result: ADTOFWorkerIterationResult) -> ADTOFWorkerCycleResult:
 class ADTOFSupervisorStepTests(unittest.TestCase):
     """Prove backoff and fairness-cadence state change only after a cycle result."""
 
-    @patch("app.supervisor_step.run_one_adtof_worker_cycle")
+    @patch("app.runtime.supervisor_step.run_one_adtof_worker_cycle")
     def test_recovery_idle_checks_normal_queue_immediately_and_advances_cadence(self, run_cycle) -> None:
         """Recovery idle is not AMQP idle, so it must not add the broker-poll wait."""
 
@@ -91,7 +91,7 @@ class ADTOFSupervisorStepTests(unittest.TestCase):
             process_runner=None,
         )
 
-    @patch("app.supervisor_step.run_one_adtof_worker_cycle")
+    @patch("app.runtime.supervisor_step.run_one_adtof_worker_cycle")
     def test_normal_amqp_idle_uses_short_wait_and_advances_to_recovery(self, run_cycle) -> None:
         """Only a normal empty broker poll receives the established idle delay."""
 
@@ -117,7 +117,7 @@ class ADTOFSupervisorStepTests(unittest.TestCase):
             ADTOFWorkerCadenceAction.RUN_RECOVERY_SCAN,
         )
 
-    @patch("app.supervisor_step.run_one_adtof_worker_cycle")
+    @patch("app.runtime.supervisor_step.run_one_adtof_worker_cycle")
     def test_retryable_fault_preserves_prior_cadence_without_cycle_evidence(self, run_cycle) -> None:
         """An outage retries the same selected recovery action after backoff."""
 
@@ -142,7 +142,7 @@ class ADTOFSupervisorStepTests(unittest.TestCase):
         self.assertEqual(step.next_state.backoff_state.retryable_failure_streak, 2)
         self.assertEqual(step.next_state.cadence_state, state.cadence_state)
 
-    @patch("app.supervisor_step.run_one_adtof_worker_cycle")
+    @patch("app.runtime.supervisor_step.run_one_adtof_worker_cycle")
     def test_fatal_configuration_preserves_normal_cadence_without_cycle_evidence(self, run_cycle) -> None:
         """Static configuration failure exits rather than silently skipping a branch."""
 
@@ -164,7 +164,7 @@ class ADTOFSupervisorStepTests(unittest.TestCase):
         self.assertIsNone(step.cycle)
         self.assertEqual(step.next_state.cadence_state, state.cadence_state)
 
-    @patch("app.supervisor_step.run_one_adtof_worker_cycle")
+    @patch("app.runtime.supervisor_step.run_one_adtof_worker_cycle")
     def test_unclassified_task_error_propagates_unchanged(self, run_cycle) -> None:
         """A generic supervisor step cannot override task-integrity handling."""
 

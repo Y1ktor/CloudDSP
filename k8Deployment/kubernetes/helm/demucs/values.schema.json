@@ -1,0 +1,174 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CloudDSP demucs Helm values",
+  "description": "Validates the worker image and operational autoscaling settings before rendering Kubernetes resources.",
+  "type": "object",
+  "required": [
+    "image",
+    "autoscaling"
+  ],
+  "properties": {
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reference"
+      ],
+      "properties": {
+        "reference": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "autoscaling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pollingInterval",
+        "cooldownPeriod",
+        "minReplicaCount",
+        "maxReplicaCount",
+        "rabbitmq",
+        "postgresql",
+        "behavior"
+      ],
+      "properties": {
+        "pollingInterval": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647,
+          "description": "Seconds between KEDA observations while triggers are inactive."
+        },
+        "cooldownPeriod": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647,
+          "description": "Idle seconds before KEDA scales to zero; used only with a zero minimum."
+        },
+        "minReplicaCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647,
+          "description": "Warm worker floor; must not exceed maxReplicaCount."
+        },
+        "maxReplicaCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647,
+          "description": "Capacity ceiling, subject to schedulable CPU and memory."
+        },
+        "rabbitmq": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "queueLength",
+            "activationValue",
+            "timeout"
+          ],
+          "properties": {
+            "queueLength": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            },
+            "activationValue": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "timeout": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647,
+              "description": "Management API timeout in milliseconds."
+            }
+          }
+        },
+        "postgresql": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "targetQueryValue",
+            "activationTargetQueryValue"
+          ],
+          "properties": {
+            "targetQueryValue": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            },
+            "activationTargetQueryValue": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            }
+          }
+        },
+        "behavior": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scaleUp",
+            "scaleDown"
+          ],
+          "properties": {
+            "scaleUp": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "stabilizationWindowSeconds",
+                "value",
+                "periodSeconds"
+              ],
+              "properties": {
+                "stabilizationWindowSeconds": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 3600
+                },
+                "value": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 2147483647
+                },
+                "periodSeconds": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1800
+                }
+              }
+            },
+            "scaleDown": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "stabilizationWindowSeconds",
+                "value",
+                "periodSeconds"
+              ],
+              "properties": {
+                "stabilizationWindowSeconds": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 3600
+                },
+                "value": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 2147483647
+                },
+                "periodSeconds": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1800
+                }
+              }
+            }
+          },
+          "description": "HPA behavior above zero; each fixed Pods policy controls the rate of replica changes."
+        }
+      }
+    }
+  }
+}

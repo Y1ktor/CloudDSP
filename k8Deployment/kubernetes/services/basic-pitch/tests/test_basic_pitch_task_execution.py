@@ -14,26 +14,26 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from app.basic_pitch_task_execution import (
+from app.runtime.basic_pitch_task_execution import (
     BasicPitchClaimedTaskExecutionOutcome,
     execute_claimed_basic_pitch_task,
 )
-from app.basic_pitch_requested_message import BasicPitchRequestedMessage
-from app.midi_artifact_upload import BasicPitchMidiUploadUnavailable
-from app.midi_task_completion import BasicPitchMidiTaskCompletion
-from app.stem_download import DownloadedBasicPitchStem
-from app.stem_task_terminal_failure import (
+from app.messaging.basic_pitch_requested_message import BasicPitchRequestedMessage
+from app.artifacts.midi_artifact_upload import BasicPitchMidiUploadUnavailable
+from app.db.midi_task_completion import BasicPitchMidiTaskCompletion
+from app.artifacts.stem_download import DownloadedBasicPitchStem
+from app.db.stem_task_terminal_failure import (
     BasicPitchStemTerminalFailure,
     BasicPitchStemTerminalFailureCode,
 )
-from app.stem_task_retry_exhaustion import (
+from app.db.stem_task_retry_exhaustion import (
     BasicPitchStemRetryExhaustion,
     BasicPitchStemRetryExhaustionCode,
 )
-from app.stem_task_retry_schedule import BasicPitchStemRetrySchedule, BasicPitchStemRetryScheduleCode
-from app.stem_task_start import RunningBasicPitchStem
-from app.task_lease import BasicPitchTaskLease
-from app.tempo_candidate import BasicPitchTempoCandidate
+from app.db.stem_task_retry_schedule import BasicPitchStemRetrySchedule, BasicPitchStemRetryScheduleCode
+from app.db.stem_task_start import RunningBasicPitchStem
+from app.db.task_lease import BasicPitchTaskLease
+from app.processing.tempo_candidate import BasicPitchTempoCandidate
 
 
 JOB_ID = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
@@ -110,16 +110,16 @@ class RecordingStemScope:
 class BasicPitchTaskExecutionTests(unittest.TestCase):
     """Prove only the post-claim happy path reaches durable completion."""
 
-    @patch("app.basic_pitch_task_execution.estimate_basic_pitch_tempo_candidate")
-    @patch("app.basic_pitch_task_execution.commit_verified_basic_pitch_midi_task")
-    @patch("app.basic_pitch_task_execution.verify_uploaded_basic_pitch_midi_head_object")
-    @patch("app.basic_pitch_task_execution.upload_basic_pitch_midi_object")
-    @patch("app.basic_pitch_task_execution.build_basic_pitch_midi_output_object")
-    @patch("app.basic_pitch_task_execution.verify_and_hash_basic_pitch_midi")
-    @patch("app.basic_pitch_task_execution.run_basic_pitch_inference")
-    @patch("app.basic_pitch_task_execution.build_basic_pitch_inference_command")
-    @patch("app.basic_pitch_task_execution.started_verified_basic_pitch_stem")
-    @patch("app.basic_pitch_task_execution.verify_claimed_basic_pitch_stem_head_object")
+    @patch("app.runtime.basic_pitch_task_execution.estimate_basic_pitch_tempo_candidate")
+    @patch("app.runtime.basic_pitch_task_execution.commit_verified_basic_pitch_midi_task")
+    @patch("app.runtime.basic_pitch_task_execution.verify_uploaded_basic_pitch_midi_head_object")
+    @patch("app.runtime.basic_pitch_task_execution.upload_basic_pitch_midi_object")
+    @patch("app.runtime.basic_pitch_task_execution.build_basic_pitch_midi_output_object")
+    @patch("app.runtime.basic_pitch_task_execution.verify_and_hash_basic_pitch_midi")
+    @patch("app.runtime.basic_pitch_task_execution.run_basic_pitch_inference")
+    @patch("app.runtime.basic_pitch_task_execution.build_basic_pitch_inference_command")
+    @patch("app.runtime.basic_pitch_task_execution.started_verified_basic_pitch_stem")
+    @patch("app.runtime.basic_pitch_task_execution.verify_claimed_basic_pitch_stem_head_object")
     def test_happy_path_orders_each_boundary_before_committed_completion(
         self,
         verify_stem,
@@ -231,10 +231,10 @@ class BasicPitchTaskExecutionTests(unittest.TestCase):
             tempo_candidate=tempo_candidate,
         )
 
-    @patch("app.basic_pitch_task_execution.commit_verified_basic_pitch_midi_task")
-    @patch("app.basic_pitch_task_execution.build_basic_pitch_inference_command")
-    @patch("app.basic_pitch_task_execution.started_verified_basic_pitch_stem")
-    @patch("app.basic_pitch_task_execution.verify_claimed_basic_pitch_stem_head_object")
+    @patch("app.runtime.basic_pitch_task_execution.commit_verified_basic_pitch_midi_task")
+    @patch("app.runtime.basic_pitch_task_execution.build_basic_pitch_inference_command")
+    @patch("app.runtime.basic_pitch_task_execution.started_verified_basic_pitch_stem")
+    @patch("app.runtime.basic_pitch_task_execution.verify_claimed_basic_pitch_stem_head_object")
     def test_start_ownership_loss_stops_before_model_or_output_work(
         self,
         verify_stem,
@@ -266,7 +266,7 @@ class BasicPitchTaskExecutionTests(unittest.TestCase):
     def test_execution_result_requires_exact_success_failure_retry_or_ownership_evidence(self) -> None:
         """The acknowledged gate cannot expose any durable outcome without its receipt."""
 
-        from app.basic_pitch_task_execution import BasicPitchClaimedTaskExecution
+        from app.runtime.basic_pitch_task_execution import BasicPitchClaimedTaskExecution
 
         terminal_failure = BasicPitchStemTerminalFailure(
             task_id=TASK_ID,
@@ -320,16 +320,16 @@ class BasicPitchTaskExecutionTests(unittest.TestCase):
                         retry_exhaustion=exhaustion,
                     )
 
-    @patch("app.basic_pitch_task_execution.estimate_basic_pitch_tempo_candidate")
-    @patch("app.basic_pitch_task_execution.commit_verified_basic_pitch_midi_task")
-    @patch("app.basic_pitch_task_execution.verify_uploaded_basic_pitch_midi_head_object")
-    @patch("app.basic_pitch_task_execution.upload_basic_pitch_midi_object")
-    @patch("app.basic_pitch_task_execution.build_basic_pitch_midi_output_object")
-    @patch("app.basic_pitch_task_execution.verify_and_hash_basic_pitch_midi")
-    @patch("app.basic_pitch_task_execution.run_basic_pitch_inference")
-    @patch("app.basic_pitch_task_execution.build_basic_pitch_inference_command")
-    @patch("app.basic_pitch_task_execution.started_verified_basic_pitch_stem")
-    @patch("app.basic_pitch_task_execution.verify_claimed_basic_pitch_stem_head_object")
+    @patch("app.runtime.basic_pitch_task_execution.estimate_basic_pitch_tempo_candidate")
+    @patch("app.runtime.basic_pitch_task_execution.commit_verified_basic_pitch_midi_task")
+    @patch("app.runtime.basic_pitch_task_execution.verify_uploaded_basic_pitch_midi_head_object")
+    @patch("app.runtime.basic_pitch_task_execution.upload_basic_pitch_midi_object")
+    @patch("app.runtime.basic_pitch_task_execution.build_basic_pitch_midi_output_object")
+    @patch("app.runtime.basic_pitch_task_execution.verify_and_hash_basic_pitch_midi")
+    @patch("app.runtime.basic_pitch_task_execution.run_basic_pitch_inference")
+    @patch("app.runtime.basic_pitch_task_execution.build_basic_pitch_inference_command")
+    @patch("app.runtime.basic_pitch_task_execution.started_verified_basic_pitch_stem")
+    @patch("app.runtime.basic_pitch_task_execution.verify_claimed_basic_pitch_stem_head_object")
     def test_upload_failure_propagates_and_never_attempts_head_or_completion(
         self,
         verify_stem,

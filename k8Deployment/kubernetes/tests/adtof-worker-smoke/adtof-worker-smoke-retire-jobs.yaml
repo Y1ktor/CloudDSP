@@ -1,0 +1,185 @@
+# Administrator-driven retirement after a successful, fully cleaned ADTOF
+# smoke. These Jobs stay outside the GitOps root and the worker Helm chart.
+# Inspect each outcome before removing its exact Job; no failed evidence is
+# deleted here. Runtime test Secrets are removed separately after success.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: adtof-worker-smoke-database-retire
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: adtof-worker-smoke-database-retire
+    app.kubernetes.io/component: database-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 0
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adtof-worker-smoke-database-retire
+        app.kubernetes.io/component: database-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: retire-reserved-functions-and-role
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PGHOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: PGPORT
+              value: "5432"
+            - name: PGDATABASE
+              value: clouddsp_job_api
+            - name: PGCONNECT_TIMEOUT
+              value: "5"
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-postgresql-credentials
+                  key: POSTGRES_PASSWORD
+          command: [sh, -ec]
+          args:
+            - |
+              # A transaction refuses retirement if any fixed evidence remains.
+              # DROP statements address only the three test functions and role;
+              # no CASCADE, DROP OWNED, or application-row DELETE is permitted.
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 <<'SQL'
+              BEGIN;
+              SET LOCAL statement_timeout = '10s';
+              DO $retire_preflight$
+              BEGIN
+                IF EXISTS (SELECT 1 FROM public.jobs
+                           WHERE job_id = '8d94ca4d-8f27-4d78-a01f-73ee0fb8c6bc'::uuid)
+                   OR EXISTS (SELECT 1 FROM public.processing_tasks
+                              WHERE job_id = '8d94ca4d-8f27-4d78-a01f-73ee0fb8c6bc'::uuid)
+                   OR EXISTS (SELECT 1 FROM public.outbox_events
+                              WHERE job_id = '8d94ca4d-8f27-4d78-a01f-73ee0fb8c6bc'::uuid) THEN
+                  RAISE EXCEPTION 'Reserved ADTOF smoke evidence remains; inspect before retiring access.';
+                END IF;
+              END;
+              $retire_preflight$;
+              DROP FUNCTION public.clouddsp_adtof_worker_smoke_prepare(bigint,text);
+              DROP FUNCTION public.clouddsp_adtof_worker_smoke_observe();
+              DROP FUNCTION public.clouddsp_adtof_worker_smoke_cleanup();
+              REVOKE ALL PRIVILEGES ON DATABASE clouddsp_job_api FROM "clouddsp-adtof-worker-smoke";
+              REVOKE ALL PRIVILEGES ON SCHEMA public FROM "clouddsp-adtof-worker-smoke";
+              DROP ROLE "clouddsp-adtof-worker-smoke";
+              COMMIT;
+              SQL
+              printf 'ADTOF smoke database identity and functions retired; no fixed evidence remained.\n'
+          resources:
+            requests: {cpu: 10m, memory: 32Mi, ephemeral-storage: 16Mi}
+            limits: {cpu: 100m, memory: 128Mi, ephemeral-storage: 32Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+---
+# Remove the exact-key MinIO test user/policy only after its fixed prefixes are
+# empty. Root access stays in this finite data-namespace Pod, never the worker
+# or smoke client. A failed listing stops before any identity removal.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: adtof-worker-smoke-minio-retire
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: adtof-worker-smoke-minio-retire
+    app.kubernetes.io/component: object-storage-identity-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 0
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adtof-worker-smoke-minio-retire
+        app.kubernetes.io/component: object-storage-identity-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: retire-reserved-object-identity
+          image: clouddsp-registry.localhost:5001/minio-mc@sha256:37d109dddbbb2c95873f5fc81ac93f37023264770fc580a7564148892087b1b7
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MC_CONFIG_DIR
+              value: /mc-config
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-root-credentials
+                  key: MINIO_ROOT_PASSWORD
+          command: [sh, -ec]
+          args:
+            - |
+              # Never echo administrator credentials or object listing contents.
+              # The alias is erased on both success and failure. The emptyDir
+              # holds only bounded transient client configuration/listing files.
+              trap 'mc alias remove smoke-admin >/dev/null 2>&1 || true' EXIT
+              mc alias set smoke-admin http://clouddsp-minio.clouddsp-data.svc:9000 \
+                "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null
+              for prefix in stems midi; do
+                mc ls --recursive --json \
+                  "smoke-admin/clouddsp-uploads/$prefix/8d94ca4d-8f27-4d78-a01f-73ee0fb8c6bc/" \
+                  > /mc-config/remaining.json
+                if [ -s /mc-config/remaining.json ]; then
+                  printf 'Reserved ADTOF smoke objects remain; inspect before retiring access.\n' >&2
+                  exit 1
+                fi
+              done
+              mc admin user remove smoke-admin clouddsp-adtof-worker-smoke >/dev/null
+              mc admin policy remove smoke-admin clouddsp-adtof-worker-smoke-objects-v001 >/dev/null
+              printf 'ADTOF smoke MinIO identity and policy retired; fixed prefixes were empty.\n'
+          resources:
+            requests: {cpu: 25m, memory: 64Mi, ephemeral-storage: 16Mi}
+            limits: {cpu: 100m, memory: 128Mi, ephemeral-storage: 32Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: mc-config
+              mountPath: /mc-config
+      volumes:
+        - name: mc-config
+          emptyDir:
+            sizeLimit: 16Mi

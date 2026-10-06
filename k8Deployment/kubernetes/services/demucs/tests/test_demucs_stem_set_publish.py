@@ -13,15 +13,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.demucs_artifact_upload import UploadedDemucsStemObject
-from app.demucs_artifacts import DEMUCS_STEMS_BY_MODE, DemucsArtifactInventoryMismatch
-from app.demucs_command import DemucsSeparationCommand, build_demucs_separation_command
-from app.demucs_process import DemucsProcessFailed
-from app.demucs_stem_set_publish import (
+from app.artifacts.demucs_artifact_upload import UploadedDemucsStemObject
+from app.artifacts.demucs_artifacts import DEMUCS_STEMS_BY_MODE, DemucsArtifactInventoryMismatch
+from app.processing.demucs_command import DemucsSeparationCommand, build_demucs_separation_command
+from app.processing.demucs_process import DemucsProcessFailed
+from app.processing.demucs_stem_set_publish import (
     DemucsStemSetPublicationContractError,
     run_and_publish_demucs_stem_set,
 )
-from app.task_lease import DemucsTaskLease
+from app.db.task_lease import DemucsTaskLease
 
 
 JOB_ID = "11111111-1111-4111-8111-111111111111"

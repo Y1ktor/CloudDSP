@@ -10,17 +10,17 @@ from __future__ import annotations
 from datetime import UTC, datetime
 import unittest
 
-from app.claimed_task_success import ADTOFClaimedTaskSuccess, ADTOFClaimedTaskSuccessOutcome
-from app.recovery_cadence import (
+from app.runtime.claimed_task_success import ADTOFClaimedTaskSuccess, ADTOFClaimedTaskSuccessOutcome
+from app.runtime.recovery_cadence import (
     ADTOFWorkerCadenceAction,
     ADTOFWorkerCadenceState,
     advance_after_adtof_normal_iteration,
     advance_after_adtof_recovery_iteration,
     initial_adtof_worker_cadence_state,
 )
-from app.recovery_execute_once import ADTOFRecoveryIterationOutcome, ADTOFRecoveryIterationResult
-from app.receive_execute_once import ADTOFWorkerIterationOutcome, ADTOFWorkerIterationResult
-from app.task_claim import ADTOFExpiredLeaseTerminalization
+from app.runtime.recovery_execute_once import ADTOFRecoveryIterationOutcome, ADTOFRecoveryIterationResult
+from app.runtime.receive_execute_once import ADTOFWorkerIterationOutcome, ADTOFWorkerIterationResult
+from app.db.task_claim import ADTOFExpiredLeaseTerminalization
 
 
 def execution() -> ADTOFClaimedTaskSuccess:

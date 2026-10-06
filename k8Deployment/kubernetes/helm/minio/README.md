@@ -19,16 +19,17 @@ not apply them over Helm-owned objects.
 
 The chart references but does not own its root administrator or RabbitMQ
 notification Secrets. After the fresh foundation creates `clouddsp-data`,
-populate both ignored `.local/` manifests from their committed examples, then
-run:
+the root deployment generates ignored `.local/` manifests automatically. To
+choose custom values first, use `deploy-local.sh secret-init` as documented in
+the [operator guide](../../scripts/README.md). For individual staging, run:
 
 ```bash
-ruby ./k8Deployment/kubernetes/scripts/minio-root-secret-stage.rb plan
-ruby ./k8Deployment/kubernetes/scripts/minio-root-secret-stage.rb bootstrap
-ruby ./k8Deployment/kubernetes/scripts/minio-root-secret-stage.rb verify
-ruby ./k8Deployment/kubernetes/scripts/minio-amqp-secret-stage.rb plan
-ruby ./k8Deployment/kubernetes/scripts/minio-amqp-secret-stage.rb bootstrap
-ruby ./k8Deployment/kubernetes/scripts/minio-amqp-secret-stage.rb verify
+ruby ./k8Deployment/kubernetes/scripts/stages/credentials/minio-root-secret-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/stages/credentials/minio-root-secret-stage.rb bootstrap
+ruby ./k8Deployment/kubernetes/scripts/stages/credentials/minio-root-secret-stage.rb verify
+ruby ./k8Deployment/kubernetes/scripts/stages/credentials/minio-amqp-secret-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/stages/credentials/minio-amqp-secret-stage.rb bootstrap
+ruby ./k8Deployment/kubernetes/scripts/stages/credentials/minio-amqp-secret-stage.rb verify
 ```
 
 Each stage creates only an absent Secret and checks live values against the
@@ -44,9 +45,9 @@ After both credential Secrets exist and before any MinIO release, workload,
 or claim is created, run:
 
 ```bash
-./k8Deployment/kubernetes/scripts/minio-release.rb install
-./k8Deployment/kubernetes/scripts/minio-release.rb verify
-./k8Deployment/kubernetes/scripts/minio-release.rb smoke
+./k8Deployment/kubernetes/scripts/releases/minio-release.rb install
+./k8Deployment/kubernetes/scripts/releases/minio-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/minio-release.rb smoke
 ```
 
 The install guard requires the Helm release, four chart resources, generated
@@ -56,24 +57,25 @@ readiness wait, and verifies the bound claim, running image digest, and S3
 health route. It does not run the protected adoption backup or use takeover
 flags. A partial attempt remains for inspection and blocks another `install`.
 The source-intake broker bootstrap and MinIO bucket/IAM setup have separate
-stages. The current live cluster is retained, so an empty-cluster install
-trial remains pending.
+stages. Named revisions of the full fresh workflow have passed the
+[clean VM trial](../../docs/trials/2026-09-30-clean-vm-bootstrap-d903e8c.md)
+and [same-VM redeployment](../../docs/trials/2026-09-30-second-vm-bootstrap.md).
 
 ## Protected adoption and checks
 
 From the repository root:
 
 ```bash
-./k8Deployment/kubernetes/scripts/minio-release.rb plan
-./k8Deployment/kubernetes/scripts/minio-release.rb adopt
-./k8Deployment/kubernetes/scripts/minio-release.rb verify
-./k8Deployment/kubernetes/scripts/minio-release.rb smoke
+./k8Deployment/kubernetes/scripts/releases/minio-release.rb plan
+./k8Deployment/kubernetes/scripts/releases/minio-release.rb adopt
+./k8Deployment/kubernetes/scripts/releases/minio-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/minio-release.rb smoke
 ```
 
 `plan` performs strict chart lint, image-lock and source/render/live spec
 comparisons, API-server dry run, Ready-Pod and bound-PVC checks. `adopt`
 repeats those checks and runs the versioned
-[`minio-backup-and-restore-test.py`](../../scripts/minio-backup-and-restore-test.py)
+[`minio-backup-and-restore-test.py`](../../scripts/maintenance/minio-backup-and-restore-test.py)
 before Helm takeover. The backup briefly scales **only MinIO** to zero so
 the node-local PVC directory can be archived consistently, then restores its
 single replica and checks the original StatefulSet, PVC, and PV identities.
@@ -119,3 +121,12 @@ compare bucket, version, notification, and IAM behavior, then run the S3 and
 restricted-access smoke tests before switching clients. There is deliberately
 no automated in-place restore command, because it would overwrite the
 authoritative current PVC.
+
+## Optional Flux delivery
+
+The [Flux guide](../../gitops/minio.md) selects the existing release using the
+unchanged chart and defaults. Native history, workload, S3 origin and retained
+storage remain intact; buckets, IAM, objects, notifications and credentials stay
+outside the release. MinIO waits for RabbitMQ; its clients wait for MinIO.
+Verify/smoke support native or Flux ownership. Install/adopt fail closed once
+its HelmRelease exists; publish versioned changes to the watched GitOps branch.

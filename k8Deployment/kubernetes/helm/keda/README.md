@@ -3,8 +3,8 @@
 This directory is the reproducible description of CloudDSP's local KEDA
 platform dependency. It is deliberately separate from worker manifests:
 installing KEDA provides its controller Pods and custom resource definitions,
-but it cannot scale anything until a later task adds a `ScaledObject` for a
-specific worker Deployment.
+but scaling policies belong to the separate ADTOF, Basic Pitch, and Demucs
+worker charts. Each worker has a KEDA-owned HPA and defaults to zero idle Pods.
 
 ## What each file owns
 
@@ -15,12 +15,15 @@ specific worker Deployment.
   to `clouddsp-app`, pins its component tags, establishes local resource
   bounds, and documents the intentional secret-access choice needed for later
   RabbitMQ trigger authentication.
-- [`../../scripts/install-keda.sh`](../../scripts/install-keda.sh) is the one
-  non-interactive install/upgrade entry point. It uses the explicit k3d
+- [`../../scripts/releases/install-keda.sh`](../../scripts/releases/install-keda.sh) is the one
+  pre-Flux native install/upgrade entry point. It uses the explicit k3d
   context, reads both files, waits for readiness, and verifies the CRDs.
-- [`../../scripts/keda-release-stage.rb`](../../scripts/keda-release-stage.rb)
+- [`../../scripts/releases/keda-release-stage.rb`](../../scripts/releases/keda-release-stage.rb)
   guards fresh bootstrap against an existing release or leftover KEDA
   resources and verifies the exact deployed chart, values, and controllers.
+  After Flux adoption it additionally validates the active upstream source,
+  artifact, and ownership record. Both entrypoints reject native writes while
+  the KEDA HelmRelease exists, including unhealthy states and API errors.
 
 The installed KEDA components run as normal Kubernetes Pods in the `keda`
 namespace. Helm is only the host-side client that renders and submits the
@@ -32,9 +35,9 @@ after the command exits.
 Run the versioned installer from the repository root:
 
 ```bash
-ruby ./k8Deployment/kubernetes/scripts/keda-release-stage.rb plan
-ruby ./k8Deployment/kubernetes/scripts/keda-release-stage.rb install
-ruby ./k8Deployment/kubernetes/scripts/keda-release-stage.rb verify
+ruby ./k8Deployment/kubernetes/scripts/releases/keda-release-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/releases/keda-release-stage.rb install
+ruby ./k8Deployment/kubernetes/scripts/releases/keda-release-stage.rb verify
 ```
 
 Use the Ruby `install` mode during one-command fresh bootstrap; it refuses a
@@ -42,7 +45,7 @@ pre-existing KEDA release, namespace, CRD, or metrics API. The standalone
 shell installer is an alternative for explicit reconciliation:
 
 ```bash
-./k8Deployment/kubernetes/scripts/install-keda.sh
+./k8Deployment/kubernetes/scripts/releases/install-keda.sh
 ```
 
 It targets `k3d-clouddsp-local` explicitly. `helm upgrade --install`
@@ -54,15 +57,37 @@ replica count, or enqueue any processing work.
 Useful read-only checks are:
 
 ```bash
-helm status keda --namespace keda
+helm --kube-context k3d-clouddsp-local status keda --namespace keda
 kubectl --context k3d-clouddsp-local get pods --namespace keda
 kubectl --context k3d-clouddsp-local get scaledobjects --namespace clouddsp-app
 kubectl --context k3d-clouddsp-local get hpa --namespace clouddsp-app
 ```
 
-The final two commands should initially report no resources. A KEDA
-`ScaledObject` will later create and manage an ordinary Kubernetes Horizontal
-Pod Autoscaler (HPA) for exactly one existing processing Deployment.
+The final two commands list the three current worker scalers and their generated
+Horizontal Pod Autoscalers. Each ScaledObject targets exactly one existing
+worker Deployment; installing KEDA alone never creates a worker or a policy.
+
+## Optional Flux delivery
+
+The [KEDA handoff](../../gitops/keda.md) selects `flux-system/keda`, retaining
+native release/storage in `keda` and the official upstream chart at exact
+version 2.20.2. Under Flux, publish changes to its versioned HelmRelease on
+`codex/flux-clouddsp-local`; use the Ruby `verify` command above for checks.
+Native install/upgrade commands are reserved for clusters without that record.
+
+Flux's inline values follow one exact transformation of this native profile:
+omit the duplicate `additionalLabels.app.kubernetes.io/part-of` input, then
+restore its existing effective label with explicit postrenderer patches. This
+avoids invalid duplicate YAML keys while preserving all resource specs and Pod
+templates. The native values file remains intact. Update both public mappings
+together, retaining this documented transformation.
+
+The handoff retains six exact CRDs with Helm resource-policy annotations and
+denies delivery CRD deletion. Narrow runtime CA exceptions preserve automatic
+TLS rotation. Its separate platform identity needs named cluster RBAC and
+bind/escalate authority, while application credentials, scaling policies, and
+worker replicas retain their own owners. Shared scaling-auth depends on KEDA
+readiness; all three workers depend on shared authentication.
 
 ## RabbitMQ observation prerequisite
 

@@ -1,0 +1,71 @@
+# helm-controller reuses the installed clouddsp-minio release and its history.
+# This resource is reconciliation configuration; Helm still owns the rendered
+# StatefulSet, two Services and S3 Ingress in the existing clouddsp-data namespace.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: clouddsp-minio
+  namespace: flux-system
+spec:
+  interval: 5m
+  timeout: 5m
+  maxHistory: 10
+  # Explicit names avoid Flux's default namespace-prefixed release naming and
+  # preserve the namespace where the existing Helm revision Secrets are stored.
+  releaseName: clouddsp-minio
+  targetNamespace: clouddsp-data
+  storageNamespace: clouddsp-data
+  serviceAccountName: clouddsp-minio-helm
+  # The existing AMQP notification target uses RabbitMQ. This delivery gate
+  # does not recreate buckets, IAM users or the separate notification rule.
+  dependsOn:
+    - name: clouddsp-rabbitmq
+      namespace: flux-system
+  chart:
+    spec:
+      chart: ./k8Deployment/kubernetes/helm/minio
+      interval: 1m
+      # Rebuild when Git changes, even if Chart.yaml's base version is unchanged.
+      # Flux appends a source SHA and values-file generation to the chart version.
+      reconcileStrategy: Revision
+      sourceRef:
+        kind: GitRepository
+        name: flux-system
+        namespace: flux-system
+      # Git chart values-file paths are relative to the repository root.
+      valuesFiles:
+        - ./k8Deployment/kubernetes/helm/minio/values.yaml
+      ignoreMissingValuesFiles: false
+  install:
+    createNamespace: false
+    # Refuse to take unrelated resources into this release on a fresh install.
+    disableTakeOwnership: true
+    strategy:
+      name: RemediateOnFailure
+    remediation:
+      retries: 0
+      # A failure stays available for inspection; no automatic uninstall follows.
+      remediateLastFailure: false
+  upgrade:
+    disableTakeOwnership: true
+    # Preserve the native release apply method; the unchanged Pod template
+    # and immutable claim identity must not cause a workload replacement.
+    serverSideApply: auto
+    force: false
+    cleanupOnFail: false
+    preserveValues: false
+    # Avoid an implicit uninstall/reinstall if a later chart name changes.
+    chartNameChangeStrategy: InPlaceUpdate
+    strategy:
+      name: RemediateOnFailure
+    remediation:
+      retries: 0
+      # An adopted release must not be automatically rolled back or uninstalled.
+      remediateLastFailure: false
+  # Read/write smoke is a separate versioned Job. Buckets, IAM, notifications,
+  # credentials and retained storage are outside the delivery identity.
+  test:
+    enable: false
+  # After the release is in sync, correct live drift against its stored manifest.
+  driftDetection:
+    mode: enabled

@@ -1,0 +1,69 @@
+# helm-controller reuses the installed clouddsp-frontend release and its history.
+# This resource is reconciliation configuration; Helm still owns the rendered
+# Deployment, Service, and Ingress in the existing clouddsp-app namespace.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: clouddsp-frontend
+  namespace: flux-system
+spec:
+  interval: 5m
+  timeout: 3m
+  maxHistory: 10
+  # Explicit names avoid Flux's default namespace-prefixed release naming and
+  # preserve the namespace where the existing Helm revision Secrets are stored.
+  releaseName: clouddsp-frontend
+  targetNamespace: clouddsp-app
+  storageNamespace: clouddsp-app
+  serviceAccountName: clouddsp-frontend-helm
+  # OIDC configuration points at Keycloak; realm bootstrap remains separate.
+  dependsOn:
+    - name: clouddsp-keycloak
+      namespace: flux-system
+  chart:
+    spec:
+      chart: ./k8Deployment/kubernetes/helm/frontend
+      interval: 1m
+      # Rebuild when Git changes, even if Chart.yaml's base version is unchanged.
+      # Flux appends a source SHA and values-file generation to the chart version.
+      reconcileStrategy: Revision
+      sourceRef:
+        kind: GitRepository
+        name: flux-system
+        namespace: flux-system
+      # Git chart values-file paths are relative to the repository root.
+      valuesFiles:
+        - ./k8Deployment/kubernetes/helm/frontend/values.yaml
+      ignoreMissingValuesFiles: false
+  install:
+    createNamespace: false
+    # Refuse to take unrelated resources into this release on a fresh install.
+    disableTakeOwnership: true
+    strategy:
+      name: RemediateOnFailure
+    remediation:
+      retries: 0
+      # A failure stays available for inspection; no automatic uninstall follows.
+      remediateLastFailure: false
+  upgrade:
+    disableTakeOwnership: true
+    # Keep the existing CLI release's apply method during its ownership handoff.
+    serverSideApply: auto
+    force: false
+    cleanupOnFail: false
+    preserveValues: false
+    # Avoid an implicit uninstall/reinstall if a later chart name changes.
+    chartNameChangeStrategy: InPlaceUpdate
+    strategy:
+      name: RemediateOnFailure
+    remediation:
+      retries: 0
+      # An adopted release must not be automatically rolled back or uninstalled.
+      remediateLastFailure: false
+  # The chart has no Helm test hook. The release helper checks the browser route,
+  # health endpoint, CSP, static assets, and SPA deep links separately.
+  test:
+    enable: false
+  # After the release is in sync, correct live drift against its stored manifest.
+  driftDetection:
+    mode: enabled

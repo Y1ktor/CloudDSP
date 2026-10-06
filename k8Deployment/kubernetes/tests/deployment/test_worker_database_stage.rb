@@ -2,7 +2,7 @@ require 'minitest/autorun'
 require 'stringio'
 require 'tmpdir'
 require 'yaml'
-require_relative '../../scripts/worker-database-stage'
+require_relative '../../scripts/stages/database/worker-database-stage'
 
 class WorkerDatabaseStageTest < Minitest::Test
   def with_sources(worker)

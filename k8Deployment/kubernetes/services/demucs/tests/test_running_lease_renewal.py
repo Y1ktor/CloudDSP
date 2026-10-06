@@ -12,14 +12,14 @@ import unittest
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
-from app.preflight_task_start import DemucsRunningSource
-from app.running_lease_renewal import (
+from app.db.preflight_task_start import DemucsRunningSource
+from app.db.running_lease_renewal import (
     DemucsRunningLeaseRenewal,
     DemucsRunningLeaseRenewalOutcome,
     renew_running_demucs_lease,
 )
-from app.source_preflight import ValidatedDemucsSource
-from app.task_lease import DemucsTaskLease
+from app.processing.source_preflight import ValidatedDemucsSource
+from app.db.task_lease import DemucsTaskLease
 
 
 TASK_ID = "00000000-0000-4000-8000-000000000001"
@@ -56,7 +56,7 @@ def running_source() -> DemucsRunningSource:
 class DemucsRunningLeaseRenewalTests(unittest.TestCase):
     """Prove renewal changes only expiry and reports no-row loss explicitly."""
 
-    @patch("app.running_lease_renewal.renew_one_demucs_task_lease")
+    @patch("app.db.running_lease_renewal.renew_one_demucs_task_lease")
     def test_committed_renewal_preserves_source_and_identity_with_new_expiry(self, renew) -> None:
         """Only PostgreSQL's returned expiry changes after a guarded renewal."""
 
@@ -84,7 +84,7 @@ class DemucsRunningLeaseRenewalTests(unittest.TestCase):
             lease_seconds=123,
         )
 
-    @patch("app.running_lease_renewal.renew_one_demucs_task_lease")
+    @patch("app.db.running_lease_renewal.renew_one_demucs_task_lease")
     def test_no_row_is_a_stop_signal_without_forged_running_evidence(self, renew) -> None:
         """An expired/recovered/inactive task must stop before another write."""
 
@@ -99,7 +99,7 @@ class DemucsRunningLeaseRenewalTests(unittest.TestCase):
         self.assertEqual(result.outcome, DemucsRunningLeaseRenewalOutcome.OWNERSHIP_LOST)
         self.assertIsNone(result.running)
 
-    @patch("app.running_lease_renewal.renew_one_demucs_task_lease")
+    @patch("app.db.running_lease_renewal.renew_one_demucs_task_lease")
     def test_invalid_inputs_fail_before_the_renewal_transaction(self, renew) -> None:
         """A hand-built state or missing transaction capability has no side effect."""
 
@@ -116,7 +116,7 @@ class DemucsRunningLeaseRenewalTests(unittest.TestCase):
 
         renew.assert_not_called()
 
-    @patch("app.running_lease_renewal.renew_one_demucs_task_lease")
+    @patch("app.db.running_lease_renewal.renew_one_demucs_task_lease")
     def test_database_failure_propagates_without_inventing_renewal_evidence(self, renew) -> None:
         """An uncertain transaction must not become renewed or ownership-lost state."""
 

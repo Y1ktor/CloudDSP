@@ -11,19 +11,19 @@ from pathlib import Path
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.amqp_connection import DemucsAMQPConnectionUnavailable
-from app.recovery_cadence import DemucsWorkerCadenceAction, DemucsWorkerCadenceState
-from app.session_supervisor import run_demucs_session_supervisor_until_stop
-from app.shutdown_event import DemucsShutdownWaiter
-from app.supervisor_action import DemucsSupervisorActionOutcome, DemucsSupervisorActionResult
-from app.supervisor_backoff import (
+from app.messaging.amqp_connection import DemucsAMQPConnectionUnavailable
+from app.runtime.recovery_cadence import DemucsWorkerCadenceAction, DemucsWorkerCadenceState
+from app.runtime.session_supervisor import run_demucs_session_supervisor_until_stop
+from app.runtime.shutdown_event import DemucsShutdownWaiter
+from app.runtime.supervisor_action import DemucsSupervisorActionOutcome, DemucsSupervisorActionResult
+from app.runtime.supervisor_backoff import (
     DemucsSupervisorAction,
     DemucsSupervisorBackoffState,
     DemucsSupervisorDecision,
     DemucsSupervisorEvent,
 )
-from app.supervisor_once import DemucsSupervisorOnceResult
-from app.supervisor_step import DemucsSupervisorStepResult, DemucsSupervisorStepState
+from app.runtime.supervisor_once import DemucsSupervisorOnceResult
+from app.runtime.supervisor_step import DemucsSupervisorStepResult, DemucsSupervisorStepState
 
 
 def state(action: DemucsWorkerCadenceAction) -> DemucsSupervisorStepState:
@@ -77,7 +77,7 @@ class ShutdownOnPositiveWait(DemucsShutdownWaiter):
 class DemucsSessionSupervisorTests(unittest.TestCase):
     """Prove recovery is socket-free and every normal poll owns one session."""
 
-    @patch("app.session_supervisor.run_one_demucs_supervisor_cycle")
+    @patch("app.runtime.session_supervisor.run_one_demucs_supervisor_cycle")
     def test_normal_turn_opens_and_closes_one_session_around_one_cycle(self, run_cycle) -> None:
         """A normal basic_get cannot inherit a channel from an earlier poll."""
 
@@ -107,7 +107,7 @@ class DemucsSessionSupervisorTests(unittest.TestCase):
         self.assertEqual(events, ["session-enter", "session-exit"])
         self.assertIs(run_cycle.call_args.args[0], channel)
 
-    @patch("app.session_supervisor.run_one_demucs_supervisor_cycle")
+    @patch("app.runtime.session_supervisor.run_one_demucs_supervisor_cycle")
     def test_recovery_turn_uses_no_amqp_session(self, run_cycle) -> None:
         """Recovery must read durable PostgreSQL state without broker access."""
 
@@ -128,7 +128,7 @@ class DemucsSessionSupervisorTests(unittest.TestCase):
         self.assertEqual(result.completed_cycles, 1)
         session_factory.assert_not_called()
 
-    @patch("app.session_supervisor.run_one_demucs_supervisor_cycle")
+    @patch("app.runtime.session_supervisor.run_one_demucs_supervisor_cycle")
     def test_session_connection_failure_becomes_interruptible_reconnect_backoff(self, run_cycle) -> None:
         """A failed session neither changes cadence nor crashes silently."""
 

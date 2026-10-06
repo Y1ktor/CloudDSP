@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import unittest
 
-from app.supervisor_action import DemucsSupervisorActionOutcome, apply_demucs_supervisor_decision
-from app.supervisor_backoff import (
+from app.runtime.supervisor_action import DemucsSupervisorActionOutcome, apply_demucs_supervisor_decision
+from app.runtime.supervisor_backoff import (
     DEFAULT_DEMUCS_IDLE_DELAY_SECONDS,
     DemucsSupervisorAction,
     DemucsSupervisorBackoffState,

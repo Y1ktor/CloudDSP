@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import unittest
 
-from app.supervisor_action import ADTOFSupervisorActionOutcome, apply_adtof_supervisor_decision
-from app.supervisor_backoff import (
+from app.runtime.supervisor_action import ADTOFSupervisorActionOutcome, apply_adtof_supervisor_decision
+from app.runtime.supervisor_backoff import (
     DEFAULT_ADTOF_IDLE_DELAY_SECONDS,
     ADTOFSupervisorAction,
     ADTOFSupervisorBackoffState,

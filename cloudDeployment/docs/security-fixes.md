@@ -147,7 +147,7 @@ subdomains. It rejects lookalike suffixes, HTTP, embedded credentials, invalid
 ports, and HTTPS ports other than 443.
 
 The validation lives in
-[`media_url_policy.py`](../src/DSP/src/Cloud/media_url_policy.py). Both the Job
+[`media_url_policy.py`](../src/DSP/cloud/media_url_policy.py). Both the Job
 API and the yt-dlp Lambda call it, so direct or asynchronous Lambda invocation
 cannot bypass the policy. The yt-dlp Lambda retains its DNS check that rejects
 an allowlisted hostname resolving to a private or reserved IP address.
@@ -167,8 +167,8 @@ provider. Local verification completed with:
 ```bash
 cd cloudDeployment
 python3 -m unittest src/DSP/tests/test_media_url_policy.py
-python3 -m py_compile src/DSP/src/Cloud/media_url_policy.py \
-  src/DSP/src/Cloud/job_api.py src/DSP/src/Cloud/LambdaYtDlp.py
+python3 -m py_compile src/DSP/cloud/media_url_policy.py \
+  src/DSP/cloud/job_api.py src/DSP/cloud/LambdaYtDlp.py
 ```
 
 ### Residual risk
@@ -329,6 +329,13 @@ frontend ignore rules exclude `.env` and `.env.*` while explicitly retaining
 `.env.example`. The example documents the four expected public configuration
 values: Cognito User Pool ID, Cognito browser client ID, Job API URL, and
 WebSocket URL.
+
+That path records the layout when this control was implemented. The canonical
+application now lives at `../../frontend/`; its public cloud example is
+`profiles/cloud.env.example`, and populated cloud configuration uses ignored
+`.env.cloud.local`. Local public build settings use the separate example in
+`profiles/local.env.example` and ignored
+`../../k8Deployment/.local/frontend.env.production` for the container build.
 
 Vite compiles every `VITE_*` value into browser JavaScript, so these variables
 must never contain passwords, tokens, AWS credentials, proxy URLs, or client

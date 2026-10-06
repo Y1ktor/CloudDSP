@@ -1,5 +1,5 @@
 require 'minitest/autorun'
-require_relative '../../scripts/job-api-release'
+require_relative '../../scripts/releases/job-api-release'
 
 class JobApiFreshInstallTest < Minitest::Test
   # Exercise the actual Job API release configuration while replacing only

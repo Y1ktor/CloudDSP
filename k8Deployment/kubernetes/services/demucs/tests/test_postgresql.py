@@ -11,7 +11,7 @@ import os
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.postgresql import (
+from app.db.postgresql import (
     DEFAULT_DATABASE_HOST,
     DEFAULT_STATEMENT_TIMEOUT_MILLISECONDS,
     LOCAL_DATABASE_NAME,
@@ -134,7 +134,7 @@ class PsycopgDemucsDatabaseTests(unittest.TestCase):
         FakePsycopg.connect.return_value.__enter__.return_value = connection
         return connection
 
-    @patch("app.postgresql._load_psycopg")
+    @patch("app.db.postgresql._load_psycopg")
     def test_write_cursor_uses_bounded_dictionary_row_transaction(self, load_psycopg) -> None:
         """A durable claim can commit before the later AMQP acknowledgement."""
 
@@ -155,7 +155,7 @@ class PsycopgDemucsDatabaseTests(unittest.TestCase):
         connection.transaction.assert_called_once_with()
         transaction_context.__exit__.assert_called_once_with(None, None, None)
 
-    @patch("app.postgresql._load_psycopg")
+    @patch("app.db.postgresql._load_psycopg")
     def test_application_error_reaches_transaction_for_rollback(self, load_psycopg) -> None:
         """An adapter failure cannot commit partial task state before an ack."""
 
@@ -171,7 +171,7 @@ class PsycopgDemucsDatabaseTests(unittest.TestCase):
         self.assertIs(exit_args[0], ValueError)
         self.assertIn("simulated lease failure", str(exit_args[1]))
 
-    @patch("app.postgresql._load_psycopg")
+    @patch("app.db.postgresql._load_psycopg")
     def test_driver_failure_becomes_safe_unavailable_category(self, load_psycopg) -> None:
         """Connection diagnostics cannot escape into future worker logs."""
 

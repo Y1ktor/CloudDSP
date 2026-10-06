@@ -1,7 +1,7 @@
 require 'minitest/autorun'
 require 'stringio'
 
-require_relative '../../scripts/minio-state-verify'
+require_relative '../../scripts/stages/minio/minio-state-verify'
 
 class MinioStateVerifyTest < Minitest::Test
   FakeStatus = Struct.new(:exitstatus) do

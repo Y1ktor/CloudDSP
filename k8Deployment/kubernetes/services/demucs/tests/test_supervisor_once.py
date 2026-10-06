@@ -11,16 +11,16 @@ from pathlib import Path
 import unittest
 from unittest.mock import ANY, MagicMock, patch
 
-from app.recovery_cadence import DemucsWorkerCadenceAction, DemucsWorkerCadenceState
-from app.supervisor_action import DemucsSupervisorActionOutcome, DemucsSupervisorActionResult
-from app.supervisor_backoff import (
+from app.runtime.recovery_cadence import DemucsWorkerCadenceAction, DemucsWorkerCadenceState
+from app.runtime.supervisor_action import DemucsSupervisorActionOutcome, DemucsSupervisorActionResult
+from app.runtime.supervisor_backoff import (
     DemucsSupervisorAction,
     DemucsSupervisorBackoffState,
     DemucsSupervisorDecision,
     DemucsSupervisorEvent,
 )
-from app.supervisor_once import DemucsSupervisorOnceResult, run_one_demucs_supervisor_cycle
-from app.supervisor_step import DemucsSupervisorStepResult, DemucsSupervisorStepState
+from app.runtime.supervisor_once import DemucsSupervisorOnceResult, run_one_demucs_supervisor_cycle
+from app.runtime.supervisor_step import DemucsSupervisorStepResult, DemucsSupervisorStepState
 
 
 def retryable_step() -> DemucsSupervisorStepResult:
@@ -44,8 +44,8 @@ def retryable_step() -> DemucsSupervisorStepResult:
 class DemucsSupervisorOnceTests(unittest.TestCase):
     """Prove every complete step gets exactly one matching control action."""
 
-    @patch("app.supervisor_once.apply_demucs_supervisor_decision")
-    @patch("app.supervisor_once.run_one_demucs_supervisor_step")
+    @patch("app.runtime.supervisor_once.apply_demucs_supervisor_decision")
+    @patch("app.runtime.supervisor_once.run_one_demucs_supervisor_step")
     def test_forwards_step_decision_and_returns_its_next_state(self, run_step, apply_action) -> None:
         """The runner cannot substitute action or state after a completed step."""
 
@@ -98,8 +98,8 @@ class DemucsSupervisorOnceTests(unittest.TestCase):
         )
         apply_action.assert_called_once_with(step.decision, shutdown_waiter=waiter)
 
-    @patch("app.supervisor_once.apply_demucs_supervisor_decision")
-    @patch("app.supervisor_once.run_one_demucs_supervisor_step")
+    @patch("app.runtime.supervisor_once.apply_demucs_supervisor_decision")
+    @patch("app.runtime.supervisor_once.run_one_demucs_supervisor_step")
     def test_shutdown_or_continue_outcome_returns_without_another_step(self, run_step, apply_action) -> None:
         """A later entrypoint can stop/continue after this one observed action."""
 
@@ -128,8 +128,8 @@ class DemucsSupervisorOnceTests(unittest.TestCase):
 
         self.assertEqual(run_step.call_count, 2)
 
-    @patch("app.supervisor_once.apply_demucs_supervisor_decision")
-    @patch("app.supervisor_once.run_one_demucs_supervisor_step")
+    @patch("app.runtime.supervisor_once.apply_demucs_supervisor_decision")
+    @patch("app.runtime.supervisor_once.run_one_demucs_supervisor_step")
     def test_step_or_action_failure_propagates_without_constructing_result(self, run_step, apply_action) -> None:
         """The future entrypoint receives original failures, not false continuation."""
 

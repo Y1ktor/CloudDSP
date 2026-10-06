@@ -1,0 +1,7 @@
+# Explicitly select this shared authentication release and its impersonation
+# identity; this entry does not adopt KEDA or any worker chart.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - reconciliation-rbac.yaml
+  - helmrelease.yaml

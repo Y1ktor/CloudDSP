@@ -1,4 +1,4 @@
-# Use only during the source-to-outbox integration smoke. The test verifies a
-# pending Demucs outbox row before any dispatcher publishes it to RabbitMQ.
-# Restore the chart's default values immediately after the disposable Job.
+# Hold this publisher at zero while source-to-outbox asserts a pending row.
+# Flux selects this file AFTER values.yaml through committed valuesFiles.
+# Restore normal Git configuration only after the smoke confirms cleanup.
 replicas: 0

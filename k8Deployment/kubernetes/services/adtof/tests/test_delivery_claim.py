@@ -15,15 +15,15 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import UUID
 
-from app.adtof_requested_message import (
+from app.messaging.adtof_requested_message import (
     ADTOF_REQUESTED_ROUTING_KEY,
     PROCESSING_EXCHANGE,
     ADTOFRequestContractError,
     ADTOFRequestedMessage,
 )
-from app.delivery_claim import ADTOFDeliveryClaim, claim_adtof_requested_delivery
-from app.postgresql import ADTOFDatabaseUnavailable
-from app.task_claim import (
+from app.runtime.delivery_claim import ADTOFDeliveryClaim, claim_adtof_requested_delivery
+from app.db.postgresql import ADTOFDatabaseUnavailable
+from app.db.task_claim import (
     ADTOFStaleRequestReason,
     ADTOFTaskClaimDisposition,
     ADTOFTaskClaimResult,
@@ -99,7 +99,7 @@ class ADTOFDeliveryClaimBridgeTests(unittest.TestCase):
             **overrides,
         )
 
-    @patch("app.delivery_claim.claim_first_adtof_task")
+    @patch("app.runtime.delivery_claim.claim_first_adtof_task")
     def test_valid_contract_passes_only_parsed_identifiers_to_committed_claim(self, claim) -> None:
         """Raw body/properties never cross into the PostgreSQL decision layer."""
 
@@ -122,7 +122,7 @@ class ADTOFDeliveryClaimBridgeTests(unittest.TestCase):
             uuid_factory=uuid_factory,
         )
 
-    @patch("app.delivery_claim.claim_first_adtof_task")
+    @patch("app.runtime.delivery_claim.claim_first_adtof_task")
     def test_malformed_contract_never_attempts_a_database_claim(self, claim) -> None:
         """The later manual-ack layer alone decides the permanent DLQ action."""
 
@@ -131,7 +131,7 @@ class ADTOFDeliveryClaimBridgeTests(unittest.TestCase):
 
         claim.assert_not_called()
 
-    @patch("app.delivery_claim.claim_first_adtof_task")
+    @patch("app.runtime.delivery_claim.claim_first_adtof_task")
     def test_database_outage_propagates_after_valid_parse_without_transport_action(self, claim) -> None:
         """The future AMQP adapter must leave an incomplete claim unacknowledged."""
 
@@ -142,7 +142,7 @@ class ADTOFDeliveryClaimBridgeTests(unittest.TestCase):
 
         claim.assert_called_once()
 
-    @patch("app.delivery_claim.claim_first_adtof_task")
+    @patch("app.runtime.delivery_claim.claim_first_adtof_task")
     def test_stale_result_is_preserved_without_an_acknowledgement_boolean(self, claim) -> None:
         """Only the later transport maps a committed durable fact to RabbitMQ."""
 

@@ -14,14 +14,14 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-from app.postgresql import BasicPitchDatabaseUnavailable
-from app.stem_download import DownloadedBasicPitchStem
-from app.stem_object import VerifiedBasicPitchStemObject
-from app.stem_task_start import (
+from app.db.postgresql import BasicPitchDatabaseUnavailable
+from app.artifacts.stem_download import DownloadedBasicPitchStem
+from app.artifacts.stem_object import VerifiedBasicPitchStemObject
+from app.db.stem_task_start import (
     BasicPitchTaskStartCompositionError,
     started_verified_basic_pitch_stem,
 )
-from app.task_lease import BasicPitchTaskLease, BasicPitchTaskLeaseProtocolError
+from app.db.task_lease import BasicPitchTaskLease, BasicPitchTaskLeaseProtocolError
 
 
 EVENT_ID = "93b31df9-ea8c-46bb-b2c0-19e9db5365d5"
@@ -122,8 +122,8 @@ def downloaded() -> DownloadedBasicPitchStem:
 class VerifiedStemTaskStartTests(unittest.TestCase):
     """Prove local model input exists only after a committed current lease."""
 
-    @patch("app.stem_task_start.start_leased_basic_pitch_task")
-    @patch("app.stem_task_start.downloaded_verified_basic_pitch_stem")
+    @patch("app.db.stem_task_start.start_leased_basic_pitch_task")
+    @patch("app.db.stem_task_start.downloaded_verified_basic_pitch_stem")
     def test_committed_start_yields_exact_temp_stem_after_transaction(self, download, start) -> None:
         """The future model receives a path only after durable ownership commits."""
 
@@ -158,8 +158,8 @@ class VerifiedStemTaskStartTests(unittest.TestCase):
         )
         start.assert_called_once_with(database.cursor, lease=lease())
 
-    @patch("app.stem_task_start.start_leased_basic_pitch_task")
-    @patch("app.stem_task_start.downloaded_verified_basic_pitch_stem")
+    @patch("app.db.stem_task_start.start_leased_basic_pitch_task")
+    @patch("app.db.stem_task_start.downloaded_verified_basic_pitch_stem")
     def test_ownership_loss_cleans_stem_before_yielding_none(self, download, start) -> None:
         """A stale worker cannot accidentally see a temporary input after losing its lease."""
 
@@ -181,8 +181,8 @@ class VerifiedStemTaskStartTests(unittest.TestCase):
                 ["download-open", "transaction-open", "transaction-commit", "download-cleanup"],
             )
 
-    @patch("app.stem_task_start.start_leased_basic_pitch_task")
-    @patch("app.stem_task_start.downloaded_verified_basic_pitch_stem")
+    @patch("app.db.stem_task_start.start_leased_basic_pitch_task")
+    @patch("app.db.stem_task_start.downloaded_verified_basic_pitch_stem")
     def test_invalid_start_rolls_back_and_cleans_temporary_input(self, download, start) -> None:
         """A malformed start result cannot leave model input or partial state available."""
 
@@ -203,8 +203,8 @@ class VerifiedStemTaskStartTests(unittest.TestCase):
 
         self.assertEqual(events, ["download-open", "transaction-open", "transaction-rollback", "download-cleanup"])
 
-    @patch("app.stem_task_start.start_leased_basic_pitch_task")
-    @patch("app.stem_task_start.downloaded_verified_basic_pitch_stem")
+    @patch("app.db.stem_task_start.start_leased_basic_pitch_task")
+    @patch("app.db.stem_task_start.downloaded_verified_basic_pitch_stem")
     def test_database_outage_cleans_input_without_executing_start_sql(self, download, start) -> None:
         """An unavailable Service never promotes/downloaded stem evidence to model work."""
 

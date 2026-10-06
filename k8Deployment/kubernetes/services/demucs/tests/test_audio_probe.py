@@ -9,7 +9,7 @@ from __future__ import annotations
 import unittest
 from decimal import Decimal
 
-from app.audio_probe import (
+from app.processing.audio_probe import (
     MAX_FFPROBE_OUTPUT_BYTES,
     DemucsAudioProbeFailureCode,
     DemucsAudioProbeProtocolError,

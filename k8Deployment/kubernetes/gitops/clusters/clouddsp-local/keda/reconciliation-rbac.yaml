@@ -1,0 +1,195 @@
+# A separate impersonated Helm identity; no application worker uses this token.
+# This handoff requires an existing native KEDA release and its namespaces.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: clouddsp-keda-helm
+  namespace: flux-system
+automountServiceAccountToken: false
+---
+# Reconcile only the named upstream platform objects. Unlike application Roles,
+# KEDA delivery needs cluster scope and explicit RBAC escalation/binding rights.
+# Those rights can alter powerful runtime roles: this remains a trusted platform
+# identity. They are limited to the reviewed chart names, not arbitrary RBAC.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: clouddsp-keda-helm
+rules:
+  - apiGroups: [apiextensions.k8s.io]
+    resources: [customresourcedefinitions]
+    resourceNames:
+      - cloudeventsources.eventing.keda.sh
+      - clustercloudeventsources.eventing.keda.sh
+      - clustertriggerauthentications.keda.sh
+      - scaledjobs.keda.sh
+      - scaledobjects.keda.sh
+      - triggerauthentications.keda.sh
+    # No delete: removing a schema would also remove its stored custom resources.
+    verbs: [get, update, patch]
+  - apiGroups: [apiregistration.k8s.io]
+    resources: [apiservices]
+    resourceNames: [v1beta1.external.metrics.k8s.io]
+    verbs: [get, update, patch, delete]
+  - apiGroups: [admissionregistration.k8s.io]
+    resources: [validatingwebhookconfigurations]
+    resourceNames: [keda-admission]
+    verbs: [get, update, patch, delete]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterroles]
+    resourceNames:
+      - keda-operator
+      - keda-operator-minimal-cluster-role
+      - keda-operator-external-metrics-reader
+      - keda-operator-webhook
+    verbs: [get, update, patch, delete, escalate]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterroles]
+    resourceNames:
+      - keda-operator
+      - keda-operator-minimal-cluster-role
+      - keda-operator-external-metrics-reader
+      - keda-operator-webhook
+      - system:auth-delegator
+    # Kubernetes checks the bound role as well as RoleBinding write permission.
+    verbs: [bind]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterrolebindings]
+    resourceNames:
+      - keda-operator-minimal
+      - keda-operator-system-auth-delegator
+      - keda-operator-hpa-controller-external-metrics
+      - keda-operator-webhook
+    verbs: [get, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: clouddsp-keda-helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: clouddsp-keda-helm
+subjects:
+  - kind: ServiceAccount
+    name: clouddsp-keda-helm
+    namespace: flux-system
+---
+# Chart readiness reads Pods/ReplicaSets. Helm revision storage needs broad
+# Secret CRUD in keda (including its runtime TLS Secret), never in app/data.
+# Other mutations are limited to the existing three controllers/services/SAs.
+# PATCH can recreate an absent named object through server-side apply even
+# without CREATE; names restrict that path too. This is not a fresh installer.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: clouddsp-keda-helm
+  namespace: keda
+rules:
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [services, serviceaccounts]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments]
+    resourceNames: [keda-operator, keda-operator-metrics-apiserver, keda-admission-webhooks]
+    verbs: [get, update, patch, delete]
+  - apiGroups: [""]
+    resources: [services]
+    resourceNames: [keda-operator, keda-operator-metrics-apiserver, keda-admission-webhooks]
+    verbs: [get, update, patch, delete]
+  - apiGroups: [""]
+    resources: [serviceaccounts]
+    resourceNames: [keda-operator, keda-metrics-server, keda-webhook]
+    verbs: [get, update, patch, delete]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles]
+    resourceNames: [keda-operator-certs]
+    verbs: [get, update, patch, delete, escalate, bind]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [rolebindings]
+    resourceNames: [keda-operator, keda-operator-certs]
+    verbs: [get, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: clouddsp-keda-helm
+  namespace: keda
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: clouddsp-keda-helm
+subjects:
+  - kind: ServiceAccount
+    name: clouddsp-keda-helm
+    namespace: flux-system
+---
+# KEDA's watch namespace uses one chart-owned binding to its operator role.
+# Delivery cannot directly read app Secrets, edit workers, or write HPAs/auths.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: clouddsp-keda-helm
+  namespace: clouddsp-app
+rules:
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [rolebindings]
+    resourceNames: [keda-operator]
+    verbs: [get, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: clouddsp-keda-helm
+  namespace: clouddsp-app
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: clouddsp-keda-helm
+subjects:
+  - kind: ServiceAccount
+    name: clouddsp-keda-helm
+    namespace: flux-system
+---
+# The aggregated metrics server needs the existing Kubernetes authentication
+# reader binding. Do not grant kube-system workload/Secret access to delivery.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: clouddsp-keda-helm
+  namespace: kube-system
+rules:
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [rolebindings]
+    resourceNames: [keda-operator-auth-reader]
+    verbs: [get, update, patch, delete]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles]
+    resourceNames: [extension-apiserver-authentication-reader]
+    verbs: [get, bind]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: clouddsp-keda-helm
+  namespace: kube-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: clouddsp-keda-helm
+subjects:
+  - kind: ServiceAccount
+    name: clouddsp-keda-helm
+    namespace: flux-system

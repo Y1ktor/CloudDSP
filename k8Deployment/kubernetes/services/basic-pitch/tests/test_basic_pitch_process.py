@@ -12,7 +12,7 @@ import unittest
 from datetime import UTC, datetime
 from pathlib import Path
 
-from app.basic_pitch_process import (
+from app.processing.basic_pitch_process import (
     BASIC_PITCH_EXECUTABLE,
     BASIC_PITCH_OUTPUT_DIRECTORY_NAME,
     DEFAULT_BASIC_PITCH_PROCESS_TIMEOUT_SECONDS,
@@ -23,9 +23,9 @@ from app.basic_pitch_process import (
     build_basic_pitch_inference_command,
     run_basic_pitch_inference,
 )
-from app.stem_download import DownloadedBasicPitchStem
-from app.stem_task_start import RunningBasicPitchStem
-from app.task_lease import BasicPitchTaskLease
+from app.artifacts.stem_download import DownloadedBasicPitchStem
+from app.db.stem_task_start import RunningBasicPitchStem
+from app.db.task_lease import BasicPitchTaskLease
 
 
 EVENT_ID = "93b31df9-ea8c-46bb-b2c0-19e9db5365d5"

@@ -12,7 +12,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from app.amqp_connection import (
+from app.messaging.amqp_connection import (
     DEFAULT_DEMUCS_AMQP_HOST,
     DEMUCS_AMQP_VHOST,
     DemucsAMQPConfigurationError,
@@ -21,7 +21,7 @@ from app.amqp_connection import (
     open_demucs_rabbitmq_connection,
     validate_demucs_amqp_settings,
 )
-from app.amqp_manual_ack import DEMUCS_REQUEST_QUEUE
+from app.messaging.amqp_manual_ack import DEMUCS_REQUEST_QUEUE
 
 
 VALID_ENVIRONMENT = {
@@ -140,7 +140,7 @@ class DemucsAMQPSettingsTests(unittest.TestCase):
 class DemucsAMQPConnectionTests(unittest.TestCase):
     """Prove Pika receives only bounded private connection parameters."""
 
-    @patch("app.amqp_connection._load_pika")
+    @patch("app.messaging.amqp_connection._load_pika")
     def test_open_connection_uses_restricted_identity_and_private_endpoint(self, load_pika) -> None:
         """Opening an AMQP socket does not consume or configure broker state."""
 
@@ -160,7 +160,7 @@ class DemucsAMQPConnectionTests(unittest.TestCase):
         self.assertEqual(parameters["connection_attempts"], 3)
         self.assertEqual(parameters["heartbeat"], 30)
 
-    @patch("app.amqp_connection._load_pika")
+    @patch("app.messaging.amqp_connection._load_pika")
     def test_connection_failure_becomes_a_safe_retryable_category(self, load_pika) -> None:
         """Broker diagnostics cannot escape a later runtime's normal log message."""
 
@@ -174,7 +174,7 @@ class DemucsAMQPConnectionTests(unittest.TestCase):
         self.assertEqual(str(raised.exception), "RabbitMQ Demucs connection is unavailable.")
         self.assertNotIn("private broker diagnostic", str(raised.exception))
 
-    @patch("app.amqp_connection._load_pika")
+    @patch("app.messaging.amqp_connection._load_pika")
     def test_direct_widened_settings_are_rejected_before_loading_pika(self, load_pika) -> None:
         """A test/entrypoint cannot send restricted credentials to another queue host."""
 

@@ -12,22 +12,22 @@ import unittest
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
-from app.amqp_manual_ack import DemucsConsumeOneOutcome, DemucsConsumeOneResult
-from app.demucs_process import DemucsLeaseRenewalOwnershipLost
-from app.demucs_process import DemucsProcessTimedOut
-from app.demucs_task_completion import CommittedDemucsStemSet
-from app.pre_model_failure_runtime import DemucsOneTaskExecution, DemucsOneTaskExecutionOutcome
-from app.running_failure_classification import DemucsRunningRetryCode, DemucsRunningTerminalCode
-from app.running_failure_runtime import execute_acknowledged_demucs_task_with_running_failure_policy
-from app.running_failure_transition import (
+from app.messaging.amqp_manual_ack import DemucsConsumeOneOutcome, DemucsConsumeOneResult
+from app.processing.demucs_process import DemucsLeaseRenewalOwnershipLost
+from app.processing.demucs_process import DemucsProcessTimedOut
+from app.db.demucs_task_completion import CommittedDemucsStemSet
+from app.runtime.pre_model_failure_runtime import DemucsOneTaskExecution, DemucsOneTaskExecutionOutcome
+from app.runtime.running_failure_classification import DemucsRunningRetryCode, DemucsRunningTerminalCode
+from app.runtime.running_failure_runtime import execute_acknowledged_demucs_task_with_running_failure_policy
+from app.db.running_failure_transition import (
     DemucsRunningFailureTransition,
     DemucsRunningFailureTransitionDisposition,
     DemucsRunningRetryExhaustion,
     DemucsRunningRetryExhaustionCode,
     DemucsRunningRetrySchedule,
 )
-from app.source_object import DemucsSourceStorageProtocolError
-from app.task_lease import DemucsTaskLease
+from app.artifacts.source_object import DemucsSourceStorageProtocolError
+from app.db.task_lease import DemucsTaskLease
 
 
 TASK_ID = "00000000-0000-4000-8000-000000000001"
@@ -109,8 +109,8 @@ class DemucsRunningFailureRuntimeTests(unittest.TestCase):
         arguments.update(overrides)
         return execute_acknowledged_demucs_task_with_running_failure_policy(**arguments)  # type: ignore[arg-type]
 
-    @patch("app.running_failure_runtime.commit_running_demucs_failure_transition")
-    @patch("app.running_failure_runtime.execute_acknowledged_demucs_task_with_pre_model_failure_policy")
+    @patch("app.runtime.running_failure_runtime.commit_running_demucs_failure_transition")
+    @patch("app.runtime.running_failure_runtime.execute_acknowledged_demucs_task_with_pre_model_failure_policy")
     def test_inner_success_passes_through_without_running_failure_sql(
         self,
         execute_with_pre_model_policy,
@@ -136,8 +136,8 @@ class DemucsRunningFailureRuntimeTests(unittest.TestCase):
         self.assertIs(result, expected)
         commit_running_failure.assert_not_called()
 
-    @patch("app.running_failure_runtime.commit_running_demucs_failure_transition")
-    @patch("app.running_failure_runtime.execute_acknowledged_demucs_task_with_pre_model_failure_policy")
+    @patch("app.runtime.running_failure_runtime.commit_running_demucs_failure_transition")
+    @patch("app.runtime.running_failure_runtime.execute_acknowledged_demucs_task_with_pre_model_failure_policy")
     def test_inner_pre_model_outcome_does_not_enter_running_policy(
         self,
         execute_with_pre_model_policy,
@@ -155,8 +155,8 @@ class DemucsRunningFailureRuntimeTests(unittest.TestCase):
         self.assertIs(result, expected)
         commit_running_failure.assert_not_called()
 
-    @patch("app.running_failure_runtime.commit_running_demucs_failure_transition")
-    @patch("app.running_failure_runtime.execute_acknowledged_demucs_task_with_pre_model_failure_policy")
+    @patch("app.runtime.running_failure_runtime.commit_running_demucs_failure_transition")
+    @patch("app.runtime.running_failure_runtime.execute_acknowledged_demucs_task_with_pre_model_failure_policy")
     def test_reviewed_running_timeout_commits_terminal_result_without_retry(
         self,
         execute_with_pre_model_policy,
@@ -180,8 +180,8 @@ class DemucsRunningFailureRuntimeTests(unittest.TestCase):
             DemucsRunningTerminalCode.PROCESS_TIMED_OUT,
         )
 
-    @patch("app.running_failure_runtime.commit_running_demucs_failure_transition")
-    @patch("app.running_failure_runtime.execute_acknowledged_demucs_task_with_pre_model_failure_policy")
+    @patch("app.runtime.running_failure_runtime.commit_running_demucs_failure_transition")
+    @patch("app.runtime.running_failure_runtime.execute_acknowledged_demucs_task_with_pre_model_failure_policy")
     def test_committed_exhaustion_becomes_terminal_worker_outcome(
         self,
         execute_with_pre_model_policy,
@@ -198,8 +198,8 @@ class DemucsRunningFailureRuntimeTests(unittest.TestCase):
         self.assertEqual(result.outcome, DemucsOneTaskExecutionOutcome.TERMINAL_FAILURE)
         self.assertIs(result.failure_transition, transition)
 
-    @patch("app.running_failure_runtime.commit_running_demucs_failure_transition")
-    @patch("app.running_failure_runtime.execute_acknowledged_demucs_task_with_pre_model_failure_policy")
+    @patch("app.runtime.running_failure_runtime.commit_running_demucs_failure_transition")
+    @patch("app.runtime.running_failure_runtime.execute_acknowledged_demucs_task_with_pre_model_failure_policy")
     def test_running_transition_no_row_becomes_ownership_loss(
         self,
         execute_with_pre_model_policy,
@@ -215,8 +215,8 @@ class DemucsRunningFailureRuntimeTests(unittest.TestCase):
         self.assertEqual(result.outcome, DemucsOneTaskExecutionOutcome.OWNERSHIP_LOST)
         self.assertIsNone(result.failure_transition)
 
-    @patch("app.running_failure_runtime.commit_running_demucs_failure_transition")
-    @patch("app.running_failure_runtime.execute_acknowledged_demucs_task_with_pre_model_failure_policy")
+    @patch("app.runtime.running_failure_runtime.commit_running_demucs_failure_transition")
+    @patch("app.runtime.running_failure_runtime.execute_acknowledged_demucs_task_with_pre_model_failure_policy")
     def test_renewal_stop_becomes_ownership_loss_without_failure_transition(
         self,
         execute_with_pre_model_policy,
@@ -234,8 +234,8 @@ class DemucsRunningFailureRuntimeTests(unittest.TestCase):
         self.assertIsNone(result.failure_transition)
         commit_running_failure.assert_not_called()
 
-    @patch("app.running_failure_runtime.commit_running_demucs_failure_transition")
-    @patch("app.running_failure_runtime.execute_acknowledged_demucs_task_with_pre_model_failure_policy")
+    @patch("app.runtime.running_failure_runtime.commit_running_demucs_failure_transition")
+    @patch("app.runtime.running_failure_runtime.execute_acknowledged_demucs_task_with_pre_model_failure_policy")
     def test_unclassified_error_escapes_without_running_failure_sql(
         self,
         execute_with_pre_model_policy,

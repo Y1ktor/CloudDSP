@@ -13,18 +13,18 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from app.adtof_cpu_inference_entrypoint import (
+from app.processing.adtof_cpu_inference_entrypoint import (
     ADTOFCPUInferenceEntrypointContractError,
     ADTOFCPUInferenceEntrypointModelError,
     ADTOFCPUInferenceEntrypointPathError,
     parse_adtof_cpu_inference_argv,
     run_adtof_cpu_inference_entrypoint,
 )
-from app.adtof_inference_command import build_adtof_cpu_inference_command
-from app.model_configuration import ADTOF_CPU_DEVICE, ADTOF_FPS, ADTOF_THRESHOLDS
-from app.stem_download import DownloadedADTOFStem
-from app.stem_task_start import RunningADTOFStem
-from app.task_claim import ADTOFTaskLease
+from app.processing.adtof_inference_command import build_adtof_cpu_inference_command
+from app.processing.model_configuration import ADTOF_CPU_DEVICE, ADTOF_FPS, ADTOF_THRESHOLDS
+from app.artifacts.stem_download import DownloadedADTOFStem
+from app.db.stem_task_start import RunningADTOFStem
+from app.db.task_claim import ADTOFTaskLease
 
 
 EVENT_ID = "93b31df9-ea8c-46bb-b2c0-19e9db5365d5"

@@ -10,14 +10,14 @@ from __future__ import annotations
 import unittest
 from datetime import UTC, datetime
 
-from app.stem_task_retry_schedule import (
+from app.db.stem_task_retry_schedule import (
     DEFAULT_BASIC_PITCH_RETRY_AFTER_SECONDS,
     SCHEDULE_LEASED_BASIC_PITCH_STEM_RETRY_SQL,
     BasicPitchStemRetryScheduleCode,
     BasicPitchStemRetryScheduleProtocolError,
     schedule_leased_basic_pitch_stem_retry,
 )
-from app.task_lease import MAX_BASIC_PITCH_TASK_ATTEMPTS, BasicPitchTaskLease
+from app.db.task_lease import MAX_BASIC_PITCH_TASK_ATTEMPTS, BasicPitchTaskLease
 
 
 EVENT_ID = "93b31df9-ea8c-46bb-b2c0-19e9db5365d5"

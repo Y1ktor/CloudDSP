@@ -47,10 +47,12 @@ class RabbitMQManagementNetworkManifestTests(unittest.TestCase):
         self.assertIn("name: clouddsp-rabbitmq-ingress", manifest)
         self.assertIn("namespace: clouddsp-data", manifest)
         self.assertIn("policyTypes:\n    - Ingress", manifest)
-        # KEDA and finite bootstrap sources deliberately occupy separate
-        # ingress items. This avoids relying on a controller-specific union of
-        # multiple source selectors inside one item.
-        self.assertEqual(manifest.count("port: 15672"), 2)
+        # Four existing source groups deliberately occupy separate ingress
+        # items: KEDA, finite bootstrap Jobs, and the two named integration
+        # probes. The older count of two predates those reviewed smoke paths.
+        self.assertEqual(manifest.count("port: 15672"), 4)
+        self.assertIn("app.kubernetes.io/name: source-to-outbox-smoke", manifest)
+        self.assertIn("app.kubernetes.io/name: six-stem-load", manifest)
         self.assertIn("kubernetes.io/metadata.name: keda", manifest)
         self.assertIn("app.kubernetes.io/name: keda-operator", manifest)
         self.assertNotIn("port: 15672\n      from: []", manifest)

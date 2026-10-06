@@ -1,4 +1,41 @@
 # Reviewed ARM64 CPU image from images.demucs.immutableReference.
 # The template omits replicas because KEDA and its HPA own /scale.
 image:
-  reference: clouddsp-registry.localhost:5001/demucs@sha256:4aeab642921bc12108cd46f548029b270d7317dad76d416a9ae77d55de605bba
+  reference: clouddsp-registry.localhost:5001/demucs@sha256:6309797ec6911c5e4736efd1b8c6f1b10024e5d7021d679c1f82777db5e76fee
+
+# KEDA observes inactive triggers at pollingInterval; its cooldown controls
+# the final transition to zero only when minReplicaCount is zero. The HPA
+# separately manages replica changes above zero through behavior below.
+# Keep these local defaults unless the cluster has capacity for more workers:
+# raising maxReplicaCount permits capacity but does not start extra Pods.
+# Set minReplicaCount above zero to retain that many warm workers when idle.
+autoscaling:
+  pollingInterval: 15
+  cooldownPeriod: 300
+  minReplicaCount: 0
+  maxReplicaCount: 1
+  rabbitmq:
+    # Desired messages per worker; activation requires depth above this
+    # activation threshold. Defaults activate for any available request.
+    queueLength: 1
+    activationValue: 0
+    # Bound each management API request in milliseconds.
+    timeout: 5000
+  postgresql:
+    # Count active leases and due retries after messages have been ACKed.
+    # Keep the activation threshold at zero to wake for any durable task.
+    targetQueryValue: 1
+    activationTargetQueryValue: 0
+  behavior:
+    # HPA stabilization windows are seconds; value limits the number of
+    # Pods added or removed during periodSeconds (not the replica ceiling).
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      value: 1
+      periodSeconds: 15
+    scaleDown:
+      # A longer window retains recent capacity across short metric dips.
+      # KEDA cooldown still controls the eventual idle transition to zero.
+      stabilizationWindowSeconds: 300
+      value: 1
+      periodSeconds: 60

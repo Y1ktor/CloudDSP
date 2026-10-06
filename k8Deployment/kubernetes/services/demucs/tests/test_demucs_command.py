@@ -11,7 +11,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.demucs_command import (
+from app.processing.demucs_command import (
     DEMUCS_CPU_CLI_SCRIPT,
     DEMUCS_DEVICE,
     DEMUCS_MODEL_REPOSITORY,

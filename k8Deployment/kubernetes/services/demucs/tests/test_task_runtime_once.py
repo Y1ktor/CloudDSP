@@ -12,7 +12,7 @@ from contextlib import AbstractContextManager, contextmanager
 from unittest.mock import MagicMock, patch
 from uuid import UUID
 
-from app.task_runtime_once import execute_acknowledged_demucs_task_once
+from app.runtime.task_runtime_once import execute_acknowledged_demucs_task_once
 
 
 class SourceClient:
@@ -68,13 +68,13 @@ def nested_context(
 class TaskRuntimeOnceTests(unittest.TestCase):
     """Prove one receive result follows the exact nested one-task order only."""
 
-    @patch("app.task_runtime_once.upload_and_commit_demucs_stem_set")
-    @patch("app.task_runtime_once.opened_demucs_stem_output_plan_workspace")
-    @patch("app.task_runtime_once.opened_hashed_demucs_stem_inventory_workspace")
-    @patch("app.task_runtime_once.opened_validated_demucs_stem_inventory_workspace")
-    @patch("app.task_runtime_once.opened_executed_demucs_separation_workspace")
-    @patch("app.task_runtime_once.opened_running_demucs_source_workspace")
-    @patch("app.task_runtime_once.opened_acknowledged_demucs_source_workspace")
+    @patch("app.runtime.task_runtime_once.upload_and_commit_demucs_stem_set")
+    @patch("app.runtime.task_runtime_once.opened_demucs_stem_output_plan_workspace")
+    @patch("app.runtime.task_runtime_once.opened_hashed_demucs_stem_inventory_workspace")
+    @patch("app.runtime.task_runtime_once.opened_validated_demucs_stem_inventory_workspace")
+    @patch("app.runtime.task_runtime_once.opened_executed_demucs_separation_workspace")
+    @patch("app.runtime.task_runtime_once.opened_running_demucs_source_workspace")
+    @patch("app.runtime.task_runtime_once.opened_acknowledged_demucs_source_workspace")
     def test_runs_one_acknowledged_task_in_order_then_unwinds_scopes(
         self,
         source_context,
@@ -159,8 +159,8 @@ class TaskRuntimeOnceTests(unittest.TestCase):
             renewal_database=database,
         )
 
-    @patch("app.task_runtime_once.opened_running_demucs_source_workspace")
-    @patch("app.task_runtime_once.opened_acknowledged_demucs_source_workspace")
+    @patch("app.runtime.task_runtime_once.opened_running_demucs_source_workspace")
+    @patch("app.runtime.task_runtime_once.opened_acknowledged_demucs_source_workspace")
     def test_running_ownership_loss_stops_before_model_or_private_upload(
         self,
         source_context,
@@ -187,7 +187,7 @@ class TaskRuntimeOnceTests(unittest.TestCase):
         self.assertIsNone(returned)
         self.assertEqual(events, ["source-enter", "running-enter", "running-exit", "source-exit"])
 
-    @patch("app.task_runtime_once.opened_acknowledged_demucs_source_workspace")
+    @patch("app.runtime.task_runtime_once.opened_acknowledged_demucs_source_workspace")
     def test_missing_database_capability_stops_before_source_preflight(self, source_context) -> None:
         """An invalid runtime cannot download or process private audio first."""
 

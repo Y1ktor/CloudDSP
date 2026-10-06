@@ -37,9 +37,9 @@ RUN pip install --no-cache-dir -r ${LAMBDA_TASK_ROOT}/requirements.txt
 # Copy the durable-job helper and Lambda handler. The handler writes the
 # existing uploads/{job_id}/... key so the S3 EventBridge rule can submit
 # Demucs without a separate callback route.
-COPY src/Cloud/cloud_job_workflow.py ${LAMBDA_TASK_ROOT}/cloud_job_workflow.py
-COPY src/Cloud/media_url_policy.py ${LAMBDA_TASK_ROOT}/media_url_policy.py
-COPY src/Cloud/LambdaYtDlp.py ${LAMBDA_TASK_ROOT}/LambdaYtDlp.py
+COPY cloud/cloud_job_workflow.py ${LAMBDA_TASK_ROOT}/cloud_job_workflow.py
+COPY cloud/media_url_policy.py ${LAMBDA_TASK_ROOT}/media_url_policy.py
+COPY cloud/LambdaYtDlp.py ${LAMBDA_TASK_ROOT}/LambdaYtDlp.py
 
 # Set the CMD to your handler
 CMD ["LambdaYtDlp.lambda_handler"]

@@ -12,29 +12,29 @@ import unittest
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
-from app.amqp_manual_ack import DemucsConsumeOneOutcome, DemucsConsumeOneResult
-from app.demucs_task_completion import CommittedDemucsStemSet
-from app.demucs_process import DemucsProcessTimedOut
-from app.pre_model_failure_runtime import (
+from app.messaging.amqp_manual_ack import DemucsConsumeOneOutcome, DemucsConsumeOneResult
+from app.db.demucs_task_completion import CommittedDemucsStemSet
+from app.processing.demucs_process import DemucsProcessTimedOut
+from app.runtime.pre_model_failure_runtime import (
     DemucsOneTaskExecutionOutcome,
     execute_acknowledged_demucs_task_with_pre_model_failure_policy,
 )
-from app.pre_model_failure_transition import (
+from app.db.pre_model_failure_transition import (
     DemucsPreModelFailureTransition,
     DemucsPreModelFailureTransitionDisposition,
     DemucsPreModelRetrySchedule,
     DemucsPreModelTerminalFailure,
 )
-from app.source_failure_classification import (
+from app.runtime.source_failure_classification import (
     DemucsPreModelFailureDisposition,
     DemucsPreModelRetryCode,
     DemucsPreModelTerminalFailureCode,
 )
-from app.source_object import (
+from app.artifacts.source_object import (
     DemucsPermanentSourceVerificationError,
     DemucsSourceVerificationFailureCode,
 )
-from app.task_lease import DemucsTaskLease
+from app.db.task_lease import DemucsTaskLease
 
 
 TASK_ID = "00000000-0000-4000-8000-000000000001"
@@ -114,8 +114,8 @@ class DemucsPreModelFailureRuntimeTests(unittest.TestCase):
             work_directory=MagicMock(),
         )
 
-    @patch("app.pre_model_failure_runtime.commit_leased_demucs_pre_model_failure_transition")
-    @patch("app.pre_model_failure_runtime.execute_acknowledged_demucs_task_once")
+    @patch("app.runtime.pre_model_failure_runtime.commit_leased_demucs_pre_model_failure_transition")
+    @patch("app.runtime.pre_model_failure_runtime.execute_acknowledged_demucs_task_once")
     def test_success_keeps_existing_completion_and_never_enters_failure_policy(
         self,
         execute_once,
@@ -138,8 +138,8 @@ class DemucsPreModelFailureRuntimeTests(unittest.TestCase):
         self.assertIs(result.completion, completed)  # type: ignore[union-attr]
         commit_failure.assert_not_called()
 
-    @patch("app.pre_model_failure_runtime.commit_leased_demucs_pre_model_failure_transition")
-    @patch("app.pre_model_failure_runtime.execute_acknowledged_demucs_task_once")
+    @patch("app.runtime.pre_model_failure_runtime.commit_leased_demucs_pre_model_failure_transition")
+    @patch("app.runtime.pre_model_failure_runtime.execute_acknowledged_demucs_task_once")
     def test_permanent_source_error_commits_matching_terminal_result(
         self,
         execute_once,
@@ -169,8 +169,8 @@ class DemucsPreModelFailureRuntimeTests(unittest.TestCase):
             DemucsPreModelTerminalFailureCode.METADATA_MISMATCH,
         )
 
-    @patch("app.pre_model_failure_runtime.commit_leased_demucs_pre_model_failure_transition")
-    @patch("app.pre_model_failure_runtime.execute_acknowledged_demucs_task_once")
+    @patch("app.runtime.pre_model_failure_runtime.commit_leased_demucs_pre_model_failure_transition")
+    @patch("app.runtime.pre_model_failure_runtime.execute_acknowledged_demucs_task_once")
     def test_committed_retry_and_no_row_race_have_distinct_safe_outcomes(
         self,
         execute_once,
@@ -178,7 +178,7 @@ class DemucsPreModelFailureRuntimeTests(unittest.TestCase):
     ) -> None:
         """A durable retry differs from another owner winning the transition race."""
 
-        from app.source_download import DemucsSourceDownloadUnavailable
+        from app.artifacts.source_download import DemucsSourceDownloadUnavailable
 
         execute_once.side_effect = DemucsSourceDownloadUnavailable("private outage detail")
         commit_failure.return_value = retry_transition()
@@ -197,8 +197,8 @@ class DemucsPreModelFailureRuntimeTests(unittest.TestCase):
         self.assertEqual(ownership_result.outcome, DemucsOneTaskExecutionOutcome.OWNERSHIP_LOST)  # type: ignore[union-attr]
         self.assertIsNone(ownership_result.failure_transition)  # type: ignore[union-attr]
 
-    @patch("app.pre_model_failure_runtime.commit_leased_demucs_pre_model_failure_transition")
-    @patch("app.pre_model_failure_runtime.execute_acknowledged_demucs_task_once")
+    @patch("app.runtime.pre_model_failure_runtime.commit_leased_demucs_pre_model_failure_transition")
+    @patch("app.runtime.pre_model_failure_runtime.execute_acknowledged_demucs_task_once")
     def test_unclassified_post_running_error_escapes_without_failure_sql(
         self,
         execute_once,
@@ -215,8 +215,8 @@ class DemucsPreModelFailureRuntimeTests(unittest.TestCase):
         self.assertIs(raised.exception, failure)
         commit_failure.assert_not_called()
 
-    @patch("app.pre_model_failure_runtime.commit_leased_demucs_pre_model_failure_transition")
-    @patch("app.pre_model_failure_runtime.execute_acknowledged_demucs_task_once")
+    @patch("app.runtime.pre_model_failure_runtime.commit_leased_demucs_pre_model_failure_transition")
+    @patch("app.runtime.pre_model_failure_runtime.execute_acknowledged_demucs_task_once")
     def test_existing_ownership_loss_stays_a_normal_stop_signal(
         self,
         execute_once,

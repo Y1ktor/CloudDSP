@@ -13,8 +13,8 @@ import unittest
 from decimal import Decimal
 from pathlib import Path
 
-from app.audio_probe import MAX_FFPROBE_OUTPUT_BYTES, DemucsAudioProbeProtocolError
-from app.ffprobe_process import (
+from app.processing.audio_probe import MAX_FFPROBE_OUTPUT_BYTES, DemucsAudioProbeProtocolError
+from app.processing.ffprobe_process import (
     DEMUCS_FFPROBE_TIMEOUT_SECONDS,
     FFPROBE_ARGUMENTS,
     FFPROBE_EXECUTABLE,

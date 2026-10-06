@@ -1,0 +1,7 @@
+# Deliver only the existing identity-service workload and browser route.
+# Existing database, credentials and realm/client configuration stay external.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - reconciliation-rbac.yaml
+  - helmrelease.yaml

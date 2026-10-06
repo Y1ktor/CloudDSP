@@ -1,3 +1,10 @@
+{{/* Validate the relationship that JSON Schema cannot express across fields. */}}
+{{- if gt (int .Values.autoscaling.minReplicaCount) (int .Values.autoscaling.maxReplicaCount) -}}
+{{- fail "autoscaling.minReplicaCount must not exceed autoscaling.maxReplicaCount" -}}
+{{- end -}}
+# Numeric examples below describe the reviewed defaults in values.yaml.
+# Helm values may change the warm-worker floor, capacity ceiling, thresholds,
+# and timing without changing this worker's target, credentials, or query.
 # This ScaledObject delegates only the Demucs Deployment's replica count to
 # KEDA. The Deployment still owns the worker image, security context, resource
 # requests, Secrets, SIGTERM handling, and rollout strategy. KEDA creates a
@@ -36,20 +43,20 @@ spec:
 
   # A 15-second observation cadence keeps local scale-from-zero responsive
   # without continuously polling RabbitMQ's management API from the laptop.
-  pollingInterval: 15
+  pollingInterval: {{ .Values.autoscaling.pollingInterval }}
   # Demucs has a roughly 480 MiB image and CPU model runtime. Keeping one idle
   # worker warm for five minutes avoids repeated image/model startup around
   # nearby uploads, yet permits a truly idle local cluster to return to zero.
-  cooldownPeriod: 300
+  cooldownPeriod: {{ .Values.autoscaling.cooldownPeriod }}
   # Both triggers below must be inactive before KEDA returns to zero. RabbitMQ
   # activates a Pod for an unclaimed request; PostgreSQL holds it while a
   # claimed task runs and reactivates it when a scheduled retry becomes due.
-  minReplicaCount: 0
+  minReplicaCount: {{ .Values.autoscaling.minReplicaCount }}
   # One local Demucs Pod requests 2 CPU and 2 GiB (up to 4 CPU/4 GiB). Cap this
   # CPU-only Apple-Silicon profile at one Pod: another heavy model can starve
   # PostgreSQL, RabbitMQ, and later MIDI workers. Backlog remains safe in the
   # quorum queue; a GPU-node profile may review a different ceiling separately.
-  maxReplicaCount: 1
+  maxReplicaCount: {{ .Values.autoscaling.maxReplicaCount }}
 
   advanced:
     # Removing this resource in an explicit rollback restores the Deployment's
@@ -60,20 +67,20 @@ spec:
         scaleUp:
           # The one-Pod local ceiling already prevents a burst from starting
           # multiple costly models. No extra scale-up stabilization is needed.
-          stabilizationWindowSeconds: 0
+          stabilizationWindowSeconds: {{ .Values.autoscaling.behavior.scaleUp.stabilizationWindowSeconds }}
           policies:
             - type: Pods
-              value: 1
-              periodSeconds: 15
+              value: {{ .Values.autoscaling.behavior.scaleUp.value }}
+              periodSeconds: {{ .Values.autoscaling.behavior.scaleUp.periodSeconds }}
         scaleDown:
           # Preserve the worker across a few metric observations. KEDA's
           # cooldown performs the eventual one-to-zero transition after the
           # queue is inactive; this HPA window avoids a short false dip first.
-          stabilizationWindowSeconds: 300
+          stabilizationWindowSeconds: {{ .Values.autoscaling.behavior.scaleDown.stabilizationWindowSeconds }}
           policies:
             - type: Pods
-              value: 1
-              periodSeconds: 60
+              value: {{ .Values.autoscaling.behavior.scaleDown.value }}
+              periodSeconds: {{ .Values.autoscaling.behavior.scaleDown.periodSeconds }}
 
   triggers:
     - type: rabbitmq
@@ -90,14 +97,14 @@ spec:
         # A ready or unacknowledged request activates the worker before its
         # PostgreSQL task exists. This metric stops representing work after
         # the worker durably claims and acknowledges that request.
-        value: "1"
+        value: {{ .Values.autoscaling.rabbitmq.queueLength | quote }}
         # Zero means inactive, enabling KEDA's scale-to-zero behavior.
-        activationValue: "0"
+        activationValue: {{ .Values.autoscaling.rabbitmq.activationValue | quote }}
         # Include the brief unacknowledged interval between AMQP delivery and
         # durable claim. The PostgreSQL trigger below covers work after ACK.
         excludeUnacknowledged: "false"
         # Bound a temporarily impaired private management API observation.
-        timeout: "5000"
+        timeout: {{ .Values.autoscaling.rabbitmq.timeout | quote }}
       authenticationRef:
         # Reuse the existing namespaced TriggerAuthentication. It supplies
         # only RabbitMQ's read-only monitoring identity to KEDA, never a
@@ -118,13 +125,13 @@ spec:
         # scale-down from terminating its CPU child. A due retry also activates
         # a new Pod after the previous owner exited; future retries do not
         # consume an idle replica before their available_at time.
-        query: >-
-          SELECT COUNT(*)::bigint FROM public.processing_tasks
-          WHERE stage = 'demucs'
-            AND (status IN ('leased', 'running')
-              OR (status = 'retry_scheduled' AND available_at <= CURRENT_TIMESTAMP))
-        targetQueryValue: "1"
-        activationTargetQueryValue: "0"
+        # Preserve the exact original SQL through Flux's YAML postrenderer.
+        # Folded YAML with deeper indentation can acquire blank lines when
+        # origin labels are added. Quoting explicit newlines keeps source,
+        # chart, stored Helm history, and live spec comparisons identical.
+        query: {{ "SELECT COUNT(*)::bigint FROM public.processing_tasks WHERE stage = 'demucs'\n  AND (status IN ('leased', 'running')\n    OR (status = 'retry_scheduled' AND available_at <= CURRENT_TIMESTAMP))" | quote }}
+        targetQueryValue: {{ .Values.autoscaling.postgresql.targetQueryValue | quote }}
+        activationTargetQueryValue: {{ .Values.autoscaling.postgresql.activationTargetQueryValue | quote }}
       authenticationRef:
         # This credential can read only stage, status, and available_at from
         # processing_tasks. It cannot read job ownership, object keys, event

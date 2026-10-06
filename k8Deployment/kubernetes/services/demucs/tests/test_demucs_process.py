@@ -12,8 +12,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.demucs_command import DemucsSeparationCommand, build_demucs_separation_command
-from app.demucs_process import (
+from app.processing.demucs_command import DemucsSeparationCommand, build_demucs_separation_command
+from app.processing.demucs_process import (
     DEFAULT_DEMUCS_PROCESS_TIMEOUT_SECONDS,
     DemucsProcessContractError,
     DemucsProcessTimedOut,

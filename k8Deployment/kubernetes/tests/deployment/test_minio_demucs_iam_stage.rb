@@ -3,7 +3,7 @@ require 'minitest/autorun'
 require 'stringio'
 require 'yaml'
 
-require_relative '../../scripts/minio-demucs-iam-stage'
+require_relative '../../scripts/stages/minio/minio-demucs-iam-stage'
 
 class MinioDemucsIamStageTest < Minitest::Test
   # This fake models only the resources owned by this stage. It keeps the

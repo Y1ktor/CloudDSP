@@ -248,7 +248,7 @@ with wave.open(str(source), "wb") as output:
     output.writeframes(b"".join(struct.pack("<h", sample) for sample in samples))
 PY
 RUN cd /tmp/demucs-local-arm64-cpu-smoke/output \
-    && /usr/local/bin/python /app/app/demucs_cpu_cli.py \
+    && /usr/local/bin/python /app/app/processing/demucs_cpu_cli.py \
         --device cpu \
         --repo /opt/clouddsp/demucs-models \
         --name htdemucs \

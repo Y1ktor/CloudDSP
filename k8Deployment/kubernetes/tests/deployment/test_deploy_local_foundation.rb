@@ -1,7 +1,7 @@
 require 'minitest/autorun'
 require 'stringio'
 
-require_relative '../../scripts/deploy-local-foundation'
+require_relative '../../scripts/orchestration/deploy-local-foundation'
 
 class DeployLocalFoundationTest < Minitest::Test
   Status = Struct.new(:exitstatus) do

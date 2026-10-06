@@ -46,7 +46,7 @@ RUN yum install -y --setopt=install_weak_deps=False git tar xz && \
     yum clean all && \
     rm -rf /var/cache/yum
 
-COPY src/Cloud/cloud_job_workflow.py ${LAMBDA_TASK_ROOT}/cloud_job_workflow.py
-COPY src/Cloud/LambdaMIDIADTOF.py ${LAMBDA_TASK_ROOT}/ADTOF.py
+COPY cloud/cloud_job_workflow.py ${LAMBDA_TASK_ROOT}/cloud_job_workflow.py
+COPY cloud/LambdaMIDIADTOF.py ${LAMBDA_TASK_ROOT}/ADTOF.py
 
 CMD ["ADTOF.lambda_handler"]

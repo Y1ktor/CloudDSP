@@ -1,7 +1,7 @@
 require 'minitest/autorun'
 require 'stringio'
 
-require_relative '../../scripts/minio-fresh-samples-stage'
+require_relative '../../scripts/stages/minio/minio-fresh-samples-stage'
 
 class MinioFreshSamplesStageTest < Minitest::Test
   class Status

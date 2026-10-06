@@ -12,26 +12,26 @@ from pathlib import Path
 import unittest
 from unittest.mock import MagicMock, call, patch
 
-from app.amqp_connection import DEFAULT_BASIC_PITCH_AMQP_HOST, BasicPitchAMQPSettings
-from app.basic_pitch_task_execution import (
+from app.messaging.amqp_connection import DEFAULT_BASIC_PITCH_AMQP_HOST, BasicPitchAMQPSettings
+from app.runtime.basic_pitch_task_execution import (
     BasicPitchClaimedTaskExecution,
     BasicPitchClaimedTaskExecutionOutcome,
 )
-from app.receive_execute_once import BasicPitchWorkerIterationOutcome, BasicPitchWorkerIterationResult
-from app.supervisor_backoff import (
+from app.runtime.receive_execute_once import BasicPitchWorkerIterationOutcome, BasicPitchWorkerIterationResult
+from app.runtime.supervisor_backoff import (
     DEFAULT_BASIC_PITCH_IDLE_DELAY_SECONDS,
     BasicPitchSupervisorAction,
     BasicPitchSupervisorBackoffState,
     BasicPitchSupervisorDecision,
     BasicPitchSupervisorEvent,
 )
-from app.supervisor_step import (
+from app.runtime.supervisor_step import (
     BasicPitchSupervisorStepResult,
     BasicPitchSupervisorStepState,
 )
-from app.work_schedule import BasicPitchWorkScheduleState, BasicPitchWorkSource
-from app.work_source_iteration import BasicPitchFairWorkIterationOutcome, BasicPitchFairWorkIterationResult
-from app.worker_runtime import BasicPitchWorkerExitReason, run_basic_pitch_worker_runtime
+from app.runtime.work_schedule import BasicPitchWorkScheduleState, BasicPitchWorkSource
+from app.runtime.work_source_iteration import BasicPitchFairWorkIterationOutcome, BasicPitchFairWorkIterationResult
+from app.runtime.worker_runtime import BasicPitchWorkerExitReason, run_basic_pitch_worker_runtime
 
 
 def settings() -> BasicPitchAMQPSettings:
@@ -156,9 +156,9 @@ class SequencedShutdownWaiter:
 class BasicPitchWorkerRuntimeTests(unittest.TestCase):
     """Prove one connection closes for every normal or exceptional loop path."""
 
-    @patch("app.worker_runtime.run_one_basic_pitch_supervisor_step")
-    @patch("app.worker_runtime.configure_basic_pitch_rabbitmq_channel")
-    @patch("app.worker_runtime.open_basic_pitch_rabbitmq_connection")
+    @patch("app.runtime.worker_runtime.run_one_basic_pitch_supervisor_step")
+    @patch("app.runtime.worker_runtime.configure_basic_pitch_rabbitmq_channel")
+    @patch("app.runtime.worker_runtime.open_basic_pitch_rabbitmq_connection")
     def test_runs_steps_until_interruptible_idle_wait_requests_shutdown(
         self, open_connection, configure_channel, run_step
     ) -> None:
@@ -196,9 +196,9 @@ class BasicPitchWorkerRuntimeTests(unittest.TestCase):
         self.assertEqual(run_step.call_args_list[1].kwargs["state"], progress_step().next_state)
         connection.close.assert_called_once_with()
 
-    @patch("app.worker_runtime.run_one_basic_pitch_supervisor_step")
-    @patch("app.worker_runtime.configure_basic_pitch_rabbitmq_channel")
-    @patch("app.worker_runtime.open_basic_pitch_rabbitmq_connection")
+    @patch("app.runtime.worker_runtime.run_one_basic_pitch_supervisor_step")
+    @patch("app.runtime.worker_runtime.configure_basic_pitch_rabbitmq_channel")
+    @patch("app.runtime.worker_runtime.open_basic_pitch_rabbitmq_connection")
     def test_retryable_step_closes_before_backoff_then_recreates_the_amqp_session(
         self, open_connection, configure_channel, run_step
     ) -> None:
@@ -265,9 +265,9 @@ class BasicPitchWorkerRuntimeTests(unittest.TestCase):
         first_connection.close.assert_called_once_with()
         second_connection.close.assert_called_once_with()
 
-    @patch("app.worker_runtime.run_one_basic_pitch_supervisor_step")
-    @patch("app.worker_runtime.configure_basic_pitch_rabbitmq_channel")
-    @patch("app.worker_runtime.open_basic_pitch_rabbitmq_connection")
+    @patch("app.runtime.worker_runtime.run_one_basic_pitch_supervisor_step")
+    @patch("app.runtime.worker_runtime.configure_basic_pitch_rabbitmq_channel")
+    @patch("app.runtime.worker_runtime.open_basic_pitch_rabbitmq_connection")
     def test_shutdown_during_retry_backoff_does_not_open_a_replacement_session(
         self, open_connection, configure_channel, run_step
     ) -> None:
@@ -296,9 +296,9 @@ class BasicPitchWorkerRuntimeTests(unittest.TestCase):
         configure_channel.assert_called_once_with(connection.channel.return_value, settings=settings())
         connection.close.assert_called_once_with()
 
-    @patch("app.worker_runtime.run_one_basic_pitch_supervisor_step")
-    @patch("app.worker_runtime.configure_basic_pitch_rabbitmq_channel")
-    @patch("app.worker_runtime.open_basic_pitch_rabbitmq_connection")
+    @patch("app.runtime.worker_runtime.run_one_basic_pitch_supervisor_step")
+    @patch("app.runtime.worker_runtime.configure_basic_pitch_rabbitmq_channel")
+    @patch("app.runtime.worker_runtime.open_basic_pitch_rabbitmq_connection")
     def test_fatal_step_returns_visible_fatal_exit_and_closes_connection(
         self, open_connection, configure_channel, run_step
     ) -> None:
@@ -323,9 +323,9 @@ class BasicPitchWorkerRuntimeTests(unittest.TestCase):
         self.assertEqual(waiter.delays, [0.0, 0.0])
         connection.close.assert_called_once_with()
 
-    @patch("app.worker_runtime.run_one_basic_pitch_supervisor_step")
-    @patch("app.worker_runtime.configure_basic_pitch_rabbitmq_channel")
-    @patch("app.worker_runtime.open_basic_pitch_rabbitmq_connection")
+    @patch("app.runtime.worker_runtime.run_one_basic_pitch_supervisor_step")
+    @patch("app.runtime.worker_runtime.configure_basic_pitch_rabbitmq_channel")
+    @patch("app.runtime.worker_runtime.open_basic_pitch_rabbitmq_connection")
     def test_shutdown_before_open_avoids_broker_resource_creation(
         self, open_connection, configure_channel, run_step
     ) -> None:
@@ -347,9 +347,9 @@ class BasicPitchWorkerRuntimeTests(unittest.TestCase):
         configure_channel.assert_not_called()
         run_step.assert_not_called()
 
-    @patch("app.worker_runtime.run_one_basic_pitch_supervisor_step")
-    @patch("app.worker_runtime.configure_basic_pitch_rabbitmq_channel")
-    @patch("app.worker_runtime.open_basic_pitch_rabbitmq_connection")
+    @patch("app.runtime.worker_runtime.run_one_basic_pitch_supervisor_step")
+    @patch("app.runtime.worker_runtime.configure_basic_pitch_rabbitmq_channel")
+    @patch("app.runtime.worker_runtime.open_basic_pitch_rabbitmq_connection")
     def test_unclassified_step_failure_propagates_after_connection_cleanup(
         self, open_connection, configure_channel, run_step
     ) -> None:
@@ -373,9 +373,9 @@ class BasicPitchWorkerRuntimeTests(unittest.TestCase):
         self.assertIs(raised.exception, failure)
         connection.close.assert_called_once_with()
 
-    @patch("app.worker_runtime.run_one_basic_pitch_supervisor_step")
-    @patch("app.worker_runtime.configure_basic_pitch_rabbitmq_channel")
-    @patch("app.worker_runtime.open_basic_pitch_rabbitmq_connection")
+    @patch("app.runtime.worker_runtime.run_one_basic_pitch_supervisor_step")
+    @patch("app.runtime.worker_runtime.configure_basic_pitch_rabbitmq_channel")
+    @patch("app.runtime.worker_runtime.open_basic_pitch_rabbitmq_connection")
     def test_channel_setup_failure_closes_the_open_connection_before_propagating(
         self, open_connection, configure_channel, run_step
     ) -> None:

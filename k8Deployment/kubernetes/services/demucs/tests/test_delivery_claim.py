@@ -14,15 +14,15 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import UUID
 
-from app.delivery_claim import DemucsDeliveryClaim, claim_demucs_requested_delivery
-from app.demucs_requested_message import (
+from app.runtime.delivery_claim import DemucsDeliveryClaim, claim_demucs_requested_delivery
+from app.messaging.demucs_requested_message import (
     DEMUCS_REQUESTED_ROUTING_KEY,
     PROCESSING_EXCHANGE,
     DemucsRequestContractError,
     DemucsRequestedMessage,
 )
-from app.postgresql import DemucsDatabaseUnavailable
-from app.task_lease import (
+from app.db.postgresql import DemucsDatabaseUnavailable
+from app.db.task_lease import (
     DemucsStaleRequestReason,
     DemucsTaskClaimDisposition,
     DemucsTaskClaimResult,
@@ -93,7 +93,7 @@ class DeliveryClaimBridgeTests(unittest.TestCase):
             **overrides,
         )
 
-    @patch("app.delivery_claim.claim_first_demucs_task")
+    @patch("app.runtime.delivery_claim.claim_first_demucs_task")
     def test_valid_contract_passes_only_parsed_identifiers_to_committed_claim(self, claim) -> None:
         """Raw body/properties never cross into the database decision layer."""
 
@@ -116,7 +116,7 @@ class DeliveryClaimBridgeTests(unittest.TestCase):
             uuid_factory=uuid_factory,
         )
 
-    @patch("app.delivery_claim.claim_first_demucs_task")
+    @patch("app.runtime.delivery_claim.claim_first_demucs_task")
     def test_malformed_contract_never_attempts_a_database_claim(self, claim) -> None:
         """The future transport can separately DLQ this permanent parser error."""
 
@@ -125,7 +125,7 @@ class DeliveryClaimBridgeTests(unittest.TestCase):
 
         claim.assert_not_called()
 
-    @patch("app.delivery_claim.claim_first_demucs_task")
+    @patch("app.runtime.delivery_claim.claim_first_demucs_task")
     def test_database_outage_propagates_after_a_valid_parse_without_transport_action(self, claim) -> None:
         """The future Pika adapter must leave this delivery unacknowledged for retry."""
 
@@ -136,7 +136,7 @@ class DeliveryClaimBridgeTests(unittest.TestCase):
 
         claim.assert_called_once()
 
-    @patch("app.delivery_claim.claim_first_demucs_task")
+    @patch("app.runtime.delivery_claim.claim_first_demucs_task")
     def test_durable_stale_result_is_preserved_without_an_acknowledgement_flag(self, claim) -> None:
         """Only the later transport maps durable outcomes to RabbitMQ operations."""
 

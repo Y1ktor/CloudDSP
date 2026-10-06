@@ -20,11 +20,11 @@ release history.
 From the repository root, run:
 
 ```bash
-./k8Deployment/kubernetes/scripts/keycloak-release.rb plan
-./k8Deployment/kubernetes/scripts/keycloak-release.rb adopt
-./k8Deployment/kubernetes/scripts/keycloak-release.rb install
-./k8Deployment/kubernetes/scripts/keycloak-release.rb verify
-./k8Deployment/kubernetes/scripts/keycloak-release.rb smoke
+./k8Deployment/kubernetes/scripts/releases/keycloak-release.rb plan
+./k8Deployment/kubernetes/scripts/releases/keycloak-release.rb adopt
+./k8Deployment/kubernetes/scripts/releases/keycloak-release.rb install
+./k8Deployment/kubernetes/scripts/releases/keycloak-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/keycloak-release.rb smoke
 ```
 
 `plan` checks strict Helm lint, the image lock, source/render/live spec
@@ -44,7 +44,7 @@ and ignored bootstrap-admin Secret, then performs an ordinary Helm install
 without ownership takeover. The fresh Pod can create Keycloak's initial
 master-realm administrator and run schema migrations in its dedicated database.
 The CloudDSP application realm and clients are configured separately by the
-guarded [`keycloak-realm-stage.rb`](../../scripts/keycloak-realm-stage.rb)
+guarded [`keycloak-realm-stage.rb`](../../scripts/stages/keycloak/keycloak-realm-stage.rb)
 after Helm install. That stage runs the committed one-shot Jobs only for an
 absent realm and verifies the durable result through the Admin API.
 
@@ -60,3 +60,12 @@ Use this chart for reviewed Keycloak delivery changes. Keep the raw manifests
 as comparison baselines and do not reapply them to Helm-owned objects. A
 future issuer or database change is a separate migration because existing
 clients, token validation, and stored identities depend on those contracts.
+
+## Optional Flux delivery
+
+The [Flux guide](../../gitops/keycloak.md) reuses this native release and history
+with unchanged chart defaults and Pod template. PostgreSQL, credentials and
+realm/client/SMTP configuration keep their separate owners. Keycloak waits for
+PostgreSQL/Mailpit; frontend and Job API wait for Keycloak. Verify and OIDC smoke
+support native and Flux ownership. Native install/adopt fail closed whenever its
+HelmRelease exists; publish reviewed delivery changes to the watched Git branch.

@@ -146,7 +146,7 @@ COPY --from=validation --chown=10005:10005 /app/app ./app
 # Compile every worker module without writing `.pyc` files.  A syntax error is
 # therefore found during image build, before the image can be pushed or a Pod
 # can attempt to start it.
-RUN python -c 'from pathlib import Path; [compile(path.read_text(encoding="utf-8"), str(path), "exec") for path in Path("app").glob("*.py")]'
+RUN python -c 'from pathlib import Path; [compile(path.read_text(encoding="utf-8"), str(path), "exec") for path in Path("app").rglob("*.py")]'
 
 USER 10005:10005
 

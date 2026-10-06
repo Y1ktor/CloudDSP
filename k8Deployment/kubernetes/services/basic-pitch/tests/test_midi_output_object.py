@@ -13,16 +13,16 @@ import unittest
 from datetime import UTC, datetime
 from pathlib import Path
 
-from app.basic_pitch_process import BasicPitchInferenceCommand, build_basic_pitch_inference_command
-from app.basic_pitch_requested_message import BasicPitchRequestedMessage
-from app.midi_artifact import VerifiedBasicPitchMidiArtifact, verify_and_hash_basic_pitch_midi
-from app.midi_output_object import (
+from app.processing.basic_pitch_process import BasicPitchInferenceCommand, build_basic_pitch_inference_command
+from app.messaging.basic_pitch_requested_message import BasicPitchRequestedMessage
+from app.artifacts.midi_artifact import VerifiedBasicPitchMidiArtifact, verify_and_hash_basic_pitch_midi
+from app.artifacts.midi_output_object import (
     BasicPitchMidiOutputObjectContractError,
     build_basic_pitch_midi_output_object,
 )
-from app.stem_download import DownloadedBasicPitchStem
-from app.stem_task_start import RunningBasicPitchStem
-from app.task_lease import BasicPitchTaskLease
+from app.artifacts.stem_download import DownloadedBasicPitchStem
+from app.db.stem_task_start import RunningBasicPitchStem
+from app.db.task_lease import BasicPitchTaskLease
 
 
 EVENT_ID = "93b31df9-ea8c-46bb-b2c0-19e9db5365d5"

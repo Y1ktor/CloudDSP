@@ -10,7 +10,7 @@ import json
 import unittest
 from types import SimpleNamespace
 
-from app.adtof_requested_message import (
+from app.messaging.adtof_requested_message import (
     ADTOF_REQUESTED_ROUTING_KEY,
     MAX_ADTOF_REQUEST_BODY_BYTES,
     PROCESSING_EXCHANGE,

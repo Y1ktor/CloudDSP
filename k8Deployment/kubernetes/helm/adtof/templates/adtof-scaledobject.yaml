@@ -1,3 +1,10 @@
+{{/* Validate the relationship that JSON Schema cannot express across fields. */}}
+{{- if gt (int .Values.autoscaling.minReplicaCount) (int .Values.autoscaling.maxReplicaCount) -}}
+{{- fail "autoscaling.minReplicaCount must not exceed autoscaling.maxReplicaCount" -}}
+{{- end -}}
+# Numeric examples below describe the reviewed defaults in values.yaml.
+# Helm values may change the warm-worker floor, capacity ceiling, thresholds,
+# and timing without changing this worker's target, credentials, or query.
 # This ScaledObject delegates the *number of ADTOF worker Pods* to KEDA while
 # the ADTOF Deployment remains the long-lived owner of the Pod template,
 # rollout strategy, image, resource limits, identities, and SIGTERM behavior.
@@ -33,20 +40,20 @@ spec:
   # KEDA checks an idle Deployment's trigger at this bounded cadence. Fifteen
   # seconds keeps the local learning workflow responsive without polling the
   # RabbitMQ management API every second from a laptop control-plane Pod.
-  pollingInterval: 15
+  pollingInterval: {{ .Values.autoscaling.pollingInterval }}
   # Once a queue is empty, wait three minutes before KEDA requests zero Pods.
   # This avoids tearing down an expensive CPU model runtime between nearby
   # drum stems while still demonstrating scale-to-zero for a truly idle stage.
-  cooldownPeriod: 180
+  cooldownPeriod: {{ .Values.autoscaling.cooldownPeriod }}
   # No worker Pod is needed while RabbitMQ reports no ADTOF work. The Deployment
   # controller still exists at zero replicas and KEDA can recreate a Pod when
   # the durable queue becomes active; no HTTP listener or Kubernetes Job is
   # involved in that transition.
-  minReplicaCount: 0
+  minReplicaCount: {{ .Values.autoscaling.minReplicaCount }}
   # Each ADTOF Pod requests one CPU and 2 GiB, with a 2-CPU/4-GiB limit. Two
   # replicas provide a useful scale-out demonstration without allowing this
   # CPU-only stage to consume the small local cluster during a backlog.
-  maxReplicaCount: 2
+  maxReplicaCount: {{ .Values.autoscaling.maxReplicaCount }}
 
   advanced:
     # Removing this ScaledObject in a later explicit rollback restores the
@@ -59,19 +66,19 @@ spec:
           # Queue work is durable, so no extra stabilization delay is needed
           # before starting capacity. The one-Pod step remains intentional: it
           # lets the second CPU worker be added only after another observation.
-          stabilizationWindowSeconds: 0
+          stabilizationWindowSeconds: {{ .Values.autoscaling.behavior.scaleUp.stabilizationWindowSeconds }}
           policies:
             - type: Pods
-              value: 1
-              periodSeconds: 30
+              value: {{ .Values.autoscaling.behavior.scaleUp.value }}
+              periodSeconds: {{ .Values.autoscaling.behavior.scaleUp.periodSeconds }}
         scaleDown:
           # Preserve capacity across several management observations. KEDA's
           # cooldown then performs the final scale from one idle Pod to zero.
-          stabilizationWindowSeconds: 180
+          stabilizationWindowSeconds: {{ .Values.autoscaling.behavior.scaleDown.stabilizationWindowSeconds }}
           policies:
             - type: Pods
-              value: 1
-              periodSeconds: 60
+              value: {{ .Values.autoscaling.behavior.scaleDown.value }}
+              periodSeconds: {{ .Values.autoscaling.behavior.scaleDown.periodSeconds }}
 
   triggers:
     - type: rabbitmq
@@ -90,16 +97,16 @@ spec:
         # one ready-or-unacknowledged ADTOF task requests roughly one worker.
         # HPA's ordinary average-value calculation and maxReplicaCount cap the
         # resulting count at two for this local profile.
-        value: "1"
+        value: {{ .Values.autoscaling.rabbitmq.queueLength | quote }}
         # A zero backlog is inactive and permits KEDA's scale-to-zero path.
-        activationValue: "0"
+        activationValue: {{ .Values.autoscaling.rabbitmq.activationValue | quote }}
         # Count the one message each active worker may hold unacknowledged. If
         # those were excluded, a long CPU inference could look idle and invite
         # premature scale-down while the task is still legitimately running.
         excludeUnacknowledged: "false"
         # Bound one management API observation instead of allowing an impaired
         # broker endpoint to leave the scaler waiting indefinitely.
-        timeout: "5000"
+        timeout: {{ .Values.autoscaling.rabbitmq.timeout | quote }}
       authenticationRef:
         # This namespaced binding passes only KEDA's dedicated monitoring
         # username/password. It never mounts a worker, MinIO, PostgreSQL, or

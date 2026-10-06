@@ -152,18 +152,18 @@ images:
       # registry digest above nevertheless identifies the exact pushed bytes;
       # replace this working-tree note with a commit after the task is reviewed.
       sourceRevision: local-kubernetes-working-tree
-      sourceDirectory: kubernetes/services/api/app
-      dockerfile: kubernetes/services/api/Dockerfile
-      requirementsLock: kubernetes/services/api/requirements.lock
-      authenticationTests: kubernetes/services/api/tests/test_authentication.py
-      jobListTests: kubernetes/services/api/tests/test_jobs.py
-      directUploadContractTests: kubernetes/services/api/tests/test_direct_upload_contract.py
-      jobCreationTests: kubernetes/services/api/tests/test_job_creation.py
-      jobCreationRouteTests: kubernetes/services/api/tests/test_job_creation_route.py
-      jobDetailTests: kubernetes/services/api/tests/test_jobs.py
-      presignedDownloadTests: kubernetes/services/api/tests/test_presigned_download.py
-      finalizationMigrationTests: kubernetes/services/api/tests/test_job_finalization_migration.py
-      presignedUploadTests: kubernetes/services/api/tests/test_presigned_upload.py
+      sourceDirectory: kubernetes/services/job-api/app
+      dockerfile: kubernetes/services/job-api/Dockerfile
+      requirementsLock: kubernetes/services/job-api/requirements.lock
+      authenticationTests: kubernetes/services/job-api/tests/test_authentication.py
+      jobListTests: kubernetes/services/job-api/tests/test_jobs.py
+      directUploadContractTests: kubernetes/services/job-api/tests/test_direct_upload_contract.py
+      jobCreationTests: kubernetes/services/job-api/tests/test_job_creation.py
+      jobCreationRouteTests: kubernetes/services/job-api/tests/test_job_creation_route.py
+      jobDetailTests: kubernetes/services/job-api/tests/test_jobs.py
+      presignedDownloadTests: kubernetes/services/job-api/tests/test_presigned_download.py
+      finalizationMigrationTests: kubernetes/services/job-api/tests/test_job_finalization_migration.py
+      presignedUploadTests: kubernetes/services/job-api/tests/test_presigned_upload.py
       runtimeImageLock: images.api-python-runtime
       sourceLock: buildSources.api
     localDockerSizeBytes: 77919191
@@ -265,23 +265,21 @@ images:
     repository: clouddsp-registry.localhost:5001/demucs
     # This readable local-registry tag is build provenance only. The immutable
     # OCI index digest below is the only safe future workload reference.
-    # This local ARM64 CPU revision retains the reviewed separation/runtime
-    # contract but makes the 12-minute model deadline terminal on its first
-    # occurrence. Recovery also fails a task whose durable start crossed that
-    # deadline after a Pod loss, before granting another processing lease.
-    # Docker validation passed all 317 tests and real two-stem CPU inference.
-    sourceTag: "0.1.9-terminal-deadline"
-    digest: sha256:4aeab642921bc12108cd46f548029b270d7317dad76d416a9ae77d55de605bba
-    immutableReference: clouddsp-registry.localhost:5001/demucs@sha256:4aeab642921bc12108cd46f548029b270d7317dad76d416a9ae77d55de605bba
+    # This local ARM64 CPU revision splits task leases into focused modules
+    # while preserving the reviewed database ownership, recovery, and completion
+    # contracts. The 12-minute terminal model deadline remains unchanged.
+    # Docker validation passed all 321 tests and real two-stem CPU inference.
+    sourceTag: "0.1.10-lease-refactor"
+    digest: sha256:6309797ec6911c5e4736efd1b8c6f1b10024e5d7021d679c1f82777db5e76fee
+    immutableReference: clouddsp-registry.localhost:5001/demucs@sha256:6309797ec6911c5e4736efd1b8c6f1b10024e5d7021d679c1f82777db5e76fee
     supportedPlatforms:
       - linux/arm64/v8
     builtFrom:
-      # The source was Kubernetes-local and uncommitted at build time. This
-      # digest identifies the source revision that includes the restricted
-      # database/MinIO/AMQP worker lifecycle, recovery-first supervisor, scoped
-      # SIGTERM/SIGINT behavior, and PID-1 wrapper. It does not include cloud
-      # code, a Kubernetes client, a workload manifest, or runtime Secrets.
-      sourceRevision: local-kubernetes-working-tree
+      # The committed worker source includes the restricted database/MinIO/AMQP
+      # lifecycle, modular task leases, recovery-first supervisor, scoped
+      # SIGTERM/SIGINT behavior, and PID-1 wrapper. The image does not include
+      # cloud code, a Kubernetes client, workload manifests, or runtime Secrets.
+      sourceRevision: 2334921785826d0fa0a644b055e95c34d4048d04
       sourceDirectory: kubernetes/services/demucs/app
       dockerfile: kubernetes/services/demucs/Dockerfile
       requirementsLock: kubernetes/services/demucs/requirements.lock
@@ -304,16 +302,16 @@ images:
       # Unlike an import check, this fixed two-stem run proves the exact
       # local-ARM64 backend setting allows a real model forward pass.
       localArm64CpuInferenceCheck: two-stem-hybrid-model
-      validatedWorkerTestCount: 317
+      validatedWorkerTestCount: 321
       verifiedFFprobe: true
       runtimeImportCheck: true
       verifiedModelArtifactCount: 4
     # Docker reports uncompressed layer bytes. The larger size compared with
     # other workers is expected: it includes CPU Torch, FFmpeg, and 132.7 MiB
     # of separately checksum-verified Demucs descriptors/weight files.
-    localDockerSizeBytes: 503080619
-    localDockerSize: "479.78 MiB"
-    pushedAt: "2026-09-24"
+    localDockerSizeBytes: 503435169
+    localDockerSize: "480.11 MiB"
+    pushedAt: "2026-10-03"
 
   dispatcher-smoke-client:
     # This disposable image creates exactly one normal authenticated upload,
@@ -571,26 +569,30 @@ images:
     # the dedicated MinIO read-only bucket; its CSP no longer permits the
     # original online sample hosts. Keep the immutable digest in the Pod so a
     # mutable registry tag cannot silently change that browser behavior.
-    # This reviewed UI sync adds the Kubernetes architecture tab and GitHub
-    # destination marks while preserving local Keycloak and MinIO adapters.
+    # This build selects local adapters from the canonical root frontend;
+    # cloud and local screens now share one source and dependency lock.
     repository: clouddsp-registry.localhost:5001/frontend
-    sourceTag: "0.5.3-local-k8-docs"
-    digest: sha256:008340ede283f93eee487d2259f996d6878738e478e0d29085ae48414e1e3503
-    immutableReference: clouddsp-registry.localhost:5001/frontend@sha256:008340ede283f93eee487d2259f996d6878738e478e0d29085ae48414e1e3503
+    sourceTag: "0.6.2-spa-route-fix"
+    digest: sha256:31ca2de7233c94611eda4f380240026476c2c3737c0bff9afd6fc6271dc33fab
+    immutableReference: clouddsp-registry.localhost:5001/frontend@sha256:31ca2de7233c94611eda4f380240026476c2c3737c0bff9afd6fc6271dc33fab
     supportedPlatforms:
       - linux/arm64/v8
     builtFrom:
-      # The application baseline began at this recorded cloud revision, then
-      # gained local-only OIDC/CSP changes in the current Kubernetes worktree.
-      # It is intentionally called out as a working-tree build until this task
-      # is committed; the output digest above still identifies its exact bytes.
+      # The original local snapshot began at this recorded cloud revision.
+      # The current shared source retains its local OIDC/CSP adapters.
+      # The committed application source splits the app controller, stem
+      # workspace, and MIDI editor by responsibility. Delivery-only version
+      # metadata is recorded in the matching Dockerfile and Helm chart. The
+      # NGINX recipe also fixes direct SPA routes that share an asset directory.
       sourceBaselineCommit: 6393ae3eb4153b883baf993e7c1d887252f8de1f
-      sourceRevision: local-kubernetes-working-tree
-      sourceDirectory: kubernetes/services/frontend/app
+      sourceRevision: 0c2499ed1f9e55f3334d4d30cf6fe2924e111b53
+      # Application source is relative to the repository root; delivery files
+      # below retain their Kubernetes-directory-relative locations.
+      sourceDirectory: frontend
       dockerfile: kubernetes/services/frontend/Dockerfile
       builderImageLock: images.frontend-node-builder
       runtimeImageLock: images.frontend-nginx-runtime
-      publicConfigurationFile: kubernetes/services/frontend/app/.env.production
+      publicConfigurationFile: .local/frontend.env.production
       # These URLs are JavaScript configuration sent to the browser, not
       # Secrets. The image checks confirm no internal `*.svc` address is
       # bundled: browser code cannot resolve Kubernetes Service DNS.
@@ -598,9 +600,9 @@ images:
       publicObjectStorageOrigin: http://minio.localhost:8080
       midiSampleLock: kubernetes/services/minio/midi-sample-assets.lock.json
       sharedSampleBucket: clouddsp-midi-samples
-    localDockerSizeBytes: 35132882
+    localDockerSizeBytes: 35137059
     localDockerSize: "33.51 MiB"
-    pushedAt: "2026-10-02"
+    pushedAt: "2026-10-03"
 
   frontend-node-builder:
     # Official Node image used only while compiling the local React source.
@@ -946,9 +948,9 @@ buildSources:
     # must deliberately rebuild, push, and record a new output digest; do not
     # deploy the mutable readable tag from the build script.
     baseImageLock: images.api-python-runtime
-    sourceDirectory: kubernetes/services/api/app
-    dockerfile: kubernetes/services/api/Dockerfile
-    requirementsLock: kubernetes/services/api/requirements.lock
+    sourceDirectory: kubernetes/services/job-api/app
+    dockerfile: kubernetes/services/job-api/Dockerfile
+    requirementsLock: kubernetes/services/job-api/requirements.lock
     intendedRepository: clouddsp-registry.localhost:5001/job-api
     publishedImageLock: images.job-api
     targetPlatform: linux/arm64
@@ -1063,15 +1065,6 @@ buildSources:
     publishedImageLock: images.basic-pitch
     targetPlatform: linux/arm64
     devicePolicy: cpu
-    localArm64CpuInferencePolicy:
-      # The local Linux/ARM64 image uses this child-only safety policy because
-      # Docker Desktop/k3d reproduced SIGILL in the default MKLDNN model path.
-      # It is not a generic Torch or future NVIDIA-GPU production policy.
-      # The subprocess runs from an isolated output directory, not `/app`.
-      # An absolute script preserves the narrow launcher/import boundary
-      # without exporting a broad PYTHONPATH into the worker Pod.
-      launcherScript: /app/app/demucs_cpu_cli.py
-      mkldnnEnabled: false
     pythonVersion: "3.11"
     # This exec-form command is part of the immutable image contract. Python
     # becomes PID 1 rather than a shell, so Kubernetes SIGTERM reaches the
@@ -1210,6 +1203,15 @@ buildSources:
     publishedImageLock: images.demucs
     targetPlatform: linux/arm64
     devicePolicy: cpu
+    localArm64CpuInferencePolicy:
+      # The Demucs build uses this child-only policy because Docker Desktop/k3d
+      # reproduced SIGILL in the default MKLDNN model path. This source recipe
+      # describes the grouped launcher for a future build; existing image
+      # digests continue to identify their original bytes.
+      # The subprocess runs in an isolated output directory. Its absolute
+      # launcher avoids exporting a broad PYTHONPATH into the worker Pod.
+      launcherScript: /app/app/processing/demucs_cpu_cli.py
+      mkldnnEnabled: false
     workerEntrypoint:
       # Exec-form Docker ENTRYPOINT runs this wrapper as PID 1, so Kubernetes
       # SIGTERM reaches the scoped graceful-shutdown bridge directly.

@@ -12,14 +12,14 @@ from pathlib import Path
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.acknowledged_lease_execution import (
+from app.runtime.acknowledged_lease_execution import (
     ADTOFAcknowledgedLeaseExecutionError,
     execute_acknowledged_adtof_lease,
 )
-from app.adtof_requested_message import ADTOFRequestedMessage
-from app.amqp_manual_ack import ADTOFConsumeOneOutcome, ADTOFConsumeOneResult
-from app.claimed_task_success import ADTOFClaimedTaskSuccess, ADTOFClaimedTaskSuccessOutcome
-from app.task_claim import ADTOFTaskLease
+from app.messaging.adtof_requested_message import ADTOFRequestedMessage
+from app.messaging.amqp_manual_ack import ADTOFConsumeOneOutcome, ADTOFConsumeOneResult
+from app.runtime.claimed_task_success import ADTOFClaimedTaskSuccess, ADTOFClaimedTaskSuccessOutcome
+from app.db.task_claim import ADTOFTaskLease
 
 
 EVENT_ID = "93b31df9-ea8c-46bb-b2c0-19e9db5365d5"
@@ -70,7 +70,7 @@ def acknowledged_result() -> ADTOFConsumeOneResult:
 class ADTOFAcknowledgedLeaseExecutionTests(unittest.TestCase):
     """Prove only a completed broker acknowledgement opens model work."""
 
-    @patch("app.acknowledged_lease_execution.execute_claimed_adtof_task_success_path")
+    @patch("app.runtime.acknowledged_lease_execution.execute_claimed_adtof_task_success_path")
     def test_forwards_exact_acknowledged_evidence_to_success_coordinator(self, execute) -> None:
         """No altered task, stem, or lease token may enter the success path."""
 
@@ -102,7 +102,7 @@ class ADTOFAcknowledgedLeaseExecutionTests(unittest.TestCase):
             process_runner=runner,
         )
 
-    @patch("app.acknowledged_lease_execution.execute_claimed_adtof_task_success_path")
+    @patch("app.runtime.acknowledged_lease_execution.execute_claimed_adtof_task_success_path")
     def test_normal_nonlease_receive_outcomes_stop_before_model_work(self, execute) -> None:
         """Idle, duplicate/stale, and malformed deliveries cannot replay audio."""
 
@@ -126,7 +126,7 @@ class ADTOFAcknowledgedLeaseExecutionTests(unittest.TestCase):
 
         execute.assert_not_called()
 
-    @patch("app.acknowledged_lease_execution.execute_claimed_adtof_task_success_path")
+    @patch("app.runtime.acknowledged_lease_execution.execute_claimed_adtof_task_success_path")
     def test_forged_acknowledged_result_stops_before_model_work(self, execute) -> None:
         """The gate repeats type checks beyond the transport result constructor."""
 

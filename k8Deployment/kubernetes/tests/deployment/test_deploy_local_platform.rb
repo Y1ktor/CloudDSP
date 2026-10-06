@@ -1,7 +1,7 @@
 require 'minitest/autorun'
 require 'stringio'
 
-require_relative '../../scripts/deploy-local-platform'
+require_relative '../../scripts/orchestration/deploy-local-platform'
 
 class DeployLocalPlatformTest < Minitest::Test
   def setup

@@ -9,23 +9,23 @@ from __future__ import annotations
 
 import unittest
 
-from app.audio_probe import (
+from app.processing.audio_probe import (
     DemucsAudioProbeFailureCode,
     DemucsAudioProbeProtocolError,
     DemucsPermanentAudioProbeError,
 )
-from app.demucs_process import DemucsProcessTimedOut
-from app.source_download import (
+from app.processing.demucs_process import DemucsProcessTimedOut
+from app.artifacts.source_download import (
     DemucsSourceDownloadConsistencyError,
     DemucsSourceDownloadUnavailable,
 )
-from app.source_failure_classification import (
+from app.runtime.source_failure_classification import (
     DemucsPreModelFailureDisposition,
     DemucsPreModelRetryCode,
     DemucsPreModelTerminalFailureCode,
     classify_demucs_pre_model_failure,
 )
-from app.source_object import (
+from app.artifacts.source_object import (
     DemucsPermanentSourceVerificationError,
     DemucsSourceStorageProtocolError,
     DemucsSourceStorageUnavailable,

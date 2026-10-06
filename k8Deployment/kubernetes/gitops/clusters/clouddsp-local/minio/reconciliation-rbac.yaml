@@ -1,0 +1,75 @@
+# Helm actions impersonate this identity; no workload mounts its API token.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: clouddsp-minio-helm
+  namespace: flux-system
+automountServiceAccountToken: false
+---
+# Deliver exactly the MinIO workload, Service and S3 Ingress kinds in the existing data
+# namespace. StatefulSet mutation can mount namespace Secrets and retained PVCs;
+# this trusted delivery role is not isolation from the other data services.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: clouddsp-minio-helm
+  namespace: clouddsp-data
+rules:
+  # Kubernetes cannot restrict create by resourceNames. All other mutations
+  # are restricted to the four reviewed chart identities below.
+  - apiGroups: [apps]
+    resources: [statefulsets]
+    verbs: [create]
+  - apiGroups: [apps]
+    resources: [statefulsets]
+    resourceNames: [clouddsp-minio]
+    verbs: [get, update, patch, delete]
+  - apiGroups: [apps]
+    resources: [statefulsets]
+    verbs: [list, watch]
+  - apiGroups: [""]
+    resources: [services]
+    verbs: [create]
+  - apiGroups: [""]
+    resources: [services]
+    resourceNames: [clouddsp-minio, clouddsp-minio-headless]
+    verbs: [get, update, patch, delete]
+  - apiGroups: [""]
+    resources: [services]
+    verbs: [list, watch]
+  # The browser S3 route must retain its host and port; console is unexposed.
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    verbs: [create]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    resourceNames: [clouddsp-minio-s3]
+    verbs: [get, update, patch, delete]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    verbs: [list, watch]
+  # Read-only Pods/claims support Helm readiness; generated PVCs remain retained.
+  # No PVC/PV mutation, exec, Job creation, or cluster API permission is granted.
+  - apiGroups: [""]
+    resources: [pods, persistentvolumeclaims]
+    verbs: [get, list, watch]
+  # Helm needs namespace-wide revision Secret storage. This also permits access
+  # to data-service credentials; RBAC cannot limit Helm's list to one prefix.
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, list, watch, create, update, patch, delete]
+---
+# Bind the Flux impersonation identity only into the existing data namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: clouddsp-minio-helm
+  namespace: clouddsp-data
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: clouddsp-minio-helm
+subjects:
+  - kind: ServiceAccount
+    name: clouddsp-minio-helm
+    namespace: flux-system

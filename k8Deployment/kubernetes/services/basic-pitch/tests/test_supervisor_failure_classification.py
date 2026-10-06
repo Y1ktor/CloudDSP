@@ -9,16 +9,16 @@ from __future__ import annotations
 
 import unittest
 
-from app.amqp_channel import BasicPitchAMQPChannelUnavailable
-from app.amqp_connection import BasicPitchAMQPConfigurationError, BasicPitchAMQPConnectionUnavailable
-from app.amqp_manual_ack import BasicPitchAMQPUnavailable
-from app.basic_pitch_process import BasicPitchProcessFailed, BasicPitchProcessUnavailable
-from app.minio_client import BasicPitchMinioConfigurationError
-from app.postgresql import BasicPitchDatabaseConfigurationError, BasicPitchDatabaseUnavailable
-from app.stem_download import BasicPitchStemDownloadUnavailable
-from app.stem_object import BasicPitchStemStorageUnavailable
-from app.supervisor_backoff import BasicPitchSupervisorEvent
-from app.supervisor_failure_classification import classify_basic_pitch_supervisor_failure
+from app.messaging.amqp_channel import BasicPitchAMQPChannelUnavailable
+from app.messaging.amqp_connection import BasicPitchAMQPConfigurationError, BasicPitchAMQPConnectionUnavailable
+from app.messaging.amqp_manual_ack import BasicPitchAMQPUnavailable
+from app.processing.basic_pitch_process import BasicPitchProcessFailed, BasicPitchProcessUnavailable
+from app.artifacts.minio_client import BasicPitchMinioConfigurationError
+from app.db.postgresql import BasicPitchDatabaseConfigurationError, BasicPitchDatabaseUnavailable
+from app.artifacts.stem_download import BasicPitchStemDownloadUnavailable
+from app.artifacts.stem_object import BasicPitchStemStorageUnavailable
+from app.runtime.supervisor_backoff import BasicPitchSupervisorEvent
+from app.runtime.supervisor_failure_classification import classify_basic_pitch_supervisor_failure
 
 
 class BasicPitchSupervisorFailureClassificationTests(unittest.TestCase):

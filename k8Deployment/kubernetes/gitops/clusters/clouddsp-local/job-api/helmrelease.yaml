@@ -1,0 +1,77 @@
+# helm-controller reuses the installed clouddsp-job-api release and its history.
+# This resource is reconciliation configuration; Helm still owns the rendered
+# Deployment, Service, and Ingress in the existing clouddsp-app namespace.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: clouddsp-job-api
+  namespace: flux-system
+spec:
+  interval: 5m
+  timeout: 3m
+  maxHistory: 10
+  # Explicit names avoid Flux's default namespace-prefixed release naming and
+  # preserve the namespace where the existing Helm revision Secrets are stored.
+  releaseName: clouddsp-job-api
+  targetNamespace: clouddsp-app
+  storageNamespace: clouddsp-app
+  serviceAccountName: clouddsp-job-api-helm
+  # PostgreSQL delivery must be Ready; existing schemas/grants are provisioned
+  # by separate bootstrap stages rather than this readiness dependency.
+  # Object storage must be Ready; bucket/IAM bootstrap remains separate.
+  # OIDC discovery/JWKS depend on Keycloak; its client/audience state is external.
+  dependsOn:
+    - name: clouddsp-keycloak
+      namespace: flux-system
+    - name: clouddsp-minio
+      namespace: flux-system
+    - name: clouddsp-postgresql
+      namespace: flux-system
+  chart:
+    spec:
+      chart: ./k8Deployment/kubernetes/helm/job-api
+      interval: 1m
+      # Rebuild when Git changes, even if Chart.yaml's base version is unchanged.
+      # Flux appends a source SHA and values-file generation to the chart version.
+      reconcileStrategy: Revision
+      sourceRef:
+        kind: GitRepository
+        name: flux-system
+        namespace: flux-system
+      # Git chart values-file paths are relative to the repository root.
+      valuesFiles:
+        - ./k8Deployment/kubernetes/helm/job-api/values.yaml
+      ignoreMissingValuesFiles: false
+  install:
+    createNamespace: false
+    # Refuse to take unrelated resources into this release on a fresh install.
+    disableTakeOwnership: true
+    strategy:
+      name: RemediateOnFailure
+    remediation:
+      retries: 0
+      # A failure stays available for inspection; no automatic uninstall follows.
+      remediateLastFailure: false
+  upgrade:
+    disableTakeOwnership: true
+    # Keep the existing CLI release's apply method during its ownership handoff.
+    serverSideApply: auto
+    force: false
+    cleanupOnFail: false
+    preserveValues: false
+    # Avoid an implicit uninstall/reinstall if a later chart name changes.
+    chartNameChangeStrategy: InPlaceUpdate
+    strategy:
+      name: RemediateOnFailure
+    remediation:
+      retries: 0
+      # An adopted release must not be automatically rolled back or uninstalled.
+      remediateLastFailure: false
+  # The chart has no Helm test hook. The release helper checks the running
+  # digest and protected routes; a separate disposable Job tests real OIDC
+  # authentication and a PostgreSQL-backed empty job list. It is not chart-owned.
+  test:
+    enable: false
+  # After the release is in sync, correct live drift against its stored manifest.
+  driftDetection:
+    mode: enabled

@@ -1,7 +1,7 @@
 require 'minitest/autorun'
 require 'stringio'
 
-require_relative '../../scripts/deploy-local-rabbitmq'
+require_relative '../../scripts/orchestration/deploy-local-rabbitmq'
 
 class DeployLocalRabbitmqTest < Minitest::Test
   def setup

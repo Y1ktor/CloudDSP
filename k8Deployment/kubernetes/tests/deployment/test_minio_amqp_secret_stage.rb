@@ -5,7 +5,7 @@ require 'stringio'
 require 'tmpdir'
 require 'yaml'
 
-require_relative '../../scripts/minio-amqp-secret-stage'
+require_relative '../../scripts/stages/credentials/minio-amqp-secret-stage'
 
 class MinioAmqpSecretStageTest < Minitest::Test
   Status = Struct.new(:exitstatus) do

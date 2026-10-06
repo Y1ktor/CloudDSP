@@ -1,0 +1,67 @@
+# Reuse the native release that owns only the two shared credential mappings.
+# KEDA and its CRDs must already be installed by the platform bootstrap;
+# controller installation and observer Secret values are not chart resources.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: clouddsp-scaling-auth
+  namespace: flux-system
+spec:
+  interval: 5m
+  timeout: 3m
+  maxHistory: 10
+  # Match the existing native release and its Helm revision Secret namespace.
+  releaseName: clouddsp-scaling-auth
+  targetNamespace: clouddsp-app
+  storageNamespace: clouddsp-app
+  serviceAccountName: clouddsp-scaling-auth-helm
+  # Platform delivery must be Ready before the shared authentication mappings.
+  # Workers depend on this release, forming database/KEDA/broker -> auth -> workers.
+  # Credential provisioning remains an ordinary bootstrap prerequisite.
+  dependsOn:
+    - name: clouddsp-postgresql
+      namespace: flux-system
+    - name: keda
+      namespace: flux-system
+    - name: clouddsp-rabbitmq
+      namespace: flux-system
+  chart:
+    spec:
+      chart: ./k8Deployment/kubernetes/helm/scaling-auth
+      interval: 1m
+      reconcileStrategy: Revision
+      sourceRef:
+        kind: GitRepository
+        name: flux-system
+        namespace: flux-system
+      # The reviewed defaults are empty. No credential values enter Git or
+      # Helm history; templates contain only fixed Secret names and keys.
+      valuesFiles:
+        - ./k8Deployment/kubernetes/helm/scaling-auth/values.yaml
+      ignoreMissingValuesFiles: false
+  install:
+    createNamespace: false
+    disableTakeOwnership: true
+    strategy:
+      name: RemediateOnFailure
+    remediation:
+      retries: 0
+      remediateLastFailure: false
+  upgrade:
+    disableTakeOwnership: true
+    serverSideApply: auto
+    force: false
+    cleanupOnFail: false
+    preserveValues: false
+    chartNameChangeStrategy: InPlaceUpdate
+    strategy:
+      name: RemediateOnFailure
+    remediation:
+      retries: 0
+      # Automatic rollback/uninstall could remove shared authentication still
+      # used by workers. Leave a failed upgrade inspectable and repair Git.
+      remediateLastFailure: false
+  test:
+    enable: false
+  driftDetection:
+    mode: enabled

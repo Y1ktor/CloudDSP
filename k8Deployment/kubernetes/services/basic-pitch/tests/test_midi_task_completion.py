@@ -10,14 +10,14 @@ from dataclasses import replace
 from datetime import UTC, datetime
 import unittest
 
-from app.midi_artifact_head_object import VerifiedStoredBasicPitchMidiObject
-from app.midi_task_completion import (
+from app.artifacts.midi_artifact_head_object import VerifiedStoredBasicPitchMidiObject
+from app.db.midi_task_completion import (
     COMPLETE_RUNNING_BASIC_PITCH_TASK_SQL,
     BasicPitchMidiTaskCompletionProtocolError,
     complete_running_basic_pitch_task,
 )
-from app.task_lease import BasicPitchTaskLease
-from app.tempo_candidate import BasicPitchTempoCandidate
+from app.db.task_lease import BasicPitchTaskLease
+from app.processing.tempo_candidate import BasicPitchTempoCandidate
 
 
 EVENT_ID = "93b31df9-ea8c-46bb-b2c0-19e9db5365d5"

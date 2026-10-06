@@ -14,7 +14,7 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.minio_client import (
+from app.artifacts.minio_client import (
     LOCAL_ARTIFACTS_BUCKET,
     LOCAL_MINIO_INTERNAL_ENDPOINT,
     LOCAL_S3_ADDRESSING_STYLE,
@@ -22,13 +22,13 @@ from app.minio_client import (
     ADTOFMinioConfigurationError,
     ADTOFMinioSettings,
 )
-from app.shutdown_event import ADTOFShutdownWaiter
-from app.supervisor_action import ADTOFSupervisorActionOutcome, ADTOFSupervisorActionResult
-from app.supervisor_backoff import ADTOFSupervisorAction, ADTOFSupervisorBackoffState, ADTOFSupervisorDecision, ADTOFSupervisorEvent
-from app.supervisor_loop import ADTOFSupervisorLoopOutcome, ADTOFSupervisorLoopResult
-from app.supervisor_once import ADTOFSupervisorOnceResult
-from app.supervisor_step import ADTOFSupervisorStepResult, ADTOFSupervisorStepState
-from app.worker_entrypoint import (
+from app.runtime.shutdown_event import ADTOFShutdownWaiter
+from app.runtime.supervisor_action import ADTOFSupervisorActionOutcome, ADTOFSupervisorActionResult
+from app.runtime.supervisor_backoff import ADTOFSupervisorAction, ADTOFSupervisorBackoffState, ADTOFSupervisorDecision, ADTOFSupervisorEvent
+from app.runtime.supervisor_loop import ADTOFSupervisorLoopOutcome, ADTOFSupervisorLoopResult
+from app.runtime.supervisor_once import ADTOFSupervisorOnceResult
+from app.runtime.supervisor_step import ADTOFSupervisorStepResult, ADTOFSupervisorStepState
+from app.runtime.worker_entrypoint import (
     EXIT_STATUS_CONFIGURATION_ERROR,
     EXIT_STATUS_SUCCESS,
     ADTOFWorkerEntrypointConfigurationError,
@@ -95,13 +95,13 @@ def fatal_result() -> ADTOFSupervisorLoopResult:
 class ADTOFWorkerEntrypointTests(unittest.TestCase):
     """Prove only reviewed factories and scopes reach the persistent loop."""
 
-    @patch("app.worker_entrypoint.run_adtof_supervisor_until_stop")
-    @patch("app.worker_entrypoint.opened_adtof_rabbitmq_session")
-    @patch("app.worker_entrypoint.installed_adtof_shutdown_waiter")
-    @patch("app.worker_entrypoint._validated_work_directory")
-    @patch("app.worker_entrypoint.create_boto3_adtof_minio_client")
-    @patch("app.worker_entrypoint.ADTOFMinioSettings.from_environment")
-    @patch("app.worker_entrypoint.PsycopgADTOFDatabase")
+    @patch("app.runtime.worker_entrypoint.run_adtof_supervisor_until_stop")
+    @patch("app.runtime.worker_entrypoint.opened_adtof_rabbitmq_session")
+    @patch("app.runtime.worker_entrypoint.installed_adtof_shutdown_waiter")
+    @patch("app.runtime.worker_entrypoint._validated_work_directory")
+    @patch("app.runtime.worker_entrypoint.create_boto3_adtof_minio_client")
+    @patch("app.runtime.worker_entrypoint.ADTOFMinioSettings.from_environment")
+    @patch("app.runtime.worker_entrypoint.PsycopgADTOFDatabase")
     def test_composes_restricted_dependencies_and_scopes_signal_then_amqp_lifecycle(
         self,
         database_factory,
@@ -179,13 +179,13 @@ class ADTOFWorkerEntrypointTests(unittest.TestCase):
             jitter_fraction=0.25,
         )
 
-    @patch("app.worker_entrypoint.run_adtof_supervisor_until_stop")
-    @patch("app.worker_entrypoint.opened_adtof_rabbitmq_session")
-    @patch("app.worker_entrypoint.installed_adtof_shutdown_waiter")
-    @patch("app.worker_entrypoint._validated_work_directory")
-    @patch("app.worker_entrypoint.create_boto3_adtof_minio_client")
-    @patch("app.worker_entrypoint.ADTOFMinioSettings.from_environment")
-    @patch("app.worker_entrypoint.PsycopgADTOFDatabase")
+    @patch("app.runtime.worker_entrypoint.run_adtof_supervisor_until_stop")
+    @patch("app.runtime.worker_entrypoint.opened_adtof_rabbitmq_session")
+    @patch("app.runtime.worker_entrypoint.installed_adtof_shutdown_waiter")
+    @patch("app.runtime.worker_entrypoint._validated_work_directory")
+    @patch("app.runtime.worker_entrypoint.create_boto3_adtof_minio_client")
+    @patch("app.runtime.worker_entrypoint.ADTOFMinioSettings.from_environment")
+    @patch("app.runtime.worker_entrypoint.PsycopgADTOFDatabase")
     def test_fatal_loop_result_maps_to_configuration_status(
         self,
         database_factory,
@@ -231,10 +231,10 @@ class ADTOFWorkerEntrypointTests(unittest.TestCase):
             with self.assertRaises(ADTOFWorkerEntrypointConfigurationError):
                 _validated_work_directory(symlink)
 
-    @patch("app.worker_entrypoint.opened_adtof_rabbitmq_session")
-    @patch("app.worker_entrypoint.installed_adtof_shutdown_waiter")
-    @patch("app.worker_entrypoint.ADTOFMinioSettings.from_environment")
-    @patch("app.worker_entrypoint.PsycopgADTOFDatabase")
+    @patch("app.runtime.worker_entrypoint.opened_adtof_rabbitmq_session")
+    @patch("app.runtime.worker_entrypoint.installed_adtof_shutdown_waiter")
+    @patch("app.runtime.worker_entrypoint.ADTOFMinioSettings.from_environment")
+    @patch("app.runtime.worker_entrypoint.PsycopgADTOFDatabase")
     def test_static_minio_configuration_failure_stops_before_signal_or_broker_setup(
         self,
         database_factory,

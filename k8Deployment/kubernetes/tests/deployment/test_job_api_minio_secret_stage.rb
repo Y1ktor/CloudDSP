@@ -5,7 +5,7 @@ require 'stringio'
 require 'tmpdir'
 require 'yaml'
 
-require_relative '../../scripts/job-api-minio-secret-stage'
+require_relative '../../scripts/stages/credentials/job-api-minio-secret-stage'
 
 class JobApiMinioSecretStageTest < Minitest::Test
   Status = Struct.new(:exitstatus) do

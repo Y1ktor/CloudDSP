@@ -1,0 +1,8 @@
+# Explicit platform handoff: the upstream chart provides the controllers/CRDs;
+# this directory provides only their Flux delivery identity and pinned source.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - helmrepository.yaml
+  - reconciliation-rbac.yaml
+  - helmrelease.yaml

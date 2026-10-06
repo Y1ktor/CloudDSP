@@ -15,10 +15,10 @@ import unittest
 from unittest.mock import patch
 from uuid import UUID
 
-from app.basic_pitch_requested_message import BasicPitchRequestedMessage
-from app.first_claim import claim_first_basic_pitch_task
-from app.postgresql import BasicPitchDatabaseUnavailable
-from app.task_lease import (
+from app.messaging.basic_pitch_requested_message import BasicPitchRequestedMessage
+from app.db.first_claim import claim_first_basic_pitch_task
+from app.db.postgresql import BasicPitchDatabaseUnavailable
+from app.db.task_lease import (
     BasicPitchTaskClaimDisposition,
     BasicPitchTaskClaimInconsistency,
 )
@@ -223,7 +223,7 @@ class BasicPitchFirstClaimCompositionTests(unittest.TestCase):
 
         self.assertEqual(database.events, ["transaction-open", "transaction-rollback"])
 
-    @patch("app.first_claim.claim_basic_pitch_task_for_delivery")
+    @patch("app.db.first_claim.claim_basic_pitch_task_for_delivery")
     def test_connection_failure_does_not_attempt_the_pure_claim_sql(self, pure_claim) -> None:
         """A retryable database outage has no durable result and remains unacknowledged."""
 

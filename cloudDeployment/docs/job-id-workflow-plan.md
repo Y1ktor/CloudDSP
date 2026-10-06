@@ -1,5 +1,10 @@
 # Durable Job-ID Processing Plan
 
+> Original durable Job-ID proposal, retained as design history. Its delivery
+> steps are not a current deployment checklist. See the
+> [current AWS architecture](architecture.md) and
+> [local Kubernetes architecture/status](../../k8Deployment/plan.md).
+
 ## Goal
 
 Make a stem-splitting job recoverable when a browser WebSocket disconnects,

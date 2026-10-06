@@ -20,9 +20,9 @@ security settings, resources, and one-replica strategy are unchanged.
 From the repository root:
 
 ```bash
-./k8Deployment/kubernetes/scripts/dispatcher-release.rb plan
-./k8Deployment/kubernetes/scripts/dispatcher-release.rb adopt
-./k8Deployment/kubernetes/scripts/dispatcher-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/dispatcher-release.rb plan
+./k8Deployment/kubernetes/scripts/releases/dispatcher-release.rb adopt
+./k8Deployment/kubernetes/scripts/releases/dispatcher-release.rb verify
 ```
 
 `plan` runs strict Helm lint, renders the one Deployment, checks the image
@@ -52,6 +52,22 @@ event. The release was restored to one Ready replica at revision 3 after the
 test cleaned up its synthetic row. The temporary scale change replaced the
 Pod, so the unchanged Pod UID claim above applies to the original adoption.
 
-After adoption, use this chart for reviewed legacy dispatcher upgrades. Keep
+## Optional Flux ownership
+
+The [Flux guide](../../gitops/dispatcher.md) selects the existing native release
+and preserves its locked Demucs-only image and Pod template. Once its
+HelmRelease exists, `install` and `adopt` are blocked, including failed,
+suspended, and deleting states. `verify` requires current-generation Ready,
+exact Git-packaged native chart revision, full source/render/stored/live parity,
+and one Ready Pod with the locked running digest.
+
+The [source smoke runbook](../../tests/source-intake-smoke/README.md) pauses both
+publishers through committed HelmRelease valuesFiles. The separate read-only
+`verify-smoke-pause` gate accepts only the reviewed zero-replica file and
+requires no Pods, including terminating publishers. Restore normal Git values
+only after the smoke confirms cleanup. Shared verification code protects both
+publisher boundaries; their image locks and identities remain distinct.
+
+After adoption, use this chart through its current delivery owner for reviewed legacy dispatcher upgrades. Keep
 the raw `services/dispatcher/dispatcher-deployment.yaml` as a comparison
 baseline; do not reapply it to this Helm-owned object.

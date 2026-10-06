@@ -11,10 +11,10 @@ from datetime import UTC, datetime
 import json
 import unittest
 
-from app.output_artifact import ADTOFTempoCandidate
-from app.output_artifact_head_object import VerifiedStoredADTOFObject, VerifiedStoredADTOFObjects
-from app.task_claim import ADTOFTaskLease
-from app.task_completion import (
+from app.artifacts.output_artifact import ADTOFTempoCandidate
+from app.artifacts.output_artifact_head_object import VerifiedStoredADTOFObject, VerifiedStoredADTOFObjects
+from app.db.task_claim import ADTOFTaskLease
+from app.db.task_completion import (
     ADTOF_TASK_COMPLETION_FUNCTION,
     COMPLETE_RUNNING_ADTOF_TASK_SQL,
     ADTOFTaskCompletionProtocolError,

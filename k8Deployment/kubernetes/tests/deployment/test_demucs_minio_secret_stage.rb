@@ -5,7 +5,7 @@ require 'stringio'
 require 'tmpdir'
 require 'yaml'
 
-require_relative '../../scripts/demucs-minio-secret-stage'
+require_relative '../../scripts/stages/credentials/demucs-minio-secret-stage'
 
 class DemucsMinioSecretStageTest < Minitest::Test
   Status = Struct.new(:exitstatus) do

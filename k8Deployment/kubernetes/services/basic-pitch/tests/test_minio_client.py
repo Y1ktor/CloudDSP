@@ -11,7 +11,7 @@ import os
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.minio_client import (
+from app.artifacts.minio_client import (
     BASIC_PITCH_MINIO_CONNECT_TIMEOUT_SECONDS,
     BASIC_PITCH_MINIO_MAX_ATTEMPTS,
     BASIC_PITCH_MINIO_READ_TIMEOUT_SECONDS,
@@ -112,7 +112,7 @@ class BasicPitchMinioSettingsTests(unittest.TestCase):
                 with self.assertRaises(BasicPitchMinioConfigurationError):
                     self.settings_from(overrides)
 
-    @patch("app.minio_client._load_boto3_client_factories")
+    @patch("app.artifacts.minio_client._load_boto3_client_factories")
     def test_factory_uses_explicit_minio_credentials_path_style_and_time_bounds(self, loader) -> None:
         """Patched construction proves factory creation itself opens no network connection."""
 

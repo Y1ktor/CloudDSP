@@ -9,22 +9,23 @@ from __future__ import annotations
 
 import signal
 from threading import Event
+import runpy
 import unittest
 from unittest.mock import call, patch
 
-from app.amqp_connection import BasicPitchAMQPConfigurationError
-from app.supervisor_step import BasicPitchSupervisorStepState
-from app.worker_entrypoint import (
+from app.messaging.amqp_connection import BasicPitchAMQPConfigurationError
+from app.runtime.supervisor_step import BasicPitchSupervisorStepState
+from app.runtime.worker_entrypoint import (
     EXIT_STATUS_CONFIGURATION_ERROR,
     EXIT_STATUS_SUCCESS,
     BasicPitchWorkerEntrypointResult,
 )
-from app.worker_main import (
+from app.runtime.worker_main import (
     BasicPitchEventShutdownWaiter,
     install_basic_pitch_shutdown_handlers,
     main,
 )
-from app.worker_runtime import BasicPitchWorkerExitReason, BasicPitchWorkerRuntimeResult
+from app.runtime.worker_runtime import BasicPitchWorkerExitReason, BasicPitchWorkerRuntimeResult
 
 
 def clean_shutdown_result() -> BasicPitchWorkerEntrypointResult:
@@ -43,6 +44,15 @@ def clean_shutdown_result() -> BasicPitchWorkerEntrypointResult:
 class BasicPitchWorkerMainTests(unittest.TestCase):
     """Prove signal conversion and process status stay narrowly bounded."""
 
+    @patch("app.runtime.worker_main.main", return_value=78)
+    def test_public_module_launcher_preserves_the_runtime_exit_status(self, runtime_main) -> None:
+        """The unchanged image/Helm command still reaches the runtime boundary."""
+
+        with self.assertRaises(SystemExit) as raised:
+            runpy.run_module("app.worker_main", run_name="__main__")
+        self.assertEqual(raised.exception.code, 78)
+        runtime_main.assert_called_once_with()
+
     def test_event_waiter_reports_unsignalled_and_signalled_shutdown_without_sleeping(self) -> None:
         """The runtime receives the exact Event.wait boolean contract it expects."""
 
@@ -53,7 +63,7 @@ class BasicPitchWorkerMainTests(unittest.TestCase):
         shutdown_event.set()
         self.assertTrue(waiter.wait_for_shutdown(0.0))
 
-    @patch("app.worker_main.signal.signal")
+    @patch("app.runtime.worker_main.signal.signal")
     def test_signal_handlers_set_only_the_shared_shutdown_event(self, register_signal) -> None:
         """SIGTERM/SIGINT callbacks do no work beyond requesting cooperative shutdown."""
 
@@ -75,8 +85,8 @@ class BasicPitchWorkerMainTests(unittest.TestCase):
         sigterm_handler(signal.SIGTERM, None)  # type: ignore[operator]
         self.assertTrue(shutdown_event.is_set())
 
-    @patch("app.worker_main.run_basic_pitch_worker_entrypoint")
-    @patch("app.worker_main.install_basic_pitch_shutdown_handlers")
+    @patch("app.runtime.worker_main.run_basic_pitch_worker_entrypoint")
+    @patch("app.runtime.worker_main.install_basic_pitch_shutdown_handlers")
     def test_main_installs_handlers_before_delegating_and_returns_bootstrap_status(
         self, install_handlers, run_entrypoint
     ) -> None:
@@ -93,8 +103,8 @@ class BasicPitchWorkerMainTests(unittest.TestCase):
         self.assertIsInstance(waiter, BasicPitchEventShutdownWaiter)
         self.assertFalse(waiter.wait_for_shutdown(0.0))
 
-    @patch("app.worker_main.run_basic_pitch_worker_entrypoint")
-    @patch("app.worker_main.install_basic_pitch_shutdown_handlers")
+    @patch("app.runtime.worker_main.run_basic_pitch_worker_entrypoint")
+    @patch("app.runtime.worker_main.install_basic_pitch_shutdown_handlers")
     def test_main_maps_safe_bootstrap_configuration_error_without_printing_its_detail(
         self, _install_handlers, run_entrypoint
     ) -> None:
@@ -102,7 +112,7 @@ class BasicPitchWorkerMainTests(unittest.TestCase):
 
         run_entrypoint.side_effect = BasicPitchAMQPConfigurationError("not-for-container-logs")
 
-        with patch("app.worker_main.sys.stderr") as standard_error:
+        with patch("app.runtime.worker_main.sys.stderr") as standard_error:
             returned = main()
 
         self.assertEqual(returned, EXIT_STATUS_CONFIGURATION_ERROR)

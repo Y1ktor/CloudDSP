@@ -22,9 +22,9 @@ The Helm chart references but does not own the administrator Secret. After
 the fresh foundation creates `clouddsp-data`, run:
 
 ```bash
-ruby ./k8Deployment/kubernetes/scripts/rabbitmq-secret-stage.rb plan
-ruby ./k8Deployment/kubernetes/scripts/rabbitmq-secret-stage.rb bootstrap
-ruby ./k8Deployment/kubernetes/scripts/rabbitmq-secret-stage.rb verify
+ruby ./k8Deployment/kubernetes/scripts/stages/credentials/rabbitmq-secret-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/stages/credentials/rabbitmq-secret-stage.rb bootstrap
+ruby ./k8Deployment/kubernetes/scripts/stages/credentials/rabbitmq-secret-stage.rb verify
 ```
 
 The populated manifest stays under ignored `.local/` configuration. The
@@ -35,9 +35,9 @@ stage refuses to replace an existing Secret and suppresses credential values.
 After creating the credential Secret in an otherwise empty namespace, run:
 
 ```bash
-./k8Deployment/kubernetes/scripts/rabbitmq-release.rb install
-./k8Deployment/kubernetes/scripts/rabbitmq-release.rb verify
-./k8Deployment/kubernetes/scripts/rabbitmq-release.rb smoke
+./k8Deployment/kubernetes/scripts/releases/rabbitmq-release.rb install
+./k8Deployment/kubernetes/scripts/releases/rabbitmq-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/rabbitmq-release.rb smoke
 ```
 
 The install guard checks that the Helm release, five chart resources,
@@ -53,16 +53,16 @@ current live cluster is retained, so an empty-cluster trial remains pending.
 From the repository root:
 
 ```bash
-./k8Deployment/kubernetes/scripts/rabbitmq-release.rb plan
-./k8Deployment/kubernetes/scripts/rabbitmq-release.rb adopt
-./k8Deployment/kubernetes/scripts/rabbitmq-release.rb verify
-./k8Deployment/kubernetes/scripts/rabbitmq-release.rb smoke
+./k8Deployment/kubernetes/scripts/releases/rabbitmq-release.rb plan
+./k8Deployment/kubernetes/scripts/releases/rabbitmq-release.rb adopt
+./k8Deployment/kubernetes/scripts/releases/rabbitmq-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/rabbitmq-release.rb smoke
 ```
 
 `plan` performs strict chart lint, image-lock and source/render/live spec
 comparisons, API-server dry run, Ready-Pod and bound-PVC checks. `adopt`
 repeats those checks and runs the versioned
-[`rabbitmq-backup-and-restore-test.py`](../../scripts/rabbitmq-backup-and-restore-test.py)
+[`rabbitmq-backup-and-restore-test.py`](../../scripts/maintenance/rabbitmq-backup-and-restore-test.py)
 before Helm takeover. The backup requires no unacknowledged messages, briefly
 scales **only RabbitMQ** to zero, archives the bound node-local PVC directory,
 and restores the original replica. It confirms the StatefulSet and PVC/PV
@@ -107,3 +107,19 @@ name, then verify broker definitions, queues, application credentials,
 management access, and AMQP smoke before switching clients. There is no
 automated in-place restore command because that could overwrite authoritative
 current message state.
+
+## Flux delivery and probe revision
+
+Chart `0.1.1` replaces repeated Erlang exec startup/readiness/liveness checks
+with AMQP TCP startup/readiness and no liveness probe, following RabbitMQ's
+published guidance. Manual release verification still checks running/local
+alarms. This changes only probes and deliberately rolls the single broker Pod;
+its retained storage, locked image, security, selectors and networking remain.
+
+After the [Flux handoff](../../gitops/rabbitmq.md), publish chart/configuration
+changes to `codex/flux-clouddsp-local`. Flux retains the existing native release,
+storage namespace and history; direct `install`/`adopt` stop as soon as the
+HelmRelease exists. `verify`/`smoke` retain strict native manifest/live spec,
+bound-PVC, running-digest and local-health checks. Broker data and credential/
+topology bootstrap remain outside this release. The historical backup/restore
+workflow above describes raw-to-Helm adoption; it is not run for Helm-to-Flux.

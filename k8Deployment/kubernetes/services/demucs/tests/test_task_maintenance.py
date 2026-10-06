@@ -15,16 +15,16 @@ import unittest
 from unittest.mock import patch
 from uuid import UUID
 
-from app.demucs_requested_message import DemucsRequestedMessage
-from app.postgresql import DemucsDatabaseUnavailable
-from app.recovery_request import DemucsRecoveryRequestProtocolError
-from app.task_lease import (
+from app.messaging.demucs_requested_message import DemucsRequestedMessage
+from app.db.postgresql import DemucsDatabaseUnavailable
+from app.db.recovery_request import DemucsRecoveryRequestProtocolError
+from app.db.task_lease import (
     DEMUCS_EXHAUSTED_LEASE_ERROR_CODE,
     DemucsExpiredLeaseTerminalization,
     DemucsTaskLease,
     DemucsTaskLeaseProtocolError,
 )
-from app.task_maintenance import (
+from app.db.task_maintenance import (
     DemucsRecoveredTask,
     DemucsRecoveredTaskProtocolError,
     recover_one_demucs_task,
@@ -151,8 +151,8 @@ def terminalization() -> DemucsExpiredLeaseTerminalization:
 class TaskMaintenanceCompositionTests(unittest.TestCase):
     """Prove recovery and renewal results leave one bounded transaction scope."""
 
-    @patch("app.task_maintenance.read_current_demucs_recovery_request")
-    @patch("app.task_maintenance.claim_next_recoverable_demucs_task")
+    @patch("app.db.task_maintenance.read_current_demucs_recovery_request")
+    @patch("app.db.task_maintenance.claim_next_recoverable_demucs_task")
     def test_idle_recovery_commits_without_inventing_a_task(self, claim, reader) -> None:
         """An empty due-task scan is normal and leaves no transaction open."""
 
@@ -165,8 +165,8 @@ class TaskMaintenanceCompositionTests(unittest.TestCase):
         self.assertEqual(database.events, ["transaction-open", "transaction-commit"])
         reader.assert_not_called()
 
-    @patch("app.task_maintenance.read_current_demucs_recovery_request")
-    @patch("app.task_maintenance.claim_next_recoverable_demucs_task")
+    @patch("app.db.task_maintenance.read_current_demucs_recovery_request")
+    @patch("app.db.task_maintenance.claim_next_recoverable_demucs_task")
     def test_recovered_pair_commits_before_it_can_start_external_work(self, claim, reader) -> None:
         """The next runtime receives a committed lease and matching request, not a cursor."""
 
@@ -189,8 +189,8 @@ class TaskMaintenanceCompositionTests(unittest.TestCase):
         )
         reader.assert_called_once_with(database.cursor, lease=lease)
 
-    @patch("app.task_maintenance.read_current_demucs_recovery_request")
-    @patch("app.task_maintenance.claim_next_recoverable_demucs_task")
+    @patch("app.db.task_maintenance.read_current_demucs_recovery_request")
+    @patch("app.db.task_maintenance.claim_next_recoverable_demucs_task")
     def test_missing_evidence_rolls_back_the_fresh_lease(self, claim, reader) -> None:
         """No current event pair may leave a newly issued lease committed."""
 
@@ -203,8 +203,8 @@ class TaskMaintenanceCompositionTests(unittest.TestCase):
         self.assertEqual(database.events, ["transaction-open", "transaction-rollback"])
         reader.assert_called_once_with(database.cursor, lease=claim.return_value)
 
-    @patch("app.task_maintenance.read_current_demucs_recovery_request")
-    @patch("app.task_maintenance.claim_next_recoverable_demucs_task")
+    @patch("app.db.task_maintenance.read_current_demucs_recovery_request")
+    @patch("app.db.task_maintenance.claim_next_recoverable_demucs_task")
     def test_invalid_evidence_error_rolls_back_and_remains_visible(self, claim, reader) -> None:
         """A corrupt event is an operator-visible fault, not a quiet idle scan."""
 
@@ -242,8 +242,8 @@ class TaskMaintenanceCompositionTests(unittest.TestCase):
 
         self.assertEqual(database.events, ["transaction-open", "transaction-rollback"])
 
-    @patch("app.task_maintenance.read_current_demucs_recovery_request")
-    @patch("app.task_maintenance.claim_next_recoverable_demucs_task")
+    @patch("app.db.task_maintenance.read_current_demucs_recovery_request")
+    @patch("app.db.task_maintenance.claim_next_recoverable_demucs_task")
     def test_database_outage_runs_no_recovery_query(self, recover, reader) -> None:
         """The future supervisor receives a retryable error before task SQL runs."""
 
@@ -264,8 +264,8 @@ class TaskMaintenanceCompositionTests(unittest.TestCase):
 class ExpiredLeaseTerminalizationCompositionTests(unittest.TestCase):
     """Prove exhausted-lease finalization gets its own short database scope."""
 
-    @patch("app.task_maintenance.finalize_next_overdue_demucs_task", return_value=None)
-    @patch("app.task_maintenance.finalize_next_expired_exhausted_demucs_task")
+    @patch("app.db.task_maintenance.finalize_next_overdue_demucs_task", return_value=None)
+    @patch("app.db.task_maintenance.finalize_next_expired_exhausted_demucs_task")
     def test_idle_terminalization_commits_without_recovery_work(self, finalize, overdue) -> None:
         """An empty final-attempt scan is normal no-mutation maintenance work."""
 
@@ -278,8 +278,8 @@ class ExpiredLeaseTerminalizationCompositionTests(unittest.TestCase):
         overdue.assert_called_once_with(database.cursor)
         finalize.assert_called_once_with(database.cursor)
 
-    @patch("app.task_maintenance.finalize_next_overdue_demucs_task", return_value=None)
-    @patch("app.task_maintenance.finalize_next_expired_exhausted_demucs_task")
+    @patch("app.db.task_maintenance.finalize_next_overdue_demucs_task", return_value=None)
+    @patch("app.db.task_maintenance.finalize_next_expired_exhausted_demucs_task")
     def test_terminalization_commits_only_valid_atomic_evidence(self, finalize, overdue) -> None:
         """The returned proof is visible only after the database scope exits."""
 
@@ -292,8 +292,8 @@ class ExpiredLeaseTerminalizationCompositionTests(unittest.TestCase):
         self.assertEqual(database.events, ["transaction-open", "transaction-commit"])
         overdue.assert_called_once_with(database.cursor)
 
-    @patch("app.task_maintenance.finalize_next_overdue_demucs_task")
-    @patch("app.task_maintenance.finalize_next_expired_exhausted_demucs_task")
+    @patch("app.db.task_maintenance.finalize_next_overdue_demucs_task")
+    @patch("app.db.task_maintenance.finalize_next_expired_exhausted_demucs_task")
     def test_overdue_result_preempts_expired_lease_scan(self, finalize, overdue) -> None:
         """A timed-out task is terminalized before any recovery or retry."""
 
@@ -304,8 +304,8 @@ class ExpiredLeaseTerminalizationCompositionTests(unittest.TestCase):
         self.assertEqual(database.events, ["transaction-open", "transaction-commit"])
         finalize.assert_not_called()
 
-    @patch("app.task_maintenance.finalize_next_overdue_demucs_task", return_value=None)
-    @patch("app.task_maintenance.finalize_next_expired_exhausted_demucs_task")
+    @patch("app.db.task_maintenance.finalize_next_overdue_demucs_task", return_value=None)
+    @patch("app.db.task_maintenance.finalize_next_expired_exhausted_demucs_task")
     def test_invalid_terminalization_rolls_back_instead_of_reporting_progress(self, finalize, overdue) -> None:
         """A future replacement cannot commit an arbitrary non-None object."""
 

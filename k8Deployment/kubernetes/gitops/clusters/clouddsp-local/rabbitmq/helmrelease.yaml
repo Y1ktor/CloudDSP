@@ -1,0 +1,68 @@
+# helm-controller reuses the installed clouddsp-rabbitmq release and its history.
+# This resource is reconciliation configuration; Helm still owns the rendered
+# StatefulSet, three Services, and NetworkPolicy in the existing clouddsp-data namespace.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: clouddsp-rabbitmq
+  namespace: flux-system
+spec:
+  interval: 5m
+  timeout: 5m
+  maxHistory: 10
+  # Explicit names avoid Flux's default namespace-prefixed release naming and
+  # preserve the namespace where the existing Helm revision Secrets are stored.
+  releaseName: clouddsp-rabbitmq
+  targetNamespace: clouddsp-data
+  storageNamespace: clouddsp-data
+  serviceAccountName: clouddsp-rabbitmq-helm
+  chart:
+    spec:
+      chart: ./k8Deployment/kubernetes/helm/rabbitmq
+      interval: 1m
+      # Rebuild when Git changes, even if Chart.yaml's base version is unchanged.
+      # Flux appends a source SHA and values-file generation to the chart version.
+      reconcileStrategy: Revision
+      sourceRef:
+        kind: GitRepository
+        name: flux-system
+        namespace: flux-system
+      # Git chart values-file paths are relative to the repository root.
+      valuesFiles:
+        - ./k8Deployment/kubernetes/helm/rabbitmq/values.yaml
+      ignoreMissingValuesFiles: false
+  install:
+    createNamespace: false
+    # Refuse to take unrelated resources into this release on a fresh install.
+    disableTakeOwnership: true
+    strategy:
+      name: RemediateOnFailure
+    remediation:
+      retries: 0
+      # A failure stays available for inspection; no automatic uninstall follows.
+      remediateLastFailure: false
+  upgrade:
+    disableTakeOwnership: true
+    # The existing broker has fields left by earlier apply managers. SSA merges
+    # omitted exec probe handlers with new TCP handlers, which Kubernetes rejects.
+    # Three-way merge removes the old handlers through a normal in-place patch;
+    # force replacement and automatic rollback/uninstall remain disabled.
+    serverSideApply: disabled
+    force: false
+    cleanupOnFail: false
+    preserveValues: false
+    # Avoid an implicit uninstall/reinstall if a later chart name changes.
+    chartNameChangeStrategy: InPlaceUpdate
+    strategy:
+      name: RemediateOnFailure
+    remediation:
+      retries: 0
+      # An adopted release must not be automatically rolled back or uninstalled.
+      remediateLastFailure: false
+  # AMQP smoke is a separate versioned Job. Runtime credentials, topology and
+  # retained storage are not installed or repaired by the delivery identity.
+  test:
+    enable: false
+  # After the release is in sync, correct live drift against its stored manifest.
+  driftDetection:
+    mode: enabled

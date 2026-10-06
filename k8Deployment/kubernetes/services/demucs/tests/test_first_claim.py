@@ -14,10 +14,10 @@ from contextlib import contextmanager
 import unittest
 from unittest.mock import patch
 
-from app.demucs_requested_message import DemucsRequestedMessage
-from app.first_claim import claim_first_demucs_task
-from app.postgresql import DemucsDatabaseUnavailable
-from app.task_lease import (
+from app.messaging.demucs_requested_message import DemucsRequestedMessage
+from app.db.first_claim import claim_first_demucs_task
+from app.db.postgresql import DemucsDatabaseUnavailable
+from app.db.task_lease import (
     DemucsTaskClaimDisposition,
     DemucsTaskClaimInconsistency,
 )
@@ -144,7 +144,7 @@ class FirstClaimCompositionTests(unittest.TestCase):
 
         self.assertEqual(database.events, ["transaction-open", "transaction-rollback"])
 
-    @patch("app.first_claim.claim_demucs_task_for_delivery")
+    @patch("app.db.first_claim.claim_demucs_task_for_delivery")
     def test_database_failure_runs_no_pure_claim_query(self, pure_claim) -> None:
         """A transient connection failure remains retryable before any task decision."""
 

@@ -15,14 +15,14 @@ import unittest
 from unittest.mock import patch
 from uuid import UUID
 
-from app.demucs_artifact_upload import UploadedDemucsStemObject
-from app.demucs_artifacts import DEMUCS_STEMS_BY_MODE
-from app.demucs_stem_set_publish import PublishedDemucsStemSet
-from app.demucs_task_completion import (
+from app.artifacts.demucs_artifact_upload import UploadedDemucsStemObject
+from app.artifacts.demucs_artifacts import DEMUCS_STEMS_BY_MODE
+from app.processing.demucs_stem_set_publish import PublishedDemucsStemSet
+from app.db.demucs_task_completion import (
     DemucsTaskCompletionContractError,
     commit_published_demucs_stem_set,
 )
-from app.task_lease import DemucsTaskCompletion, DemucsTaskLease, DemucsTaskLeaseProtocolError
+from app.db.task_lease import DemucsTaskCompletion, DemucsTaskLease, DemucsTaskLeaseProtocolError
 
 
 JOB_ID = "11111111-1111-4111-8111-111111111111"
@@ -104,7 +104,7 @@ def published(*, stem_mode: str = "4-stems") -> PublishedDemucsStemSet:
 class DemucsTaskCompletionCompositionTests(unittest.TestCase):
     """Prove private receipt evidence becomes durable only after a committed guard."""
 
-    @patch("app.demucs_task_completion.complete_running_demucs_task")
+    @patch("app.db.demucs_task_completion.complete_running_demucs_task")
     def test_commits_cloud_compatible_stems_with_extra_integrity_evidence(self, complete) -> None:
         """The worker preserves `status`/`s3_key` while recording bytes and SHA-256."""
 
@@ -160,7 +160,7 @@ class DemucsTaskCompletionCompositionTests(unittest.TestCase):
             self.assertEqual(event["payload"]["stem"]["content_type"], "audio/wav")
         self.assertEqual(len(committed.downstream_events), 4)
 
-    @patch("app.demucs_task_completion.complete_running_demucs_task")
+    @patch("app.db.demucs_task_completion.complete_running_demucs_task")
     def test_ownership_loss_commits_without_exposing_durable_success(self, complete) -> None:
         """A stale worker must not emit downstream work after a no-row SQL result."""
 
@@ -176,7 +176,7 @@ class DemucsTaskCompletionCompositionTests(unittest.TestCase):
         )
         self.assertEqual(database.events, ["transaction-open", "transaction-commit"])
 
-    @patch("app.demucs_task_completion.complete_running_demucs_task")
+    @patch("app.db.demucs_task_completion.complete_running_demucs_task")
     def test_every_reviewed_mode_routes_drums_only_to_adtof(self, complete) -> None:
         """The 2/4/6-stem contract cannot lose no-vocals, piano, or guitar fan-out."""
 
@@ -221,7 +221,7 @@ class DemucsTaskCompletionCompositionTests(unittest.TestCase):
                     ],
                 )
 
-    @patch("app.demucs_task_completion.complete_running_demucs_task")
+    @patch("app.db.demucs_task_completion.complete_running_demucs_task")
     def test_invalid_receipt_stops_before_transaction_and_sql_failure_rolls_back(self, complete) -> None:
         """Neither forged storage evidence nor driver protocol faults can partially commit."""
 

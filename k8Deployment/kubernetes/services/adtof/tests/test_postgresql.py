@@ -11,7 +11,7 @@ import os
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.postgresql import (
+from app.db.postgresql import (
     DEFAULT_DATABASE_HOST,
     DEFAULT_DATABASE_PORT,
     DEFAULT_STATEMENT_TIMEOUT_MILLISECONDS,
@@ -136,7 +136,7 @@ class PsycopgADTOFDatabaseTests(unittest.TestCase):
         FakePsycopg.connect.return_value.__enter__.return_value = connection
         return connection
 
-    @patch("app.postgresql._load_psycopg")
+    @patch("app.db.postgresql._load_psycopg")
     def test_write_cursor_uses_a_bounded_dictionary_row_transaction(self, load_psycopg) -> None:
         """A claim commit happens before later ADTOF CPU inference begins."""
 
@@ -158,7 +158,7 @@ class PsycopgADTOFDatabaseTests(unittest.TestCase):
         connection.transaction.assert_called_once_with()
         transaction_context.__exit__.assert_called_once_with(None, None, None)
 
-    @patch("app.postgresql._load_psycopg")
+    @patch("app.db.postgresql._load_psycopg")
     def test_application_error_reaches_transaction_for_rollback(self, load_psycopg) -> None:
         """A pure claim failure cannot commit partial state before model work."""
 
@@ -174,7 +174,7 @@ class PsycopgADTOFDatabaseTests(unittest.TestCase):
         self.assertIs(exit_args[0], ValueError)
         self.assertIn("simulated task-claim failure", str(exit_args[1]))
 
-    @patch("app.postgresql._load_psycopg")
+    @patch("app.db.postgresql._load_psycopg")
     def test_driver_failure_becomes_a_safe_retryable_category(self, load_psycopg) -> None:
         """Raw PostgreSQL diagnostics cannot escape into future worker logs."""
 

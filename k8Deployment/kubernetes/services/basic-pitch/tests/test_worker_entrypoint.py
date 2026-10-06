@@ -12,20 +12,20 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.amqp_connection import (
+from app.messaging.amqp_connection import (
     DEFAULT_BASIC_PITCH_AMQP_HOST,
     BasicPitchAMQPConfigurationError,
     BasicPitchAMQPSettings,
 )
-from app.minio_client import (
+from app.artifacts.minio_client import (
     LOCAL_ARTIFACTS_BUCKET,
     LOCAL_MINIO_INTERNAL_ENDPOINT,
     LOCAL_S3_ADDRESSING_STYLE,
     LOCAL_S3_REGION,
     BasicPitchMinioSettings,
 )
-from app.supervisor_step import BasicPitchSupervisorStepState
-from app.worker_entrypoint import (
+from app.runtime.supervisor_step import BasicPitchSupervisorStepState
+from app.runtime.worker_entrypoint import (
     EXIT_STATUS_CONFIGURATION_ERROR,
     EXIT_STATUS_SUCCESS,
     BasicPitchWorkerEntrypointResult,
@@ -34,7 +34,7 @@ from app.worker_entrypoint import (
     exit_status_for_basic_pitch_worker_runtime,
     run_basic_pitch_worker_entrypoint,
 )
-from app.worker_runtime import (
+from app.runtime.worker_runtime import (
     BasicPitchWorkerExitReason,
     BasicPitchWorkerRuntimeResult,
 )
@@ -84,12 +84,12 @@ class NeverShutdownWaiter:
 class BasicPitchWorkerEntrypointTests(unittest.TestCase):
     """Prove only validated dependency factories reach the runtime loop."""
 
-    @patch("app.worker_entrypoint.run_basic_pitch_worker_runtime")
-    @patch("app.worker_entrypoint._validated_work_directory")
-    @patch("app.worker_entrypoint.create_boto3_basic_pitch_minio_client")
-    @patch("app.worker_entrypoint.BasicPitchMinioSettings.from_environment")
-    @patch("app.worker_entrypoint.PsycopgBasicPitchDatabase")
-    @patch("app.worker_entrypoint.BasicPitchAMQPSettings.from_environment")
+    @patch("app.runtime.worker_entrypoint.run_basic_pitch_worker_runtime")
+    @patch("app.runtime.worker_entrypoint._validated_work_directory")
+    @patch("app.runtime.worker_entrypoint.create_boto3_basic_pitch_minio_client")
+    @patch("app.runtime.worker_entrypoint.BasicPitchMinioSettings.from_environment")
+    @patch("app.runtime.worker_entrypoint.PsycopgBasicPitchDatabase")
+    @patch("app.runtime.worker_entrypoint.BasicPitchAMQPSettings.from_environment")
     def test_bootstrap_builds_restricted_dependencies_then_maps_clean_shutdown(
         self,
         amqp_from_environment,
@@ -165,12 +165,12 @@ class BasicPitchWorkerEntrypointTests(unittest.TestCase):
             with self.assertRaises(BasicPitchWorkerEntrypointConfigurationError):
                 _validated_work_directory(root / "missing-worker-scratch")
 
-    @patch("app.worker_entrypoint.run_basic_pitch_worker_runtime")
-    @patch("app.worker_entrypoint._validated_work_directory")
-    @patch("app.worker_entrypoint.create_boto3_basic_pitch_minio_client")
-    @patch("app.worker_entrypoint.BasicPitchMinioSettings.from_environment")
-    @patch("app.worker_entrypoint.PsycopgBasicPitchDatabase")
-    @patch("app.worker_entrypoint.BasicPitchAMQPSettings.from_environment")
+    @patch("app.runtime.worker_entrypoint.run_basic_pitch_worker_runtime")
+    @patch("app.runtime.worker_entrypoint._validated_work_directory")
+    @patch("app.runtime.worker_entrypoint.create_boto3_basic_pitch_minio_client")
+    @patch("app.runtime.worker_entrypoint.BasicPitchMinioSettings.from_environment")
+    @patch("app.runtime.worker_entrypoint.PsycopgBasicPitchDatabase")
+    @patch("app.runtime.worker_entrypoint.BasicPitchAMQPSettings.from_environment")
     def test_runtime_fatal_result_maps_to_configuration_exit_status(
         self,
         amqp_from_environment,
@@ -193,8 +193,8 @@ class BasicPitchWorkerEntrypointTests(unittest.TestCase):
 
         self.assertEqual(returned.exit_status, EXIT_STATUS_CONFIGURATION_ERROR)
 
-    @patch("app.worker_entrypoint.run_basic_pitch_worker_runtime")
-    @patch("app.worker_entrypoint.BasicPitchAMQPSettings.from_environment")
+    @patch("app.runtime.worker_entrypoint.run_basic_pitch_worker_runtime")
+    @patch("app.runtime.worker_entrypoint.BasicPitchAMQPSettings.from_environment")
     def test_invalid_mounted_configuration_stops_before_any_client_or_runtime_creation(
         self, amqp_from_environment, run_runtime
     ) -> None:

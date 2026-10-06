@@ -5,7 +5,7 @@ require 'stringio'
 require 'tmpdir'
 require 'yaml'
 
-require_relative '../../scripts/postgresql-secret-stage'
+require_relative '../../scripts/stages/credentials/postgresql-secret-stage'
 
 class PostgresqlSecretStageTest < Minitest::Test
   Status = Struct.new(:exitstatus) do

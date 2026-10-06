@@ -4,7 +4,7 @@ require 'minitest/autorun'
 require 'stringio'
 require 'tmpdir'
 require 'yaml'
-require_relative '../../scripts/keycloak-admin-secret-stage'
+require_relative '../../scripts/stages/credentials/keycloak-admin-secret-stage'
 
 class KeycloakAdminSecretStageTest < Minitest::Test
   Status = Struct.new(:exitstatus) do

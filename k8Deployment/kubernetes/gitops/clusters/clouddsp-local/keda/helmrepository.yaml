@@ -1,0 +1,11 @@
+# Fetch the official upstream chart independently of the sparse application Git
+# source. The HelmRelease selects an exact version, never a latest/range match.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: kedacore
+  namespace: flux-system
+spec:
+  interval: 1h
+  timeout: 1m
+  url: https://kedacore.github.io/charts

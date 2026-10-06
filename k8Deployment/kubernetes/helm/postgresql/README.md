@@ -30,9 +30,9 @@ foundation has already created `clouddsp-data`, run the versioned credential
 stage before installing the StatefulSet:
 
 ```bash
-ruby ./k8Deployment/kubernetes/scripts/postgresql-secret-stage.rb plan
-ruby ./k8Deployment/kubernetes/scripts/postgresql-secret-stage.rb bootstrap
-ruby ./k8Deployment/kubernetes/scripts/postgresql-secret-stage.rb verify
+ruby ./k8Deployment/kubernetes/scripts/stages/credentials/postgresql-secret-stage.rb plan
+ruby ./k8Deployment/kubernetes/scripts/stages/credentials/postgresql-secret-stage.rb bootstrap
+ruby ./k8Deployment/kubernetes/scripts/stages/credentials/postgresql-secret-stage.rb verify
 ```
 
 The populated manifest remains under ignored `.local/` configuration. The
@@ -40,8 +40,8 @@ stage refuses an existing Secret and never displays its values. After this
 credential stage, the fresh release path is:
 
 ```bash
-./k8Deployment/kubernetes/scripts/postgresql-release.rb install
-./k8Deployment/kubernetes/scripts/postgresql-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/postgresql-release.rb install
+./k8Deployment/kubernetes/scripts/releases/postgresql-release.rb verify
 ```
 
 `install` requires an absent Helm release, StatefulSet, both Services, the
@@ -49,17 +49,17 @@ generated PVC, and matching Pod. It rechecks the credential Secret, uses
 ordinary Helm install without takeover flags, waits for the StatefulSet,
 and verifies its Pod and bound claim. It does not run the adoption backup
 gate because this path starts without a data claim. A failed or partial
-install is retained for inspection; a clean-cluster trial remains pending.
+install is retained for inspection; fresh-cluster trials are recorded under [deployment trials](../../docs/trials/).
 
 ## Protected adoption and checks
 
 From the repository root:
 
 ```bash
-./k8Deployment/kubernetes/scripts/postgresql-release.rb plan
-./k8Deployment/kubernetes/scripts/postgresql-release.rb adopt
-./k8Deployment/kubernetes/scripts/postgresql-release.rb verify
-./k8Deployment/kubernetes/scripts/postgresql-release.rb smoke
+./k8Deployment/kubernetes/scripts/releases/postgresql-release.rb plan
+./k8Deployment/kubernetes/scripts/releases/postgresql-release.rb adopt
+./k8Deployment/kubernetes/scripts/releases/postgresql-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/postgresql-release.rb smoke
 ```
 
 `plan` runs strict Helm lint, image-lock and source/render/live comparisons,
@@ -69,7 +69,7 @@ operational rollout marker; no other spec drift is allowed. A separate
 server-side apply dry run confirmed that marker would remain on the live Pod.
 
 `adopt` repeats the preflight, then automatically runs
-[`postgresql-backup-and-restore-test.sh`](../../scripts/postgresql-backup-and-restore-test.sh).
+[`postgresql-backup-and-restore-test.sh`](../../scripts/maintenance/postgresql-backup-and-restore-test.sh).
 Only after that fresh backup restores successfully into a disposable Docker
 PostgreSQL instance with `--network none` does Helm take ownership. The
 script checks the StatefulSet and both Service UIDs, Pod UID, ordinary Service
@@ -107,3 +107,13 @@ and Job API authenticated reads before routing traffic to the replacement.
 The tested script provides the exact isolated restore rehearsal. Restoration
 into the current live PVC is intentionally not automated because it would
 overwrite authoritative identity and job data.
+
+## Optional Flux delivery
+
+The [PostgreSQL Flux guide](../../gitops/postgresql.md) adopts the existing
+healthy native release and history without changing this chart, restarting its
+Pod, or reinitializing storage. The ownership-aware helper retains `verify` and
+`smoke`, and refuses native `install`/`adopt` whenever its HelmRelease exists.
+Change the versioned GitOps configuration for delivery; schemas, roles, runtime
+Secrets and generated PVC/PV remain external. Ordinary fresh native bootstrap
+continues to work when Flux ownership is absent.

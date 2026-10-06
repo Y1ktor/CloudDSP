@@ -13,12 +13,12 @@ from pathlib import Path
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.claimed_task_success import (
+from app.runtime.claimed_task_success import (
     ADTOFClaimedTaskSuccessOutcome,
     execute_claimed_adtof_task_success_path,
 )
-from app.stem_task_start import RunningADTOFStem
-from app.task_completion import ADTOFTaskCompletion
+from app.db.stem_task_start import RunningADTOFStem
+from app.db.task_completion import ADTOFTaskCompletion
 from test_first_claim import message
 from test_stem_task_start import downloaded, lease, source
 
@@ -37,10 +37,10 @@ def running_context(running: RunningADTOFStem | None, events: list[str]) -> Iter
 class ADTOFClaimedTaskSuccessTests(unittest.TestCase):
     """Prove the coordinator keeps the model/finalization inside scratch scope."""
 
-    @patch("app.claimed_task_success.finalize_running_adtof_task")
-    @patch("app.claimed_task_success.execute_running_adtof_local_task")
-    @patch("app.claimed_task_success.started_verified_adtof_stem")
-    @patch("app.claimed_task_success.verify_claimed_adtof_stem_head_object")
+    @patch("app.runtime.claimed_task_success.finalize_running_adtof_task")
+    @patch("app.runtime.claimed_task_success.execute_running_adtof_local_task")
+    @patch("app.runtime.claimed_task_success.started_verified_adtof_stem")
+    @patch("app.runtime.claimed_task_success.verify_claimed_adtof_stem_head_object")
     def test_runs_preflight_start_local_output_and_finalization_in_order(
         self,
         preflight,
@@ -107,10 +107,10 @@ class ADTOFClaimedTaskSuccessTests(unittest.TestCase):
             local_outputs=local_outputs,
         )
 
-    @patch("app.claimed_task_success.finalize_running_adtof_task")
-    @patch("app.claimed_task_success.execute_running_adtof_local_task")
-    @patch("app.claimed_task_success.started_verified_adtof_stem")
-    @patch("app.claimed_task_success.verify_claimed_adtof_stem_head_object")
+    @patch("app.runtime.claimed_task_success.finalize_running_adtof_task")
+    @patch("app.runtime.claimed_task_success.execute_running_adtof_local_task")
+    @patch("app.runtime.claimed_task_success.started_verified_adtof_stem")
+    @patch("app.runtime.claimed_task_success.verify_claimed_adtof_stem_head_object")
     def test_start_ownership_loss_stops_before_cpu_or_finalization(
         self,
         preflight,
@@ -138,10 +138,10 @@ class ADTOFClaimedTaskSuccessTests(unittest.TestCase):
         local_execution.assert_not_called()
         finalize.assert_not_called()
 
-    @patch("app.claimed_task_success.finalize_running_adtof_task")
-    @patch("app.claimed_task_success.execute_running_adtof_local_task")
-    @patch("app.claimed_task_success.started_verified_adtof_stem")
-    @patch("app.claimed_task_success.verify_claimed_adtof_stem_head_object")
+    @patch("app.runtime.claimed_task_success.finalize_running_adtof_task")
+    @patch("app.runtime.claimed_task_success.execute_running_adtof_local_task")
+    @patch("app.runtime.claimed_task_success.started_verified_adtof_stem")
+    @patch("app.runtime.claimed_task_success.verify_claimed_adtof_stem_head_object")
     def test_final_ownership_loss_is_not_reported_as_success(
         self,
         preflight,

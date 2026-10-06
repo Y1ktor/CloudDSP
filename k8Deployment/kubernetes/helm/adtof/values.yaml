@@ -2,3 +2,35 @@
 # The Deployment template intentionally omits replicas: KEDA owns /scale.
 image:
   reference: clouddsp-registry.localhost:5001/adtof@sha256:c8706bb0b814ed3a0c1e58455a7c153848ddf7808e65d4e3f4ed52a37b521b91
+
+# KEDA observes inactive triggers at pollingInterval; its cooldown controls
+# the final transition to zero only when minReplicaCount is zero. The HPA
+# separately manages replica changes above zero through behavior below.
+# Keep these local defaults unless the cluster has capacity for more workers:
+# raising maxReplicaCount permits capacity but does not start extra Pods.
+# Set minReplicaCount above zero to retain that many warm workers when idle.
+autoscaling:
+  pollingInterval: 15
+  cooldownPeriod: 180
+  minReplicaCount: 0
+  maxReplicaCount: 2
+  rabbitmq:
+    # Desired messages per worker; activation requires depth above this
+    # activation threshold. Defaults activate for any available request.
+    queueLength: 1
+    activationValue: 0
+    # Bound each management API request in milliseconds.
+    timeout: 5000
+  behavior:
+    # HPA stabilization windows are seconds; value limits the number of
+    # Pods added or removed during periodSeconds (not the replica ceiling).
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      value: 1
+      periodSeconds: 30
+    scaleDown:
+      # A longer window retains recent capacity across short metric dips.
+      # KEDA cooldown still controls the eventual idle transition to zero.
+      stabilizationWindowSeconds: 180
+      value: 1
+      periodSeconds: 60

@@ -9,9 +9,9 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.amqp_channel import DemucsAMQPChannelUnavailable
-from app.amqp_connection import DEFAULT_DEMUCS_AMQP_HOST, DemucsAMQPConnectionUnavailable, DemucsAMQPSettings
-from app.amqp_session import opened_demucs_rabbitmq_session
+from app.messaging.amqp_channel import DemucsAMQPChannelUnavailable
+from app.messaging.amqp_connection import DEFAULT_DEMUCS_AMQP_HOST, DemucsAMQPConnectionUnavailable, DemucsAMQPSettings
+from app.messaging.amqp_session import opened_demucs_rabbitmq_session
 
 
 def settings() -> DemucsAMQPSettings:
@@ -46,8 +46,8 @@ class RecordingResource:
 class DemucsAMQPSessionTests(unittest.TestCase):
     """Prove prepared channels are yielded and both Pika resources close."""
 
-    @patch("app.amqp_session.configure_demucs_rabbitmq_channel")
-    @patch("app.amqp_session.open_demucs_rabbitmq_connection")
+    @patch("app.messaging.amqp_session.configure_demucs_rabbitmq_channel")
+    @patch("app.messaging.amqp_session.open_demucs_rabbitmq_connection")
     def test_prepares_channel_then_closes_channel_before_connection(self, open_connection, configure) -> None:
         """The loop sees a prepared channel, never an unconfigured socket."""
 
@@ -65,8 +65,8 @@ class DemucsAMQPSessionTests(unittest.TestCase):
         configure.assert_called_once_with(channel, settings=settings())
         self.assertEqual(events, ["close-channel", "close-connection"])
 
-    @patch("app.amqp_session.configure_demucs_rabbitmq_channel")
-    @patch("app.amqp_session.open_demucs_rabbitmq_connection")
+    @patch("app.messaging.amqp_session.configure_demucs_rabbitmq_channel")
+    @patch("app.messaging.amqp_session.open_demucs_rabbitmq_connection")
     def test_setup_or_body_failure_closes_resources_without_hiding_original_error(self, open_connection, configure) -> None:
         """Worker/setup errors cannot leak a socket or be relabeled by cleanup."""
 
@@ -97,8 +97,8 @@ class DemucsAMQPSessionTests(unittest.TestCase):
 
                 self.assertEqual(events, ["close-channel", "close-connection"])
 
-    @patch("app.amqp_session.configure_demucs_rabbitmq_channel")
-    @patch("app.amqp_session.open_demucs_rabbitmq_connection")
+    @patch("app.messaging.amqp_session.configure_demucs_rabbitmq_channel")
+    @patch("app.messaging.amqp_session.open_demucs_rabbitmq_connection")
     def test_normal_cleanup_failure_is_redacted_and_still_closes_connection(self, open_connection, configure) -> None:
         """Broken channel close cannot leak connection or expose driver detail."""
 
@@ -116,8 +116,8 @@ class DemucsAMQPSessionTests(unittest.TestCase):
         self.assertNotIn("test-only close diagnostic", str(raised.exception))
         self.assertEqual(events, ["close-channel", "close-connection"])
 
-    @patch("app.amqp_session.configure_demucs_rabbitmq_channel")
-    @patch("app.amqp_session.open_demucs_rabbitmq_connection")
+    @patch("app.messaging.amqp_session.configure_demucs_rabbitmq_channel")
+    @patch("app.messaging.amqp_session.open_demucs_rabbitmq_connection")
     def test_connection_failure_does_not_invent_channel_or_cleanup_work(self, open_connection, configure) -> None:
         """Factory's reviewed retryable failure reaches the future supervisor."""
 

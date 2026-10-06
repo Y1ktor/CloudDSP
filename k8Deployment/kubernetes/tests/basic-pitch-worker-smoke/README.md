@@ -206,9 +206,41 @@ instead, so it never competes for a queue message.
 The worker smoke is now an explicit verification command for this release:
 
 ```bash
-./k8Deployment/kubernetes/scripts/basic-pitch-release.rb smoke
+./k8Deployment/kubernetes/scripts/releases/basic-pitch-release.rb smoke
 ```
 
 Investigate any failed fixed-coordinate run before using the guarded cleanup
 Job. Do not broaden the test credentials or replace the dispatcher/worker
 route with direct AMQP publication.
+
+## Flux-owned worker and temporary test access
+
+After the [Basic Pitch Flux handoff](../../gitops/basic-pitch.md), the same
+release runner verifies Flux and native ownership before creating the versioned
+smoke Job. No chart or policy override is needed for this processing smoke.
+The client follows the existing dispatcher/worker path and uses restricted
+PostgreSQL and MinIO identities, with no RabbitMQ or Kubernetes API access.
+Wait for KEDA cooldown and worker Pod termination before `verify-idle`.
+
+Credentials may be generated in memory and submitted directly to Kubernetes
+from the public Secret examples. Keep the four Secret copies absent before
+creating temporary access; never print their values or commit local credentials.
+Inspect successful database/MinIO bootstrap Jobs, then remove those exact Jobs
+and their two `clouddsp-data` temporary credential Secrets. The two client
+Secrets in `clouddsp-app` remain until the smoke succeeds.
+
+For test identities provisioned solely for a successful trial, create the
+bounded [retirement Jobs](basic-pitch-worker-smoke-retire-jobs.yaml):
+
+```sh
+kubectl --context k3d-clouddsp-local create -f \
+  k8Deployment/kubernetes/tests/basic-pitch-worker-smoke/basic-pitch-worker-smoke-retire-jobs.yaml
+```
+
+Inspect both completions and logs before removing those exact Jobs, the two
+client Secrets, and `clouddsp-basic-pitch-worker-smoke-objects-policy-v001`.
+Database retirement refuses remaining reserved evidence and drops only the
+three test functions and role. MinIO retirement requires both reserved prefixes
+to be empty before removing the test user/policy; it deletes no objects. Failed
+or interrupted runs retain their evidence and require diagnosis before cleanup,
+retirement, or a rerun.

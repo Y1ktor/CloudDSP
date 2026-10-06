@@ -1,10 +1,11 @@
 # Local Kubernetes architecture diagram
 
-The website's K8 page uses `frontend-react/public/architecture/cloud-dsp-k8-architecture.png`.
+The website's K8 page uses the shared
+`../../frontend/public/architecture/cloud-dsp-k8-architecture.png` asset.
 The illustration was generated with the built-in imagegen tool on 2026-10-02, then
 reviewed against the versioned local deployment and corrected for connector accuracy.
 The separate component ledger uses original project icons credited in
-`frontend-react/public/architecture/k8-icons/README.md`.
+`../../frontend/public/architecture/k8-icons/README.md`.
 
 The figure illustrates direct uploads and HTTP polling, CPU worker Deployments,
 PostgreSQL authority, private MinIO artifacts, transactional outbox dispatch, and

@@ -202,7 +202,7 @@ operator must first inspect the failed smoke Job, task and event rows, object
 keys, queue state, and scaler activity, then arrange an explicit quiet window
 for the exact diagnosed state. Do not apply the raw `services/demucs/` manifest
 or scale the Helm-owned Deployment as a restoration shortcut. The chart and
-[`demucs-release.rb`](../../scripts/demucs-release.rb) are the delivery and
+[`demucs-release.rb`](../../scripts/releases/demucs-release.rb) are the delivery and
 verification path for this worker.
 
 The first post-adoption failure had a different exact shape: Demucs and the
@@ -216,3 +216,27 @@ using it, verify the smoke client has stopped, related queues are empty, and
 no Pod still has a model child. A PostgreSQL task-count trigger may keep an
 otherwise idle Basic Pitch Pod up until the stale row is removed. The Job
 refuses any different status, owner, event, attempt, or unexpired lease.
+
+## Flux-owned worker
+
+After the [Demucs handoff](../../gitops/demucs.md), the same release runner
+verifies Flux/native ownership before creating this versioned client Job:
+
+```sh
+ruby k8Deployment/kubernetes/scripts/releases/demucs-release.rb verify-idle
+ruby k8Deployment/kubernetes/scripts/releases/demucs-release.rb smoke
+```
+
+The client follows the real dispatcher/Demucs/Basic Pitch path and needs no
+paused worker, chart override, RabbitMQ credential, or Kubernetes API access.
+Its successful completion verifies Demucs stems and waits for downstream tasks
+and the parent to complete before cleanup. It does not verify MIDI content.
+Wait for both workers' natural cooldowns and Pod termination before final idle
+checks; do not shorten the policy or manually scale for this verification.
+
+Inspect existing test access and fixed evidence before provisioning. Reuse
+existing restricted identities as-is for a deliberate repeat trial; preserve
+pre-existing test Secrets, functions, and policy state. Bootstrap only missing
+access through the separate reviewed procedure. The ownership-aware runner
+removes the successful client Job; failed/interrupted runs preserve evidence
+for diagnosis before any state-specific recovery or rerun.

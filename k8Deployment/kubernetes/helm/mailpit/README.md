@@ -21,10 +21,10 @@ Job.
 From the repository root:
 
 ```bash
-./k8Deployment/kubernetes/scripts/mailpit-release.rb plan
-./k8Deployment/kubernetes/scripts/mailpit-release.rb adopt
-./k8Deployment/kubernetes/scripts/mailpit-release.rb verify
-./k8Deployment/kubernetes/scripts/mailpit-release.rb smoke
+./k8Deployment/kubernetes/scripts/releases/mailpit-release.rb plan
+./k8Deployment/kubernetes/scripts/releases/mailpit-release.rb adopt
+./k8Deployment/kubernetes/scripts/releases/mailpit-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/mailpit-release.rb smoke
 ```
 
 `plan` lints and renders the chart, checks the Mailpit image against
@@ -70,8 +70,8 @@ After a separate guarded foundation and image preparation stage has created
 the `clouddsp-data` namespace, the equivalent component commands are:
 
 ```bash
-./k8Deployment/kubernetes/scripts/mailpit-release.rb install
-./k8Deployment/kubernetes/scripts/mailpit-release.rb verify
+./k8Deployment/kubernetes/scripts/releases/mailpit-release.rb install
+./k8Deployment/kubernetes/scripts/releases/mailpit-release.rb verify
 ```
 
 `install` uses the same reviewed chart and image checks but requires the Helm
@@ -82,7 +82,26 @@ attempt is retained for inspection and is not automatically retried over a
 partial release. This path has isolated guard tests; the current live cluster
 was retained, so a clean-cluster install trial remains outstanding.
 
-After adoption, use the chart and a separately reviewed normal Helm upgrade
-for changes to Mailpit. Do not reapply the old raw `services/mailpit/`
+For a cluster without Flux, use the chart and a separately reviewed normal
+Helm upgrade after adoption. A Flux-managed Mailpit release uses the GitOps
+workflow below. Do not reapply the old raw `services/mailpit/`
 manifests. Keep the namespace, KEDA, and Traefik releases with their existing
 owners.
+
+## Flux ownership
+
+The current Mac cluster's Mailpit release is managed by Flux through the
+`codex/flux-clouddsp-local` branch. The release name and Helm storage remain
+`clouddsp-mailpit` / `clouddsp-data`. See the
+[Flux handoff guide](https://github.com/Y1ktor/CloudDSP/blob/codex/flux-clouddsp-local/k8Deployment/kubernetes/gitops/mailpit.md)
+for the versioned HelmRelease, permissions, chart source, and recovery rules.
+The separate GitOps checkout retains its older flat script layout; this
+workspace's commands remain under `scripts/releases/`.
+
+`verify` and `smoke` validate the current Ready HelmRelease, exact Flux origin
+labels, and generated Git chart version in addition to the existing strict
+chart/stored/live specs and endpoint checks. Direct `install` and `adopt` stop
+whenever the matching HelmRelease exists, even while suspended or unhealthy.
+Ordinary Mailpit changes must now be committed to the watched GitOps branch.
+Other clusters still use the standard direct Helm flow until explicitly handed
+over to Flux.

@@ -1,0 +1,76 @@
+# Deliver the existing ADTOF Deployment and its queue ScaledObject through Flux.
+# The shared authentication release is a readiness dependency. Runtime Secrets,
+# durable identity/bootstrap state, generated HPA, and KEDA are separate owners.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: clouddsp-adtof
+  namespace: flux-system
+spec:
+  interval: 5m
+  timeout: 3m
+  maxHistory: 10
+  # Match the existing native release and its Helm revision Secret namespace.
+  releaseName: clouddsp-adtof
+  targetNamespace: clouddsp-app
+  storageNamespace: clouddsp-app
+  serviceAccountName: clouddsp-adtof-helm
+  # This shared release must be Ready before delivery; it does not create
+  # ADTOF's database/MinIO/broker identities or install the KEDA controller.
+  # Object storage must be Ready; bucket/IAM bootstrap remains separate.
+  dependsOn:
+    - name: clouddsp-minio
+      namespace: flux-system
+    - name: clouddsp-scaling-auth
+      namespace: flux-system
+  chart:
+    spec:
+      chart: ./k8Deployment/kubernetes/helm/adtof
+      interval: 1m
+      reconcileStrategy: Revision
+      sourceRef:
+        kind: GitRepository
+        name: flux-system
+        namespace: flux-system
+      # Scaling timing/thresholds live in the reviewed chart values. Credential
+      # values stay outside Git and Helm; templates reference runtime Secrets.
+      valuesFiles:
+        - ./k8Deployment/kubernetes/helm/adtof/values.yaml
+      ignoreMissingValuesFiles: false
+  install:
+    createNamespace: false
+    disableTakeOwnership: true
+    strategy:
+      name: RemediateOnFailure
+    remediation:
+      retries: 0
+      remediateLastFailure: false
+  upgrade:
+    disableTakeOwnership: true
+    serverSideApply: auto
+    force: false
+    cleanupOnFail: false
+    preserveValues: false
+    chartNameChangeStrategy: InPlaceUpdate
+    strategy:
+      name: RemediateOnFailure
+    remediation:
+      retries: 0
+      # Preserve this adopted worker/scaler on failure; no automatic rollback
+      # or uninstall follows. Inspect the partial state and repair Git.
+      remediateLastFailure: false
+  test:
+    enable: false
+  driftDetection:
+    mode: enabled
+    # Ignore exactly the Deployment replica field controlled by KEDA/HPA.
+    # Drift correction still protects the worker template and scaler policy.
+    # A broad ignore would conceal configuration drift in either resource.
+    ignore:
+      - paths: [/spec/replicas]
+        target:
+          group: apps
+          version: v1
+          kind: Deployment
+          name: clouddsp-adtof
+          namespace: clouddsp-app

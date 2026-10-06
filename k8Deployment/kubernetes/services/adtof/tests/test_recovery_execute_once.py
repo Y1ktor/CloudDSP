@@ -11,15 +11,15 @@ from pathlib import Path
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app.adtof_requested_message import ADTOFRequestedMessage
-from app.claimed_task_success import ADTOFClaimedTaskSuccess, ADTOFClaimedTaskSuccessOutcome
-from app.recovery import ADTOFRecoveredTask
-from app.recovery_execute_once import (
+from app.messaging.adtof_requested_message import ADTOFRequestedMessage
+from app.runtime.claimed_task_success import ADTOFClaimedTaskSuccess, ADTOFClaimedTaskSuccessOutcome
+from app.db.recovery import ADTOFRecoveredTask
+from app.runtime.recovery_execute_once import (
     ADTOFRecoveryIterationOutcome,
     ADTOFRecoveryIterationResult,
     recover_and_execute_adtof_once,
 )
-from app.task_claim import ADTOFExpiredLeaseTerminalization, ADTOFTaskLease
+from app.db.task_claim import ADTOFExpiredLeaseTerminalization, ADTOFTaskLease
 
 
 EVENT_ID = "93b31df9-ea8c-46bb-b2c0-19e9db5365d5"
@@ -70,9 +70,9 @@ def terminalization() -> ADTOFExpiredLeaseTerminalization:
 class ADTOFRecoveryExecuteOnceTests(unittest.TestCase):
     """Prove a recovery scan reaches CPU work only through a committed pair."""
 
-    @patch("app.recovery_execute_once.execute_recovered_adtof_task")
-    @patch("app.recovery_execute_once.recover_one_expired_adtof_task")
-    @patch("app.recovery_execute_once.terminalize_one_expired_exhausted_adtof_task")
+    @patch("app.runtime.recovery_execute_once.execute_recovered_adtof_task")
+    @patch("app.runtime.recovery_execute_once.recover_one_expired_adtof_task")
+    @patch("app.runtime.recovery_execute_once.terminalize_one_expired_exhausted_adtof_task")
     def test_idle_recovery_scan_never_enters_execution_gate(self, terminalize, recover, execute) -> None:
         """No expired candidate is visible as normal idle, not failed execution."""
 
@@ -91,9 +91,9 @@ class ADTOFRecoveryExecuteOnceTests(unittest.TestCase):
         recover.assert_called_once_with(database=database)
         execute.assert_not_called()
 
-    @patch("app.recovery_execute_once.execute_recovered_adtof_task")
-    @patch("app.recovery_execute_once.recover_one_expired_adtof_task")
-    @patch("app.recovery_execute_once.terminalize_one_expired_exhausted_adtof_task")
+    @patch("app.runtime.recovery_execute_once.execute_recovered_adtof_task")
+    @patch("app.runtime.recovery_execute_once.recover_one_expired_adtof_task")
+    @patch("app.runtime.recovery_execute_once.terminalize_one_expired_exhausted_adtof_task")
     def test_committed_pair_executes_once_with_explicit_dependencies(
         self, terminalize, recover, execute
     ) -> None:
@@ -130,9 +130,9 @@ class ADTOFRecoveryExecuteOnceTests(unittest.TestCase):
             process_runner=runner,
         )
 
-    @patch("app.recovery_execute_once.execute_recovered_adtof_task")
-    @patch("app.recovery_execute_once.recover_one_expired_adtof_task")
-    @patch("app.recovery_execute_once.terminalize_one_expired_exhausted_adtof_task")
+    @patch("app.runtime.recovery_execute_once.execute_recovered_adtof_task")
+    @patch("app.runtime.recovery_execute_once.recover_one_expired_adtof_task")
+    @patch("app.runtime.recovery_execute_once.terminalize_one_expired_exhausted_adtof_task")
     def test_invalid_or_operational_recovery_never_becomes_idle(
         self, terminalize, recover, execute
     ) -> None:
@@ -160,9 +160,9 @@ class ADTOFRecoveryExecuteOnceTests(unittest.TestCase):
             )
         self.assertIs(raised.exception, failure)
 
-    @patch("app.recovery_execute_once.execute_recovered_adtof_task")
-    @patch("app.recovery_execute_once.recover_one_expired_adtof_task")
-    @patch("app.recovery_execute_once.terminalize_one_expired_exhausted_adtof_task")
+    @patch("app.runtime.recovery_execute_once.execute_recovered_adtof_task")
+    @patch("app.runtime.recovery_execute_once.recover_one_expired_adtof_task")
+    @patch("app.runtime.recovery_execute_once.terminalize_one_expired_exhausted_adtof_task")
     def test_exhausted_third_attempt_terminalizes_without_claim_or_model_execution(
         self, terminalize, recover, execute
     ) -> None:

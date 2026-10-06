@@ -75,7 +75,7 @@ image. The first ARM64 build passed all 18 tests and is pinned under
 Build it explicitly when ready:
 
 ```bash
-./k8Deployment/kubernetes/scripts/build-dispatcher-smoke-client-image.sh
+./k8Deployment/kubernetes/scripts/images/build-dispatcher-smoke-client-image.sh
 ```
 
 The script targets local Linux/ARM64 nodes and pushes only to the k3d registry.
