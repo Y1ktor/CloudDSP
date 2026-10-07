@@ -37,6 +37,14 @@ function remoteMidiKey(url) {
     }
 }
 
+function midiSourceKey(source) {
+    if (typeof source === 'string') return remoteMidiKey(source);
+    if (source && typeof source.arrayBuffer === 'function') {
+        return `local:${source.name || 'midi'}:${source.size}:${source.lastModified || 0}`;
+    }
+    return null;
+}
+
 function createMelodicSynth(audioContext, trackName, trackData) {
     if (trackName === 'guitar') {
         // Soundfont loads an instrument bank as a unit. FluidR3 is materially
@@ -120,6 +128,7 @@ export function useMidiManager(
     const [parsedMidiStems, setParsedMidiStemsState] = React.useState({});
     const [originalMidiStems, setOriginalMidiStems] = React.useState({});
     const [isMidiLoading, setIsMidiLoading] = React.useState(false);
+    const [midiLoadErrors, setMidiLoadErrors] = React.useState({});
     const parsedMidiStemsRef = React.useRef({});
     const originalMidiStemsRef = React.useRef({});
     // `loadedUrlsRef` stores stable S3 object keys, never expiring presigned
@@ -239,13 +248,15 @@ export function useMidiManager(
             setParsedMidiStems({});
             setOriginalMidiStems({});
             setIsMidiLoading(false);
+            setMidiLoadErrors({});
             setPlaybackInstrumentStatus({});
             if (!midiUrls) return;
         }
 
         const entriesToLoad = Object.entries(midiUrls).flatMap(([track, url]) => {
             if (!url) return [];
-            const artifactKey = remoteMidiKey(url);
+            const artifactKey = midiSourceKey(url);
+            if (!artifactKey) return [];
             const inFlight = inFlightTracksRef.current.get(track);
             if (
                 loadedUrlsRef.current.get(track) === artifactKey
@@ -265,6 +276,11 @@ export function useMidiManager(
             return scheduledEntry;
         });
         setIsMidiLoading(true);
+        setMidiLoadErrors((current) => {
+            const next = { ...current };
+            scheduledEntries.forEach(({ track }) => { delete next[track]; });
+            return next;
+        });
 
         const loadMidi = async ({ track, url, artifactKey, token }) => {
             const controller = new AbortController();
@@ -279,22 +295,26 @@ export function useMidiManager(
                 // Queue entries can belong to a snapshot that was superseded
                 // before it reached the loader. Do not begin a stale fetch.
                 if (!isCurrentLoad()) return;
-                console.info(`[CloudDSP] Received signed S3 MIDI URL for '${track}'.`);
-                console.info(`[CloudDSP] Starting S3 MIDI download for '${track}'.`);
-                // The compact original snapshot and editable MIDI graph are
-                // the intentional cache; avoid a second raw-response cache
-                // entry for every generated artifact.
-                const response = await fetch(url, {
-                    signal: controller.signal,
-                    cache: 'no-store',
-                });
-                if (!response.ok) {
-                    console.error(`[CloudDSP] S3 MIDI request failed for '${track}' (HTTP ${response.status}).`);
-                    throw new Error(`MIDI download failed (${response.status}).`);
+                // A local result preview uses File.arrayBuffer() directly, so
+                // the browser's restrictive connect-src policy needs no blob:
+                // exception. Durable jobs continue to use signed URLs.
+                let midiBytes;
+                if (typeof url === 'string') {
+                    console.info(`[CloudDSP] Received signed S3 MIDI URL for '${track}'.`);
+                    console.info(`[CloudDSP] Starting S3 MIDI download for '${track}'.`);
+                    const response = await fetch(url, {
+                        signal: controller.signal,
+                        cache: 'no-store',
+                    });
+                    if (!response.ok) {
+                        console.error(`[CloudDSP] S3 MIDI request failed for '${track}' (HTTP ${response.status}).`);
+                        throw new Error(`MIDI download failed (${response.status}).`);
+                    }
+                    midiBytes = await response.arrayBuffer();
+                    console.info(`[CloudDSP] S3 MIDI download complete for '${track}' (${midiBytes.byteLength} bytes).`);
+                } else {
+                    midiBytes = await url.arrayBuffer();
                 }
-
-                const midiBytes = await response.arrayBuffer();
-                console.info(`[CloudDSP] S3 MIDI download complete for '${track}' (${midiBytes.byteLength} bytes).`);
                 if (!isCurrentLoad()) return;
 
                 const isAdtofDrum = midiStates?.[track]?.extractor === 'adtof'
@@ -319,6 +339,10 @@ export function useMidiManager(
             } catch (error) {
                 if (controller.signal.aborted || error?.name === 'AbortError') return;
                 console.error(`[CloudDSP] Failed to load MIDI for '${track}':`, error);
+                setMidiLoadErrors((current) => ({
+                    ...current,
+                    [track]: error instanceof Error ? error.message : 'Could not read this MIDI file.',
+                }));
             } finally {
                 midiLoadControllersRef.current.delete(token);
                 if (inFlightTracksRef.current.get(track)?.token === token) {
@@ -350,6 +374,7 @@ export function useMidiManager(
         setParsedMidiStems,
         originalMidiStems,
         isMidiLoading,
+        midiLoadErrors,
         playbackInstrumentStatus,
         ensurePlaybackInstrument,
         releasePlaybackInstrument,

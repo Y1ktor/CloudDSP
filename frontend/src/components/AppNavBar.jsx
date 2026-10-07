@@ -19,6 +19,10 @@ export default function AppNavBar({ authProps }) {
                 style={({ isActive }) => ({ color: isActive ? 'var(--studio-accent)' : 'var(--studio-text-muted)', fontSize: '13px', fontWeight: '700', textDecoration: 'none' })}
             >Studio</NavLink>
             <NavLink
+                to="/score-to-midi"
+                style={({ isActive }) => ({ color: isActive ? 'var(--studio-accent)' : 'var(--studio-text-muted)', fontSize: '13px', fontWeight: '700', textDecoration: 'none' })}
+            >Score to MIDI</NavLink>
+            <NavLink
                 to="/architecture"
                 style={({ isActive }) => ({ color: isActive ? 'var(--studio-accent)' : 'var(--studio-text-muted)', fontSize: '13px', fontWeight: '700', textDecoration: 'none' })}
             >Architecture</NavLink>

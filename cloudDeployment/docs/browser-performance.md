@@ -74,6 +74,10 @@ frame advances the next playhead draw to
 the correct absolute audio position; it does not attempt to replay missed
 visual positions.
 
+The Score to MIDI result workspace uses the same transport with a MIDI-only
+mode. It can advance the clock and schedule notes without any decoded audio
+stems; playback still requires a parsed MIDI duration and a ready instrument.
+
 `useTransportPlayhead` updates only the main playhead line and ruler triangle
 with `translate3d(...)`. It does not alter `left`, rebuild React children, or
 interpret a late frame as a manual seek. Once the playhead crosses the viewport
@@ -138,6 +142,10 @@ once, retains one editable Tone.js graph, and stores only compact immutable MIDI
 bytes for Revert/Undo. It therefore cannot reparse unchanged artifacts on every
 poll or retain two full note graphs for every stem. Its raw fetch also bypasses
 the HTTP memory cache once the compact application representation exists.
+The standalone Score to MIDI page can also review a locally selected MIDI
+`File`; it reads bytes directly through `File.arrayBuffer()` and uses a stable
+file identity for the same parse queue. This local review path does not create
+a durable job or send the file to a server.
 
 A sampled instrument is created only when its MIDI mode is enabled or its
 editor opens. Instrument construction itself is serialized because smplr begins

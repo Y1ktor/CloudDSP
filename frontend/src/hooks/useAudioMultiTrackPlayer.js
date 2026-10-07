@@ -59,8 +59,9 @@ function formatMebibytes(bytes) {
  * @param {Object} activeMidiTracks MIDI-synthesis mode state by track
  * @param {string|null} sourceUrl signed URL for a restored job's original file
  * @param {string|null} jobId durable job identity
+ * @param {boolean} midiOnly allow a transport driven solely by MIDI notes
  */
-export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, sourceUrl = null, jobId = null) {
+export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, sourceUrl = null, jobId = null, midiOnly = false) {
     const audioCtxRef = React.useRef(null);
     const buffersRef = React.useRef(new Map());
     const bufferKeysRef = React.useRef(new Map());
@@ -743,12 +744,13 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
 
         const expectedTracks = expectedTracksRef.current;
         const unavailableTracks = expectedTracks.filter((trackName) => !buffersRef.current.has(trackName));
-        if (expectedTracks.length === 0 || unavailableTracks.length > 0) {
+        if ((!midiOnly && expectedTracks.length === 0) || unavailableTracks.length > 0) {
             console.warn(
                 `[CloudDSP] Waiting for synchronized audio buffers: ${unavailableTracks.join(', ') || 'no audio tracks available'}.`,
             );
             return;
         }
+        if (midiOnly && durationRef.current <= 0) return;
 
         // Source nodes are scheduled only after a verified running context.
         // Safari can report "interrupted" as well as "suspended", so check

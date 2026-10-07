@@ -4,6 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import ArchitecturePage from './components/ArchitecturePage';
 import K8Page from './components/K8Page';
 import CostPage from './components/CostPage';
+import ScoreToMidiPage from './components/ScoreToMidi/ScoreToMidiPage';
 import AppNavBar from './components/AppNavBar';
 import DemoLibrary from './components/DemoLibrary';
 import WelcomeTutorial from './components/WelcomeTutorial';
@@ -56,6 +57,7 @@ export default function App() {
                 )}
                 <Routes>
                     <Route path="/" element={<div style={{ display: 'flex', justifyContent: 'center' }}><StemSplitter {...stemProps} /></div>} />
+                    <Route path="/score-to-midi" element={<ScoreToMidiPage />} />
                     <Route path="/architecture" element={<ArchitecturePage />} />
                     <Route path="/k8" element={<K8Page />} />
                     <Route path="/cost" element={<CostPage />} />
