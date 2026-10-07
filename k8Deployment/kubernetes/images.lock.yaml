@@ -137,14 +137,12 @@ images:
     pushedAt: "2026-09-16"
 
   job-api:
-    # This locally built API translates the finite Demucs timeout code into
-    # a clear owner-visible failure message while retaining the prior snapshot
-    # and presigned artifact contracts. Workloads use the digest, not the tag.
+    # This locally built API adds the authenticated score upload contract.
+    # Workloads use the digest, not the descriptive tag.
     repository: clouddsp-registry.localhost:5001/job-api
-    # The ARM64 Docker validation stage passed all 65 API tests before push.
-    sourceTag: "0.0.9-demucs-timeout-message"
-    digest: sha256:356e1493d2e079c1374d275f6c90047955e567626500ce5cb99954221993929b
-    immutableReference: clouddsp-registry.localhost:5001/job-api@sha256:356e1493d2e079c1374d275f6c90047955e567626500ce5cb99954221993929b
+    sourceTag: "0.0.10-score-upload"
+    digest: sha256:5417825854179cc08495694294b506d7fa7b2a485c1dbd31a3cea8061f353691
+    immutableReference: clouddsp-registry.localhost:5001/job-api@sha256:5417825854179cc08495694294b506d7fa7b2a485c1dbd31a3cea8061f353691
     supportedPlatforms:
       - linux/arm64/v8
     builtFrom:
@@ -164,11 +162,12 @@ images:
       presignedDownloadTests: kubernetes/services/job-api/tests/test_presigned_download.py
       finalizationMigrationTests: kubernetes/services/job-api/tests/test_job_finalization_migration.py
       presignedUploadTests: kubernetes/services/job-api/tests/test_presigned_upload.py
+      scoreUploadTests: kubernetes/services/job-api/tests/test_score_upload.py
       runtimeImageLock: images.api-python-runtime
       sourceLock: buildSources.api
-    localDockerSizeBytes: 77919191
+    localDockerSizeBytes: 77921760
     localDockerSize: "74.31 MiB"
-    pushedAt: "2026-09-24"
+    pushedAt: "2026-10-07"
 
   upload-intake:
     # This is the locally built, outbound-only direct-upload intake worker.
@@ -572,9 +571,9 @@ images:
     # This build selects local adapters from the canonical root frontend;
     # cloud and local screens now share one source and dependency lock.
     repository: clouddsp-registry.localhost:5001/frontend
-    sourceTag: "0.6.3-score-to-midi"
-    digest: sha256:36c2ae3cacb4ba6a4658effd59ba46fc64046dea6d72edfad72e8e0c346be664
-    immutableReference: clouddsp-registry.localhost:5001/frontend@sha256:36c2ae3cacb4ba6a4658effd59ba46fc64046dea6d72edfad72e8e0c346be664
+    sourceTag: "0.6.3-score-upload"
+    digest: sha256:82221607dff8197c2bdfee722da7a963d9da7d0b470f724ccc3f5124f5af11a3
+    immutableReference: clouddsp-registry.localhost:5001/frontend@sha256:82221607dff8197c2bdfee722da7a963d9da7d0b470f724ccc3f5124f5af11a3
     supportedPlatforms:
       - linux/arm64/v8
     builtFrom:
@@ -585,7 +584,7 @@ images:
       # metadata is recorded in the matching Dockerfile and Helm chart. The
       # NGINX recipe also fixes direct SPA routes that share an asset directory.
       sourceBaselineCommit: 6393ae3eb4153b883baf993e7c1d887252f8de1f
-      sourceRevision: 2bb7233f6c3a95e6b035608a9c94badf21faf892
+      sourceRevision: local-kubernetes-working-tree
       # Application source is relative to the repository root; delivery files
       # below retain their Kubernetes-directory-relative locations.
       sourceDirectory: frontend
@@ -600,7 +599,7 @@ images:
       publicObjectStorageOrigin: http://minio.localhost:8080
       midiSampleLock: kubernetes/services/minio/midi-sample-assets.lock.json
       sharedSampleBucket: clouddsp-midi-samples
-    localDockerSizeBytes: 35142161
+    localDockerSizeBytes: 35141199
     localDockerSize: "33.51 MiB"
     pushedAt: "2026-10-07"
 

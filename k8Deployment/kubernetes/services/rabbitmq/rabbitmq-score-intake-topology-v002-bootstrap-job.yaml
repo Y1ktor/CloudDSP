@@ -1,0 +1,111 @@
+# A v002 Job retries management readiness before importing the same immutable
+# score v001 topology. The first v001 Job failed before any broker import.
+# It neither consumes messages nor grants an OMR worker access. The existing
+# broker Secret is mounted only by this short-lived Pod in clouddsp-data.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rabbitmq-score-intake-topology-v002-bootstrap
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: rabbitmq-score-intake-topology-v002-bootstrap
+    app.kubernetes.io/component: message-topology-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: import-score-source-queue
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 0
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rabbitmq-score-intake-topology-v002-bootstrap
+        app.kubernetes.io/component: message-topology-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: verify-source-exchange
+          image: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+          imagePullPolicy: IfNotPresent
+          env: &broker-admin-env
+            - name: RABBITMQADMIN_TARGET_HOST
+              value: clouddsp-rabbitmq-0.clouddsp-rabbitmq-headless.clouddsp-data.svc.cluster.local
+            - name: RABBITMQADMIN_TARGET_PORT
+              value: "15672"
+            - name: RABBITMQADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_USER
+            - name: RABBITMQADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_PASS
+            - name: RABBITMQADMIN_NON_INTERACTIVE_MODE
+              value: "true"
+          resources: &broker-admin-resources
+            requests: {cpu: 25m, memory: 64Mi, ephemeral-storage: 16Mi}
+            limits: {cpu: 250m, memory: 128Mi, ephemeral-storage: 32Mi}
+          securityContext: &broker-admin-security
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          command:
+            - sh
+            - -ec
+            - |
+              # A newly admitted Pod can race broker management readiness or
+              # the local network-policy controller. Bound the wait to 120s.
+              attempt=1
+              until rabbitmqadmin --quiet vhosts list >/dev/null 2>&1; do
+                if [ "$attempt" -ge 24 ]; then
+                  echo "RabbitMQ management was unavailable to score bootstrap" >&2
+                  exit 1
+                fi
+                sleep 5
+                attempt=$((attempt + 1))
+              done
+              exchanges="$(rabbitmqadmin --quiet exchanges list --vhost /clouddsp)"
+              for exchange in clouddsp.source-events clouddsp.source-retry clouddsp.source-dead-letter; do
+                printf '%s\n' "$exchanges" | grep -F -- "$exchange" >/dev/null || exit 1
+              done
+        - name: import-score-queues
+          image: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+          imagePullPolicy: IfNotPresent
+          env: *broker-admin-env
+          resources: *broker-admin-resources
+          securityContext: *broker-admin-security
+          volumeMounts:
+            - name: topology
+              mountPath: /definitions
+              readOnly: true
+          command: [rabbitmqadmin]
+          args: [definitions, import, --file, /definitions/rabbitmq-score-intake-topology-v001.json]
+      containers:
+        - name: completion-marker
+          image: docker.io/library/rabbitmq@sha256:b1188ba346ab5748add82f46ac58c7df993ee91d762915f8ac6fcadf2e6c07df
+          imagePullPolicy: IfNotPresent
+          resources: *broker-admin-resources
+          securityContext: *broker-admin-security
+          command: [rabbitmqadmin]
+          args: [--version]
+      volumes:
+        - name: topology
+          configMap:
+            name: rabbitmq-score-intake-topology-v001
+            defaultMode: 0444
+            items:
+              - key: rabbitmq-score-intake-topology-v001.json
+                path: rabbitmq-score-intake-topology-v001.json

@@ -175,6 +175,39 @@ spec:
             # PostgreSQL-driven reconciler when MinIO cannot retain an event.
             - name: MINIO_NOTIFY_AMQP_QUEUE_LIMIT_INTAKE
               value: "10000"
+            # Score events use the same publisher identity but a distinct
+            # routing key, target ARN, and on-PVC delivery backlog.
+            - name: MINIO_NOTIFY_AMQP_ENABLE_SCORE
+              value: "on"
+            - name: MINIO_NOTIFY_AMQP_URL_SCORE
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-source-intake-rabbitmq-credentials
+                  key: MINIO_NOTIFY_AMQP_URL_INTAKE
+            - name: MINIO_NOTIFY_AMQP_EXCHANGE_SCORE
+              value: clouddsp.source-events
+            - name: MINIO_NOTIFY_AMQP_EXCHANGE_TYPE_SCORE
+              value: direct
+            - name: MINIO_NOTIFY_AMQP_ROUTING_KEY_SCORE
+              value: score.upload.created
+            - name: MINIO_NOTIFY_AMQP_MANDATORY_SCORE
+              value: "on"
+            - name: MINIO_NOTIFY_AMQP_DURABLE_SCORE
+              value: "on"
+            - name: MINIO_NOTIFY_AMQP_NO_WAIT_SCORE
+              value: "off"
+            - name: MINIO_NOTIFY_AMQP_INTERNAL_SCORE
+              value: "off"
+            - name: MINIO_NOTIFY_AMQP_AUTO_DELETED_SCORE
+              value: "off"
+            - name: MINIO_NOTIFY_AMQP_DELIVERY_MODE_SCORE
+              value: "2"
+            - name: MINIO_NOTIFY_AMQP_PUBLISHING_CONFIRMS_SCORE
+              value: "on"
+            - name: MINIO_NOTIFY_AMQP_QUEUE_DIR_SCORE
+              value: /data/.minio-events/amqp-score
+            - name: MINIO_NOTIFY_AMQP_QUEUE_LIMIT_SCORE
+              value: "10000"
             # The root account is injected from the ignored Secret already
             # applied in this namespace.  It is not a browser credential and
             # application services will later receive narrower access keys.

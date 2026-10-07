@@ -17,7 +17,7 @@ import './assets/css/styles.css';
 
 export default function App() {
     const {
-        stemProps, authProps, authLoading, activeJobId, activeDemoId,
+        stemProps, authProps, authenticatedFetch, authLoading, activeJobId, activeDemoId,
         demoCatalog, isDemoLibraryOpen, setIsDemoLibraryOpen, openDemoJob,
         isAuthDialogOpen, isPreviousJobsOpen, setIsPreviousJobsOpen,
         previousJobs, isPreviousJobsLoading, previousJobsError, deletingJobId,
@@ -57,7 +57,19 @@ export default function App() {
                 )}
                 <Routes>
                     <Route path="/" element={<div style={{ display: 'flex', justifyContent: 'center' }}><StemSplitter {...stemProps} /></div>} />
-                    <Route path="/score-to-midi" element={<ScoreToMidiPage />} />
+                    {/* Remount on account changes so a previously staged file is not shown to the next user. */}
+                    <Route
+                        path="/score-to-midi"
+                        element={
+                            <ScoreToMidiPage
+                                key={authProps.session?.subject || authProps.session?.username || 'signed-out'}
+                                authenticated={!authLoading && Boolean(authProps.session)}
+                                authLoading={authLoading}
+                                authProvider={profile.authKind === 'oidc' ? 'Keycloak' : 'your account'}
+                                authenticatedFetch={profile.id === 'local' ? authenticatedFetch : null}
+                            />
+                        }
+                    />
                     <Route path="/architecture" element={<ArchitecturePage />} />
                     <Route path="/k8" element={<K8Page />} />
                     <Route path="/cost" element={<CostPage />} />

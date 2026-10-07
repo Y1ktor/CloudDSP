@@ -55,7 +55,7 @@ SERVICE_NAME = "clouddsp-job-api"
 # This value appears only in the non-sensitive health/readiness responses. It
 # must track the immutable local image milestone so `kubectl exec`/port-forward
 # diagnostics can confirm which API code Kubernetes actually rolled out.
-SERVICE_VERSION = "0.0.9-demucs-timeout-message"
+SERVICE_VERSION = "0.0.10-score-upload"
 
 
 # Disable FastAPI's generated schema and interactive documentation until the

@@ -245,6 +245,7 @@ class MinioJobApiIamStage < MinioStateVerify
   end
 
   def verify_user(credentials, expected_names)
+    expected_names = expected_names + [SCORE_POLICY_NAME] if score_policy_active?
     info = mc(credentials, 'user', 'info', 'audit', USER)
     same('Job API MinIO user status', info['userStatus'], 'enabled')
     same('Job API MinIO user policies', info['policyName'].to_s.split(',').sort, expected_names.sort)

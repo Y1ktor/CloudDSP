@@ -25,7 +25,7 @@ readonly REGISTRY_HOST="clouddsp-registry.localhost:5001"
 # deployment input: after push, the script prints a sha256 digest and the image
 # lock records that immutable reference for a later, separately approved
 # rollout task.
-readonly IMAGE_NAME="${REGISTRY_HOST}/job-api:0.0.9-demucs-timeout-message"
+readonly IMAGE_NAME="${REGISTRY_HOST}/job-api:0.0.10-score-upload"
 readonly TARGET_PLATFORM="linux/arm64"
 
 usage() {
@@ -68,6 +68,7 @@ require_prerequisites() {
     "${API_DIRECTORY}/app/object_storage.py" \
     "${API_DIRECTORY}/app/presigned_download.py" \
     "${API_DIRECTORY}/app/presigned_upload.py" \
+    "${API_DIRECTORY}/app/score_upload_contract.py" \
     "${API_DIRECTORY}/tests/test_authentication.py" \
     "${API_DIRECTORY}/tests/test_jobs.py" \
     "${API_DIRECTORY}/tests/test_presigned_download.py" \
@@ -79,7 +80,8 @@ require_prerequisites() {
     "${API_DIRECTORY}/tests/test_direct_upload_contract.py" \
     "${API_DIRECTORY}/tests/test_job_creation.py" \
     "${API_DIRECTORY}/tests/test_job_creation_route.py" \
-    "${API_DIRECTORY}/tests/test_presigned_upload.py"; do
+    "${API_DIRECTORY}/tests/test_presigned_upload.py" \
+    "${API_DIRECTORY}/tests/test_score_upload.py"; do
     if [[ ! -f "${required_file}" ]]; then
       printf 'Required Job API build input is missing: %s\n' "${required_file}" >&2
       exit 1

@@ -51,7 +51,7 @@ class RabbitMQManagementNetworkManifestTests(unittest.TestCase):
         # items: KEDA, finite bootstrap Jobs, and the two named integration
         # probes. The older count of two predates those reviewed smoke paths.
         self.assertEqual(manifest.count("port: 15672"), 4)
-        self.assertIn("app.kubernetes.io/name: source-to-outbox-smoke", manifest)
+        self.assertIn("values: [source-to-outbox-smoke, score-upload-smoke]", manifest)
         self.assertIn("app.kubernetes.io/name: six-stem-load", manifest)
         self.assertIn("kubernetes.io/metadata.name: keda", manifest)
         self.assertIn("app.kubernetes.io/name: keda-operator", manifest)

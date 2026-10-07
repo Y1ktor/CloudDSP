@@ -1,0 +1,98 @@
+# Add a second bucket rule without replacing the existing uploads/ rule.
+# MinIO targets a dedicated routing key on the existing source-events exchange;
+# RabbitMQ's score queue is the only binding for that key.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-score-notification-bootstrap-v001
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: minio-score-notification-bootstrap-v001
+    app.kubernetes.io/component: object-storage-notification-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 0
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: minio-score-notification-bootstrap-v001
+        app.kubernetes.io/component: object-storage-notification-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+        - name: configure-root-alias
+          image: clouddsp-registry.localhost:5001/minio-mc@sha256:37d109dddbbb2c95873f5fc81ac93f37023264770fc580a7564148892087b1b7
+          imagePullPolicy: IfNotPresent
+          env:
+            - {name: MC_CONFIG_DIR, value: /mc-config}
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef: {name: clouddsp-minio-root-credentials, key: MINIO_ROOT_USER}
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: clouddsp-minio-root-credentials, key: MINIO_ROOT_PASSWORD}
+          resources: &resources
+            requests: {cpu: 25m, memory: 64Mi, ephemeral-storage: 16Mi}
+            limits: {cpu: 250m, memory: 128Mi, ephemeral-storage: 32Mi}
+          securityContext: &security
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts: &config-mount
+            - {name: mc-config, mountPath: /mc-config}
+          args: [alias, set, minio-admin, "http://clouddsp-minio:9000", "$(MINIO_ROOT_USER)", "$(MINIO_ROOT_PASSWORD)"]
+        - name: wait-for-minio
+          image: clouddsp-registry.localhost:5001/minio-mc@sha256:37d109dddbbb2c95873f5fc81ac93f37023264770fc580a7564148892087b1b7
+          imagePullPolicy: IfNotPresent
+          env: [{name: MC_CONFIG_DIR, value: /mc-config}]
+          resources: *resources
+          securityContext: *security
+          volumeMounts: *config-mount
+          args: [ready, minio-admin]
+        - name: add-score-prefix-rule
+          image: clouddsp-registry.localhost:5001/minio-mc@sha256:37d109dddbbb2c95873f5fc81ac93f37023264770fc580a7564148892087b1b7
+          imagePullPolicy: IfNotPresent
+          env: [{name: MC_CONFIG_DIR, value: /mc-config}]
+          resources: *resources
+          securityContext: *security
+          volumeMounts: *config-mount
+          args: [event, add, --event, put, --prefix, score-inputs/, --ignore-existing, minio-admin/clouddsp-uploads, "arn:minio:sqs::SCORE:amqp"]
+        - name: list-score-prefix-rule
+          image: clouddsp-registry.localhost:5001/minio-mc@sha256:37d109dddbbb2c95873f5fc81ac93f37023264770fc580a7564148892087b1b7
+          imagePullPolicy: IfNotPresent
+          env: [{name: MC_CONFIG_DIR, value: /mc-config}]
+          resources: *resources
+          securityContext: *security
+          volumeMounts: *config-mount
+          args: [event, list, minio-admin/clouddsp-uploads, "arn:minio:sqs::SCORE:amqp"]
+        - name: remove-root-alias
+          image: clouddsp-registry.localhost:5001/minio-mc@sha256:37d109dddbbb2c95873f5fc81ac93f37023264770fc580a7564148892087b1b7
+          imagePullPolicy: IfNotPresent
+          env: [{name: MC_CONFIG_DIR, value: /mc-config}]
+          resources: *resources
+          securityContext: *security
+          volumeMounts: *config-mount
+          args: [alias, remove, minio-admin]
+      containers:
+        - name: completion-marker
+          image: clouddsp-registry.localhost:5001/minio-mc@sha256:37d109dddbbb2c95873f5fc81ac93f37023264770fc580a7564148892087b1b7
+          imagePullPolicy: IfNotPresent
+          resources: *resources
+          securityContext: *security
+          args: [--version]
+      volumes:
+        - name: mc-config
+          emptyDir: {sizeLimit: 1Mi}

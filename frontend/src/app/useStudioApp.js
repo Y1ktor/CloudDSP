@@ -241,7 +241,7 @@ export function useStudioApp() {
     };
 
     return {
-        stemProps, authProps, authLoading, activeJobId, activeDemoId,
+        stemProps, authProps, authenticatedFetch, authLoading, activeJobId, activeDemoId,
         demoCatalog, isDemoLibraryOpen, setIsDemoLibraryOpen, openDemoJob,
         isAuthDialogOpen, isPreviousJobsOpen, setIsPreviousJobsOpen,
         previousJobs, isPreviousJobsLoading, previousJobsError, deletingJobId,

@@ -34,6 +34,7 @@ module CloudDSPJobApiRelease
         ['ruby', CloudDSPPaths.script('job-api-postgresql-stage.rb').to_s, 'verify'],
         ['ruby', CloudDSPPaths.script('job-api-minio-secret-stage.rb').to_s, 'verify'],
         ['ruby', CloudDSPPaths.script('minio-job-api-iam-stage.rb').to_s, 'verify'],
+        ['ruby', CloudDSPPaths.script('minio-score-upload-stage.rb').to_s, 'verify'],
         ['ruby', CloudDSPPaths.script('keycloak-config-verify.rb').to_s, 'verify']
       ]
     ).extend(JobApiFluxOwnership)

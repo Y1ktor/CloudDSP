@@ -27,6 +27,8 @@ class CloudDSPBootstrapMinio
     ['upload-intake RabbitMQ runtime Secret', 'upload-intake-rabbitmq-secret-stage.rb', 'bootstrap'],
     ['RabbitMQ source-intake topology and restricted users', 'rabbitmq-source-intake-bootstrap.rb', 'reconcile'],
     ['RabbitMQ source-intake verification', 'rabbitmq-source-intake-bootstrap.rb', 'verify'],
+    ['RabbitMQ score-intake queue and binding', 'rabbitmq-score-intake-topology.rb', 'reconcile'],
+    ['RabbitMQ score-intake verification', 'rabbitmq-score-intake-topology.rb', 'verify'],
     ['fresh MinIO Helm install', 'minio-release.rb', 'install'],
     ['MinIO Helm, PVC, and S3 route verification', 'minio-release.rb', 'verify'],
     ['Job API MinIO runtime credential Secret', 'job-api-minio-secret-stage.rb', 'bootstrap'],
@@ -49,7 +51,9 @@ class CloudDSPBootstrapMinio
     ['fresh ADTOF MinIO IAM user and policy', 'minio-adtof-iam-stage.rb', 'bootstrap'],
     ['ADTOF MinIO IAM verification', 'minio-adtof-iam-stage.rb', 'verify'],
     ['MinIO source-upload notification', 'minio-notification-stage.rb', 'reconcile'],
-    ['MinIO source-upload notification verification', 'minio-notification-stage.rb', 'verify']
+    ['MinIO source-upload notification verification', 'minio-notification-stage.rb', 'verify'],
+    ['MinIO score-prefix permission and notification', 'minio-score-upload-stage.rb', 'reconcile'],
+    ['MinIO score-upload verification', 'minio-score-upload-stage.rb', 'verify']
   ].freeze
 
   def initialize(run_command: method(:system), output: $stdout, error: $stderr)

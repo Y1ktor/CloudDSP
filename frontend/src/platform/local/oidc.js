@@ -393,6 +393,10 @@ export async function beginSignIn() {
         state,
         codeVerifier,
         createdAt: Date.now(),
+        // The registered callback is the app root. Remember only this known
+        // route so score sign-in returns to the workspace without accepting
+        // an arbitrary redirect from URL parameters or provider data.
+        returnPath: window.location.pathname === '/score-to-midi' ? '/score-to-midi' : '/',
     });
 
     const authorizationUrl = new URL(endpointFromDiscovery(discovery, 'authorization_endpoint'));
@@ -459,7 +463,14 @@ export async function completeSignInFromCallback() {
         redirect_uri: redirectUri,
         code_verifier: transaction.codeVerifier,
     });
-    return saveSession(sessionFromTokenResponse(tokenResponse));
+    const session = saveSession(sessionFromTokenResponse(tokenResponse));
+    if (transaction.returnPath === '/score-to-midi') {
+        // A real same-origin navigation lets BrowserRouter mount at the score
+        // route after the token is stored. replace() removes the callback URL
+        // from browser history and avoids a stale root-page view.
+        window.location.replace('/score-to-midi');
+    }
+    return session;
 }
 
 /**

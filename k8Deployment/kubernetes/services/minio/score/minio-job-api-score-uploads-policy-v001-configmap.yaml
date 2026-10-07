@@ -1,0 +1,28 @@
+# Independent, immutable permission expansion for the existing Job API user.
+# Keeping this policy separate leaves the audio uploads-v002 policy untouched.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clouddsp-job-api-score-uploads-policy-v001
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/component: object-storage-policy
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: score-source-browser-upload
+immutable: true
+data:
+  score-uploads-policy.json: |
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Sid": "WriteOnlyScoreInputs",
+          "Effect": "Allow",
+          "Action": "s3:PutObject",
+          "Resource": "arn:aws:s3:::clouddsp-uploads/score-inputs/*"
+        }
+      ]
+    }

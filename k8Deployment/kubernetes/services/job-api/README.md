@@ -45,7 +45,7 @@ object and records the first outbox event. The
 detail to recover current progress and artifact URLs. Selecting a file alone
 makes no job-creation request.
 
-### Prepared sheet upload contract (not deployed)
+### Sheet upload contract
 
 `POST /score-jobs` requires the same Keycloak bearer token and JSON
 `{"direction":"score_to_midi","filename":"scan.pdf","content_type":"application/pdf","size_bytes":12345}`.
@@ -64,13 +64,15 @@ signature expires. The signature binds the exact key, canonical MIME type,
 Migration v010 adds an independent `score_jobs` table and leaves audio `jobs`
 unchanged. The table stores durable owner, source coordinates, revision,
 retention, and future private result coordinates; it never stores signed URLs.
-The route source is prepared but is not in the currently pinned local API
-image. The API route only creates an upload intent. The existing MinIO Job API IAM
-policy currently permits `uploads/*` and must receive a reviewed score-prefix
-permission before the form can be used on a cluster. Score-specific MinIO
-notification, validated intake, RabbitMQ routing, OMR, result reads, cleanup,
-and frontend submission remain subsequent milestones. No score conversion is
-triggered by this API response.
+The API route creates an upload intent. The browser then sends the signed form
+directly to MinIO. A separate `score-inputs/*` PutObject policy extends the
+Job API's existing MinIO identity without granting bucket-wide access. A
+score-prefix ObjectCreated rule publishes to `clouddsp.score-intake` through
+the `score.upload.created` RabbitMQ route. The message waits there for a future
+consumer. The API response and MinIO acknowledgement do not represent a
+completed transcription; the durable row remains `upload_pending` until a
+future validated intake advances it. OMR, result reads, and retention cleanup
+are separate implementation work.
 
 ## Ownership and authentication
 

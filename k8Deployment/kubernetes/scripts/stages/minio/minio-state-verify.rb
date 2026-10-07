@@ -30,6 +30,9 @@ class MinioStateVerify
   UPLOAD_BUCKET = 'clouddsp-uploads'.freeze
   SAMPLE_BUCKET = 'clouddsp-midi-samples'.freeze
   NOTIFICATION_ARN = 'arn:minio:sqs::INTAKE:amqp'.freeze
+  SCORE_NOTIFICATION_ARN = 'arn:minio:sqs::SCORE:amqp'.freeze
+  SCORE_POLICY_NAME = 'clouddsp-job-api-score-uploads-v001'.freeze
+  SCORE_POLICY_SOURCE = SOURCE.join('score', 'minio-job-api-score-uploads-policy-v001-configmap.yaml').freeze
   MC_IMAGE = 'clouddsp-registry.localhost:5001/minio-mc@sha256:37d109dddbbb2c95873f5fc81ac93f37023264770fc580a7564148892087b1b7'.freeze
   # k3s rewrites the public-facing :5001 registry address to the registry
   # container's :5000 port for kubelet pulls. Direct `ctr` calls bypass that
@@ -68,7 +71,7 @@ class MinioStateVerify
     verify_runtime_keys
     verify_buckets(credentials)
     verify_iam(credentials, source_policies)
-    @output.puts 'MinIO buckets, public boundary, six IAM policies, five users, and source notification verified.'
+    @output.puts 'MinIO buckets, public boundary, source notifications, and restricted IAM verified.'
     0
   rescue StandardError => exception
     # External command bodies and Admin API responses may contain credential
@@ -219,13 +222,20 @@ class MinioStateVerify
     queues = notification.fetch('QueueConfigurations', [])
     return :absent if notification.empty? || notification == { 'QueueConfigurations' => [] }
 
-    same('private upload notification count', queues.length, 1)
-    ensure_true((queues.first.keys - %w[Id QueueArn Events Filter]).empty?,
-                'private upload notification has unexpected fields')
-    same('private upload notification target', queues.first['QueueArn'], NOTIFICATION_ARN)
-    same('private upload notification events', queues.first['Events'], ['s3:ObjectCreated:*'])
-    same('private upload notification filter', queues.first['Filter'],
-         { 'Key' => { 'FilterRules' => [{ 'Name' => 'prefix', 'Value' => 'uploads/' }] } })
+    expected = { NOTIFICATION_ARN => 'uploads/' }
+    expected[SCORE_NOTIFICATION_ARN] = 'score-inputs/' if queues.any? { |queue| queue['QueueArn'] == SCORE_NOTIFICATION_ARN }
+    same('private upload notification count', queues.length, expected.length)
+    queues.each do |queue|
+      ensure_true((queue.keys - %w[Id QueueArn Events Filter]).empty?,
+                  'private upload notification has unexpected fields')
+      arn = queue.fetch('QueueArn')
+      prefix = expected.delete(arn)
+      ensure_true(prefix, 'private upload notification has an unexpected target')
+      same("#{arn} notification events", queue['Events'], ['s3:ObjectCreated:*'])
+      same("#{arn} notification filter", queue['Filter'],
+           { 'Key' => { 'FilterRules' => [{ 'Name' => 'prefix', 'Value' => prefix }] } })
+    end
+    ensure_true(expected.empty?, 'private upload notification target is missing')
     ensure_true((notification.keys - ['QueueConfigurations']).empty?, 'private upload has unexpected notifications')
     :ready
   end
@@ -277,8 +287,19 @@ class MinioStateVerify
       same("#{name} user", mappings.first['users'], [POLICY_USERS.fetch(name)])
       ensure_true(Array(mappings.first['groups']).empty?, "#{name} has an unexpected group")
     end
+    if score_policy_active?
+      source = YAML.load_file(SCORE_POLICY_SOURCE.to_s)
+      policy = JSON.parse(source.fetch('data').fetch('score-uploads-policy.json'))
+      actual = mc(credentials, 'policy', 'info', 'audit', SCORE_POLICY_NAME).dig('policyInfo', 'Policy')
+      same('score upload IAM document', normalized_policy(actual), normalized_policy(policy))
+      mappings = mc(credentials, 'policy', 'entities', '--policy', SCORE_POLICY_NAME, 'audit')
+                   .dig('result', 'policyMappings') || []
+      same('score upload policy mapping', mappings.length, 1)
+      same('score upload policy user', mappings.first['users'], ['clouddsp-job-api'])
+    end
     RUNTIME_KEYS.each_key do |user|
       expected_names = POLICY_USERS.select { |_name, owner| owner == user }.keys.sort
+      expected_names << SCORE_POLICY_NAME if user == 'clouddsp-job-api' && score_policy_active?
       info = mc(credentials, 'user', 'info', 'audit', user)
       same("#{user} enabled", info['userStatus'], 'enabled')
       same("#{user} policy names", info['policyName'].to_s.split(',').sort, expected_names)
@@ -287,6 +308,23 @@ class MinioStateVerify
       same("#{user} mapped user", mappings.first['user'], user)
       same("#{user} entity policy names", Array(mappings.first['policies']).sort, expected_names)
     end
+  end
+
+  def score_policy_active?
+    # The immutable ConfigMap is the marker that an additive IAM migration is
+    # expected. An absent ConfigMap leaves fresh audio-only bootstrap valid;
+    # once created, the policy and user mapping must verify exactly.
+    output, _stderr, status = @command.call('kubectl', '--context', CONTEXT, '-n', DATA_NAMESPACE,
+                                              'get', 'configmap/clouddsp-job-api-score-uploads-policy-v001',
+                                              '--ignore-not-found', '-o', 'json')
+    ensure_true(status.success?, 'score upload policy ConfigMap lookup failed')
+    return false if output.strip.empty?
+
+    source = YAML.load_file(SCORE_POLICY_SOURCE.to_s)
+    live = JSON.parse(output)
+    same('score upload policy ConfigMap immutability', live['immutable'], true)
+    same('score upload policy ConfigMap data', live['data'], source['data'])
+    true
   end
 
   def normalized_policy(value, field = nil)

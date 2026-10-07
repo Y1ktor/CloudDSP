@@ -102,14 +102,18 @@ MIDI workers -> private MIDI/tempo objects + guarded PostgreSQL completion
 Browser -> authenticated Job API polling -> fresh presigned artifact URLs
 ```
 
-The independent sheet-to-MIDI workflow begins with a separate PostgreSQL
-`score_jobs` table (migration v010) and a prepared, not yet deployed,
-authenticated `POST /score-jobs` upload intent. It reuses the private uploads
-bucket under `score-inputs/{job_id}/`, with PDF/PNG/JPEG and a 25 MiB
-presigned POST cap. The current audio notification
-matches only `uploads/`; score-prefix IAM, dedicated event intake and queue,
-OMR worker, and result API are later milestones. The score route does not
-dispatch processing work.
+The independent sheet-to-MIDI upload path uses a separate PostgreSQL
+`score_jobs` table (migration v010) and authenticated `POST /score-jobs` upload
+intent. It reuses the private uploads bucket under `score-inputs/{job_id}/`,
+with PDF/PNG/JPEG and a 25 MiB presigned POST cap. The existing MinIO Job API
+identity receives a separate prefix-only PutObject policy. A second MinIO
+notification target publishes score-prefix ObjectCreated events to the durable
+`clouddsp.score-intake` RabbitMQ quorum queue; the audio `uploads/` path keeps
+its own rule and queue. The frontend creates the job and uploads the form
+directly to MinIO. A disposable smoke Job verifies Keycloak, PostgreSQL,
+object metadata, and the waiting queue without invoking OMR. A future intake
+consumer must validate the event against the row and object before changing
+job state. The OMR worker, result API, and retention cleanup are later work.
 
 PostgreSQL is authoritative for jobs, artifact keys, revisions, processing
 tasks, leases, retries, and outbox state. RabbitMQ delivery can duplicate;
