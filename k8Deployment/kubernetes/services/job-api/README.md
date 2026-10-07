@@ -45,6 +45,33 @@ object and records the first outbox event. The
 detail to recover current progress and artifact URLs. Selecting a file alone
 makes no job-creation request.
 
+### Prepared sheet upload contract (not deployed)
+
+`POST /score-jobs` requires the same Keycloak bearer token and JSON
+`{"direction":"score_to_midi","filename":"scan.pdf","content_type":"application/pdf","size_bytes":12345}`.
+`content_type` may be omitted when the browser cannot report it. Only PDF,
+PNG, JPG, and JPEG are accepted, with a declared size of 1 byte–25 MiB.
+Mismatched MIME types, paths, extra fields, and the future `midi_to_score`
+direction return HTTP 400. The filename is retained for display only: the API
+chooses `score-inputs/{job_id}/source.<ext>` in the existing private
+`clouddsp-uploads` bucket. The response contains `job_id`, `direction`,
+`status=upload_pending`, `revision`, `expires_at`, `upload_url`,
+`upload_fields`, and `max_source_bytes`. Copy every form field unchanged,
+append the file as `file`, and POST it to `upload_url` before the five-minute
+signature expires. The signature binds the exact key, canonical MIME type,
+`job-id` and `score-direction` metadata, and 1 byte–25 MiB length range.
+
+Migration v010 adds an independent `score_jobs` table and leaves audio `jobs`
+unchanged. The table stores durable owner, source coordinates, revision,
+retention, and future private result coordinates; it never stores signed URLs.
+The route source is prepared but is not in the currently pinned local API
+image. The API route only creates an upload intent. The existing MinIO Job API IAM
+policy currently permits `uploads/*` and must receive a reviewed score-prefix
+permission before the form can be used on a cluster. Score-specific MinIO
+notification, validated intake, RabbitMQ routing, OMR, result reads, cleanup,
+and frontend submission remain subsequent milestones. No score conversion is
+triggered by this API response.
+
 ## Ownership and authentication
 
 The API derives ownership solely from the verified token's `sub`; no request
@@ -73,7 +100,7 @@ private object keys, and signed URLs must not appear in diagnostic logs.
 restricted identities. Schema migrations are immutable versioned ConfigMaps
 and one-shot Jobs, checked by a durable migration ledger. Fresh bootstrap runs
 v001–v006 before provisioning Basic Pitch/ADTOF roles, then the remaining
-migrations through v009. See the
+migrations through v010. See the
 [database reference](../../docs/reference/database-and-schema.md).
 
 PostgreSQL owns job state, revisions, source/artifact keys, processing leases,

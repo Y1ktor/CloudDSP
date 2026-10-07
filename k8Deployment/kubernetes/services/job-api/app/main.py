@@ -9,8 +9,8 @@ only that verified owner's non-expired database rows, while
 `GET /jobs/{job_id}` returns one current owner-bound snapshot. `POST /jobs`
 creates an upload-pending PostgreSQL row and returns a short-lived, constrained
 MinIO form; the browser uploads audio directly to MinIO, not through this API
-Pod. None of these routes publishes RabbitMQ work or starts a processing worker
-yet.
+Pod. `POST /score-jobs` creates a separate owner-bound sheet upload intent.
+That score route does not publish RabbitMQ work or start an OMR worker.
 `readyz` continues to prove only that the API can reach its restricted
 PostgreSQL database.
 """
@@ -30,6 +30,7 @@ from app.database import (
     DatabaseConfigurationError,
     DatabaseUnavailable,
     create_direct_upload_pending_job,
+    create_score_upload_pending_job,
     get_retained_job_snapshot_for_owner,
     list_retained_jobs_for_owner,
     verify_database_connection,
@@ -46,7 +47,9 @@ from app.presigned_upload import (
     PresignedUploadContractError,
     PresignedUploadSigningError,
     create_constrained_source_upload_post,
+    create_constrained_score_upload_post,
 )
+from app.score_upload_contract import ScoreUploadCreatedResponse, ScoreUploadRequest
 
 SERVICE_NAME = "clouddsp-job-api"
 # This value appears only in the non-sensitive health/readiness responses. It
@@ -73,7 +76,7 @@ async def direct_upload_request_validation_error(
     request: Request,
     error: RequestValidationError,
 ):
-    """Keep malformed direct-upload input aligned with the cloud API's 400.
+    """Give both upload routes a small, stable malformed-input response.
 
     FastAPI normally returns a detailed 422 response for request-model errors.
     The preserved cloud endpoint instead exposes one small 400 contract, so a
@@ -82,10 +85,13 @@ async def direct_upload_request_validation_error(
     work. The original error is passed to FastAPI only on those other routes.
     """
 
-    if request.method == "POST" and request.url.path == "/jobs":
+    if request.method == "POST" and request.url.path in {"/jobs", "/score-jobs"}:
         return JSONResponse(
             status_code=400,
-            content={"error": "Invalid direct-upload request."},
+            content={"error": (
+                "Invalid score-upload request." if request.url.path == "/score-jobs"
+                else "Invalid direct-upload request."
+            )},
             headers={"cache-control": "no-store"},
         )
     return await request_validation_exception_handler(request, error)
@@ -324,6 +330,16 @@ def created_direct_upload_response(
     )
 
 
+def score_upload_unavailable_response() -> JSONResponse:
+    """Hide internal database, storage, and signing errors from the browser."""
+
+    return JSONResponse(
+        status_code=503,
+        content={"error": "Score upload is temporarily unavailable."},
+        headers={"cache-control": "no-store"},
+    )
+
+
 @app.get("/healthz", include_in_schema=False)
 def healthz() -> JSONResponse:
     """Liveness endpoint: only prove this Python HTTP process is running.
@@ -488,3 +504,55 @@ def create_direct_upload_job(
         return direct_upload_unavailable_response()
 
     return created_direct_upload_response(response_payload)
+
+
+@app.post("/score-jobs", include_in_schema=False)
+def create_score_upload_job(
+    submission: ScoreUploadRequest,
+    principal: Annotated[AuthenticatedPrincipal, Depends(require_authenticated_principal)],
+) -> JSONResponse:
+    """Create a durable owner-bound sheet upload and return its exact S3 form.
+
+    This route only stages the source. Score object intake, notification, and
+    OMR processing are separate milestones; a signed form never starts work by
+    itself. The browser cannot select a bucket, key, owner, or status.
+    """
+
+    try:
+        storage = ObjectStorageSettings.from_environment()
+    except ObjectStorageConfigurationError:
+        return score_upload_unavailable_response()
+    try:
+        created = create_score_upload_pending_job(
+            owner_sub=principal.subject,
+            request=submission,
+            input_bucket=storage.uploads_bucket,
+        )
+    except (DatabaseConfigurationError, DatabaseUnavailable):
+        return score_upload_unavailable_response()
+    try:
+        signed = create_constrained_score_upload_post(
+            storage,
+            job_id=created.job_id,
+            input_object_key=created.input_object_key,
+            content_type=submission.canonical_content_type,
+        )
+        response = ScoreUploadCreatedResponse(
+            job_id=created.job_id,
+            direction=created.direction,
+            status=created.status,
+            revision=created.revision,
+            expires_at=created.expires_at,
+            upload_url=signed.url,
+            upload_fields=dict(signed.fields),
+            max_source_bytes=signed.maximum_source_bytes,
+        )
+    except (PresignedUploadContractError, PresignedUploadSigningError, ValidationError):
+        # A signing failure leaves the durable intent pending for retention
+        # cleanup, never a browser permission without a corresponding row.
+        return score_upload_unavailable_response()
+    return JSONResponse(
+        status_code=201,
+        content=jsonable_encoder(response.model_dump(mode="json")),
+        headers={"cache-control": "no-store"},
+    )

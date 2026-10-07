@@ -2,8 +2,9 @@
 
 The Job API is a control plane: it authenticates a caller, creates durable job
 state, and returns a short-lived form contract. It deliberately is not the
-data path for audio bytes. A browser posts its selected audio file directly to
-the private MinIO bucket through Traefik after this module signs the form.
+data path for audio or score bytes. A browser posts its selected source file
+directly to the private MinIO bucket through Traefik after this module signs
+the workflow-specific form.
 
 Boto3's generate_presigned_post method performs only local cryptographic work
 with the restricted S3 credential. No method in this module contacts MinIO,
@@ -25,6 +26,7 @@ from botocore.config import Config
 
 from app.direct_upload_contract import MAX_SOURCE_UPLOAD_BYTES, VALID_DIRECT_UPLOAD_STEM_MODES
 from app.object_storage import ObjectStorageSettings
+from app.score_upload_contract import MAX_SCORE_SOURCE_BYTES, SCORE_MEDIA_TYPES
 
 
 # This short signature lifetime is an S3 concern rather than request-validation
@@ -235,6 +237,68 @@ def create_constrained_source_upload_post(
 
     # Boto3 produces string field values. Copy the mapping so callers cannot
     # mutate a private SDK response object after the contract is returned.
+    return PresignedPost(
+        url=url,
+        fields={str(name): str(value) for name, value in fields.items()},
+        expires_in_seconds=expiry,
+        maximum_source_bytes=size_limit,
+    )
+
+
+def create_constrained_score_upload_post(
+    settings: ObjectStorageSettings,
+    *,
+    job_id: str,
+    input_object_key: str,
+    content_type: str,
+    maximum_source_bytes: int = MAX_SCORE_SOURCE_BYTES,
+    expires_in_seconds: int = DEFAULT_UPLOAD_POST_EXPIRY_SECONDS,
+) -> PresignedPost:
+    """Sign one score source object without widening the audio upload form.
+
+    The exact key, content type, direction metadata, and byte range are S3 POST
+    policy conditions enforced by MinIO. A later intake worker must verify the
+    object's actual bytes and compare its metadata with the durable score row.
+    """
+
+    canonical_job_id = _normalized_job_id(job_id)
+    required_prefix = f"score-inputs/{canonical_job_id}/"
+    extension = input_object_key.removeprefix(required_prefix).removeprefix("source")
+    if (
+        not input_object_key.startswith(required_prefix)
+        or extension not in SCORE_MEDIA_TYPES
+        or input_object_key != f"{required_prefix}source{extension}"
+        or content_type != SCORE_MEDIA_TYPES[extension][0]
+    ):
+        raise PresignedUploadContractError("Score upload key and content type must match one supported source.")
+    size_limit = _validated_positive_limit(
+        name="maximum_source_bytes", value=maximum_source_bytes, maximum=MAX_SCORE_SOURCE_BYTES
+    )
+    expiry = _validated_positive_limit(
+        name="expires_in_seconds", value=expires_in_seconds, maximum=MAX_UPLOAD_POST_EXPIRY_SECONDS
+    )
+    try:
+        response = _public_s3_client(settings).generate_presigned_post(
+            Bucket=settings.uploads_bucket,
+            Key=input_object_key,
+            Fields={
+                "Content-Type": content_type,
+                "x-amz-meta-job-id": canonical_job_id,
+                "x-amz-meta-score-direction": "score_to_midi",
+            },
+            Conditions=[
+                {"Content-Type": content_type},
+                {"x-amz-meta-job-id": canonical_job_id},
+                {"x-amz-meta-score-direction": "score_to_midi"},
+                ["content-length-range", 1, size_limit],
+            ],
+            ExpiresIn=expiry,
+        )
+    except Exception as error:
+        raise PresignedUploadSigningError("S3 SDK could not sign the score upload.") from error
+    url, fields = response.get("url"), response.get("fields")
+    if not isinstance(url, str) or not url or not isinstance(fields, dict):
+        raise PresignedUploadSigningError("S3 SDK returned an incomplete score upload form.")
     return PresignedPost(
         url=url,
         fields={str(name): str(value) for name, value in fields.items()},

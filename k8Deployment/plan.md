@@ -102,6 +102,15 @@ MIDI workers -> private MIDI/tempo objects + guarded PostgreSQL completion
 Browser -> authenticated Job API polling -> fresh presigned artifact URLs
 ```
 
+The independent sheet-to-MIDI workflow begins with a separate PostgreSQL
+`score_jobs` table (migration v010) and a prepared, not yet deployed,
+authenticated `POST /score-jobs` upload intent. It reuses the private uploads
+bucket under `score-inputs/{job_id}/`, with PDF/PNG/JPEG and a 25 MiB
+presigned POST cap. The current audio notification
+matches only `uploads/`; score-prefix IAM, dedicated event intake and queue,
+OMR worker, and result API are later milestones. The score route does not
+dispatch processing work.
+
 PostgreSQL is authoritative for jobs, artifact keys, revisions, processing
 tasks, leases, retries, and outbox state. RabbitMQ delivery can duplicate;
 workers use durable `(job_id, stage, stem_name)` identity and guarded

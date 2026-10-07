@@ -20,6 +20,7 @@ import psycopg
 from psycopg.rows import dict_row
 
 from app.direct_upload_contract import DirectUploadJobRequest
+from app.score_upload_contract import ScoreUploadRequest
 
 
 # These non-secret defaults describe the current local Kubernetes network. A
@@ -129,6 +130,17 @@ CREATE_DIRECT_UPLOAD_PENDING_JOB_SQL = """
 """
 
 
+# This separate table preserves audio jobs' stem-specific constraints. Only a
+# server-generated ID/key and a Keycloak-verified owner enter this insert.
+CREATE_SCORE_UPLOAD_PENDING_JOB_SQL = """
+    INSERT INTO score_jobs (
+      job_id, owner_sub, direction, input_bucket, input_object_key,
+      source_filename, source_content_type, source_size_bytes, expires_at
+    ) VALUES (%s, %s, 'score_to_midi', %s, %s, %s, %s, %s, %s)
+    RETURNING job_id::text AS job_id, direction, status, revision, expires_at
+"""
+
+
 class DatabaseConfigurationError(RuntimeError):
     """Raised when the API Pod is missing its required database environment."""
 
@@ -149,6 +161,18 @@ class CreatedDirectUploadJob:
 
     job_id: str
     input_object_key: str
+    status: str
+    revision: int
+    expires_at: datetime
+
+
+@dataclass(frozen=True)
+class CreatedScoreUploadJob:
+    """Private durable score row coordinates needed only for form signing."""
+
+    job_id: str
+    input_object_key: str
+    direction: str
     status: str
     revision: int
     expires_at: datetime
@@ -523,4 +547,70 @@ def create_direct_upload_pending_job(
         status=returned_status,
         revision=returned_revision,
         expires_at=returned_expiry,
+    )
+
+
+def create_score_upload_pending_job(
+    *,
+    owner_sub: str,
+    request: ScoreUploadRequest,
+    input_bucket: str,
+    now: datetime | None = None,
+) -> CreatedScoreUploadJob:
+    """Commit one score upload intent before the caller signs any MinIO form."""
+
+    trusted_owner = _trusted_owner_sub(owner_sub)
+    trusted_bucket = _trusted_upload_bucket(input_bucket)
+    created_at = _created_at_utc(now)
+    job_id = str(uuid4())
+    input_object_key = f"score-inputs/{job_id}/source{request.extension}"
+    expires_at = created_at + timedelta(days=DIRECT_UPLOAD_RETENTION_DAYS)
+    settings = DatabaseSettings.from_environment()
+    try:
+        with psycopg.connect(
+            host=settings.host,
+            port=settings.port,
+            dbname=settings.database,
+            user=settings.username,
+            password=settings.password,
+            connect_timeout=settings.connect_timeout_seconds,
+            options=f"-c statement_timeout={DEFAULT_STATEMENT_TIMEOUT_MILLISECONDS}",
+            application_name="clouddsp-job-api-create-score-upload",
+            autocommit=False,
+            row_factory=dict_row,
+        ) as connection:
+            with connection.transaction():
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        CREATE_SCORE_UPLOAD_PENDING_JOB_SQL,
+                        (
+                            job_id, trusted_owner, trusted_bucket, input_object_key,
+                            request.filename, request.canonical_content_type,
+                            request.size_bytes, expires_at,
+                        ),
+                    )
+                    row = cursor.fetchone()
+    except (psycopg.Error, OSError) as error:
+        raise DatabaseUnavailable("PostgreSQL score job creation is unavailable.") from error
+
+    if (
+        not isinstance(row, dict)
+        or row.get("job_id") != job_id
+        or row.get("direction") != "score_to_midi"
+        or row.get("status") != "upload_pending"
+        or isinstance(row.get("revision"), bool)
+        or not isinstance(row.get("revision"), int)
+        or row["revision"] < 1
+        or not isinstance(row.get("expires_at"), datetime)
+        or row["expires_at"].tzinfo is None
+        or row["expires_at"].utcoffset() is None
+    ):
+        raise DatabaseUnavailable("PostgreSQL score job creation returned an invalid row.")
+    return CreatedScoreUploadJob(
+        job_id=job_id,
+        input_object_key=input_object_key,
+        direction=row["direction"],
+        status=row["status"],
+        revision=row["revision"],
+        expires_at=row["expires_at"],
     )

@@ -42,7 +42,7 @@ ruby ./k8Deployment/kubernetes/scripts/stages/database/job-api-migrations.rb rec
 
 `plan` reads the `schema_migrations` ledger and immutable SQL ConfigMaps;
 `verify` also requires every current migration to be present. The accepted
-ledger is an exact prefix of reviewed v001–v009 identifiers/descriptions.
+ledger is an exact prefix of reviewed v001–v010 identifiers/descriptions.
 Every already-applied SQL ConfigMap must still match its versioned source.
 The ledger is read through the existing PostgreSQL Pod's Secret-backed
 connection; the helper does not query user job data.
@@ -52,8 +52,15 @@ The full fresh bootstrap uses this order:
 1. Create the Job API database/schema owner and runtime Secret.
 2. Apply v001–v006 with `reconcile-prerequisites`.
 3. Bootstrap the Basic Pitch and ADTOF database roles.
-4. Apply v007–v009 with `reconcile`.
+4. Apply v007–v010 with `reconcile`.
 5. Verify the complete database/schema state before installing the Job API.
+
+Migration v010 creates `score_jobs` for the independent sheet-to-MIDI workflow.
+It binds every input key to `score-inputs/{job_id}/source.<ext>`, stores the
+Keycloak subject and durable status/revision, and reserves private result key
+columns for later workers. Audio `jobs`, processing tasks, and outbox events
+are unchanged. The initial score status is `upload_pending`; no score worker
+or message transition is part of this migration.
 
 The worker roles must exist before v007. A pending migration is server
 validated, created as its reviewed ConfigMap/Job, awaited, and checked against

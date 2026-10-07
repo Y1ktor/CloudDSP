@@ -3,6 +3,7 @@
 #
 #   clouddsp.localhost:8080/auth/me   -> Job API Service -> /auth/me
 #   clouddsp.localhost:8080/jobs/...  -> Job API Service -> /jobs/...
+#   clouddsp.localhost:8080/score-jobs -> Job API Service -> /score-jobs
 #
 # The separate frontend Ingress owns the less-specific `/` path on this same
 # host. Kubernetes Ingress path precedence selects these longer `/auth` and
@@ -61,6 +62,15 @@ spec:
           # implemented Job API routes; Traefik forwards the browser's
           # same-origin request to the Service without rewriting its path.
           - path: /jobs
+            pathType: Prefix
+            backend:
+              service:
+                name: clouddsp-job-api
+                port:
+                  name: http
+          # Score jobs have a separate API and table. The longer prefix keeps
+          # this authenticated upload contract on the same browser origin.
+          - path: /score-jobs
             pathType: Prefix
             backend:
               service:
