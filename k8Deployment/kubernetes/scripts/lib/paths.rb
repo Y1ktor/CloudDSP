@@ -136,11 +136,13 @@ module CloudDSPPaths
       minio-fresh-samples-stage.rb
       minio-job-api-iam-stage.rb
       minio-notification-stage.rb
+      minio-score-upload-stage.rb
       minio-state-verify.rb
       minio-upload-intake-iam-stage.rb
     ],
     'stages/rabbitmq' => %w[
       rabbitmq-processing-topology.rb
+      rabbitmq-score-intake-topology.rb
       rabbitmq-source-intake-bootstrap.rb
     ],
   }.freeze

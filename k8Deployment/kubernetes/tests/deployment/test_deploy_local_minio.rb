@@ -11,6 +11,8 @@ class DeployLocalMinioTest < Minitest::Test
     %w[upload-intake-rabbitmq-secret-stage.rb bootstrap],
     %w[rabbitmq-source-intake-bootstrap.rb reconcile],
     %w[rabbitmq-source-intake-bootstrap.rb verify],
+    %w[rabbitmq-score-intake-topology.rb reconcile],
+    %w[rabbitmq-score-intake-topology.rb verify],
     %w[minio-release.rb install],
     %w[minio-release.rb verify],
     %w[job-api-minio-secret-stage.rb bootstrap],
@@ -33,7 +35,9 @@ class DeployLocalMinioTest < Minitest::Test
     %w[minio-adtof-iam-stage.rb bootstrap],
     %w[minio-adtof-iam-stage.rb verify],
     %w[minio-notification-stage.rb reconcile],
-    %w[minio-notification-stage.rb verify]
+    %w[minio-notification-stage.rb verify],
+    %w[minio-score-upload-stage.rb reconcile],
+    %w[minio-score-upload-stage.rb verify]
   ].freeze
 
   def setup
@@ -56,6 +60,8 @@ class DeployLocalMinioTest < Minitest::Test
     assert_equal 0, run_bootstrap
     assert_equal EXPECTED_CALLS, @calls
     assert_operator @calls.index(%w[rabbitmq-source-intake-bootstrap.rb verify]), :<,
+                    @calls.index(%w[minio-release.rb install])
+    assert_operator @calls.index(%w[rabbitmq-score-intake-topology.rb verify]), :<,
                     @calls.index(%w[minio-release.rb install])
     assert_operator @calls.index(%w[minio-release.rb verify]), :<,
                     @calls.index(%w[minio-fresh-buckets-stage.rb bootstrap])
@@ -85,6 +91,8 @@ class DeployLocalMinioTest < Minitest::Test
                     @calls.index(%w[minio-notification-stage.rb reconcile])
     assert_operator @calls.index(%w[minio-notification-stage.rb verify]), :>,
                     @calls.index(%w[minio-notification-stage.rb reconcile])
+    assert_operator @calls.index(%w[minio-score-upload-stage.rb reconcile]), :>,
+                    @calls.index(%w[minio-notification-stage.rb verify])
     assert_includes @output.string, 'application orchestration remains pending'
     assert_empty @error.string
   end
