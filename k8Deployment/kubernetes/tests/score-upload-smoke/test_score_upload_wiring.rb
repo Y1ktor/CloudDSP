@@ -42,14 +42,18 @@ class ScoreUploadWiringTest < Minitest::Test
     assert_equal('s3:PutObject', statement.fetch('Action'))
     assert_equal('arn:aws:s3:::clouddsp-uploads/score-inputs/*', statement.fetch('Resource'))
     refute_includes(policy.to_json, 's3:DeleteObject')
+    bootstrap = yaml('services/minio/score/minio-job-api-score-uploads-bootstrap-v002-job.yaml')
+    assert_equal('512Mi', bootstrap.dig('spec', 'template', 'spec', 'initContainers', 0,
+                                      'resources', 'limits', 'memory'))
   end
 
   def test_smoke_job_runs_reviewed_script_and_has_no_worker
-    config = yaml('tests/score-upload-smoke/score-upload-smoke-configmap.yaml')
-    job = yaml('tests/score-upload-smoke/score-upload-smoke-job.yaml')
+    config = yaml('tests/score-upload-smoke/score-upload-smoke-v002-configmap.yaml')
+    job = yaml('tests/score-upload-smoke/score-upload-smoke-v002-job.yaml')
     assert_equal(['python3', '/smoke/score_upload_smoke.py'],
                  job.dig('spec', 'template', 'spec', 'containers', 0, 'command'))
     assert_includes(config.fetch('data').fetch('score_upload_smoke.py'), 'score.upload.created')
+    assert_includes(config.fetch('data').fetch('score_upload_smoke.py'), '"firstName": "CloudDSP"')
     assert_equal(false, job.dig('spec', 'template', 'spec', 'automountServiceAccountToken'))
   end
 end

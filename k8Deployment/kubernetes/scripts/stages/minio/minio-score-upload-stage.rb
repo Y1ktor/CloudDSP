@@ -5,7 +5,7 @@ require_relative 'minio-state-verify'
 
 class MinioScoreUploadStage < MinioStateVerify
   POLICY_CONFIG = 'clouddsp-job-api-score-uploads-policy-v001'.freeze
-  POLICY_JOB = 'minio-job-api-score-uploads-bootstrap-v001'.freeze
+  POLICY_JOB = 'minio-job-api-score-uploads-bootstrap-v002'.freeze
   NOTIFICATION_JOB = 'minio-score-notification-bootstrap-v001'.freeze
   SCORE_ROOT = SOURCE.join('score').freeze
 
@@ -27,7 +27,7 @@ class MinioScoreUploadStage < MinioStateVerify
     end
 
     unless policy_ready
-      create_versioned_config(SCORE_POLICY_SOURCE)
+      create_versioned_config(SCORE_POLICY_SOURCE) unless optional_resource('configmap', POLICY_CONFIG)
       create_job(SCORE_ROOT.join("#{POLICY_JOB}-job.yaml"), POLICY_JOB)
       ensure_true(score_policy_state(credentials), 'score IAM Job completed without exact policy')
     end
@@ -80,7 +80,7 @@ class MinioScoreUploadStage < MinioStateVerify
       parsed = JSON.parse(response)
       code = parsed.dig('error', 'cause', 'error', 'Code')
       ensure_true(code == 'XMinioAdminNoSuchPolicy', 'score IAM policy lookup failed')
-      ensure_true(config.nil?, 'score IAM ConfigMap exists without durable policy; inspect bootstrap Job')
+      ensure_true(config.nil? || score_policy_active?, 'score IAM ConfigMap differs from source')
       return false
     end
     ensure_true(!config.nil?, 'score IAM policy exists without immutable ConfigMap')
@@ -90,8 +90,9 @@ class MinioScoreUploadStage < MinioStateVerify
     same('score IAM document', normalized_policy(actual), normalized_policy(expected))
     mapping = mc(credentials, 'policy', 'entities', '--policy', SCORE_POLICY_NAME, 'audit')
               .dig('result', 'policyMappings') || []
-    same('score IAM user mapping', mapping.map { |item| item['users'] }, [['clouddsp-job-api']])
-    true
+    owners = mapping.map { |item| item['users'] }
+    ensure_true(owners.empty? || owners == [['clouddsp-job-api']], 'score IAM user mapping drifted')
+    owners == [['clouddsp-job-api']]
   end
 
   def score_notification_state(credentials)

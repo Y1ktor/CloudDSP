@@ -1,0 +1,284 @@
+# Disposable integration client. This ConfigMap contains code only; all admin
+# credentials arrive through the Job's short-lived Secret-backed environment.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: score-upload-smoke-v002
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: score-upload-smoke
+    app.kubernetes.io/component: integration-test
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+immutable: true
+data:
+  score_upload_smoke.py: |
+    """Exercise Keycloak -> API -> PostgreSQL -> MinIO -> RabbitMQ, then clean up."""
+    import base64
+    import json
+    import os
+    import secrets
+    import sys
+    import time
+    from urllib.error import HTTPError, URLError
+    from urllib.parse import quote, unquote_plus, urlencode, urlsplit
+    from urllib.request import Request, urlopen
+
+    import boto3
+    import psycopg
+    from botocore.config import Config
+
+
+    class SmokeFailure(RuntimeError):
+        """Safe category whose message contains no token or private object key."""
+
+
+    def request(label, url, statuses, *, method="GET", data=None, headers=None):
+        try:
+            with urlopen(Request(url, data=data, headers=headers or {}, method=method), timeout=10) as response:
+                status, response_headers, body = response.status, dict(response.headers.items()), response.read()
+        except HTTPError as error:
+            raise SmokeFailure(f"{label}: HTTP {error.code}") from error
+        except URLError as error:
+            raise SmokeFailure(f"{label}: private Service unavailable") from error
+        if status not in statuses:
+            raise SmokeFailure(f"{label}: unexpected HTTP status")
+        return response_headers, body
+
+
+    def json_request(label, url, statuses, *, method="POST", payload, headers=None):
+        request_headers = {**(headers or {}), "Content-Type": "application/json"}
+        _, body = request(label, url, statuses, method=method,
+                          data=json.dumps(payload, separators=(",", ":")).encode(), headers=request_headers)
+        return json.loads(body) if body else None
+
+
+    def location_id(headers, label):
+        value = headers.get("Location", "").rstrip("/").rsplit("/", 1)[-1]
+        if not value:
+            raise SmokeFailure(f"{label}: no created identifier")
+        return value
+
+
+    def database():
+        return psycopg.connect(
+            host=os.environ["POSTGRESQL_HOST"], dbname="clouddsp_job_api",
+            user=os.environ["POSTGRES_USER"], password=os.environ["POSTGRES_PASSWORD"],
+            connect_timeout=5, options="-c statement_timeout=5000",
+        )
+
+
+    def s3():
+        return boto3.client(
+            "s3", endpoint_url="http://clouddsp-minio:9000",
+            aws_access_key_id=os.environ["MINIO_ROOT_USER"],
+            aws_secret_access_key=os.environ["MINIO_ROOT_PASSWORD"],
+            region_name="us-east-1", config=Config(s3={"addressing_style": "path"}),
+        )
+
+
+    def rabbit_headers():
+        userpass = f"{os.environ['RABBITMQ_DEFAULT_USER']}:{os.environ['RABBITMQ_DEFAULT_PASS']}"
+        return {"Authorization": "Basic " + base64.b64encode(userpass.encode()).decode()}
+
+
+    def rabbit_queue_url():
+        return "http://clouddsp-rabbitmq-0.clouddsp-rabbitmq-headless.clouddsp-data.svc.cluster.local:15672/api/queues/%2Fclouddsp/clouddsp.score-intake"
+
+
+    def queue_count():
+        _, body = request("score queue status", rabbit_queue_url(), {200}, headers=rabbit_headers())
+        state = json.loads(body)
+        if state.get("consumers") != 0:
+            raise SmokeFailure("score queue has a consumer during the waiting-queue smoke")
+        return state.get("messages_ready")
+
+
+    def consume_one_score_event(key):
+        url = rabbit_queue_url() + "/get"
+        entries = json_request("score queue inspection", url, {200}, payload={
+            "count": 1, "ackmode": "ack_requeue_false", "encoding": "auto", "truncate": 50000,
+        }, headers=rabbit_headers())
+        if not isinstance(entries, list) or len(entries) != 1:
+            raise SmokeFailure("score queue did not contain one event")
+        entry = entries[0]
+        if entry.get("routing_key") != "score.upload.created":
+            raise SmokeFailure("score queue received an unexpected routing key")
+        body = json.loads(entry.get("payload", "{}"))
+        records = body.get("Records", [])
+        if len(records) != 1:
+            raise SmokeFailure("score queue event did not contain one object record")
+        record = records[0]
+        if (record.get("s3", {}).get("bucket", {}).get("name") != "clouddsp-uploads"
+                or unquote_plus(record.get("s3", {}).get("object", {}).get("key", "")) != key
+                or not record.get("eventName", "").startswith("s3:ObjectCreated:")):
+            raise SmokeFailure("score queue event did not match the uploaded object")
+
+
+    def post_signed_file(contract, payload):
+        url = contract.get("upload_url")
+        fields = contract.get("upload_fields")
+        if not isinstance(url, str) or not isinstance(fields, dict):
+            raise SmokeFailure("score API did not return a signed upload form")
+        parsed = urlsplit(url)
+        if (parsed.scheme, parsed.hostname, parsed.port) != ("http", "minio.localhost", 8080):
+            raise SmokeFailure("score API returned an unexpected public MinIO origin")
+        boundary = "----CloudDSPScore" + secrets.token_hex(12)
+        chunks = []
+        for name, value in fields.items():
+            if not isinstance(name, str) or not isinstance(value, str):
+                raise SmokeFailure("score API returned malformed form fields")
+            chunks += [f"--{boundary}\r\n".encode(),
+                       f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode(),
+                       value.encode(), b"\r\n"]
+        chunks += [f"--{boundary}\r\n".encode(),
+                   b'Content-Disposition: form-data; name="file"; filename="score-smoke.png"\r\n',
+                   b"Content-Type: image/png\r\n\r\n", payload, b"\r\n",
+                   f"--{boundary}--\r\n".encode()]
+        body = b"".join(chunks)
+        request("presigned score upload", "http://clouddsp-minio:9000" + parsed.path, {204},
+                method="POST", data=body,
+                headers={"Content-Type": f"multipart/form-data; boundary={boundary}",
+                         "Content-Length": str(len(body))})
+        return fields.get("key")
+
+
+    def run():
+        # A valid one-pixel PNG is sufficient: this smoke measures transport,
+        # not notation recognition. It never starts an OMR worker.
+        png = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/q7sAAAAASUVORK5CYII=")
+        kc = "http://clouddsp-keycloak:8080"
+        api = "http://clouddsp-job-api.clouddsp-app.svc:80"
+        suffix = os.environ["POD_NAME"].rsplit("-", 1)[-1]
+        username = f"score-upload-smoke-{suffix}"
+        client_name = f"score-upload-smoke-client-{suffix}"
+        password = secrets.token_urlsafe(32)
+        admin_token = client_id = user_id = job_id = object_key = None
+        event_consumed = False
+        failure = None
+        cleanup_failures = []
+        try:
+            if queue_count() != 0:
+                raise SmokeFailure("score queue must be empty before smoke")
+            print("Score upload smoke: creating disposable Keycloak identity")
+            form = urlencode({"grant_type": "password", "client_id": "admin-cli",
+                              "username": os.environ["KC_BOOTSTRAP_ADMIN_USERNAME"],
+                              "password": os.environ["KC_BOOTSTRAP_ADMIN_PASSWORD"]}).encode()
+            _, body = request("Keycloak admin token", kc + "/realms/master/protocol/openid-connect/token",
+                              {200}, method="POST", data=form,
+                              headers={"Content-Type": "application/x-www-form-urlencoded"})
+            admin_token = json.loads(body)["access_token"]
+            admin_headers = {"Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"}
+            realm_admin = kc + "/admin/realms/clouddsp"
+            headers, _ = request("temporary client", realm_admin + "/clients", {201}, method="POST",
+                                 data=json.dumps({"clientId": client_name, "enabled": True,
+                                                  "protocol": "openid-connect", "publicClient": True,
+                                                  "standardFlowEnabled": False,
+                                                  "directAccessGrantsEnabled": True,
+                                                  "serviceAccountsEnabled": False,
+                                                  "fullScopeAllowed": False}).encode(), headers=admin_headers)
+            client_id = location_id(headers, "temporary client")
+            json_request("temporary audience mapper", realm_admin + f"/clients/{quote(client_id)}/protocol-mappers/models",
+                         {201}, payload={"name": "job-api-access-token-audience", "protocol": "openid-connect",
+                                         "protocolMapper": "oidc-audience-mapper", "consentRequired": False,
+                                         "config": {"included.client.audience": "clouddsp-job-api",
+                                                    "access.token.claim": "true", "id.token.claim": "false",
+                                                    "introspection.token.claim": "true", "userinfo.token.claim": "false"}},
+                         headers=admin_headers)
+            headers, _ = request("temporary user", realm_admin + "/users", {201}, method="POST",
+                                 data=json.dumps({"username": username, "email": username + "@clouddsp.test",
+                                                  "firstName": "CloudDSP", "lastName": "Score Upload Smoke",
+                                                  "enabled": True, "emailVerified": True}).encode(), headers=admin_headers)
+            user_id = location_id(headers, "temporary user")
+            json_request("temporary password", realm_admin + f"/users/{quote(user_id)}/reset-password",
+                         {204}, method="PUT", payload={"type": "password", "temporary": False,
+                                                       "value": password}, headers=admin_headers)
+            token_form = urlencode({"grant_type": "password", "client_id": client_name,
+                                    "username": username, "password": password}).encode()
+            _, body = request("temporary user token", kc + "/realms/clouddsp/protocol/openid-connect/token",
+                              {200}, method="POST", data=token_form,
+                              headers={"Content-Type": "application/x-www-form-urlencoded"})
+            token = json.loads(body)["access_token"]
+
+            print("Score upload smoke: creating PostgreSQL-backed job through authenticated API")
+            user_headers = {"Authorization": f"Bearer {token}"}
+            contract = json_request("score job creation", api + "/score-jobs", {201},
+                                    payload={"direction": "score_to_midi", "filename": "score-smoke.png",
+                                             "content_type": "image/png", "size_bytes": len(png)},
+                                    headers=user_headers)
+            job_id = contract.get("job_id")
+            if not isinstance(job_id, str) or contract.get("status") != "upload_pending":
+                raise SmokeFailure("score API returned an invalid durable job")
+            with database() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT owner_sub, direction, status, source_uploaded, input_object_key "
+                                   "FROM public.score_jobs WHERE job_id = %s::uuid", (job_id,))
+                    row = cursor.fetchone()
+            if not row or row[:4] != (user_id, "score_to_midi", "upload_pending", False):
+                raise SmokeFailure("PostgreSQL score job did not match authenticated owner and state")
+
+            print("Score upload smoke: transferring signed file to private MinIO")
+            object_key = post_signed_file(contract, png)
+            if object_key != row[4]:
+                raise SmokeFailure("score signed key differed from the durable row")
+            head = s3().head_object(Bucket="clouddsp-uploads", Key=object_key)
+            if (head.get("ContentLength") != len(png)
+                    or head.get("ContentType") != "image/png"
+                    or head.get("Metadata", {}).get("job-id") != job_id
+                    or head.get("Metadata", {}).get("score-direction") != "score_to_midi"):
+                raise SmokeFailure("MinIO score object did not match the signed contract")
+
+            print("Score upload smoke: waiting for the unconsumed RabbitMQ score event")
+            for _ in range(30):
+                if queue_count() == 1:
+                    break
+                time.sleep(1)
+            else:
+                raise SmokeFailure("RabbitMQ score queue did not receive one object event")
+            consume_one_score_event(object_key)
+            event_consumed = True
+            if queue_count() != 0:
+                raise SmokeFailure("score queue did not return to its empty baseline")
+        except Exception as error:
+            failure = str(error) if isinstance(error, SmokeFailure) else type(error).__name__
+        finally:
+            if object_key:
+                try:
+                    s3().delete_object(Bucket="clouddsp-uploads", Key=object_key)
+                except Exception:
+                    cleanup_failures.append("score object")
+            if job_id and user_id:
+                try:
+                    with database() as connection:
+                        with connection.cursor() as cursor:
+                            cursor.execute("DELETE FROM public.score_jobs WHERE job_id = %s::uuid AND owner_sub = %s",
+                                           (job_id, user_id))
+                            if cursor.rowcount != 1:
+                                raise SmokeFailure("temporary score row missing")
+                except Exception:
+                    cleanup_failures.append("score row")
+            if admin_token and user_id:
+                try:
+                    request("temporary user cleanup", kc + f"/admin/realms/clouddsp/users/{quote(user_id)}",
+                            {204}, method="DELETE", headers={"Authorization": f"Bearer {admin_token}"})
+                except Exception:
+                    cleanup_failures.append("temporary user")
+            if admin_token and client_id:
+                try:
+                    request("temporary client cleanup", kc + f"/admin/realms/clouddsp/clients/{quote(client_id)}",
+                            {204}, method="DELETE", headers={"Authorization": f"Bearer {admin_token}"})
+                except Exception:
+                    cleanup_failures.append("temporary client")
+        if cleanup_failures or (object_key and not event_consumed):
+            raise SmokeFailure("score upload smoke cleanup or queue consumption did not complete")
+        if failure:
+            raise SmokeFailure(failure)
+        print("Score upload smoke passed: object, row, and waiting queue verified; test resources removed")
+
+
+    try:
+        run()
+    except SmokeFailure as error:
+        print(f"Score upload smoke failed: {error}", file=sys.stderr)
+        raise SystemExit(1)
