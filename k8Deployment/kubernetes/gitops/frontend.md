@@ -67,8 +67,8 @@ spec equality, locked image, Helm ownership, and Pod readiness checks.
 
 Browser verification requests `/healthz`, the app shell, the Content Security
 Policy, and the linked JavaScript and CSS assets through Traefik at
-`clouddsp.localhost:8080`. Direct `/architecture`, `/architecture/`, `/k8`, and
-`/cost` requests must return the same shell and CSP without a redirect. These
+`clouddsp.localhost:8080`. Direct `/architecture`, `/architecture/`, `/k8`,
+`/cost`, and `/score-to-midi` requests must return the same shell and CSP without a redirect. These
 checks do not establish authenticated browser flows or processing success.
 There is no chart Helm test hook, so HelmRelease tests remain disabled.
 
@@ -80,7 +80,8 @@ Helm commands. Ordinary delivery changes now belong in Git after handoff.
 ## Change or recover the release
 
 Edit the chart or values, run `helm lint` and `helm template`, and commit and
-push the reviewed change to `codex/flux-clouddsp-local`. Then optionally request
+push the reviewed change to the branch selected by the live Flux GitRepository
+(`main` for this cluster). Then optionally request
 immediate reconciliation:
 
 ```sh

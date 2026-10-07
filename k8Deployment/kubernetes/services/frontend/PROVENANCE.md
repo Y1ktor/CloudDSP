@@ -16,12 +16,21 @@ Keycloak, access-token, MinIO sample, and browser-storage behavior was retained
 as the shared frontend's local profile. The cloud profile retains Cognito and
 AWS service integration.
 
-The local image `0.6.2-spa-route-fix` consumes `frontend/` as a named BuildKit
+The local image `0.6.3-score-to-midi` consumes `frontend/` as a named BuildKit
 context and runs `npm run build:local`. Only `dist/local/` reaches the NGINX
 runtime. Ignored public configuration moved from the earlier
 `app/.env.production` location to
 `k8Deployment/.local/frontend.env.production`; the helper passes its public
 values explicitly as build arguments.
+
+### Score review image: 2026-10-07
+
+The shared frontend source commit `2bb7233f6c3a95e6b035608a9c94badf21faf892`
+adds `/score-to-midi` with PDF/image staging and local MIDI review, playback,
+and editing. It does not submit a score to an OMR service. The local ARM64
+image was pushed to the k3d registry as `frontend:0.6.3-score-to-midi` at
+`sha256:36c2ae3cacb4ba6a4658effd59ba46fc64046dea6d72edfad72e8e0c346be664`.
+The versioned Helm value and retained Deployment baseline pin that digest.
 
 ### Component refactor source validation
 

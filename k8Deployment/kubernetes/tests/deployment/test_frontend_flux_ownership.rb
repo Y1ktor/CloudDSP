@@ -11,7 +11,7 @@ require_relative '../../scripts/gitops/mailpit-flux-ownership'
 
 class FrontendFluxOwnershipTest < Minitest::Test
   VERSION = '0.1.3+abcdef123456.2'.freeze
-  ROUTES = %w[/architecture /architecture/ /k8 /cost].freeze
+  ROUTES = %w[/architecture /architecture/ /k8 /cost /score-to-midi].freeze
   SHELL = '<html><div id="root"></div><script src="/assets/app.js"></script><link href="/assets/app.css"></html>'.freeze
   CSP = "default-src 'self'; object-src 'none'".freeze
 

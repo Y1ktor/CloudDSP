@@ -40,13 +40,14 @@ labels/chart revision when the matching HelmRelease is present.
 
 The browser check requests `/healthz`, the HTML app shell, its Content Security
 Policy, and linked JavaScript/CSS through Traefik. It also requires direct
-`/architecture`, `/architecture/`, `/k8`, and `/cost` navigation to return the
+`/architecture`, `/architecture/`, `/k8`, `/cost`, and `/score-to-midi` navigation to return the
 same app shell and CSP without redirects. This deployment-path check does not
 replace authenticated browser or processing tests. The chart has no Helm test
 hook; Flux tests stay disabled.
 
 After the handoff, delivery changes go through the versioned chart and values
-on `codex/flux-clouddsp-local`. The helper blocks direct `install` and `adopt`
+on the branch selected by the live Flux GitRepository (`main` for this cluster).
+The helper blocks direct `install` and `adopt`
 while the matching Flux HelmRelease exists, including while it is suspended,
 unhealthy, or deleting. Read the [handoff recovery rules](../../gitops/frontend.md#change-or-recover-the-release)
 before changing release identity, deleting its HelmRelease, or attempting a

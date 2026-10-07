@@ -572,9 +572,9 @@ images:
     # This build selects local adapters from the canonical root frontend;
     # cloud and local screens now share one source and dependency lock.
     repository: clouddsp-registry.localhost:5001/frontend
-    sourceTag: "0.6.2-spa-route-fix"
-    digest: sha256:31ca2de7233c94611eda4f380240026476c2c3737c0bff9afd6fc6271dc33fab
-    immutableReference: clouddsp-registry.localhost:5001/frontend@sha256:31ca2de7233c94611eda4f380240026476c2c3737c0bff9afd6fc6271dc33fab
+    sourceTag: "0.6.3-score-to-midi"
+    digest: sha256:36c2ae3cacb4ba6a4658effd59ba46fc64046dea6d72edfad72e8e0c346be664
+    immutableReference: clouddsp-registry.localhost:5001/frontend@sha256:36c2ae3cacb4ba6a4658effd59ba46fc64046dea6d72edfad72e8e0c346be664
     supportedPlatforms:
       - linux/arm64/v8
     builtFrom:
@@ -585,7 +585,7 @@ images:
       # metadata is recorded in the matching Dockerfile and Helm chart. The
       # NGINX recipe also fixes direct SPA routes that share an asset directory.
       sourceBaselineCommit: 6393ae3eb4153b883baf993e7c1d887252f8de1f
-      sourceRevision: 0c2499ed1f9e55f3334d4d30cf6fe2924e111b53
+      sourceRevision: 2bb7233f6c3a95e6b035608a9c94badf21faf892
       # Application source is relative to the repository root; delivery files
       # below retain their Kubernetes-directory-relative locations.
       sourceDirectory: frontend
@@ -600,9 +600,9 @@ images:
       publicObjectStorageOrigin: http://minio.localhost:8080
       midiSampleLock: kubernetes/services/minio/midi-sample-assets.lock.json
       sharedSampleBucket: clouddsp-midi-samples
-    localDockerSizeBytes: 35137059
+    localDockerSizeBytes: 35142161
     localDockerSize: "33.51 MiB"
-    pushedAt: "2026-10-03"
+    pushedAt: "2026-10-07"
 
   frontend-node-builder:
     # Official Node image used only while compiling the local React source.

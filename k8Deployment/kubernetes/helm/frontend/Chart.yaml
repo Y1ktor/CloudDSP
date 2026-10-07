@@ -6,4 +6,4 @@ name: frontend
 description: CloudDSP local static browser application
 type: application
 version: 0.1.3
-appVersion: "0.6.2-spa-route-fix"
+appVersion: "0.6.3-score-to-midi"

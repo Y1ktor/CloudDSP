@@ -7,7 +7,7 @@ require 'tmpdir'
 
 class BuildFrontendImageTest < Minitest::Test
   SCRIPT = File.expand_path('../../scripts/images/build-frontend-image.sh', __dir__)
-  IMAGE = 'clouddsp-registry.localhost:5001/frontend:0.6.2-spa-route-fix'
+  IMAGE = 'clouddsp-registry.localhost:5001/frontend:0.6.3-score-to-midi'
 
   def setup
     @temporary_directory = Dir.mktmpdir('clouddsp-shared-frontend')

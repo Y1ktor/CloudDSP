@@ -21,7 +21,7 @@ HelmRelease.new(
   # React owns these navigation paths, including the public architecture
   # asset directory's name. Verify deep links without relying on client-side
   # navigation or following an NGINX directory redirect.
-  browser_routes: %w[/architecture /architecture/ /k8 /cost],
+  browser_routes: %w[/architecture /architecture/ /k8 /cost /score-to-midi],
   allow_fresh_install: true,
   before_install: [
     %w[ruby ./k8Deployment/kubernetes/scripts/stages/keycloak/keycloak-config-verify.rb verify],

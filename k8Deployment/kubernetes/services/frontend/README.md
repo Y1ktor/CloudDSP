@@ -20,7 +20,7 @@ The helper requires Docker with BuildKit, the dedicated
 `clouddsp-registry.localhost:5001` k3d registry, and the ignored public browser
 configuration at `k8Deployment/.local/frontend.env.production`. It builds the
 Apple Silicon `linux/arm64` image, pushes the descriptive
-`frontend:0.6.2-spa-route-fix` tag to that local registry, and prints the
+`frontend:0.6.3-score-to-midi` tag to that local registry, and prints the
 immutable digest and image size. Review the digest before updating
 `images.lock.yaml`, the Helm image value, and the retained source manifest.
 This helper does not deploy the image.
@@ -116,3 +116,6 @@ the NGINX fallback correction for direct Architecture navigation. The
 [dated rollout record](../../docs/trials/2026-10-03-frontend-demucs-refactor-rollout.md)
 records the image publication, Helm upgrade, browser checks, and live Demucs
 smoke result.
+The current `0.6.3-score-to-midi` image adds the separate score review page.
+It previews a PDF or image and plays an existing MIDI file. Automatic sheet
+transcription remains unavailable until its processing API is built.

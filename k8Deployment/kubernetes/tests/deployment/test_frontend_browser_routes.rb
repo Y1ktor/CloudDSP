@@ -4,7 +4,7 @@ require 'minitest/mock'
 require_relative '../../scripts/lib/helm-release'
 
 class FrontendBrowserRoutesTest < Minitest::Test
-  ROUTES = %w[/architecture /architecture/ /k8 /cost].freeze
+  ROUTES = %w[/architecture /architecture/ /k8 /cost /score-to-midi].freeze
   SHELL = '<html><div id="root"></div><script src="/assets/app.js"></script><link href="/assets/app.css"></html>'.freeze
   CSP = "default-src 'self'; object-src 'none'".freeze
 
