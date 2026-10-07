@@ -9,10 +9,10 @@ ready. The test does not start an OMR consumer.
 ruby k8Deployment/kubernetes/scripts/stages/database/job-api-postgresql-stage.rb verify
 ruby k8Deployment/kubernetes/scripts/stages/rabbitmq/rabbitmq-score-intake-topology.rb verify
 ruby k8Deployment/kubernetes/scripts/stages/minio/minio-score-upload-stage.rb verify
-kubectl --context k3d-clouddsp-local -n clouddsp-data create -f k8Deployment/kubernetes/tests/score-upload-smoke/score-upload-smoke-v002-configmap.yaml
-kubectl --context k3d-clouddsp-local -n clouddsp-data create -f k8Deployment/kubernetes/tests/score-upload-smoke/score-upload-smoke-v002-job.yaml
-kubectl --context k3d-clouddsp-local -n clouddsp-data wait --for=condition=complete job/score-upload-smoke-v002 --timeout=300s
-kubectl --context k3d-clouddsp-local -n clouddsp-data logs job/score-upload-smoke-v002
+kubectl --context k3d-clouddsp-local -n clouddsp-data create -f k8Deployment/kubernetes/tests/score-upload-smoke/score-upload-smoke-v003-configmap.yaml
+kubectl --context k3d-clouddsp-local -n clouddsp-data create -f k8Deployment/kubernetes/tests/score-upload-smoke/score-upload-smoke-v003-job.yaml
+kubectl --context k3d-clouddsp-local -n clouddsp-data wait --for=condition=complete job/score-upload-smoke-v003 --timeout=300s
+kubectl --context k3d-clouddsp-local -n clouddsp-data logs job/score-upload-smoke-v003
 ```
 
 The versioned Job requires an empty score queue and no consumer. It creates a

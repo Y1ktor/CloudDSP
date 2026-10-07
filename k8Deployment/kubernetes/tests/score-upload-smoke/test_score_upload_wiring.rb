@@ -48,12 +48,13 @@ class ScoreUploadWiringTest < Minitest::Test
   end
 
   def test_smoke_job_runs_reviewed_script_and_has_no_worker
-    config = yaml('tests/score-upload-smoke/score-upload-smoke-v002-configmap.yaml')
-    job = yaml('tests/score-upload-smoke/score-upload-smoke-v002-job.yaml')
+    config = yaml('tests/score-upload-smoke/score-upload-smoke-v003-configmap.yaml')
+    job = yaml('tests/score-upload-smoke/score-upload-smoke-v003-job.yaml')
     assert_equal(['python3', '/smoke/score_upload_smoke.py'],
                  job.dig('spec', 'template', 'spec', 'containers', 0, 'command'))
     assert_includes(config.fetch('data').fetch('score_upload_smoke.py'), 'score.upload.created')
     assert_includes(config.fetch('data').fetch('score_upload_smoke.py'), '"firstName": "CloudDSP"')
+    assert_includes(config.fetch('data').fetch('score_upload_smoke.py'), 'for _ in range(15)')
     assert_equal(false, job.dig('spec', 'template', 'spec', 'automountServiceAccountToken'))
   end
 end
