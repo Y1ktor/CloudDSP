@@ -13,6 +13,9 @@ class KeycloakConfigVerifyTest < Minitest::Test
 
     assert_equal 'clouddsp', desired.fetch(:realm)
     assert_equal true, desired.fetch(:registration).fetch('verifyEmail')
+    assert_equal 7 * 24 * 60 * 60, desired.fetch(:session).fetch('ssoSessionMaxLifespan')
+    assert_equal 300, desired.fetch(:session).fetch('accessTokenLifespan')
+    assert_equal true, desired.fetch(:session).fetch('rememberMe')
     assert_equal 'clouddsp-mailpit-smtp', desired.fetch(:smtp).fetch('host')
     assert_equal ['http://clouddsp.localhost:8080/'], desired.fetch(:react).fetch('redirectUris')
     assert_equal false, desired.fetch(:resource).fetch('standardFlowEnabled')
@@ -47,5 +50,39 @@ class KeycloakConfigVerifyTest < Minitest::Test
     error = assert_raises(RuntimeError) { @verifier.send(:api, http, '/admin/realms/clouddsp') }
     assert_match(/HTTP 500/, error.message)
     refute_includes error.message, 'private-token-in-body'
+  end
+
+  def test_session_policy_accepts_inherited_client_timeouts
+    policy = @verifier.load_desired.fetch(:session)
+    @verifier.send(:compare_session_policy, policy, { 'attributes' => {} }, policy)
+    @verifier.send(:compare_session_policy, policy, { 'attributes' => {
+      'client.session.idle.timeout' => '0', 'client.session.max.lifespan' => '0'
+    } }, policy)
+  end
+
+  def test_shorter_client_timeout_cannot_silently_override_seven_days
+    policy = @verifier.load_desired.fetch(:session)
+    error = assert_raises(RuntimeError) do
+      @verifier.send(:compare_session_policy, policy,
+                     { 'attributes' => { 'client.session.idle.timeout' => '1800' } }, policy)
+    end
+    assert_equal 'React client client.session.idle.timeout must inherit the realm', error.message
+    refute_includes error.message, '1800'
+  end
+
+  def test_long_lived_access_token_and_short_realm_session_are_detected
+    policy = @verifier.load_desired.fetch(:session)
+    %w[accessTokenLifespan ssoSessionIdleTimeout ssoSessionMaxLifespan].each do |key|
+      drifted = policy.merge(key => 123)
+      error = assert_raises(RuntimeError) do
+        @verifier.send(:compare_session_policy, drifted, { 'attributes' => {} }, policy)
+      end
+      assert_equal "realm #{key} drifted", error.message
+    end
+    error = assert_raises(RuntimeError) do
+      @verifier.send(:compare_session_policy, policy,
+                     { 'attributes' => { 'access.token.lifespan' => '604800' } }, policy)
+    end
+    assert_includes error.message, 'five-minute access tokens'
   end
 end

@@ -159,6 +159,17 @@ and OAuth access tokens. The API validates signature, issuer, audience,
 expiry, and immutable `sub` ownership. Cloud builds retain their Cognito ID
 token contract instead.
 
+The local `clouddsp` realm allows seven days of SSO/refresh-session validity,
+with a seven-day absolute limit from login, while access tokens last five
+minutes and are refreshed on protected requests. Remember me enables a
+persistent Keycloak SSO cookie for browser restarts when selected at login.
+React keeps tokens in per-tab `sessionStorage`; reopening a tab can require
+the Sign in button to establish a new PKCE session using that SSO cookie.
+The versioned session-policy Job applies these settings on fresh bootstrap
+or an explicit existing-cluster migration. Configuration verification checks
+both realm timeouts and conflicting React client overrides; the master realm
+administrator session policy is unchanged.
+
 The Job API issues constrained presigned upload forms and fresh authorized
 artifact downloads. User audio, stems, MIDI, and tempo objects stay in private
 `clouddsp-uploads`. The separate `clouddsp-midi-samples` bucket holds reviewed

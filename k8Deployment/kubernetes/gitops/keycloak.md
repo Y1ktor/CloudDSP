@@ -52,6 +52,38 @@ Removing an active HelmRelease can uninstall the Deployment, Service and route,
 interrupting login and discovery despite retained PostgreSQL data. Deleting the
 k3d cluster removes its local database. Fresh deployment does not restore data.
 
+### Application login lifetime
+
+The `clouddsp` realm's idle and absolute SSO limits are seven days (604800
+seconds), including Remember me sessions. Client session timeouts inherit the
+realm limits. Access tokens remain five minutes (300 seconds), and React uses
+the refresh token on protected requests. The master realm keeps its existing
+administrator timeouts. The source verifier also rejects conflicting timeout
+overrides on `clouddsp-react`.
+
+Select **Remember me** on the Keycloak login form to retain its SSO cookie
+across browser restarts. React's tokens stay in per-tab `sessionStorage`, so
+a newly opened tab may still show Sign in; the retained Keycloak SSO cookie
+allows the PKCE redirect to return without a password prompt until expiry.
+An already expired refresh token requires one new login after this migration.
+Sign-out and administrator revocation still end the session early.
+
+Fresh bootstrap includes the dedicated
+[session-policy Job](../services/keycloak/keycloak-realm-session-policy-job.yaml).
+For an existing realm, commit the reviewed policy first, then apply only that
+policy with the non-interactive migration mode:
+
+```sh
+ruby k8Deployment/kubernetes/scripts/stages/keycloak/keycloak-realm-stage.rb apply-session-policy
+ruby k8Deployment/kubernetes/scripts/stages/keycloak/keycloak-config-verify.rb verify
+```
+
+The migration performs a server dry run, requires its fixed-name Job to be
+absent, and verifies the entire durable configuration after completion. It
+creates no user, rotates no credential, and does not recreate the realm.
+Successful Jobs expire after five minutes; retain failed Jobs for diagnosis.
+These settings follow [Keycloak's session timeout and Remember Me semantics](https://www.keycloak.org/docs/latest/server_admin/#_timeouts).
+
 ## Delivery permissions and runtime security
 
 The [dedicated identity](clusters/clouddsp-local/keycloak/reconciliation-rbac.yaml)

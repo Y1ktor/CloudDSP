@@ -27,6 +27,7 @@ class KeycloakConfigVerify
   JOBS = {
     realm: 'keycloak-realm-bootstrap-job.yaml',
     registration: 'keycloak-realm-registration-policy-job.yaml',
+    session: 'keycloak-realm-session-policy-job.yaml',
     smtp: 'keycloak-realm-smtp-config-job.yaml',
     react: 'keycloak-frontend-oidc-client-bootstrap-job.yaml',
     audience: 'keycloak-job-api-audience-bootstrap-job.yaml',
@@ -57,7 +58,7 @@ class KeycloakConfigVerify
     ensure
       http.finish if http.started?
     end
-    @output.puts 'Keycloak realm, clients, audience, SMTP, registration flow, and issuer verified.'
+    @output.puts 'Keycloak realm, sessions, clients, audience, SMTP, registration flow, and issuer verified.'
     0
   rescue StandardError => exception
     # Never print an Admin API response, token, Secret value, request object,
@@ -77,13 +78,14 @@ class KeycloakConfigVerify
     ensure_true(jobs.fetch(:realm).fetch(:script).include?("--set='enabled=true'"),
                 'source realm bootstrap no longer enables the realm')
 
-    payloads = %i[registration smtp react audience password_form].to_h do |name|
+    payloads = %i[registration session smtp react audience password_form].to_h do |name|
       [name, json_payloads(jobs.fetch(name))]
     end
-    { registration: 1, smtp: 1, react: 1, audience: 2, password_form: 1 }.each do |name, count|
+    { registration: 1, session: 1, smtp: 1, react: 1, audience: 2, password_form: 1 }.each do |name, count|
       ensure_true(payloads.fetch(name).length == count, "source #{name} JSON payload count changed")
     end
     registration = payloads.fetch(:registration).fetch(0)
+    session = payloads.fetch(:session).fetch(0)
     smtp = payloads.fetch(:smtp).fetch(0).fetch('smtpServer')
     react = payloads.fetch(:react).fetch(0)
     resource, mapper = payloads.fetch(:audience)
@@ -91,6 +93,12 @@ class KeycloakConfigVerify
     ensure_true(registration == {
       'registrationAllowed' => true, 'verifyEmail' => true, 'resetPasswordAllowed' => true
     }, 'source registration policy changed')
+    ensure_true(session == {
+      'accessTokenLifespan' => 300,
+      'ssoSessionIdleTimeout' => 604_800, 'ssoSessionMaxLifespan' => 604_800,
+      'ssoSessionIdleTimeoutRememberMe' => 604_800, 'ssoSessionMaxLifespanRememberMe' => 604_800,
+      'clientSessionIdleTimeout' => 0, 'clientSessionMaxLifespan' => 0, 'rememberMe' => true
+    }, 'source seven-day session policy changed')
     ensure_true(smtp == {
       'host' => 'clouddsp-mailpit-smtp', 'port' => '1025', 'from' => 'noreply@clouddsp.test',
       'fromDisplayName' => 'CloudDSP local', 'auth' => 'false', 'ssl' => 'false', 'starttls' => 'false'
@@ -122,7 +130,7 @@ class KeycloakConfigVerify
                 password_form.dig('config', 'always_set_password_on_register_form') == 'true',
                 'source registration password-form policy changed')
 
-    { realm: realm_name, registration: registration, smtp: smtp, react: react,
+    { realm: realm_name, registration: registration, session: session, smtp: smtp, react: react,
       resource: resource, mapper: mapper, password_form: password_form }
   end
 
@@ -183,6 +191,7 @@ class KeycloakConfigVerify
     react = client(http, token, realm_name, desired.fetch(:react).fetch('clientId'))
     resource = client(http, token, realm_name, desired.fetch(:resource).fetch('clientId'))
     compare_client('React client', react, desired.fetch(:react))
+    compare_session_policy(realm, react, desired.fetch(:session))
     compare_client('Job API client', resource, desired.fetch(:resource))
     mappers = api(http, "/admin/realms/#{realm_name}/clients/#{react.fetch('id')}/protocol-mappers/models", token: token)
     name = desired.fetch(:mapper).fetch('name')
@@ -227,6 +236,18 @@ class KeycloakConfigVerify
         same("#{label} #{key}", live, value)
       end
     end
+  end
+
+  def compare_session_policy(realm, react, desired)
+    desired.each { |key, value| same("realm #{key}", realm[key], value) }
+    # A client override could silently shorten refresh validity even when the
+    # realm says seven days. Empty/zero session overrides inherit the realm.
+    attributes = react.fetch('attributes', {})
+    %w[client.session.idle.timeout client.session.max.lifespan].each do |key|
+      ensure_true([nil, '', '0'].include?(attributes[key]), "React client #{key} must inherit the realm")
+    end
+    ensure_true([nil, '', desired.fetch('accessTokenLifespan').to_s].include?(attributes['access.token.lifespan']),
+                'React client access.token.lifespan must use five-minute access tokens')
   end
 
   def same(label, actual, expected)

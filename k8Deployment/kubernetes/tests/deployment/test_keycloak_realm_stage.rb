@@ -87,7 +87,7 @@ class KeycloakRealmStageTest < Minitest::Test
       assert_equal 0, stage.run('plan')
       assert_equal 1, verifier.loads
       assert_equal 0, verifier.runs
-      assert_includes output.string, 'six versioned Admin API Jobs pending'
+      assert_includes output.string, '7 versioned Admin API Jobs pending'
       refute fake.calls.any? { |call| call.include?('create') || call.include?('wait') }
     end
   end
@@ -96,11 +96,12 @@ class KeycloakRealmStageTest < Minitest::Test
     with_stage do |stage, fake, verifier, output, _error|
       assert_equal 0, stage.run('bootstrap')
       creates = fake.calls.select { |call| call[5] == 'create' }
-      assert_equal 12, creates.length
-      assert creates.take(6).all? { |call| call.include?('--dry-run=server') }
-      assert creates.drop(6).none? { |call| call.include?('--dry-run=server') }
+      count = CloudDSPKeycloakRealmStage::JOBS.length
+      assert_equal count * 2, creates.length
+      assert creates.take(count).all? { |call| call.include?('--dry-run=server') }
+      assert creates.drop(count).none? { |call| call.include?('--dry-run=server') }
       expected_names = CloudDSPKeycloakRealmStage::JOBS.map(&:last)
-      assert_equal expected_names, creates.drop(6).map { |call| File.basename(call.last, '-job.yaml') }
+      assert_equal expected_names, creates.drop(count).map { |call| File.basename(call.last, '-job.yaml') }
       assert_equal expected_names.map { |name| "job/#{name}" },
                    fake.calls.select { |call| call[5] == 'wait' }.map { |call| call.find { |part| part.start_with?('job/') } }
       assert_equal 1, verifier.runs
@@ -179,6 +180,36 @@ class KeycloakRealmStageTest < Minitest::Test
     with_stage(realm: :present) do |stage, fake, verifier, _output, _error|
       assert_equal 0, stage.run('verify')
       assert_equal 1, verifier.runs
+      refute fake.calls.any? { |call| call[5] == 'create' }
+    end
+  end
+
+  def test_explicit_session_migration_only_runs_its_named_policy_job
+    with_stage(realm: :present) do |stage, fake, verifier, output, _error|
+      assert_equal 0, stage.run('apply-session-policy')
+      creates = fake.calls.select { |call| call[5] == 'create' }
+      assert_equal 2, creates.length
+      assert creates.first.include?('--dry-run=server')
+      refute creates.last.include?('--dry-run=server')
+      assert creates.all? { |call| File.basename(call.last) == 'keycloak-realm-session-policy-job.yaml' }
+      assert_equal 1, verifier.runs
+      assert_includes output.string, 'seven-day session policy applied and verified'
+    end
+  end
+
+  def test_session_migration_requires_an_existing_realm
+    with_stage do |stage, fake, _verifier, _output, error|
+      assert_equal 1, stage.run('apply-session-policy')
+      assert_includes error.string, 'realm must exist'
+      refute fake.calls.any? { |call| call[5] == 'create' }
+    end
+  end
+
+  def test_existing_session_job_is_preserved_and_blocks_replay
+    with_stage(realm: :present) do |stage, fake, _verifier, _output, error|
+      fake.existing_job = 'keycloak-realm-session-policy'
+      assert_equal 1, stage.run('apply-session-policy')
+      assert_includes error.string, 'session-policy Job already exists'
       refute fake.calls.any? { |call| call[5] == 'create' }
     end
   end

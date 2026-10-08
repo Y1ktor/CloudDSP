@@ -1,0 +1,117 @@
+# Apply the application's seven-day login policy to durable realm state.
+# This is separate from the Keycloak Helm release: a server rollout must not
+# recreate identities or implicitly overwrite realm policy in PostgreSQL.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: keycloak-realm-session-policy
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: keycloak-realm-session-policy
+    app.kubernetes.io/component: identity-bootstrap
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: keycloak-seven-day-sessions
+spec:
+  # Keep the result briefly for diagnosis, with deliberate rather than
+  # automatic retries for a privileged policy update.
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 0
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: keycloak-realm-session-policy
+        app.kubernetes.io/component: identity-bootstrap
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      # The Admin CLI uses HTTP, and needs no Kubernetes API permissions.
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: keycloak-admin-cli
+          # Reuse the reviewed identity server image and its matching kcadm
+          # client. No new runtime image or application rebuild is required.
+          image: quay.io/keycloak/keycloak@sha256:ff4257d0d64efbe99ed1ddfaf07765cc3c36dc7518bf8324d41961327f441c54
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: KEYCLOAK_ADMIN_URL
+              value: http://clouddsp-keycloak:8080
+            - name: KEYCLOAK_ADMIN_REALM
+              value: master
+            - name: CLOUDDSP_REALM
+              value: clouddsp
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keycloak-bootstrap-admin
+                  key: KC_BOOTSTRAP_ADMIN_USERNAME
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-keycloak-bootstrap-admin
+                  key: KC_BOOTSTRAP_ADMIN_PASSWORD
+          resources:
+            # Each no-cache Admin CLI call starts a JVM; the deadline and
+            # resource budget match the other reviewed realm-policy Jobs.
+            requests:
+              cpu: 100m
+              memory: 64Mi
+              ephemeral-storage: 32Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+              ephemeral-storage: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          command:
+            - sh
+            - -ec
+            - |
+              # Authenticate per request, without a token cache or shell trace.
+              # The master realm authenticates administration; only the named
+              # application realm receives the longer session policy.
+              KCADM=/opt/keycloak/bin/kcadm.sh
+              set -- --no-config \
+                --server "$KEYCLOAK_ADMIN_URL" \
+                --realm "$KEYCLOAK_ADMIN_REALM" \
+                --user "$KC_BOOTSTRAP_ADMIN_USERNAME" \
+                --password "$KC_BOOTSTRAP_ADMIN_PASSWORD"
+              if ! "$KCADM" get "realms/$CLOUDDSP_REALM" "$@" >/dev/null 2>&1; then
+                printf 'Keycloak session policy failed: CloudDSP realm is unavailable\n' >&2
+                exit 1
+              fi
+
+              # 604800 seconds = seven days, measured from login for the max
+              # lifespan. Five-minute access tokens continue to be refreshed
+              # by the SPA. Zero client timeouts inherit the SSO limits.
+              # Remember me creates a persistent SSO cookie when selected;
+              # React still keeps access/refresh tokens in per-tab storage.
+              # kcadm merges this partial realm representation, preserving
+              # users, clients, signing keys, SMTP and registration policies.
+              if ! "$KCADM" update "realms/$CLOUDDSP_REALM" "$@" -f - >/dev/null 2>&1 <<'JSON'
+              {
+                "accessTokenLifespan": 300,
+                "ssoSessionIdleTimeout": 604800,
+                "ssoSessionMaxLifespan": 604800,
+                "ssoSessionIdleTimeoutRememberMe": 604800,
+                "ssoSessionMaxLifespanRememberMe": 604800,
+                "clientSessionIdleTimeout": 0,
+                "clientSessionMaxLifespan": 0,
+                "rememberMe": true
+              }
+              JSON
+              then
+                printf 'Keycloak session policy update failed\n' >&2
+                exit 1
+              fi
+              printf 'Keycloak seven-day session policy applied; access tokens remain five minutes\n'

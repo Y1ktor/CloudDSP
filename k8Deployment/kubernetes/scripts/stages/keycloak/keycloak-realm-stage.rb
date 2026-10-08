@@ -1,5 +1,5 @@
 #!/usr/bin/env ruby
-# Run the six reviewed Keycloak Admin API Jobs on a fresh local cluster.
+# Run the reviewed Keycloak Admin API Jobs on a fresh local cluster.
 # The realm and client records inside Keycloak/PostgreSQL are durable state;
 # completed Kubernetes Jobs are disposable and can expire after their TTL.
 # An existing but incomplete realm is never silently repaired by this stage.
@@ -23,6 +23,7 @@ class CloudDSPKeycloakRealmStage
   JOBS = [
     ['realm', 'keycloak-realm-bootstrap-job.yaml', 'keycloak-realm-bootstrap'],
     ['registration', 'keycloak-realm-registration-policy-job.yaml', 'keycloak-realm-registration-policy'],
+    ['session', 'keycloak-realm-session-policy-job.yaml', 'keycloak-realm-session-policy'],
     ['smtp', 'keycloak-realm-smtp-config-job.yaml', 'keycloak-realm-smtp-config'],
     ['react', 'keycloak-frontend-oidc-client-bootstrap-job.yaml', 'keycloak-frontend-oidc-client-bootstrap'],
     ['audience', 'keycloak-job-api-audience-bootstrap-job.yaml', 'keycloak-job-api-audience-bootstrap'],
@@ -50,10 +51,17 @@ class CloudDSPKeycloakRealmStage
   end
 
   def run(mode)
-    ensure_true(%w[plan bootstrap verify].include?(mode), 'use plan, bootstrap, or verify')
+    ensure_true(%w[plan bootstrap verify apply-session-policy].include?(mode),
+                'use plan, bootstrap, verify, or apply-session-policy')
     @verifier.load_desired
     jobs = load_jobs
     check_prerequisites
+    if mode == 'apply-session-policy'
+      # Explicit existing-cluster migration, never an automatic repair during
+      # ordinary bootstrap/verify. It runs only the reviewed session-policy Job.
+      apply_session_policy(jobs.find { |job| job.fetch(:label) == 'session' })
+      return 0
+    end
     if mode == 'verify'
       verify_configuration
       @output.puts 'Keycloak realm and clients verified'
@@ -70,7 +78,7 @@ class CloudDSPKeycloakRealmStage
 
     ensure_jobs_absent
     if mode == 'plan'
-      @output.puts 'Keycloak realm plan: realm absent; six versioned Admin API Jobs pending'
+      @output.puts "Keycloak realm plan: realm absent; #{jobs.length} versioned Admin API Jobs pending"
       return 0
     end
 
@@ -166,6 +174,20 @@ class CloudDSPKeycloakRealmStage
     end
   end
 
+  def apply_session_policy(job)
+    ensure_true(@probe.call == :present, 'CloudDSP realm must exist before updating session policy')
+    name = job.fetch(:name)
+    ensure_true(kubectl('get', "job/#{name}", '--ignore-not-found', '--output=name').strip.empty?,
+                'Keycloak session-policy Job already exists; retain failures for diagnosis or wait for its TTL')
+    job_command('Keycloak session Job server dry run', 'create', '--dry-run=server',
+                '--filename', job.fetch(:path).to_s)
+    job_command('Keycloak session Job creation', 'create', '--filename', job.fetch(:path).to_s)
+    job_command('Keycloak session Job completion', 'wait', '--for=condition=complete', "job/#{name}",
+                "--timeout=#{job.fetch(:deadline) + 60}s")
+    verify_configuration
+    @output.puts 'Keycloak seven-day session policy applied and verified'
+  end
+
   def verify_configuration
     ensure_true(@verifier.run == 0, 'Keycloak realm/client state is incomplete or drifted')
   end
@@ -203,6 +225,6 @@ class CloudDSPKeycloakRealmStage
 end
 
 if $PROGRAM_NAME == __FILE__
-  abort 'Usage: keycloak-realm-stage.rb plan|bootstrap|verify' unless ARGV.length == 1
+  abort 'Usage: keycloak-realm-stage.rb plan|bootstrap|verify|apply-session-policy' unless ARGV.length == 1
   exit CloudDSPKeycloakRealmStage.new.run(ARGV.first)
 end
