@@ -164,7 +164,7 @@ images:
     immutableReference: clouddsp-registry.localhost:5001/midi-sheet@sha256:1d2f9c0c6f55d546a2aec0b3eaad4150cf0ec7005aff46d279dbd1c113ab4ab9
     supportedPlatforms: [linux/arm64/v8]
     builtFrom:
-      sourceRevision: 24fc3a70777002de269f4d8048cca6ab893f3f3e
+      sourceRevision: 2f0448f991761b27a8741675bc85bf15602f2049
       sourceDirectory: kubernetes/services/midi-sheet
       dockerfile: kubernetes/services/midi-sheet/Dockerfile
       requirements: kubernetes/services/midi-sheet/requirements.txt
@@ -187,7 +187,7 @@ images:
     builtFrom:
       # Build source is committed before publishing; delivery references are
       # recorded in the following release commit to avoid a circular Git hash.
-      sourceRevision: 24fc3a70777002de269f4d8048cca6ab893f3f3e
+      sourceRevision: 2f0448f991761b27a8741675bc85bf15602f2049
       sourceDirectory: kubernetes/services/job-api/app
       dockerfile: kubernetes/services/job-api/Dockerfile
       requirementsLock: kubernetes/services/job-api/requirements.lock
@@ -611,9 +611,9 @@ images:
     # This build selects local adapters from the canonical root frontend;
     # cloud and local screens now share one source and dependency lock.
     repository: clouddsp-registry.localhost:5001/frontend
-    sourceTag: "0.6.7-midi-sheet"
-    digest: sha256:c3574cf9d7d432b66a6248691ef4e1c286da26fa037ec6d01445f525d10de9de
-    immutableReference: clouddsp-registry.localhost:5001/frontend@sha256:c3574cf9d7d432b66a6248691ef4e1c286da26fa037ec6d01445f525d10de9de
+    sourceTag: "0.6.8-sheet-preview"
+    digest: sha256:8494bbcea710fd4d902f2b57c81e53f1464a0c1d1e8b8a141cc9e3d63bf3149c
+    immutableReference: clouddsp-registry.localhost:5001/frontend@sha256:8494bbcea710fd4d902f2b57c81e53f1464a0c1d1e8b8a141cc9e3d63bf3149c
     supportedPlatforms:
       - linux/arm64/v8
     builtFrom:
@@ -624,7 +624,7 @@ images:
       # metadata is recorded in the matching Dockerfile and Helm chart. The
       # NGINX recipe also fixes direct SPA routes that share an asset directory.
       sourceBaselineCommit: 6393ae3eb4153b883baf993e7c1d887252f8de1f
-      sourceRevision: 24fc3a70777002de269f4d8048cca6ab893f3f3e
+      sourceRevision: 2f0448f991761b27a8741675bc85bf15602f2049
       # Application source is relative to the repository root; delivery files
       # below retain their Kubernetes-directory-relative locations.
       sourceDirectory: frontend
@@ -639,7 +639,7 @@ images:
       publicObjectStorageOrigin: http://minio.localhost:8080
       midiSampleLock: kubernetes/services/minio/midi-sample-assets.lock.json
       sharedSampleBucket: clouddsp-midi-samples
-    localDockerSizeBytes: 35145039
+    localDockerSizeBytes: 35640010
     localDockerSize: "33.52 MiB"
     pushedAt: "2026-10-08"
 
