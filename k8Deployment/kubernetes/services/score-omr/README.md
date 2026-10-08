@@ -78,3 +78,21 @@ count and duration. Matching the old benchmark preserves its known key and
 note recognition errors; this is a pipeline regression check, not an accuracy
 score or a corrected musical transcription. Existing completed job artifacts
 are retained; a new upload uses the corrected worker after its rollout.
+
+### 2026-10-08 diagnosis and correction
+
+Worker 0.1.3 rendered the supplied two-page Debussy PDF at 2190 × 3000,
+whereas the original benchmark used 2700 × 3700 at 300 DPI. With original
+benchmark page PNGs, the same Linux ARM64 image and two-CPU limit produced
+byte-identical page XML, isolating the recognition change to PDF rasterization.
+The old append-based assembly also differed from the benchmark, and default
+MusicXML notation repair failed on its sparse voice IDs.
+
+Worker `0.1.4-benchmark-parity` restores fixed 300 DPI and the benchmark's
+common page offset. It writes MIDI first and exports a separate MusicXML copy
+without notation repair. The two-page local regression produced identical
+page XML and combined MIDI: 666 note-on events, 66 seconds and MIDI SHA-256
+`01a205f18a6701cda3f802cb9bd693ccf78e2b8b7812900edbbfd380930d1f4d`.
+The corrected MusicXML also contains 666 pitched notes. Recognition still
+includes the benchmark's known incorrect key changes; no musical correction
+or new model was applied. CPU, memory and KEDA 0–2 limits remain unchanged.
