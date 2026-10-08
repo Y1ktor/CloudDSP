@@ -15,9 +15,9 @@ limited to 36 million pixels. Homr writes MusicXML per page, music21 combines
 it into one MusicXML and MIDI, and the worker rejects zero-note output.
 Both private objects are uploaded before the lease-guarded completion update;
 only then is the RabbitMQ delivery acknowledged. Bounded transient retries
-pass through the existing 30-second score retry queue. An exhausted error
-sets `failed` when PostgreSQL is reachable, or dead-letters the delivery for
-operator recovery when it is not. All browser result URLs are short lived,
+pass through the existing 30-second score retry queue. Exhausted transient
+errors are dead-lettered for operator recovery. They also set `failed` when
+PostgreSQL is reachable and no other active lease owns the row. All browser result URLs are short lived,
 owner checked API signatures generated from stable keys.
 
 Each page has a 120-second inference deadline, with four pages maximum and
@@ -42,8 +42,8 @@ python3 k8Deployment/kubernetes/scripts/stages/credentials/score-omr-bootstrap.p
 
 This creates three restricted app-namespace runtime Secrets and finite
 database/RabbitMQ/MinIO bootstrap Jobs, then removes their temporary
-data-namespace credential copies. Keep the ignored JSON for recovery or
-rotation. The Flux chart and image digest must be available before adding its
+data-namespace credential copies. Keep the ignored JSON for recovery.
+The Flux chart and image digest must be available before adding its
 HelmRelease to the cluster root.
 
 The local CPU profile is suitable for evaluation. Homr can misread key
