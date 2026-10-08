@@ -406,6 +406,32 @@
 .score-midi-playback-status { color: var(--studio-text-muted); font-size: 11px; }
 .score-midi-editor-hint { margin: 0; color: var(--studio-text-muted); font-size: 11px; }
 
+/* The submission action belongs to the editable MIDI's transport. It keeps
+   the upload button styling instead of inheriting the small playback icons. */
+.score-midi-transport > .score-midi-queue-sheet {
+    height: 33px;
+    padding: 7px 14px;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 750;
+    background: var(--studio-control);
+    border: 1px solid var(--studio-border-strong);
+}
+.score-midi-transport > .score-midi-queue-sheet:disabled { cursor: not-allowed; }
+.score-midi-transport > .score-midi-queue-sheet:enabled { background: var(--studio-midi); border-color: var(--studio-midi); }
+.score-midi-transport > .score-midi-queue-sheet:hover:not(:disabled) { background: var(--studio-midi); }
+
+.score-midi-sheet-result { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--studio-border); }
+.score-midi-sheet-ready { color: var(--studio-midi); font-size: 12px; font-weight: 750; }
+.score-midi-sheet-viewer { border: 1px solid var(--studio-border); border-radius: 5px; overflow: hidden; background: var(--studio-surface-raised); }
+.score-midi-sheet-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 15px; border-bottom: 1px solid var(--studio-border); font-size: 12px; }
+.score-midi-sheet-pagination { display: flex; align-items: center; gap: 12px; }
+.score-midi-sheet-pagination > span { min-width: 80px; text-align: center; color: var(--studio-text-secondary); }
+.score-midi-sheet-pagination button:disabled { opacity: 0.5; cursor: not-allowed; }
+.score-midi-sheet-loading { text-align: center; color: var(--studio-text-muted); font-size: 12px; }
+.score-midi-sheet-canvas { margin: 16px; text-align: center; }
+.score-midi-sheet-canvas canvas { max-width: 100%; background: white; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.16); }
+
 @media (max-width: 780px) {
     .score-midi-input-grid { grid-template-columns: 1fr; }
     .score-midi-result-heading { align-items: flex-start; flex-direction: column; }

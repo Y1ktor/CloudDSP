@@ -10,7 +10,7 @@ import { useScoreMidiWorkspace } from './useScoreMidiWorkspace';
 const EMPTY = {};
 const noop = () => {};
 
-const ScoreMidiWorkspace = forwardRef(function ScoreMidiWorkspace({ midiFile, downloadUrl, sessionKey, sourceEditor = false, onRetainSnapshot }, ref) {
+const ScoreMidiWorkspace = forwardRef(function ScoreMidiWorkspace({ midiFile, downloadUrl, sessionKey, sourceEditor = false, onRetainSnapshot, onQueueSheet, queueDisabled = false, isQueuingSheet = false }, ref) {
     const workspace = useScoreMidiWorkspace(midiFile, sessionKey);
     const {
         trackName, audioEngine, timeline, parsedMidiStems, setParsedMidiStems,
@@ -81,9 +81,13 @@ const ScoreMidiWorkspace = forwardRef(function ScoreMidiWorkspace({ midiFile, do
                         <span className="score-midi-transport-separator" />
                         <WorkspaceTempoControls audioEngine={audioEngine} />
                         <span className="score-midi-transport-spacer" />
-                        <span className="score-midi-playback-status" role="status">
+                        {sourceEditor ? <button className="score-midi-transcribe-button score-midi-queue-sheet" type="button"
+                            disabled={queueDisabled || isQueuingSheet || !noteCount}
+                            onClick={onQueueSheet}>
+                            {isQueuingSheet ? 'Uploading…' : 'Queue sheet'}
+                        </button> : <span className="score-midi-playback-status" role="status">
                             {readyToPlay ? 'Ready to play' : playbackInstrumentStatus === 'failed' ? 'Piano sounds unavailable' : 'Loading piano sounds…'}
-                        </span>
+                        </span>}
                     </div>
 
                     <WorkspaceTimeline

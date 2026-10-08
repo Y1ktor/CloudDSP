@@ -40,8 +40,12 @@ signs fresh source/PDF/MusicXML URLs after owner verification. History follows
 the active direction: MIDI-to-sheet, score-to-MIDI, or stem jobs. Opening a job
 restores its submitted MIDI and result or resumes polling without requeueing.
 Account changes discard files, history, pending requests, and editor resources.
-Current browser edits are uploaded only on Queue; previous job results represent
-the submitted version. PDF opens in the browser's native viewer; MusicXML is
+Current browser edits are uploaded only on Queue sheet in the MIDI timeline's
+transport bar; previous job results represent the submitted version. Completed
+PDFs preview below the editor, with Previous/Next controls for multi-page scores
+and an external Open PDF link. The lazy-loaded PDF.js viewer renders one page
+at a time into a bounded canvas and disposes its worker on studio/job changes;
+the existing CSP still blocks embedded frames and objects. MusicXML is
 downloadable. No CSP frame/object exceptions were added.
 
 KEDA scales this Deployment from zero to two, including unacknowledged work.

@@ -1,7 +1,11 @@
 /** Score and MIDI source workspace; score uploads now reach the local queue. */
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import ScoreMidiWorkspace from './ScoreMidiWorkspace';
 import './ScoreToMidiPage.css';
+
+// Load the PDF renderer only when a sheet is ready, keeping ordinary MIDI
+// editing and the stem studio free of the PDF library's startup cost.
+const SheetPdfPreview = lazy(() => import('./SheetPdfPreview'));
 
 function extensionOf(file) {
     return file?.name?.split('.').pop()?.toLowerCase() || '';
@@ -83,11 +87,6 @@ export default function ScoreToMidiPage({ authenticated = false, authLoading = f
                             <div className="score-midi-file-name" title={sheetSourceMidiFile?.name || 'No MIDI selected'}>
                                 {sheetSourceMidiFile?.name || 'No MIDI selected'}
                             </div>
-                            <button className="score-midi-transcribe-button" type="button"
-                                disabled={!canStageSource || !authenticatedFetch || !sheetSourceMidiFile}
-                                onClick={() => submitMidi(() => midiEditorRef.current?.exportMidi())}>
-                                {sheetUploading ? 'Uploading…' : 'Queue sheet'}
-                            </button>
                         </div>
                         {sheetSourceMidiError && <p className="score-midi-error" role="alert">{sheetSourceMidiError}</p>}
                         <p className="score-midi-availability">MIDI: MID or MIDI · 10 MiB maximum. Files stay in your browser until you queue the sheet.</p>
@@ -100,6 +99,9 @@ export default function ScoreToMidiPage({ authenticated = false, authLoading = f
 
                         {sheetSourceMidiFile ? <ScoreMidiWorkspace ref={midiEditorRef}
                             key={editorKey} midiFile={sheetSourceMidiFile} sessionKey={`sheet-${editorKey}`} sourceEditor
+                            onQueueSheet={() => submitMidi(() => midiEditorRef.current?.exportMidi())}
+                            queueDisabled={!canStageSource || !authenticatedFetch}
+                            isQueuingSheet={sheetUploading}
                             onRetainSnapshot={(file) => retainMidi(file, editorKey)} />
                             : <div className={`score-midi-preview ${isDragging ? 'score-midi-preview-dragging' : ''}`}
                                 onDragOver={(event) => { event.preventDefault(); if (canStageSource) setIsDragging(true); }}
@@ -109,13 +111,21 @@ export default function ScoreToMidiPage({ authenticated = false, authLoading = f
                                 <div className="score-midi-preview-empty"><span className="score-midi-score-glyph" aria-hidden="true">♫</span>
                                     <strong>Your MIDI editor appears here</strong><span>Choose a MIDI file above or drop one in this area.</span></div>
                             </div>}
-                        {sheetJob?.status === 'completed' && <div className="score-midi-result-heading">
-                            <h2>Your sheet is ready</h2>
-                            <div className="score-midi-result-meta">
-                                <a className="score-midi-secondary-button" href={sheetJob.pdf_url} target="_blank" rel="noopener noreferrer">Open PDF ↗</a>
-                                <a className="score-midi-secondary-button" href={sheetJob.musicxml_url} download>Download MusicXML</a>
+                        {sheetJob?.status === 'completed' && <section className="score-midi-sheet-result" aria-labelledby="sheet-result-title">
+                            <div className="score-midi-result-heading">
+                                <div>
+                                    <span className="score-midi-sheet-ready">✓ Sheet ready</span>
+                                    <h2 id="sheet-result-title">Your sheet is ready</h2>
+                                </div>
+                                <div className="score-midi-result-meta">
+                                    <a className="score-midi-secondary-button" href={sheetJob.pdf_url} target="_blank" rel="noopener noreferrer">Open PDF ↗</a>
+                                    <a className="score-midi-secondary-button" href={sheetJob.musicxml_url} download>Download MusicXML</a>
+                                </div>
                             </div>
-                        </div>}
+                            <Suspense fallback={<p className="score-midi-result-pending" role="status">Loading score preview…</p>}>
+                                <SheetPdfPreview key={`${sheetUpload?.jobId}-${sheetJob.pdf_url}`} url={sheetJob.pdf_url} />
+                            </Suspense>
+                        </section>}
                     </>
                 ) : (
                     <>
