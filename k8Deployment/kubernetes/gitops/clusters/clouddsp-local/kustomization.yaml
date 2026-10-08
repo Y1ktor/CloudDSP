@@ -19,6 +19,8 @@ resources:
   # The homr identities and v011 lease migration are bootstrapped before
   # enabling this ordinary Deployment and its zero-to-two queue autoscaler.
   - score-omr
+  # v012, independent queues, and restricted identities are bootstrapped first.
+  - midi-sheet
   - demucs
   - rabbitmq
   - postgresql

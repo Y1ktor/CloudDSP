@@ -1,6 +1,6 @@
 # Replaced with a published immutable ARM64 image before enabling Flux.
 image:
-  reference: clouddsp-registry.localhost:5001/midi-sheet:0.1.0
+  reference: clouddsp-registry.localhost:5001/midi-sheet@sha256:1d2f9c0c6f55d546a2aec0b3eaad4150cf0ec7005aff46d279dbd1c113ab4ab9
 autoscaling:
   minReplicaCount: 0
   maxReplicaCount: 2

@@ -156,19 +156,38 @@ images:
     localDockerSize: "445.35 MiB"
     pushedAt: "2026-10-08"
 
+  midi-sheet:
+    # Official MuseScore 4.7.5 ARM64 bundle; CPU engraving, no runtime downloads.
+    repository: clouddsp-registry.localhost:5001/midi-sheet
+    sourceTag: "0.1.0"
+    digest: sha256:1d2f9c0c6f55d546a2aec0b3eaad4150cf0ec7005aff46d279dbd1c113ab4ab9
+    immutableReference: clouddsp-registry.localhost:5001/midi-sheet@sha256:1d2f9c0c6f55d546a2aec0b3eaad4150cf0ec7005aff46d279dbd1c113ab4ab9
+    supportedPlatforms: [linux/arm64/v8]
+    builtFrom:
+      sourceRevision: 24fc3a70777002de269f4d8048cca6ab893f3f3e
+      sourceDirectory: kubernetes/services/midi-sheet
+      dockerfile: kubernetes/services/midi-sheet/Dockerfile
+      requirements: kubernetes/services/midi-sheet/requirements.txt
+      baseImageReference: docker.io/library/python@sha256:05cda9777409a9c3ffddd94a4c476b79f0769a0b4857f0c7ed9226b6800b0d6f
+      museScoreVersion: "4.7.5"
+      museScoreAppImageSha256: 034f0257fd21ed6b7d4863714dbf8e97cc86d454beb79aaa845a5ade3ff99e36
+    localDockerSizeBytes: 381826374
+    localDockerSize: "364.14 MiB"
+    pushedAt: "2026-10-08"
+
   job-api:
     # This locally built API adds owner-bound score history and source/result URLs.
     # Workloads use the digest, not the descriptive tag.
     repository: clouddsp-registry.localhost:5001/job-api
-    sourceTag: "0.0.12-score-history"
-    digest: sha256:48c79daa63fc35d0dc8d33e466de28065e204a5a72b5e9c24e400be187c7c2a5
-    immutableReference: clouddsp-registry.localhost:5001/job-api@sha256:48c79daa63fc35d0dc8d33e466de28065e204a5a72b5e9c24e400be187c7c2a5
+    sourceTag: "0.0.13-midi-sheet"
+    digest: sha256:a2979b2cffd1ca330078a804d3843a218c8db0602dbbbde57527ff881927f96b
+    immutableReference: clouddsp-registry.localhost:5001/job-api@sha256:a2979b2cffd1ca330078a804d3843a218c8db0602dbbbde57527ff881927f96b
     supportedPlatforms:
       - linux/arm64/v8
     builtFrom:
       # Build source is committed before publishing; delivery references are
       # recorded in the following release commit to avoid a circular Git hash.
-      sourceRevision: b8234f947a47c2486c35310f7e088d90b61e235f
+      sourceRevision: 24fc3a70777002de269f4d8048cca6ab893f3f3e
       sourceDirectory: kubernetes/services/job-api/app
       dockerfile: kubernetes/services/job-api/Dockerfile
       requirementsLock: kubernetes/services/job-api/requirements.lock
@@ -186,8 +205,8 @@ images:
       scoreStatusTests: kubernetes/services/job-api/tests/test_score_status.py
       runtimeImageLock: images.api-python-runtime
       sourceLock: buildSources.api
-    localDockerSizeBytes: 77913258
-    localDockerSize: "74.30 MiB"
+    localDockerSizeBytes: 77917113
+    localDockerSize: "74.31 MiB"
     pushedAt: "2026-10-08"
 
   upload-intake:
@@ -592,9 +611,9 @@ images:
     # This build selects local adapters from the canonical root frontend;
     # cloud and local screens now share one source and dependency lock.
     repository: clouddsp-registry.localhost:5001/frontend
-    sourceTag: "0.6.6-score-history"
-    digest: sha256:0131518ddeff8759056e879e8d295b60cad738ca8863e235e4541608384ef4d7
-    immutableReference: clouddsp-registry.localhost:5001/frontend@sha256:0131518ddeff8759056e879e8d295b60cad738ca8863e235e4541608384ef4d7
+    sourceTag: "0.6.7-midi-sheet"
+    digest: sha256:c3574cf9d7d432b66a6248691ef4e1c286da26fa037ec6d01445f525d10de9de
+    immutableReference: clouddsp-registry.localhost:5001/frontend@sha256:c3574cf9d7d432b66a6248691ef4e1c286da26fa037ec6d01445f525d10de9de
     supportedPlatforms:
       - linux/arm64/v8
     builtFrom:
@@ -605,7 +624,7 @@ images:
       # metadata is recorded in the matching Dockerfile and Helm chart. The
       # NGINX recipe also fixes direct SPA routes that share an asset directory.
       sourceBaselineCommit: 6393ae3eb4153b883baf993e7c1d887252f8de1f
-      sourceRevision: b8234f947a47c2486c35310f7e088d90b61e235f
+      sourceRevision: 24fc3a70777002de269f4d8048cca6ab893f3f3e
       # Application source is relative to the repository root; delivery files
       # below retain their Kubernetes-directory-relative locations.
       sourceDirectory: frontend
@@ -620,7 +639,7 @@ images:
       publicObjectStorageOrigin: http://minio.localhost:8080
       midiSampleLock: kubernetes/services/minio/midi-sample-assets.lock.json
       sharedSampleBucket: clouddsp-midi-samples
-    localDockerSizeBytes: 35144623
+    localDockerSizeBytes: 35145039
     localDockerSize: "33.52 MiB"
     pushedAt: "2026-10-08"
 

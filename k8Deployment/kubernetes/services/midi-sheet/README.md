@@ -10,7 +10,7 @@ positions. Loop, mute, solo, and viewport settings do not trim the export.
 
 Authenticated `POST /sheet-jobs` accepts `direction: midi_to_sheet`, basename,
 MIDI content type, and size (1 byte–10 MiB). Keycloak supplies the immutable
-owner. PostgreSQL `midi_sheet_jobs` owns UUID, state, 7-day retention, revision,
+owner. PostgreSQL `midi_sheet_jobs` owns UUID, state, 14-day retention, revision,
 lease, and stable private keys. The API returns a size-constrained POST form;
 the browser uploads to `clouddsp-uploads/midi-sheet-inputs/{uuid}/source.mid`.
 Both accepted filename suffixes use this canonical object suffix.
