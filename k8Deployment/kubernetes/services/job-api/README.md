@@ -68,11 +68,13 @@ The API route creates an upload intent. The browser then sends the signed form
 directly to MinIO. A separate `score-inputs/*` PutObject policy extends the
 Job API's existing MinIO identity without granting bucket-wide access. A
 score-prefix ObjectCreated rule publishes to `clouddsp.score-intake` through
-the `score.upload.created` RabbitMQ route. The message waits there for a future
-consumer. The API response and MinIO acknowledgement do not represent a
-completed transcription; the durable row remains `upload_pending` until a
-future validated intake advances it. OMR, result reads, and retention cleanup
-are separate implementation work.
+the `score.upload.created` RabbitMQ route. The score OMR consumer validates the
+event against the durable row and live object, then advances the leased job
+through processing to private MIDI and MusicXML results. Authenticated
+`GET /score-jobs/{job_id}` returns only the verified owner's current state and
+signs fresh URLs after completion. The upload response and MinIO acknowledgement
+do not represent a completed transcription. Score artifact retention cleanup
+remains separate implementation work.
 
 ## Ownership and authentication
 

@@ -1,0 +1,9 @@
+# Top-level packages are fixed to the locally evaluated homr release. The
+# immutable published image digest freezes the resolved Linux/ARM64 closure.
+homr==0.7.0
+music21==9.9.1
+mido==1.3.3
+psycopg[binary]==3.2.12
+boto3==1.40.52
+pika==1.3.2
+omegaconf==2.3.1

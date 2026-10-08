@@ -11,7 +11,8 @@ creates an upload-pending PostgreSQL row and returns a short-lived, constrained
 MinIO form; the browser uploads audio directly to MinIO, not through this API
 Pod. `POST /score-jobs` creates a separate owner-bound sheet upload intent.
 That score route does not publish RabbitMQ work or start an OMR worker.
-`readyz` continues to prove only that the API can reach its restricted
+`GET /score-jobs/{job_id}` returns an owner-bound score snapshot and fresh
+private result URLs after the homr worker completes. `readyz` proves only that the API can reach its restricted
 PostgreSQL database.
 """
 
@@ -31,6 +32,7 @@ from app.database import (
     DatabaseUnavailable,
     create_direct_upload_pending_job,
     create_score_upload_pending_job,
+    get_retained_score_job_for_owner,
     get_retained_job_snapshot_for_owner,
     list_retained_jobs_for_owner,
     verify_database_connection,
@@ -55,7 +57,7 @@ SERVICE_NAME = "clouddsp-job-api"
 # This value appears only in the non-sensitive health/readiness responses. It
 # must track the immutable local image milestone so `kubectl exec`/port-forward
 # diagnostics can confirm which API code Kubernetes actually rolled out.
-SERVICE_VERSION = "0.0.10-score-upload"
+SERVICE_VERSION = "0.0.11-score-omr"
 
 
 # Disable FastAPI's generated schema and interactive documentation until the
@@ -278,6 +280,27 @@ def job_snapshot_response(row: dict[str, object]) -> JSONResponse:
         content=jsonable_encoder(public_row),
         headers={"cache-control": "no-store"},
     )
+
+
+def score_job_snapshot_response(row: dict[str, object]) -> JSONResponse:
+    """Return safe score state and fresh result URLs after owner verification."""
+
+    public = dict(row)
+    bucket = public.pop("_result_bucket", None)
+    midi_key = public.pop("_result_midi_key", None)
+    xml_key = public.pop("_result_musicxml_key", None)
+    if public.get("status") == "completed":
+        settings = ObjectStorageSettings.from_environment()
+        if bucket != settings.uploads_bucket or not midi_key or not xml_key:
+            raise PresignedDownloadContractError("score result coordinates are incomplete.")
+        public["midi_url"] = create_presigned_download_url(
+            settings, job_id=public["job_id"], object_key=midi_key, kind="score-midi")
+        public["musicxml_url"] = create_presigned_download_url(
+            settings, job_id=public["job_id"], object_key=xml_key, kind="score-musicxml")
+    if public.get("status") != "failed":
+        public["error"] = None
+    return JSONResponse(status_code=200, content=jsonable_encoder(public),
+                        headers={"cache-control": "no-store"})
 
 
 def job_not_found_response() -> JSONResponse:
@@ -556,3 +579,22 @@ def create_score_upload_job(
         content=jsonable_encoder(response.model_dump(mode="json")),
         headers={"cache-control": "no-store"},
     )
+
+
+@app.get("/score-jobs/{job_id}", include_in_schema=False)
+def get_score_job(
+    job_id: UUID,
+    principal: Annotated[AuthenticatedPrincipal, Depends(require_authenticated_principal)],
+) -> JSONResponse:
+    """Poll an owner-bound conversion; completed results receive fresh URLs."""
+
+    try:
+        row = get_retained_score_job_for_owner(job_id=str(job_id), owner_sub=principal.subject)
+    except (DatabaseConfigurationError, DatabaseUnavailable):
+        return job_snapshot_unavailable_response()
+    if row is None:
+        return job_not_found_response()
+    try:
+        return score_job_snapshot_response(row)
+    except (ObjectStorageConfigurationError, PresignedDownloadContractError, PresignedDownloadSigningError):
+        return job_snapshot_unavailable_response()

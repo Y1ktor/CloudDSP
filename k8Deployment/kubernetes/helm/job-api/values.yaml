@@ -1,7 +1,7 @@
 # Copy only images.job-api.immutableReference from the reviewed image lock.
 # A Helm release never builds or retags this Python API image.
 image:
-  reference: clouddsp-registry.localhost:5001/job-api@sha256:5417825854179cc08495694294b506d7fa7b2a485c1dbd31a3cea8061f353691
+  reference: clouddsp-registry.localhost:5001/job-api@sha256:e0fd66b646a80711f42b991653725f9635adf575a9040668074123275a419299
 
 # The frontend Ingress shares this host. Its `/` path remains outside this
 # chart; the two narrower API prefixes keep the browser on one OIDC origin.

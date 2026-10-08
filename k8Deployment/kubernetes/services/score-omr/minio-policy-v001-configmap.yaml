@@ -1,0 +1,20 @@
+# The worker can read only submitted scores and write its own result prefix.
+# PostgreSQL validates the exact job-specific keys before any S3 operation.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clouddsp-score-omr-policy-v001
+  namespace: clouddsp-data
+immutable: true
+data:
+  score-omr-policy.json: |
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {"Sid": "ReadScoreSources", "Effect": "Allow", "Action": "s3:GetObject",
+         "Resource": "arn:aws:s3:::clouddsp-uploads/score-inputs/*"},
+        {"Sid": "WriteScoreResults", "Effect": "Allow",
+         "Action": ["s3:GetObject", "s3:PutObject", "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"],
+         "Resource": "arn:aws:s3:::clouddsp-uploads/score-results/*"}
+      ]
+    }

@@ -1,0 +1,7 @@
+# Explicitly select only Score OMR and its reconciliation identity. Smoke Jobs and
+# credential/bootstrap templates are outside the reconciled cluster root.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - reconciliation-rbac.yaml
+  - helmrelease.yaml

@@ -72,6 +72,10 @@ def expected_download_key(*, job_id: str, kind: str, stem_name: str | None = Non
         return f"midi/{canonical_job_id}/{stem_name}.mid"
     if kind == "tempo":
         return f"midi/{canonical_job_id}/drums_bpm.json"
+    if kind == "score-midi":
+        return f"score-results/{canonical_job_id}/result.mid"
+    if kind == "score-musicxml":
+        return f"score-results/{canonical_job_id}/result.musicxml"
     raise PresignedDownloadContractError("artifact kind is not supported.")
 
 

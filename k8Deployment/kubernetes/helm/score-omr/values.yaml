@@ -1,0 +1,6 @@
+# Updated only after the local registry publishes the immutable ARM64 image.
+image:
+  reference: clouddsp-registry.localhost:5001/score-omr@sha256:417bae3f7df4bfa28c0f1f71091f712d90a64a317279f6d98fe7b644b5e44839
+autoscaling:
+  minReplicaCount: 0
+  maxReplicaCount: 2

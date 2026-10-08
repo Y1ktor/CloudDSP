@@ -70,7 +70,7 @@ spec:
                   - message-identity-bootstrap
                   - message-topology-bootstrap
 
-    # Only the two fixed-name disposable upload smokes need the management
+    # Only the fixed-name disposable upload/OMR smokes need the management
     # API for a queue assertion/cleanup. Each carries short-lived test admin
     # credentials and is removed after its run.
     # Keep this separate from the bootstrap peer set so unrelated integration
@@ -88,7 +88,7 @@ spec:
             matchExpressions:
               - key: app.kubernetes.io/name
                 operator: In
-                values: [source-to-outbox-smoke, score-upload-smoke]
+                values: [source-to-outbox-smoke, score-upload-smoke, score-omr-smoke]
 
     # The finite six-stem integration Job reads aggregate queue counts for its
     # report. It alone receives this narrow management-port exception and uses
@@ -126,6 +126,9 @@ spec:
                   - audio-separation-worker
                   - midi-extraction-worker
                   - drum-midi-worker
+                  # The independent homr consumer reads only score-intake;
+                  # RabbitMQ's restricted login enforces queue-level scope.
+                  - score-converter
 
         # MinIO is the only current data-namespace runtime publisher: it sends
         # native object-created events. PostgreSQL, Keycloak, and Mailpit cannot

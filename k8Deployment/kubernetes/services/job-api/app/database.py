@@ -140,6 +140,21 @@ CREATE_SCORE_UPLOAD_PENDING_JOB_SQL = """
     RETURNING job_id::text AS job_id, direction, status, revision, expires_at
 """
 
+# Score polling is a separate owner-bound read. The underscored coordinates
+# never reach JSON; the HTTP layer signs only completed deterministic outputs.
+GET_RETAINED_SCORE_JOB_FOR_OWNER_SQL = """
+    SELECT job_id::text AS job_id, direction, source_filename, source_uploaded,
+           status, revision, attempt_count, error_message AS error,
+           result_bucket AS _result_bucket,
+           result_midi_key AS _result_midi_key,
+           result_musicxml_key AS _result_musicxml_key,
+           created_at, updated_at, expires_at
+    FROM public.score_jobs
+    WHERE job_id = %s::uuid AND owner_sub = %s
+      AND expires_at > CURRENT_TIMESTAMP
+    LIMIT 1
+"""
+
 
 class DatabaseConfigurationError(RuntimeError):
     """Raised when the API Pod is missing its required database environment."""
@@ -416,6 +431,35 @@ def get_retained_job_snapshot_for_owner(
         # A configured dict_row connection should never reach this branch. Do
         # not mislabel a driver/configuration regression as an ordinary 404.
         raise DatabaseUnavailable("PostgreSQL job detail returned an invalid row.")
+    return dict(row)
+
+
+def get_retained_score_job_for_owner(*, job_id: str, owner_sub: str) -> dict[str, object] | None:
+    """Read one score state with the same Keycloak owner/expiry boundary."""
+
+    canonical_id = _canonical_job_id(job_id)
+    trusted_owner = _trusted_owner_sub(owner_sub)
+    settings = DatabaseSettings.from_environment()
+    try:
+        with psycopg.connect(
+            host=settings.host, port=settings.port, dbname=settings.database,
+            user=settings.username, password=settings.password,
+            connect_timeout=settings.connect_timeout_seconds,
+            options=(f"-c statement_timeout={DEFAULT_STATEMENT_TIMEOUT_MILLISECONDS} "
+                     "-c default_transaction_read_only=on"),
+            application_name="clouddsp-job-api-get-score-detail",
+            autocommit=True, row_factory=dict_row,
+        ) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(GET_RETAINED_SCORE_JOB_FOR_OWNER_SQL,
+                               (canonical_id, trusted_owner))
+                row = cursor.fetchone()
+    except (psycopg.Error, OSError) as error:
+        raise DatabaseUnavailable("PostgreSQL score detail is unavailable.") from error
+    if row is None:
+        return None
+    if not isinstance(row, dict):
+        raise DatabaseUnavailable("PostgreSQL score detail returned an invalid row.")
     return dict(row)
 
 

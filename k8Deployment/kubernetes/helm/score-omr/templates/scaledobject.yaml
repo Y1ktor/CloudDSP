@@ -1,0 +1,44 @@
+{{- if gt (int .Values.autoscaling.minReplicaCount) (int .Values.autoscaling.maxReplicaCount) -}}
+{{- fail "minReplicaCount must not exceed maxReplicaCount" -}}
+{{- end -}}
+# KEDA wakes the ordinary Deployment for ready deliveries and keeps it active
+# while RabbitMQ tracks an unacknowledged inference. This worker ACKs only
+# after result objects and the PostgreSQL completion state are durable.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: clouddsp-score-omr
+  namespace: clouddsp-app
+  labels: {app.kubernetes.io/name: score-omr, app.kubernetes.io/component: queue-autoscaler, app.kubernetes.io/part-of: clouddsp}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: clouddsp-score-omr}
+  pollingInterval: 5
+  cooldownPeriod: 60
+  minReplicaCount: {{ .Values.autoscaling.minReplicaCount }}
+  maxReplicaCount: {{ .Values.autoscaling.maxReplicaCount }}
+  advanced:
+    restoreToOriginalReplicaCount: true
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          policies: [{type: Pods, value: 2, periodSeconds: 15}]
+        scaleDown:
+          # Avoid selecting a busy Pod during a 2-to-1 scale-in. The 660s
+          # window exceeds the per-score CPU deadline; final zero still uses
+          # KEDA's cooldown once both ready and unacked counts are empty.
+          stabilizationWindowSeconds: 660
+          policies: [{type: Pods, value: 1, periodSeconds: 60}]
+  triggers:
+    - type: rabbitmq
+      metadata:
+        host: http://clouddsp-rabbitmq-management.clouddsp-data.svc:15672
+        protocol: http
+        vhostName: /clouddsp
+        queueName: clouddsp.score-intake
+        mode: QueueLength
+        value: "1"
+        activationValue: "0"
+        excludeUnacknowledged: "false"
+        timeout: "5000"
+      authenticationRef: {name: clouddsp-rabbitmq-scaler-authentication}

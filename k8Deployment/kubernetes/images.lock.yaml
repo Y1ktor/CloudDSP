@@ -136,13 +136,31 @@ images:
     localDockerSize: "330.40 MiB"
     pushedAt: "2026-09-16"
 
+  score-omr:
+    # homr 0.7.0, its CPU ONNX/RapidOCR weights, Poppler, and music21 are
+    # baked into this Linux ARM64 image. Pods need no model download.
+    repository: clouddsp-registry.localhost:5001/score-omr
+    sourceTag: "0.1.3"
+    digest: sha256:417bae3f7df4bfa28c0f1f71091f712d90a64a317279f6d98fe7b644b5e44839
+    immutableReference: clouddsp-registry.localhost:5001/score-omr@sha256:417bae3f7df4bfa28c0f1f71091f712d90a64a317279f6d98fe7b644b5e44839
+    supportedPlatforms: [linux/arm64/v8]
+    builtFrom:
+      sourceRevision: local-kubernetes-working-tree
+      sourceDirectory: kubernetes/services/score-omr/app
+      dockerfile: kubernetes/services/score-omr/Dockerfile
+      requirements: kubernetes/services/score-omr/requirements.txt
+      runtimeImageLock: images.basic-pitch-python-runtime
+    localDockerSizeBytes: 466985513
+    localDockerSize: "445.35 MiB"
+    pushedAt: "2026-10-07"
+
   job-api:
-    # This locally built API adds the authenticated score upload contract.
+    # This locally built API adds owner-bound score status and result URLs.
     # Workloads use the digest, not the descriptive tag.
     repository: clouddsp-registry.localhost:5001/job-api
-    sourceTag: "0.0.10-score-upload"
-    digest: sha256:5417825854179cc08495694294b506d7fa7b2a485c1dbd31a3cea8061f353691
-    immutableReference: clouddsp-registry.localhost:5001/job-api@sha256:5417825854179cc08495694294b506d7fa7b2a485c1dbd31a3cea8061f353691
+    sourceTag: "0.0.11-score-omr"
+    digest: sha256:e0fd66b646a80711f42b991653725f9635adf575a9040668074123275a419299
+    immutableReference: clouddsp-registry.localhost:5001/job-api@sha256:e0fd66b646a80711f42b991653725f9635adf575a9040668074123275a419299
     supportedPlatforms:
       - linux/arm64/v8
     builtFrom:
@@ -163,10 +181,11 @@ images:
       finalizationMigrationTests: kubernetes/services/job-api/tests/test_job_finalization_migration.py
       presignedUploadTests: kubernetes/services/job-api/tests/test_presigned_upload.py
       scoreUploadTests: kubernetes/services/job-api/tests/test_score_upload.py
+      scoreStatusTests: kubernetes/services/job-api/tests/test_score_status.py
       runtimeImageLock: images.api-python-runtime
       sourceLock: buildSources.api
-    localDockerSizeBytes: 77921760
-    localDockerSize: "74.31 MiB"
+    localDockerSizeBytes: 77879849
+    localDockerSize: "74.27 MiB"
     pushedAt: "2026-10-07"
 
   upload-intake:
@@ -571,9 +590,9 @@ images:
     # This build selects local adapters from the canonical root frontend;
     # cloud and local screens now share one source and dependency lock.
     repository: clouddsp-registry.localhost:5001/frontend
-    sourceTag: "0.6.3-score-upload"
-    digest: sha256:82221607dff8197c2bdfee722da7a963d9da7d0b470f724ccc3f5124f5af11a3
-    immutableReference: clouddsp-registry.localhost:5001/frontend@sha256:82221607dff8197c2bdfee722da7a963d9da7d0b470f724ccc3f5124f5af11a3
+    sourceTag: "0.6.5-score-omr"
+    digest: sha256:8328c06e816f10950f16fcaeb627e19a7844076a34c7168dff97689e4430f59b
+    immutableReference: clouddsp-registry.localhost:5001/frontend@sha256:8328c06e816f10950f16fcaeb627e19a7844076a34c7168dff97689e4430f59b
     supportedPlatforms:
       - linux/arm64/v8
     builtFrom:
@@ -599,8 +618,8 @@ images:
       publicObjectStorageOrigin: http://minio.localhost:8080
       midiSampleLock: kubernetes/services/minio/midi-sample-assets.lock.json
       sharedSampleBucket: clouddsp-midi-samples
-    localDockerSizeBytes: 35141199
-    localDockerSize: "33.51 MiB"
+    localDockerSizeBytes: 35143301
+    localDockerSize: "33.52 MiB"
     pushedAt: "2026-10-07"
 
   frontend-node-builder:

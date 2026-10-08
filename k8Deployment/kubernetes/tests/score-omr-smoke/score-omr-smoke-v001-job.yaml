@@ -1,0 +1,89 @@
+# Run after the score API image, MinIO policy/target/rule, and RabbitMQ queue
+# have been deployed. The Job uses a temporary Keycloak user and cleans only
+# its own rows/objects. The deployed homr consumer performs real inference.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: score-omr-smoke-v001
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: score-omr-smoke
+    app.kubernetes.io/component: integration-test
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 0
+  activeDeadlineSeconds: 900
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: score-omr-smoke
+        app.kubernetes.io/component: integration-test
+        app.kubernetes.io/part-of: clouddsp
+        clouddsp.io/environment: local
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: score-upload-client
+          # The Job API runtime image already contains pinned Psycopg/Boto3.
+          # Override Uvicorn and mount this test's immutable Python source.
+          image: clouddsp-registry.localhost:5001/job-api@sha256:e0fd66b646a80711f42b991653725f9635adf575a9040668074123275a419299
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef: {fieldPath: metadata.name}
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef: {name: clouddsp-keycloak-bootstrap-admin, key: KC_BOOTSTRAP_ADMIN_USERNAME}
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: clouddsp-keycloak-bootstrap-admin, key: KC_BOOTSTRAP_ADMIN_PASSWORD}
+            - name: POSTGRESQL_HOST
+              value: clouddsp-postgresql.clouddsp-data.svc
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef: {name: clouddsp-postgresql-credentials, key: POSTGRES_USER}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: clouddsp-postgresql-credentials, key: POSTGRES_PASSWORD}
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef: {name: clouddsp-minio-root-credentials, key: MINIO_ROOT_USER}
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: clouddsp-minio-root-credentials, key: MINIO_ROOT_PASSWORD}
+            - name: RABBITMQ_DEFAULT_USER
+              valueFrom:
+                secretKeyRef: {name: clouddsp-rabbitmq-credentials, key: RABBITMQ_DEFAULT_USER}
+            - name: RABBITMQ_DEFAULT_PASS
+              valueFrom:
+                secretKeyRef: {name: clouddsp-rabbitmq-credentials, key: RABBITMQ_DEFAULT_PASS}
+            - {name: PYTHONDONTWRITEBYTECODE, value: "1"}
+            - {name: AWS_EC2_METADATA_DISABLED, value: "true"}
+          resources:
+            requests: {cpu: 50m, memory: 96Mi, ephemeral-storage: 32Mi}
+            limits: {cpu: 250m, memory: 256Mi, ephemeral-storage: 96Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: smoke-source, mountPath: /smoke, readOnly: true}
+          command: [python3, /smoke/score_omr_smoke.py]
+      volumes:
+        - name: smoke-source
+          configMap:
+            name: score-omr-smoke-v001
+            defaultMode: 0444
+            items:
+              - {key: score_omr_smoke.py, path: score_omr_smoke.py}
+              - {key: fixture.jpg, path: fixture.jpg}

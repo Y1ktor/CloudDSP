@@ -1,7 +1,7 @@
 # CloudDSP local Kubernetes architecture and status
 
 This is the current implementation summary, reviewed against the versioned
-source on **2026-10-04**. For prerequisites, configuration, deployment,
+source on **2026-10-07**. For prerequisites, configuration, deployment,
 verification, and cleanup, use the [operator guide](kubernetes/scripts/README.md)
 and the [repository README](../README.md). The complete incremental implementation
 record is preserved in [history](kubernetes/docs/history/2026-10-03-kubernetes-implementation-log.md).
@@ -102,8 +102,8 @@ MIDI workers -> private MIDI/tempo objects + guarded PostgreSQL completion
 Browser -> authenticated Job API polling -> fresh presigned artifact URLs
 ```
 
-The independent sheet-to-MIDI upload path uses a separate PostgreSQL
-`score_jobs` table (migration v010) and authenticated `POST /score-jobs` upload
+The independent sheet-to-MIDI path uses a separate PostgreSQL
+`score_jobs` table (migrations v010–v011) and authenticated `POST /score-jobs` upload
 intent. It reuses the private uploads bucket under `score-inputs/{job_id}/`,
 with PDF/PNG/JPEG and a 25 MiB presigned POST cap. The existing MinIO Job API
 identity receives a separate prefix-only PutObject policy. A second MinIO
@@ -111,9 +111,13 @@ notification target publishes score-prefix ObjectCreated events to the durable
 `clouddsp.score-intake` RabbitMQ quorum queue; the audio `uploads/` path keeps
 its own rule and queue. The frontend creates the job and uploads the form
 directly to MinIO. A disposable smoke Job verifies Keycloak, PostgreSQL,
-object metadata, and the waiting queue without invoking OMR. A future intake
-consumer must validate the event against the row and object before changing
-job state. The OMR worker, result API, and retention cleanup are later work.
+object metadata and queue delivery. The score OMR consumer validates the event
+against the row and object, claims a bounded lease, runs homr on CPU, writes
+private MusicXML/MIDI results, and commits the terminal state before ACK.
+KEDA keeps zero to two consumers according to ready and unacknowledged queue
+depth. Authenticated `GET /score-jobs/{job_id}` exposes owner-bound status and
+fresh result URLs; the React score page polls and opens completed MIDI in the
+shared editor. Score artifact retention cleanup remains future work.
 
 PostgreSQL is authoritative for jobs, artifact keys, revisions, processing
 tasks, leases, retries, and outbox state. RabbitMQ delivery can duplicate;

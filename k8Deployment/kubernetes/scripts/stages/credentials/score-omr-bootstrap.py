@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+"""Provision restricted score worker identities without committing secrets.
+
+Run after committing versioned manifests and image references. Credentials
+persist only in the ignored local JSON and namespaced Kubernetes Secrets.
+"""
+
+import argparse
+import json
+import os
+from pathlib import Path
+import secrets
+import subprocess
+import sys
+
+ROOT = Path(__file__).resolve().parents[3]
+SERVICE = ROOT / "services" / "score-omr"
+CONTEXT = "k3d-clouddsp-local"
+
+
+def run(*args, stdin=None):
+    completed = subprocess.run(["kubectl", "--context", CONTEXT, *args], input=stdin,
+                               text=True, capture_output=True)
+    if completed.returncode:
+        raise RuntimeError(f"kubectl operation failed: {' '.join(args[:3])}: {completed.stderr[:400]}")
+    return completed.stdout
+
+
+def apply_file(name):
+    run("apply", "-f", str(SERVICE / name))
+
+
+def wait_job(namespace, name):
+    run("-n", namespace, "wait", "--for=condition=complete", f"job/{name}", "--timeout=240s")
+
+
+def secret(namespace, name, values):
+    # JSON is accepted by kubectl apply -f -. No credential appears in an
+    # argument, shell interpolation, a log, or a committed source file.
+    manifest = {"apiVersion": "v1", "kind": "Secret",
+                "metadata": {"name": name, "namespace": namespace},
+                "type": "Opaque", "stringData": values}
+    run("apply", "-f", "-", stdin=json.dumps(manifest))
+
+
+def load_or_create(path):
+    if path.exists():
+        data = json.loads(path.read_text())
+    else:
+        data = {"db_password": secrets.token_urlsafe(40),
+                "rabbit_password": secrets.token_urlsafe(40),
+                "s3_secret": secrets.token_urlsafe(40)}
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        with os.fdopen(fd, "w") as handle:
+            json.dump(data, handle)
+            handle.write("\n")
+    if not all(isinstance(data.get(key), str) and len(data[key]) >= 32
+               for key in ("db_password", "rabbit_password", "s3_secret")):
+        raise ValueError("Score worker credential file is incomplete.")
+    return data
+
+
+def bootstrap(path):
+    creds = load_or_create(path)
+    apply_file("score-jobs-migration-v011-configmap.yaml")
+    apply_file("score-jobs-migration-v011-job.yaml")
+    wait_job("clouddsp-app", "score-jobs-migration-v011")
+
+    secret("clouddsp-app", "clouddsp-score-omr-database-credentials",
+           {"SCORE_DB_USER": "clouddsp-score-omr", "SCORE_DB_PASSWORD": creds["db_password"]})
+    secret("clouddsp-data", "clouddsp-score-omr-database-bootstrap-credentials",
+           {"SCORE_DB_USER": "clouddsp-score-omr", "SCORE_DB_PASSWORD": creds["db_password"]})
+    secret("clouddsp-app", "clouddsp-score-omr-rabbitmq-credentials",
+           {"RABBITMQ_SCORE_OMR_USERNAME": "clouddsp-score-omr",
+            "RABBITMQ_SCORE_OMR_PASSWORD": creds["rabbit_password"]})
+    secret("clouddsp-data", "clouddsp-score-omr-rabbitmq-bootstrap-credentials",
+           {"RABBITMQ_SCORE_OMR_USERNAME": "clouddsp-score-omr",
+            "RABBITMQ_SCORE_OMR_PASSWORD": creds["rabbit_password"]})
+    secret("clouddsp-app", "clouddsp-score-omr-minio-credentials",
+           {"SCORE_OMR_S3_ACCESS_KEY": "clouddsp-score-omr",
+            "SCORE_OMR_S3_SECRET_KEY": creds["s3_secret"]})
+    secret("clouddsp-data", "clouddsp-score-omr-minio-bootstrap-credentials",
+           {"SCORE_OMR_S3_ACCESS_KEY": "clouddsp-score-omr",
+            "SCORE_OMR_S3_SECRET_KEY": creds["s3_secret"]})
+
+    apply_file("minio-policy-v001-configmap.yaml")
+    apply_file("job-api-result-read-policy-v001-configmap.yaml")
+    for file, namespace, name in (
+        ("database-bootstrap-v001-job.yaml", "clouddsp-data", "score-omr-database-bootstrap-v001"),
+        ("rabbitmq-bootstrap-v001-job.yaml", "clouddsp-data", "rabbitmq-score-omr-consumer-bootstrap"),
+        ("minio-bootstrap-v001-job.yaml", "clouddsp-data", "minio-score-omr-bootstrap"),
+        ("job-api-result-read-bootstrap-v001-job.yaml", "clouddsp-data", "minio-job-api-score-results-bootstrap-v001"),
+    ):
+        apply_file(file)
+        wait_job(namespace, name)
+
+    # These temporary data-namespace copies were read by finite admin Jobs.
+    # Runtime Pods receive only the app-namespace restricted Secrets.
+    for name in ("clouddsp-score-omr-database-bootstrap-credentials",
+                 "clouddsp-score-omr-rabbitmq-bootstrap-credentials",
+                 "clouddsp-score-omr-minio-bootstrap-credentials"):
+        run("-n", "clouddsp-data", "delete", "secret", name)
+    print("Score worker migration and three restricted identities are ready.")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--secrets-file", required=True, type=Path)
+    args = parser.parse_args()
+    try:
+        bootstrap(args.secrets_file)
+    except Exception as error:
+        print(f"Score worker bootstrap failed: {error}", file=sys.stderr)
+        raise SystemExit(1)

@@ -1,0 +1,37 @@
+# A separate immutable migration adds one bounded processing lease to the
+# already-live score_jobs table. The schema owner applies it once before any
+# worker starts; RabbitMQ and KEDA do not own durable state.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: score-jobs-migration-v011
+  namespace: clouddsp-app
+immutable: true
+data:
+  011_score_worker.sql: |
+    BEGIN;
+    SELECT pg_advisory_xact_lock(834929517101);
+    DO $guard$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM public.schema_migrations WHERE migration_id = 'v010_score_jobs') THEN
+        RAISE EXCEPTION 'v011 requires v010 score jobs';
+      END IF;
+    END $guard$;
+    ALTER TABLE public.score_jobs
+      ADD COLUMN IF NOT EXISTS lease_token UUID,
+      ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0);
+    DO $constraint$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'score_jobs_lease_pair'
+                     AND conrelid = 'public.score_jobs'::regclass) THEN
+        ALTER TABLE public.score_jobs ADD CONSTRAINT score_jobs_lease_pair
+          CHECK ((lease_token IS NULL) = (lease_expires_at IS NULL));
+      END IF;
+    END $constraint$;
+    CREATE INDEX IF NOT EXISTS score_jobs_active_lease_idx ON public.score_jobs (lease_expires_at)
+      WHERE status = 'processing';
+    INSERT INTO public.schema_migrations(migration_id, description)
+      VALUES ('v011_score_worker', 'Score OMR claim lease and attempt count')
+      ON CONFLICT (migration_id) DO NOTHING;
+    COMMIT;

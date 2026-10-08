@@ -1,5 +1,6 @@
 /** Score and MIDI source workspace; score uploads now reach the local queue. */
 import React, { useEffect, useMemo, useState } from 'react';
+import ScoreMidiWorkspace from './ScoreMidiWorkspace';
 import { uploadScore, validateScoreFile } from './scoreUpload';
 import './ScoreToMidiPage.css';
 
@@ -24,11 +25,41 @@ export default function ScoreToMidiPage({ authenticated = false, authLoading = f
     const [isDragging, setIsDragging] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
     const [scoreUploadState, setScoreUploadState] = useState(null);
+    const [scoreJob, setScoreJob] = useState(null);
+    const [resultMidiFile, setResultMidiFile] = useState(null);
     const canStageSource = authenticated && !authLoading;
     const canUploadScore = canStageSource && Boolean(authenticatedFetch) && Boolean(scoreFile) && !isUploading;
 
     const scoreUrl = useMemo(() => scoreFile ? URL.createObjectURL(scoreFile) : null, [scoreFile]);
     useEffect(() => () => { if (scoreUrl) URL.revokeObjectURL(scoreUrl); }, [scoreUrl]);
+
+    useEffect(() => {
+        if (!scoreUploadState?.jobId || !authenticatedFetch) return undefined;
+        let active = true;
+        let timer;
+        const poll = async () => {
+            try {
+                const response = await authenticatedFetch(`/score-jobs/${scoreUploadState.jobId}`);
+                if (!response.ok) throw new Error(`Could not read score status (${response.status}).`);
+                const job = await response.json();
+                if (!active) return;
+                setScoreJob(job);
+                if (job.status === 'completed') {
+                    const midiResponse = await fetch(job.midi_url);
+                    if (!midiResponse.ok) throw new Error('Could not download the completed MIDI.');
+                    const blob = await midiResponse.blob();
+                    if (active) setResultMidiFile(new File([blob], `${scoreFile?.name || 'score'}.mid`, { type: 'audio/midi' }));
+                    return;
+                }
+                if (job.status === 'failed') return;
+            } catch (error) {
+                if (active) setScoreError(error.message || 'Could not check score status.');
+            }
+            if (active) timer = window.setTimeout(poll, 3000);
+        };
+        poll();
+        return () => { active = false; window.clearTimeout(timer); };
+    }, [scoreUploadState?.jobId, authenticatedFetch, scoreFile?.name]);
 
     const chooseScore = (file) => {
         if (!canStageSource || !file) return;
@@ -40,6 +71,8 @@ export default function ScoreToMidiPage({ authenticated = false, authLoading = f
         setScoreFile(file);
         setScoreError('');
         setScoreUploadState(null);
+        setScoreJob(null);
+        setResultMidiFile(null);
     };
 
     const submitScore = async () => {
@@ -47,6 +80,8 @@ export default function ScoreToMidiPage({ authenticated = false, authLoading = f
         setIsUploading(true);
         setScoreError('');
         setScoreUploadState(null);
+        setScoreJob(null);
+        setResultMidiFile(null);
         try {
             const uploaded = await uploadScore({ file: scoreFile, authenticatedFetch });
             setScoreUploadState(uploaded);
@@ -179,7 +214,7 @@ export default function ScoreToMidiPage({ authenticated = false, authLoading = f
                             </button>
                         </div>
                         {scoreError && <p className="score-midi-error" role="alert">{scoreError}</p>}
-                        {scoreUploadState && <p className="score-midi-upload-status" role="status">Score uploaded and awaiting transcription. Job {scoreUploadState.jobId}.</p>}
+                        {scoreUploadState && <p className="score-midi-upload-status" role="status">{scoreJob?.status === 'completed' ? 'Transcription complete.' : scoreJob?.status === 'failed' ? `Transcription failed: ${scoreJob.error || 'The score could not be recognized.'}` : scoreJob?.status === 'processing' ? 'Transcribing your score…' : 'Score queued for transcription.'} Job {scoreUploadState.jobId}.</p>}
                         <p className="score-midi-availability">Sheet music: PDF, PNG, JPG, or JPEG · 25 MiB maximum.</p>
 
                         <div className="score-midi-input-grid">
@@ -226,6 +261,9 @@ export default function ScoreToMidiPage({ authenticated = false, authLoading = f
                     </>
                 )}
             </section>
+            {!isMidiToSheet && resultMidiFile && scoreJob?.midi_url && (
+                <ScoreMidiWorkspace midiFile={resultMidiFile} downloadUrl={scoreJob.midi_url} sessionKey={scoreUploadState.jobId} />
+            )}
         </main>
     );
 }
