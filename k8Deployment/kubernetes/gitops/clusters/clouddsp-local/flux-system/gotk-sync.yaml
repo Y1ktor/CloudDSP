@@ -30,6 +30,7 @@ spec:
     - k8Deployment/kubernetes/helm/adtof
     - k8Deployment/kubernetes/helm/basic-pitch
     - k8Deployment/kubernetes/helm/score-omr
+    - k8Deployment/kubernetes/helm/midi-sheet
     - k8Deployment/kubernetes/helm/demucs
     - k8Deployment/kubernetes/helm/rabbitmq
     - k8Deployment/kubernetes/helm/postgresql
