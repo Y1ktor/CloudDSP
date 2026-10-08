@@ -96,3 +96,15 @@ page XML and combined MIDI: 666 note-on events, 66 seconds and MIDI SHA-256
 The corrected MusicXML also contains 666 pitched notes. Recognition still
 includes the benchmark's known incorrect key changes; no musical correction
 or new model was applied. CPU, memory and KEDA 0–2 limits remain unchanged.
+
+The published ARM64 image passed the full two-page PDF regression in 27.0 s
+under a two-CPU/4-GiB limit, with both page XML files and MIDI byte-identical
+to the original Mac CPU benchmark. All 13 worker unit tests passed in that
+image. Helm lint/template and Kubernetes server validation passed. Flux
+release `470987d` installed the locked digest and retained KEDA min 0/max 2.
+The live v004 smoke then completed inference, authenticated history and
+source/result downloads, duplicate delivery, invalid-image failure, expired
+lease recovery, durable attempt exhaustion and delayed retry. Its initial
+small fixture completed in 18.1 s; all disposable rows, objects and identities
+were removed. This live fixture checks pipeline behavior separately from the
+local Debussy comparison.

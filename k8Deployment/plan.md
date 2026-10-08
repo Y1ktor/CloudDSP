@@ -117,7 +117,9 @@ private MusicXML/MIDI results, and commits the terminal state before ACK.
 The worker renders PDF pages at fixed 300 DPI with page-count and decoded-pixel
 bounds, preserves measure offsets across pages, and exports recognized MIDI
 before a separate MusicXML serialization without notation repair. A local
-Debussy benchmark check compares both page XML and combined MIDI exactly.
+Debussy benchmark check compares both page XML and combined MIDI exactly. Worker
+`0.1.4-benchmark-parity` is deployed through Flux; its two-CPU image matched
+the original two-page Debussy output and passed the live v004 smoke.
 KEDA keeps zero to two consumers according to ready and unacknowledged queue
 depth. Authenticated `GET /score-jobs/{job_id}` exposes owner-bound status and
 fresh result URLs; the React score page polls and opens completed MIDI in the

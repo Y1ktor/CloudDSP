@@ -95,3 +95,16 @@ main/popup BPM and meter synchronization, and the MIDI playback clock.
 The deployed anonymous pages also passed navigation checks. Audible piano
 sample playback was not verified in the earlier Vite fixture because that
 development origin could not load the samples.
+
+## Worker benchmark-parity rollout — 2026-10-08
+
+The existing immutable v004 smoke was run again after Flux deployed worker
+`0.1.4-benchmark-parity` from release `470987d`. The running worker image ID
+matched the new lock. Inference (eight notes in 18.1 seconds), history,
+source/result downloads, duplicate deliveries, invalid image, expired lease,
+durable attempt cap and delayed retry passed, with all disposable data and
+identities cleaned up. Separately, the published two-CPU image reproduced
+both original Debussy page XML files and combined MIDI exactly in 27.0 seconds.
+See the [worker regression guide](../../services/score-omr/README.md#debussy-benchmark-regression)
+for the external benchmark invocation. The model remains homr 0.7.0; CPU and
+KEDA limits remain unchanged.
