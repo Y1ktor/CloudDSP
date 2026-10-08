@@ -113,7 +113,7 @@ four server-chosen `source.<ext>` keys before signing. Fresh score bootstrap
 includes the same stage. No schema migration or queue change is needed.
 The rollout locks API `0.0.12-score-history` and frontend
 `0.6.6-score-history` to immutable ARM64 digests. Flux applies these references;
-the v003 score smoke verifies authenticated history and signed restoration.
+the v004 score smoke verifies authenticated history and signed restoration.
 
 ## Ownership and authentication
 
