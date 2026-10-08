@@ -3,6 +3,7 @@
  * retention information, and deletion confirmation.
  */
 import React from 'react';
+import { jobExpiryMilliseconds } from '../../app/jobHistory';
 
 function formatUpdatedAt(value) {
     if (!value) return 'Saved job';
@@ -16,12 +17,12 @@ function statusLabel(status) {
 }
 
 function formatExpiry(expiresAt) {
-    const expiresAtSeconds = Number(expiresAt);
-    if (!Number.isFinite(expiresAtSeconds) || expiresAtSeconds <= 0) {
+    const expiry = jobExpiryMilliseconds(expiresAt);
+    if (!Number.isFinite(expiry) || expiry <= 0) {
         return 'Expiration unavailable';
     }
 
-    const millisecondsRemaining = expiresAtSeconds * 1000 - Date.now();
+    const millisecondsRemaining = expiry - Date.now();
     if (millisecondsRemaining <= 0) return 'Expired';
 
     const daysRemaining = Math.ceil(millisecondsRemaining / (24 * 60 * 60 * 1000));
@@ -44,8 +45,13 @@ export default function PreviousJobs({
     onRefresh,
     onDelete,
     deletingJobId,
+    jobKind = 'stem',
+    selectionDisabled = false,
 }) {
     const [pendingDeletion, setPendingDeletion] = React.useState(null);
+    const isScore = jobKind === 'score';
+    const title = isScore ? 'Score to MIDI history' : 'Previous jobs';
+    const fallbackName = isScore ? 'Untitled score' : 'Untitled audio';
 
     React.useEffect(() => {
         if (!isOpen) return undefined;
@@ -76,7 +82,7 @@ export default function PreviousJobs({
             <section
                 role="dialog"
                 aria-modal="true"
-                aria-label="Previous jobs"
+                aria-label={title}
                 style={{
                     width: 'min(680px, 100%)', minHeight: '220px', maxHeight: 'min(620px, calc(100vh - 40px))', overflow: 'hidden',
                     background: 'var(--studio-surface)', border: '1px solid var(--studio-border)', borderRadius: '7px', padding: '16px',
@@ -84,9 +90,11 @@ export default function PreviousJobs({
                 }}
             >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-                    <div style={{ color: 'var(--studio-text)', fontSize: '16px', fontWeight: '700' }}>Previous jobs</div>
+                    <div style={{ color: 'var(--studio-text)', fontSize: '16px', fontWeight: '700' }}>{title}</div>
                     <div style={{ color: 'var(--studio-text-muted)', fontSize: '12px', flex: 1 }}>
-                        {isLoading ? 'Loading saved tracks…' : 'Select a track to reopen its source, stems, MIDI, and BPM.'}
+                        {isScore
+                            ? (isLoading ? 'Loading saved scores…' : 'Select a score to reopen its sheet and MIDI.')
+                            : (isLoading ? 'Loading saved tracks…' : 'Select a track to reopen its source, stems, MIDI, and BPM.')}
                     </div>
                     <button
                         type="button"
@@ -118,7 +126,7 @@ export default function PreviousJobs({
 
                 {error && <div role="alert" style={{ color: '#a93845', fontSize: '12px' }}>{error}</div>}
                 {!error && !isLoading && jobs.length === 0 && (
-                    <div style={{ color: 'var(--studio-text-muted)', fontSize: '12px' }}>No saved processing jobs for this account yet.</div>
+                    <div style={{ color: 'var(--studio-text-muted)', fontSize: '12px' }}>{isScore ? 'No saved score jobs for this account yet.' : 'No saved processing jobs for this account yet.'}</div>
                 )}
                 {jobs.length > 0 && (
                     <div style={{ display: 'flex', flex: '1 1 auto', flexDirection: 'column', gap: '7px', minHeight: 0, overflowY: 'auto', paddingRight: '2px' }}>
@@ -140,8 +148,9 @@ export default function PreviousJobs({
                                         <button
                                             type="button"
                                             onClick={() => onSelect(job)}
+                                            disabled={selectionDisabled}
                                             aria-pressed={isActive}
-                                            title={`Open ${job.source_filename || 'saved track'}`}
+                                            title={selectionDisabled ? 'Wait for the current upload to finish' : `Open ${job.source_filename || fallbackName}`}
                                             style={{
                                                 display: 'block', minWidth: 0, minHeight: '82px', flex: '1 1 auto', boxSizing: 'border-box',
                                                 textAlign: 'left', padding: '11px 13px', background: 'transparent', color: 'var(--studio-text)',
@@ -149,19 +158,19 @@ export default function PreviousJobs({
                                             }}
                                         >
                                             <div style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '14px', fontWeight: '700', lineHeight: 1.25 }}>
-                                                {job.source_filename || 'Untitled audio'}
+                                                {job.source_filename || fallbackName}
                                             </div>
                                             <div style={{ display: 'block', color: isActive ? '#2d7750' : 'var(--studio-text-muted)', fontSize: '12px', marginTop: '5px', lineHeight: 1.25 }}>
                                                 {statusLabel(job.status)} · {formatUpdatedAt(job.updated_at)}
                                             </div>
                                             <div
                                                 style={{ display: 'block', color: isActive ? '#4a8565' : '#6b9277', fontSize: '12px', marginTop: '3px', lineHeight: 1.25 }}
-                                                title={Number(job.expires_at) > 0 ? new Date(Number(job.expires_at) * 1000).toLocaleString() : undefined}
+                                                title={jobExpiryMilliseconds(job.expires_at) > 0 ? new Date(jobExpiryMilliseconds(job.expires_at)).toLocaleString() : undefined}
                                             >
                                                 {formatExpiry(job.expires_at)}
                                             </div>
                                         </button>
-                                        <button
+                                        {onDelete && <button
                                             type="button"
                                             onClick={() => setPendingDeletion(job)}
                                             disabled={!isTerminal || isDeleting}
@@ -178,7 +187,7 @@ export default function PreviousJobs({
                                                     <path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-3 6h12l-1 12H7L6 9Zm4 3v6h2v-6h-2Zm4 0v6h2v-6h-2Z" />
                                                 </svg>
                                             )}
-                                        </button>
+                                        </button>}
                                     </div>
                                     {isDeletePending && (
                                         <div

@@ -12,8 +12,10 @@ MinIO form; the browser uploads audio directly to MinIO, not through this API
 Pod. `POST /score-jobs` creates a separate owner-bound sheet upload intent.
 That score route does not publish RabbitMQ work or start an OMR worker.
 `GET /score-jobs/{job_id}` returns an owner-bound score snapshot and fresh
-private result URLs after the homr worker completes. `readyz` proves only that the API can reach its restricted
-PostgreSQL database.
+private source/result URLs. `GET /score-jobs` lists retained sheet jobs for
+the verified owner, independently of the stem library. Result URLs appear
+after the homr worker completes. `readyz` proves only that the API can reach
+its restricted PostgreSQL database.
 """
 
 from typing import Annotated
@@ -35,6 +37,7 @@ from app.database import (
     get_retained_score_job_for_owner,
     get_retained_job_snapshot_for_owner,
     list_retained_jobs_for_owner,
+    list_retained_score_jobs_for_owner,
     verify_database_connection,
 )
 from app.direct_upload_contract import DirectUploadJobCreatedResponse, DirectUploadJobRequest
@@ -57,7 +60,7 @@ SERVICE_NAME = "clouddsp-job-api"
 # This value appears only in the non-sensitive health/readiness responses. It
 # must track the immutable local image milestone so `kubectl exec`/port-forward
 # diagnostics can confirm which API code Kubernetes actually rolled out.
-SERVICE_VERSION = "0.0.11-score-omr"
+SERVICE_VERSION = "0.0.12-score-history"
 
 
 # Disable FastAPI's generated schema and interactive documentation until the
@@ -286,11 +289,20 @@ def score_job_snapshot_response(row: dict[str, object]) -> JSONResponse:
     """Return safe score state and fresh result URLs after owner verification."""
 
     public = dict(row)
+    source_bucket = public.pop("_source_bucket", None)
+    source_key = public.pop("_source_key", None)
     bucket = public.pop("_result_bucket", None)
     midi_key = public.pop("_result_midi_key", None)
     xml_key = public.pop("_result_musicxml_key", None)
-    if public.get("status") == "completed":
+    needs_source = public.get("source_uploaded") is True
+    if needs_source or public.get("status") == "completed":
         settings = ObjectStorageSettings.from_environment()
+    if needs_source:
+        if source_bucket != settings.uploads_bucket or not source_key:
+            raise PresignedDownloadContractError("score source coordinates are incomplete.")
+        public["source_url"] = create_presigned_download_url(
+            settings, job_id=public["job_id"], object_key=source_key, kind="score-source")
+    if public.get("status") == "completed":
         if bucket != settings.uploads_bucket or not midi_key or not xml_key:
             raise PresignedDownloadContractError("score result coordinates are incomplete.")
         public["midi_url"] = create_presigned_download_url(
@@ -527,6 +539,24 @@ def create_direct_upload_job(
         return direct_upload_unavailable_response()
 
     return created_direct_upload_response(response_payload)
+
+
+@app.get("/score-jobs", include_in_schema=False)
+def list_score_jobs(
+    principal: Annotated[AuthenticatedPrincipal, Depends(require_authenticated_principal)],
+) -> JSONResponse:
+    """List retained sheet jobs for the signed owner without artifact signing.
+
+    This read never merges the audio jobs table, accepts an owner parameter,
+    publishes work, or changes processing state. Opening a row uses the same
+    owner/expiry checks as ordinary score polling.
+    """
+
+    try:
+        rows = list_retained_score_jobs_for_owner(principal.subject)
+    except (DatabaseConfigurationError, DatabaseUnavailable):
+        return job_history_unavailable_response()
+    return saved_jobs_response(rows)
 
 
 @app.post("/score-jobs", include_in_schema=False)

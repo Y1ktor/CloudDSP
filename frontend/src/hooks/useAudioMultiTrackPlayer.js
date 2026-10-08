@@ -636,7 +636,10 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
     }, [activeMidiTracks]);
 
     React.useEffect(() => {
-        const rate = originalBpm && bpm ? Math.max(0.5, Math.min(4, bpm / originalBpm)) : 1;
+        const requestedRate = originalBpm && bpm ? bpm / originalBpm : 1;
+        // MIDI-only playback has no decoded audio to resample. Follow the
+        // selected BPM even below half-speed or above four-times speed.
+        const rate = midiOnly ? requestedRate : Math.max(0.5, Math.min(4, requestedRate));
         const context = audioCtxRef.current;
         if (isPlayingRef.current && context) {
             const offset = currentTransportPosition();
@@ -656,7 +659,7 @@ export function useAudioMultiTrackPlayer(stemUrls, file, activeMidiTracks = {}, 
             updateTransportSnapshot({ rate });
         }
         transportRateRef.current = rate;
-    }, [bpm, originalBpm, currentTransportPosition]);
+    }, [bpm, originalBpm, midiOnly, currentTransportPosition]);
 
     React.useEffect(() => {
         if (!isPlaying) return undefined;

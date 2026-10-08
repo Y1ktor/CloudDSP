@@ -104,12 +104,32 @@ def bootstrap(path):
     print("Score worker migration and three restricted identities are ready.")
 
 
+def bootstrap_score_history():
+    """Add only the existing API identity's read-only score-preview policy.
+
+    No worker credentials, migration, processing queue, or permanent workload
+    changes here. Existing clusters can run this stage independently; fresh
+    worker bootstrap includes it after the existing API account is available.
+    """
+
+    apply_file("job-api-source-read-policy-v001-configmap.yaml")
+    apply_file("job-api-source-read-bootstrap-v001-job.yaml")
+    wait_job("clouddsp-data", "minio-job-api-score-sources-bootstrap-v001")
+    print("Job API score-source history preview permission is ready.")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--secrets-file", required=True, type=Path)
+    parser.add_argument("--secrets-file", type=Path)
+    parser.add_argument("--history-only", action="store_true",
+                        help="Apply only the score-history source-preview IAM stage.")
     args = parser.parse_args()
+    if not args.history_only and args.secrets_file is None:
+        parser.error("--secrets-file is required unless --history-only is selected")
     try:
-        bootstrap(args.secrets_file)
+        if not args.history_only:
+            bootstrap(args.secrets_file)
+        bootstrap_score_history()
     except Exception as error:
         print(f"Score worker bootstrap failed: {error}", file=sys.stderr)
         raise SystemExit(1)

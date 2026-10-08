@@ -3,6 +3,7 @@ import React from 'react';
 import MidiEditorPopup from '../StemSplitter/MidiEditorPopup';
 import MidiScheduler from '../StemSplitter/Workspace/MidiScheduler';
 import WorkspaceTimeline from '../StemSplitter/Workspace/WorkspaceTimeline';
+import WorkspaceTempoControls from '../StemSplitter/Workspace/WorkspaceTempoControls';
 import { useScoreMidiWorkspace } from './useScoreMidiWorkspace';
 
 const EMPTY = {};
@@ -66,8 +67,7 @@ export default function ScoreMidiWorkspace({ midiFile, downloadUrl, sessionKey }
                             {audioEngine.formatTime(timeline.dynamicProgress)} / {audioEngine.formatTime(timeline.dynamicDuration)}
                         </span>
                         <span className="score-midi-transport-separator" />
-                        <span className="score-midi-transport-readout">{audioEngine.bpm.toFixed(1)} BPM</span>
-                        <span className="score-midi-transport-readout">{audioEngine.timeSignature}</span>
+                        <WorkspaceTempoControls audioEngine={audioEngine} />
                         <span className="score-midi-transport-spacer" />
                         <span className="score-midi-playback-status" role="status">
                             {readyToPlay ? 'Ready to play' : playbackInstrumentStatus === 'failed' ? 'Piano sounds unavailable' : 'Loading piano sounds…'}
@@ -116,6 +116,7 @@ export default function ScoreMidiWorkspace({ midiFile, downloadUrl, sessionKey }
 
                     {editorOpenTrack && <MidiEditorPopup
                         trackName={editorOpenTrack}
+                        tempoControls={<WorkspaceTempoControls audioEngine={audioEngine} />}
                         onClose={handleCloseEditor}
                         duration={audioEngine.duration}
                         pixelsPerBar={timeline.pixelsPerBar}

@@ -3,6 +3,7 @@
  * project download controls.
  */
 import React from 'react';
+import WorkspaceTempoControls from './WorkspaceTempoControls';
 
 /** Master playback, MIDI, tempo, meter, and download controls. */
 export default function WorkspaceTransportControls({
@@ -85,89 +86,12 @@ export default function WorkspaceTransportControls({
                 }}
             >MIDI</button>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '18px' }}>
-                <span className="bpm-label" style={{ color: 'var(--studio-text)', fontSize: '14px', fontWeight: 'bold' }}>BPM:</span>
-                <div style={{
-                    background: 'var(--studio-surface)',
-                    color: hasDeterminedTempo ? 'var(--studio-text)' : 'var(--studio-text-muted)',
-                    fontSize: '14px', fontFamily: 'monospace', fontWeight: 'bold',
-                    padding: '4px 8px', borderRadius: '4px', width: '55px', textAlign: 'center',
-                    border: '1px solid var(--studio-border-strong)',
-                    borderTop: '1px solid var(--studio-surface)',
-                    boxShadow: 'inset 0 1px 2px rgba(44, 62, 80, 0.07)',
-                    textShadow: 'none',
-                    display: 'flex', justifyContent: 'center', userSelect: 'none'
-                }}>
-                    {hasDeterminedTempo ? (
-                        <>
-                            <span
-                                onMouseDown={(e) => audioEngine.handleBpmMouseDown(e, 'int')}
-                                style={{ cursor: 'ns-resize', flexGrow: 1, textAlign: 'right' }}
-                            >{Math.floor(audioEngine.bpm)}</span>
-                            <span style={{ cursor: 'default' }}>.</span>
-                            <span
-                                onMouseDown={(e) => audioEngine.handleBpmMouseDown(e, 'dec')}
-                                style={{ cursor: 'ns-resize', flexGrow: 1, textAlign: 'left' }}
-                            >{Math.round((audioEngine.bpm - Math.floor(audioEngine.bpm)) * 10)}</span>
-                        </>
-                    ) : (
-                        <span style={{ cursor: 'default' }}>---</span>
-                    )}
-                </div>
-            </div>
-
-            <div style={{ flexGrow: 0.15, minWidth: '15px', maxWidth: '60px' }} className="dynamic-spacer-1" />
-
-            {/* Time Signature Box */}
-            <div className="time-signature" style={{ position: 'relative' }}>
-                <div
-                    onClick={() => setShowSigMenu(!showSigMenu)}
-                    style={{
-                        background: 'var(--studio-surface)',
-                        color: 'var(--studio-text)',
-                        fontSize: '14px', fontFamily: 'monospace', fontWeight: 'bold',
-                        padding: '4px 8px', borderRadius: '4px', minWidth: '35px', textAlign: 'center',
-                        border: '1px solid var(--studio-border-strong)',
-                        borderTop: '1px solid var(--studio-surface)',
-                        boxShadow: 'inset 0 1px 2px rgba(44, 62, 80, 0.07)',
-                        textShadow: 'none',
-                        cursor: 'pointer',
-                        userSelect: 'none'
-                    }}
-                >
-                    {audioEngine.timeSignature}
-                </div>
-
-                {showSigMenu && (
-                    <>
-                        <div
-                            style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 99 }}
-                            onClick={() => setShowSigMenu(false)}
-                        />
-                        <div style={{
-                            position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)',
-                            marginTop: '5px', background: 'var(--studio-surface)', border: '1px solid var(--studio-border)',
-                            borderRadius: '4px', zIndex: 100, display: 'flex', flexDirection: 'column',
-                            boxShadow: '0 8px 20px rgba(44, 62, 80, 0.16)', overflow: 'hidden'
-                        }}>
-                            {['3/4', '4/4', '5/4', '6/8', '7/8'].map(sig => (
-                                <div
-                                    key={sig}
-                                    onClick={() => { audioEngine.setTimeSignature(sig); setShowSigMenu(false); }}
-                                    onMouseEnter={(e) => e.target.style.background = 'var(--studio-accent-soft)'}
-                                    onMouseLeave={(e) => e.target.style.background = 'transparent'}
-                                    style={{
-                                        padding: '6px 12px', color: 'var(--studio-text)', fontSize: '14px', fontFamily: 'monospace',
-                                        cursor: 'pointer', textAlign: 'center', transition: 'background 0.1s'
-                                    }}
-                                >
-                                    {sig}
-                                </div>
-                            ))}
-                        </div>
-                    </>
-                )}
-            </div>
+            <WorkspaceTempoControls
+                audioEngine={audioEngine}
+                hasDeterminedTempo={hasDeterminedTempo}
+                showSigMenu={showSigMenu}
+                setShowSigMenu={setShowSigMenu}
+            />
 
             <div style={{ flexGrow: 1 }} /> {/* Pushes download button to the right */}
 

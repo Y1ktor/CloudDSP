@@ -1,0 +1,63 @@
+.workspace-tempo-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 24px;
+    margin-left: 18px;
+    flex-shrink: 0;
+}
+
+.workspace-bpm-control { display: flex; align-items: center; gap: 8px; }
+.workspace-bpm-control .bpm-label { color: var(--studio-text); font-size: 14px; font-weight: bold; }
+
+.workspace-bpm-value,
+.workspace-meter-trigger {
+    color: var(--studio-text);
+    background: var(--studio-surface);
+    font: bold 14px monospace;
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--studio-border-strong);
+    border-top-color: var(--studio-surface);
+    box-shadow: inset 0 1px 2px rgba(44, 62, 80, 0.07);
+    text-align: center;
+    user-select: none;
+}
+
+.workspace-bpm-value { display: flex; justify-content: center; width: 55px; }
+.workspace-bpm-value[aria-disabled="true"] { color: var(--studio-text-muted); }
+.workspace-bpm-whole { cursor: ns-resize; flex-grow: 1; text-align: right; }
+.workspace-bpm-decimal { cursor: ns-resize; flex-grow: 1; text-align: left; }
+.workspace-meter-control { position: relative; }
+.workspace-meter-trigger { min-width: 53px; cursor: pointer; }
+.workspace-meter-dismiss { position: fixed; inset: 0; z-index: 99; }
+.workspace-meter-menu {
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-top: 5px;
+    background: var(--studio-surface);
+    border: 1px solid var(--studio-border);
+    border-radius: 4px;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 20px rgba(44, 62, 80, 0.16);
+    overflow: hidden;
+}
+.workspace-meter-option {
+    padding: 6px 12px;
+    color: var(--studio-text);
+    background: transparent;
+    border: 0;
+    font: 14px monospace;
+    cursor: pointer;
+    text-align: center;
+    white-space: nowrap;
+    transition: background 0.1s;
+}
+.workspace-meter-option:hover,
+.workspace-meter-option:focus-visible { background: var(--studio-accent-soft); }
+.workspace-meter-option[aria-checked="true"] { font-weight: bold; }
+.workspace-bpm-value:focus-visible,
+.workspace-meter-trigger:focus-visible { outline: 2px solid var(--studio-accent); outline-offset: 2px; }

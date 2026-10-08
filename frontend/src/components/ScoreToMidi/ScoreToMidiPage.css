@@ -386,7 +386,7 @@
     border-radius: 4px;
 }
 
-.score-midi-transport button {
+.score-midi-transport > button {
     color: var(--studio-text);
     background: transparent;
     border: none;
@@ -397,12 +397,11 @@
     cursor: pointer;
 }
 
-.score-midi-transport button:hover:not(:disabled) { background: var(--studio-accent-soft); }
-.score-midi-transport button:disabled { color: var(--studio-text-muted); cursor: wait; }
-.score-midi-transport button[aria-pressed="true"] { color: var(--studio-warning); }
+.score-midi-transport > button:hover:not(:disabled) { background: var(--studio-accent-soft); }
+.score-midi-transport > button:disabled { color: var(--studio-text-muted); cursor: wait; }
+.score-midi-transport > button[aria-pressed="true"] { color: var(--studio-warning); }
 .score-midi-clock { color: var(--studio-text); font: 13px monospace; white-space: nowrap; }
 .score-midi-transport-separator { height: 24px; width: 1px; background: var(--studio-border-strong); }
-.score-midi-transport-readout { color: var(--studio-text-secondary); font: 700 12px monospace; }
 .score-midi-transport-spacer { flex: 1; }
 .score-midi-playback-status { color: var(--studio-text-muted); font-size: 11px; }
 .score-midi-editor-hint { margin: 0; color: var(--studio-text-muted); font-size: 11px; }

@@ -130,9 +130,10 @@ def create_presigned_download_url(
     """Sign exactly one owner-checked private object for direct browser GET.
 
     `source` keys are constrained to one basename under `uploads/{job_id}/`.
+    `score-source` keys are one server-chosen PDF/image below score-inputs.
     Stem and MIDI keys must equal their deterministic worker output key, and
     the optional BPM JSON can only be the ADTOF drums result for this Job.
-    MinIO IAM independently limits the Job API identity to those three
+    MinIO IAM independently limits the Job API identity to the reviewed
     prefixes; owner verification and this exact-key check narrow each URL to
     the one artifact the authenticated snapshot is allowed to reveal.
     """
@@ -146,7 +147,17 @@ def create_presigned_download_url(
     if settings.uploads_bucket != "clouddsp-uploads":
         raise PresignedDownloadContractError("download bucket is not the reviewed private bucket.")
 
-    if kind == "source":
+    if kind == "score-source":
+        # The upload API chooses one of four deterministic source filenames.
+        # Do not let a corrupted row authorize arbitrary names or other jobs.
+        canonical_id = _canonical_job_id(job_id)
+        if object_key not in {
+            f"score-inputs/{canonical_id}/source{extension}"
+            for extension in (".pdf", ".png", ".jpg", ".jpeg")
+        }:
+            raise PresignedDownloadContractError("score source key did not match its Job.")
+        validated_key = object_key
+    elif kind == "source":
         validated_key = _validated_source_key(job_id=job_id, object_key=object_key)
     else:
         validated_key = expected_download_key(job_id=job_id, kind=kind, stem_name=stem_name)

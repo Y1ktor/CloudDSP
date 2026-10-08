@@ -22,6 +22,7 @@ import { useMidiEditorPopup } from './MidiEditor/useMidiEditorPopup';
  */
 export default function MidiEditorPopup({
     trackName,
+    tempoControls,
     onClose,
     duration,
     pixelsPerBar,
@@ -157,6 +158,7 @@ export default function MidiEditorPopup({
                 confirmRevertMidi={confirmRevertMidi}
             />
             <MidiEditorToolbar
+                tempoControls={tempoControls}
                 isAdtofDrum={isAdtofDrum}
                 trackName={trackName}
                 isMidiPending={isMidiPending}

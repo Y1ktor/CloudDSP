@@ -55,6 +55,9 @@ cause an already-produced result to disappear.
 - Use one browser-side Web Audio transport for source and stem playback. All
   audible tracks must start against one `AudioContext` clock; independent
   `HTMLAudioElement` clocks are not a DAW transport.
+- Reuse that transport for MIDI-only score results. Shared BPM and meter
+  controls drive the timeline and popup editor; MIDI-only playback follows
+  the selected/original BPM ratio, while audio playback retains its 0.5–4 cap.
 - Keep the audio clock, visual playhead, MIDI scheduling, and React UI on
   separate performance paths. A browser frame drop may skip a visual position,
   but must never trigger a transport, scroll, or MIDI recovery jump.

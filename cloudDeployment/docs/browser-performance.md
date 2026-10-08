@@ -77,6 +77,10 @@ visual positions.
 The Score to MIDI result workspace uses the same transport with a MIDI-only
 mode. It can advance the clock and schedule notes without any decoded audio
 stems; playback still requires a parsed MIDI duration and a ready instrument.
+Its timeline and popup share Studio's BPM drag control and time-signature
+menu. Changing BPM updates the same audio-clock transport used by the MIDI
+scheduler. MIDI-only rates follow the selected/original BPM ratio across the
+control's 30–300 BPM range; audio-source playback retains its 0.5–4 rate cap.
 
 `useTransportPlayhead` updates only the main playhead line and ruler triangle
 with `translate3d(...)`. It does not alter `left`, rebuild React children, or

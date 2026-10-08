@@ -140,10 +140,24 @@ CREATE_SCORE_UPLOAD_PENDING_JOB_SQL = """
     RETURNING job_id::text AS job_id, direction, status, revision, expires_at
 """
 
+# History remains separate from stem jobs and from future MIDI-to-sheet work.
+# The existing (owner_sub, updated_at DESC) index supports this owner-bound read.
+# Never return storage keys or sign URLs in a compact library response.
+LIST_RETAINED_SCORE_JOBS_FOR_OWNER_SQL = """
+    SELECT job_id::text AS job_id, direction, source_filename, status,
+           created_at, updated_at, expires_at
+    FROM public.score_jobs
+    WHERE owner_sub = %s AND direction = 'score_to_midi'
+      AND expires_at > CURRENT_TIMESTAMP
+    ORDER BY updated_at DESC, job_id DESC
+"""
+
 # Score polling is a separate owner-bound read. The underscored coordinates
 # never reach JSON; the HTTP layer signs only completed deterministic outputs.
 GET_RETAINED_SCORE_JOB_FOR_OWNER_SQL = """
     SELECT job_id::text AS job_id, direction, source_filename, source_uploaded,
+           source_content_type, source_size_bytes,
+           input_bucket AS _source_bucket, input_object_key AS _source_key,
            status, revision, attempt_count, error_message AS error,
            result_bucket AS _result_bucket,
            result_midi_key AS _result_midi_key,
@@ -373,6 +387,33 @@ def _canonical_job_id(job_id: str) -> str:
     if canonical_job_id != job_id:
         raise ValueError("job_id must use canonical lowercase UUID form.")
     return canonical_job_id
+
+
+def list_retained_score_jobs_for_owner(owner_sub: str) -> list[dict[str, object]]:
+    """Read compact retained sheet jobs using only the verified token subject.
+
+    The browser cannot choose a different owner or make a write through this
+    read-only connection. Source/result permissions are issued only by the
+    separate owner-checked detail route when a saved item is opened.
+    """
+
+    trusted_owner = _trusted_owner_sub(owner_sub)
+    settings = DatabaseSettings.from_environment()
+    try:
+        with psycopg.connect(
+            host=settings.host, port=settings.port, dbname=settings.database,
+            user=settings.username, password=settings.password,
+            connect_timeout=settings.connect_timeout_seconds,
+            options=(f"-c statement_timeout={DEFAULT_STATEMENT_TIMEOUT_MILLISECONDS} "
+                     "-c default_transaction_read_only=on"),
+            application_name="clouddsp-job-api-list-score-jobs",
+            autocommit=True, row_factory=dict_row,
+        ) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(LIST_RETAINED_SCORE_JOBS_FOR_OWNER_SQL, (trusted_owner,))
+                return [dict(row) for row in cursor.fetchall()]
+    except (psycopg.Error, OSError) as error:
+        raise DatabaseUnavailable("PostgreSQL score history is unavailable.") from error
 
 
 def get_retained_job_snapshot_for_owner(

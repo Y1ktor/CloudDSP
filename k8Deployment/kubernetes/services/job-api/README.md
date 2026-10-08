@@ -13,7 +13,7 @@ order. Earlier incremental contract and migration notes are preserved in
 ## Implemented HTTP contract
 
 The frontend and API share `http://clouddsp.localhost:8080`. Traefik sends
-`/auth` and `/jobs` to the API Service; `/` belongs to the frontend.
+`/auth`, `/jobs`, and `/score-jobs` to the API Service; `/` belongs to the frontend.
 Every user route requires `Authorization: Bearer <Keycloak access token>`.
 
 | Method and path | Current behavior |
@@ -24,6 +24,9 @@ Every user route requires `Authorization: Bearer <Keycloak access token>`.
 | `GET /jobs` | Return the caller's non-expired compact job summaries, newest first. Does not return or enforce a daily quota. |
 | `POST /jobs` | Validate a direct-upload intent, commit an owner-bound `upload_pending` row, then return a constrained MinIO presigned POST contract with HTTP 201. |
 | `GET /jobs/{job_id}` | Return the caller's non-expired durable snapshot and freshly signed URLs for verified source/stem/MIDI/tempo artifacts. Missing, expired, and foreign jobs share HTTP 404. |
+| `GET /score-jobs` | Return only the caller's retained sheet-to-MIDI summaries, newest first, without storage coordinates or signed URLs. |
+| `POST /score-jobs` | Create a separate owner-bound sheet upload and return a constrained MinIO POST contract. |
+| `GET /score-jobs/{job_id}` | Return owner-bound score state, a signed source preview after upload verification, and signed MIDI/MusicXML after completion. |
 
 `POST /jobs` accepts `filename`, optional `content_type`, `size_bytes`, and
 `stem_mode`. It rejects extra fields, path/traversal filenames, unsupported
@@ -72,9 +75,44 @@ the `score.upload.created` RabbitMQ route. The score OMR consumer validates the
 event against the durable row and live object, then advances the leased job
 through processing to private MIDI and MusicXML results. Authenticated
 `GET /score-jobs/{job_id}` returns only the verified owner's current state and
-signs fresh URLs after completion. The upload response and MinIO acknowledgement
+signs fresh result URLs after completion. Verified sources receive a `source_url`
+plus `source_content_type` and `source_size_bytes` so History can restore the
+PDF/image without uploading it again. Pending uploads have no source URL.
+The upload response and MinIO acknowledgement
 do not represent a completed transcription. Score artifact retention cleanup
 remains separate implementation work.
+
+### Score history and rollout
+
+`GET /score-jobs` returns `{"jobs":[...]}` with `job_id`,
+`direction=score_to_midi`, `source_filename`, `status`, `created_at`,
+`updated_at`, and `expires_at`. The existing owner/update-time index supports
+the read. Both history routes require the validated Keycloak subject, filter
+expired records using PostgreSQL time, and return `Cache-Control: no-store`.
+The score list never merges audio jobs or future reverse-conversion jobs.
+
+The account History action follows the active studio: `/score-to-midi` reads
+`/score-jobs`; Studio reads `/jobs`. Opening a score only GETs its snapshot
+and private artifacts, resumes polling for unfinished work, and restores the
+MIDI editor for completed work. It never creates a job or publishes work.
+The selected score remains in React memory across tabs and is cleared when
+the account changes. No history, job IDs, or signed URLs are persisted in
+browser storage. Score deletion is not part of this endpoint/UI.
+
+Before rolling out the updated API/frontend images, apply the versioned
+read-only source-preview IAM stage for the existing Job API identity:
+
+```sh
+python3 k8Deployment/kubernetes/scripts/stages/credentials/score-omr-bootstrap.py --history-only
+```
+
+Run the command from the repository root. It adds only `s3:GetObject` on
+`clouddsp-uploads/score-inputs/*`, with no listing, write, delete, or admin
+grant to the API. The detail signer checks the exact job UUID and one of the
+four server-chosen `source.<ext>` keys before signing. Fresh score bootstrap
+includes the same stage. No schema migration or queue change is needed.
+The currently locked images predate this history endpoint; publishing source
+alone does not replace the running API or frontend containers.
 
 ## Ownership and authentication
 
