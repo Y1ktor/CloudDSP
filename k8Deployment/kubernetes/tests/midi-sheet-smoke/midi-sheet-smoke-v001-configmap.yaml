@@ -1,0 +1,506 @@
+# Disposable integration client. This ConfigMap contains code and an original
+# two-bar C-major engraving generated from music21/MuseScore; all admin
+# credentials arrive through the Job's short-lived Secret-backed environment.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: midi-sheet-smoke-v001
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: midi-sheet-smoke
+    app.kubernetes.io/component: integration-test
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+immutable: true
+data:
+  midi_sheet_smoke.py: |
+    """Exercise authenticated score upload through MuseScore and completed artifacts."""
+    import base64
+    import json
+    import os
+    import secrets
+    import sys
+    import time
+    from pathlib import Path
+    from urllib.error import HTTPError, URLError
+    from urllib.parse import quote, urlencode, urlsplit
+    from urllib.request import Request, urlopen
+
+    import boto3
+    import psycopg
+    from botocore.config import Config
+
+
+    class SmokeFailure(RuntimeError):
+        """Safe category whose message contains no token or private object key."""
+
+
+    def request(label, url, statuses, *, method="GET", data=None, headers=None):
+        try:
+            with urlopen(Request(url, data=data, headers=headers or {}, method=method), timeout=10) as response:
+                status, response_headers, body = response.status, dict(response.headers.items()), response.read()
+        except HTTPError as error:
+            raise SmokeFailure(f"{label}: HTTP {error.code}") from error
+        except URLError as error:
+            raise SmokeFailure(f"{label}: private Service unavailable") from error
+        if status not in statuses:
+            raise SmokeFailure(f"{label}: unexpected HTTP status")
+        return response_headers, body
+
+
+    def json_request(label, url, statuses, *, method="POST", payload, headers=None):
+        request_headers = {**(headers or {}), "Content-Type": "application/json"}
+        _, body = request(label, url, statuses, method=method,
+                          data=json.dumps(payload, separators=(",", ":")).encode(), headers=request_headers)
+        return json.loads(body) if body else None
+
+
+    def location_id(headers, label):
+        value = headers.get("Location", "").rstrip("/").rsplit("/", 1)[-1]
+        if not value:
+            raise SmokeFailure(f"{label}: no created identifier")
+        return value
+
+
+    def database():
+        return psycopg.connect(
+            host=os.environ["POSTGRESQL_HOST"], dbname="clouddsp_job_api",
+            user=os.environ["POSTGRES_USER"], password=os.environ["POSTGRES_PASSWORD"],
+            connect_timeout=5, options="-c statement_timeout=5000",
+        )
+
+
+    def s3():
+        return boto3.client(
+            "s3", endpoint_url="http://clouddsp-minio:9000",
+            aws_access_key_id=os.environ["MINIO_ROOT_USER"],
+            aws_secret_access_key=os.environ["MINIO_ROOT_PASSWORD"],
+            region_name="us-east-1", config=Config(s3={"addressing_style": "path"}),
+        )
+
+
+    def rabbit_headers():
+        userpass = f"{os.environ['RABBITMQ_DEFAULT_USER']}:{os.environ['RABBITMQ_DEFAULT_PASS']}"
+        return {"Authorization": "Basic " + base64.b64encode(userpass.encode()).decode()}
+
+
+    def rabbit_queue_url():
+        return "http://clouddsp-rabbitmq-0.clouddsp-rabbitmq-headless.clouddsp-data.svc.cluster.local:15672/api/queues/%2Fclouddsp/clouddsp.midi-sheet-intake"
+
+
+    def wait_queue_empty():
+        # Inspect aggregate counts only; never consume or purge another user's event.
+        for _ in range(30):
+            _, body = request("score queue status", rabbit_queue_url(), {200}, headers=rabbit_headers())
+            state = json.loads(body)
+            _, retry_body = request("score retry status", rabbit_queue_url() + ".retry.30s", {200}, headers=rabbit_headers())
+            retry_state = json.loads(retry_body)
+            if (state.get("messages_ready") == 0 and state.get("messages_unacknowledged") == 0
+                    and retry_state.get("messages_ready") == 0):
+                return
+            time.sleep(2)
+        raise SmokeFailure("score queue did not drain after completed test jobs")
+
+
+    def trigger_storage_retry(job_id, key):
+        # Publish only an event for this test's own not-yet-uploaded source. The
+        # worker's failed HeadObject must durably republish through its restricted
+        # retry identity, rather than ACKing and losing the job.
+        event = {"Records": [{"eventName": "s3:ObjectCreated:Post",
+                              "s3": {"bucket": {"name": "clouddsp-uploads"}, "object": {"key": key}}}]}
+        publish_url = rabbit_queue_url().split("/api/queues/")[0] + "/api/exchanges/%2Fclouddsp/clouddsp.source-events/publish"
+        result = json_request("test retry trigger", publish_url, {200}, payload={
+            "properties": {"delivery_mode": 2}, "routing_key": "midi.sheet.upload.created",
+            "payload": json.dumps(event), "payload_encoding": "string",
+        }, headers=rabbit_headers())
+        if not result.get("routed"):
+            raise SmokeFailure("test retry trigger was not routed")
+        for _ in range(20):
+            _, body = request("retry queue status", rabbit_queue_url() + ".retry.30s", {200}, headers=rabbit_headers())
+            if json.loads(body).get("messages_ready", 0) > 0:
+                return
+            time.sleep(1)
+        raise SmokeFailure("transient storage error did not reach delayed retry queue")
+
+
+    def signed_artifact(url):
+        parsed = urlsplit(url)
+        if (parsed.scheme, parsed.hostname, parsed.port) != ("http", "minio.localhost", 8080):
+            raise SmokeFailure("unexpected artifact origin")
+        # Route through the private Service while retaining the signed Host header.
+        _, data = request("signed result download", "http://clouddsp-minio:9000" + parsed.path + "?" + parsed.query,
+                          {200}, headers={"Host": parsed.netloc})
+        return data
+
+
+    def post_signed_file(contract, payload):
+        url = contract.get("upload_url")
+        fields = contract.get("upload_fields")
+        if not isinstance(url, str) or not isinstance(fields, dict):
+            raise SmokeFailure("score API did not return a signed upload form")
+        parsed = urlsplit(url)
+        if (parsed.scheme, parsed.hostname, parsed.port) != ("http", "minio.localhost", 8080):
+            raise SmokeFailure("score API returned an unexpected public MinIO origin")
+        boundary = "----CloudDSPScore" + secrets.token_hex(12)
+        chunks = []
+        for name, value in fields.items():
+            if not isinstance(name, str) or not isinstance(value, str):
+                raise SmokeFailure("score API returned malformed form fields")
+            chunks += [f"--{boundary}\r\n".encode(),
+                       f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode(),
+                       value.encode(), b"\r\n"]
+        chunks += [f"--{boundary}\r\n".encode(),
+                   b'Content-Disposition: form-data; name="file"; filename="sheet-smoke.mid"\r\n',
+                   b"Content-Type: audio/midi\r\n\r\n", payload, b"\r\n",
+                   f"--{boundary}--\r\n".encode()]
+        body = b"".join(chunks)
+        request("presigned score upload", "http://clouddsp-minio:9000" + parsed.path, {204},
+                method="POST", data=body,
+                headers={"Content-Type": f"multipart/form-data; boundary={boundary}",
+                         "Content-Length": str(len(body))})
+        return fields.get("key")
+
+
+    def run():
+        # Rendered from original eight-note C-major music; no borrowed scan.
+        png = Path("/smoke/fixture.mid").read_bytes()
+        kc = "http://clouddsp-keycloak:8080"
+        api = "http://clouddsp-job-api.clouddsp-app.svc:80"
+        suffix = os.environ["POD_NAME"].rsplit("-", 1)[-1]
+        username = f"midi-sheet-smoke-{suffix}"
+        client_name = f"midi-sheet-smoke-client-{suffix}"
+        password = secrets.token_urlsafe(32)
+        admin_token = client_id = user_id = job_id = object_key = None
+        extra_jobs = []
+        second_user_id = stem_job_id = None
+        failure = None
+        cleanup_failures = []
+        try:
+            print("Score upload smoke: creating disposable Keycloak identity")
+            form = urlencode({"grant_type": "password", "client_id": "admin-cli",
+                              "username": os.environ["KC_BOOTSTRAP_ADMIN_USERNAME"],
+                              "password": os.environ["KC_BOOTSTRAP_ADMIN_PASSWORD"]}).encode()
+            _, body = request("Keycloak admin token", kc + "/realms/master/protocol/openid-connect/token",
+                              {200}, method="POST", data=form,
+                              headers={"Content-Type": "application/x-www-form-urlencoded"})
+            admin_token = json.loads(body)["access_token"]
+            admin_headers = {"Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"}
+            realm_admin = kc + "/admin/realms/clouddsp"
+            headers, _ = request("temporary client", realm_admin + "/clients", {201}, method="POST",
+                                 data=json.dumps({"clientId": client_name, "enabled": True,
+                                                  "protocol": "openid-connect", "publicClient": True,
+                                                  "standardFlowEnabled": False,
+                                                  "directAccessGrantsEnabled": True,
+                                                  "serviceAccountsEnabled": False,
+                                                  "fullScopeAllowed": False}).encode(), headers=admin_headers)
+            client_id = location_id(headers, "temporary client")
+            json_request("temporary audience mapper", realm_admin + f"/clients/{quote(client_id)}/protocol-mappers/models",
+                         {201}, payload={"name": "job-api-access-token-audience", "protocol": "openid-connect",
+                                         "protocolMapper": "oidc-audience-mapper", "consentRequired": False,
+                                         "config": {"included.client.audience": "clouddsp-job-api",
+                                                    "access.token.claim": "true", "id.token.claim": "false",
+                                                    "introspection.token.claim": "true", "userinfo.token.claim": "false"}},
+                         headers=admin_headers)
+            headers, _ = request("temporary user", realm_admin + "/users", {201}, method="POST",
+                                 data=json.dumps({"username": username, "email": username + "@clouddsp.test",
+                                                  "firstName": "CloudDSP", "lastName": "Score Upload Smoke",
+                                                  "enabled": True, "emailVerified": True}).encode(), headers=admin_headers)
+            user_id = location_id(headers, "temporary user")
+            json_request("temporary password", realm_admin + f"/users/{quote(user_id)}/reset-password",
+                         {204}, method="PUT", payload={"type": "password", "temporary": False,
+                                                       "value": password}, headers=admin_headers)
+            token_form = urlencode({"grant_type": "password", "client_id": client_name,
+                                    "username": username, "password": password}).encode()
+            _, body = request("temporary user token", kc + "/realms/clouddsp/protocol/openid-connect/token",
+                              {200}, method="POST", data=token_form,
+                              headers={"Content-Type": "application/x-www-form-urlencoded"})
+            token = json.loads(body)["access_token"]
+
+            print("Score upload smoke: creating PostgreSQL-backed job through authenticated API")
+            user_headers = {"Authorization": f"Bearer {token}"}
+            contract = json_request("score job creation", api + "/sheet-jobs", {201},
+                                    payload={"direction": "midi_to_sheet", "filename": "sheet-smoke.mid",
+                                             "content_type": "audio/midi", "size_bytes": len(png)},
+                                    headers=user_headers)
+            job_id = contract.get("job_id")
+            if not isinstance(job_id, str) or contract.get("status") != "upload_pending":
+                raise SmokeFailure("score API returned an invalid durable job")
+            with database() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT owner_sub, direction, status, source_uploaded, input_object_key "
+                                   "FROM public.midi_sheet_jobs WHERE job_id = %s::uuid", (job_id,))
+                    row = cursor.fetchone()
+            if not row or row[:4] != (user_id, "midi_to_sheet", "upload_pending", False):
+                raise SmokeFailure("PostgreSQL score job did not match authenticated owner and state")
+
+            print("Score upload smoke: transferring signed file to private MinIO")
+            object_key = post_signed_file(contract, png)
+            if object_key != row[4]:
+                raise SmokeFailure("score signed key differed from the durable row")
+            head = s3().head_object(Bucket="clouddsp-uploads", Key=object_key)
+            if (head.get("ContentLength") != len(png)
+                    or head.get("ContentType") != "audio/midi"
+                    or head.get("Metadata", {}).get("job-id") != job_id
+                    or head.get("Metadata", {}).get("score-direction") != "midi_to_sheet"):
+                raise SmokeFailure("MinIO score object did not match the signed contract")
+
+            print("MIDI sheet smoke: waiting for MuseScore and owner-bound result")
+            result = None
+            duplicated = True
+            post_signed_file(contract, png)
+            started = time.monotonic()
+            for _ in range(180):
+                _, result_body = request("score job status", api + f"/sheet-jobs/{job_id}", {200},
+                                         headers=user_headers)
+                result = json.loads(result_body)
+                if result.get("status") == "processing" and not duplicated:
+                    post_signed_file(contract, png)
+                    duplicated = True
+                if result.get("status") in ("completed", "failed"):
+                    break
+                time.sleep(3)
+            if not result or result.get("status") != "completed":
+                raise SmokeFailure(f"score processing ended in {result.get('status') if result else 'timeout'}")
+            if not result.get("pdf_url") or not result.get("musicxml_url"):
+                raise SmokeFailure("completed score did not return both signed artifacts")
+            with database() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT status, source_uploaded, revision, result_pdf_key, result_musicxml_key, attempt_count, lease_token "
+                                   "FROM public.midi_sheet_jobs WHERE job_id = %s::uuid", (job_id,))
+                    state = cursor.fetchone()
+            if state[:2] != ("completed", True) or state[3:5] != (
+                    f"midi-sheet-results/{job_id}/result.pdf", f"midi-sheet-results/{job_id}/result.musicxml"):
+                raise SmokeFailure("PostgreSQL score result state is incomplete")
+            pdf_data = signed_artifact(result["pdf_url"])
+            xml_data = signed_artifact(result["musicxml_url"])
+            if not pdf_data.startswith(b"%PDF-") or b"score-partwise" not in xml_data:
+                raise SmokeFailure("score result objects are not MIDI and MusicXML")
+            if not duplicated or state[5:] != (1, None):
+                raise SmokeFailure("duplicate upload changed engraving attempts or left a lease")
+            import xml.etree.ElementTree as ET
+            notes = ET.fromstring(xml_data).findall(".//note/pitch")
+            if len(notes) != 8:
+                raise SmokeFailure("original eight-note fixture was not transcribed correctly")
+            print(f"MIDI sheet smoke: completed in {time.monotonic()-started:.1f}s; revision={state[2]}, notes={len(notes)}")
+
+            # Cold MuseScore startup can exceed the short master-realm token life.
+            # Renew only this disposable client's user token and the temporary
+            # admin token before the independent history/account checks.
+            _, body = request("history user token refresh", kc + "/realms/clouddsp/protocol/openid-connect/token",
+                              {200}, method="POST", data=token_form,
+                              headers={"Content-Type": "application/x-www-form-urlencoded"})
+            user_headers = {"Authorization": "Bearer " + json.loads(body)["access_token"]}
+            _, body = request("history admin token refresh", kc + "/realms/master/protocol/openid-connect/token",
+                              {200}, method="POST", data=form,
+                              headers={"Content-Type": "application/x-www-form-urlencoded"})
+            admin_token = json.loads(body)["access_token"]
+            admin_headers = {"Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"}
+            print("MIDI sheet history smoke: checking retained summaries and signed source restoration")
+            def history(path, headers=user_headers):
+                response_headers, response_body = request("history list", api + path, {200}, headers=headers)
+                if response_headers.get("cache-control", response_headers.get("Cache-Control")) != "no-store":
+                    raise SmokeFailure("history response permits caching")
+                return json.loads(response_body)["jobs"]
+
+            def denied(path, status, headers=None):
+                try:
+                    urlopen(Request(api + path, headers=headers or {}), timeout=10).close()
+                except HTTPError as error:
+                    if error.code == status:
+                        return
+                    raise SmokeFailure(f"history authorization: HTTP {error.code}") from error
+                raise SmokeFailure("history authorization unexpectedly succeeded")
+
+            denied("/sheet-jobs", 401)
+            summaries = history("/sheet-jobs")
+            expected_fields = {"job_id", "direction", "source_filename", "status", "created_at", "updated_at", "expires_at"}
+            if len(summaries) != 1 or summaries[0]["job_id"] != job_id or set(summaries[0]) != expected_fields:
+                raise SmokeFailure("score history summary leaked fields or omitted the retained job")
+            if summaries[0]["status"] != "completed" or summaries[0]["direction"] != "midi_to_sheet":
+                raise SmokeFailure("score history summary state is incorrect")
+            _, restored_body = request("restore saved score", api + f"/sheet-jobs/{job_id}", {200}, headers=user_headers)
+            restored = json.loads(restored_body)
+            if signed_artifact(restored["source_url"]) != png or signed_artifact(restored["pdf_url"]) != pdf_data:
+                raise SmokeFailure("saved score source or MIDI did not restore")
+            if any(key.startswith("_") for key in restored):
+                raise SmokeFailure("saved score exposed internal storage coordinates")
+            if history("/score-jobs"):
+                raise SmokeFailure("OMR history included a MIDI-to-sheet job")
+            if history("/jobs"):
+                raise SmokeFailure("stem history included a score job")
+            stem = json_request("stem history fixture", api + "/jobs", {201}, headers=user_headers,
+                                payload={"filename": "history-smoke.wav", "content_type": "audio/wav",
+                                         "size_bytes": 1024, "stem_mode": "4-stems"})
+            stem_job_id = stem["job_id"]
+            if [item["job_id"] for item in history("/jobs")] != [stem_job_id]:
+                raise SmokeFailure("stem history did not retain its independent fixture")
+            if [item["job_id"] for item in history("/sheet-jobs")] != [job_id]:
+                raise SmokeFailure("score history included the stem fixture")
+
+            # Expire only a job created by this test. Existing user records are
+            # never altered. Retention must be enforced in both API reads.
+            expired = json_request("expired history fixture", api + "/sheet-jobs", {201}, headers=user_headers,
+                                   payload={"direction": "midi_to_sheet", "filename": "expired.mid",
+                                            "content_type": "audio/midi", "size_bytes": len(png)})
+            expired_id = expired["job_id"]
+            extra_jobs.append((expired_id, expired["upload_fields"]["key"]))
+            with database() as connection:
+                connection.execute("UPDATE public.midi_sheet_jobs SET expires_at = CURRENT_TIMESTAMP - interval '1 second' "
+                                   "WHERE job_id=%s AND owner_sub=%s", (expired_id, user_id))
+            denied(f"/sheet-jobs/{expired_id}", 404, user_headers)
+            if [item["job_id"] for item in history("/sheet-jobs")] != [job_id]:
+                raise SmokeFailure("score history included an expired record")
+
+            # A second real Keycloak subject proves owner isolation, using the
+            # disposable client rather than changing the production OIDC flow.
+            second_name = username + "-other"
+            second_password = secrets.token_urlsafe(32)
+            second_headers, _ = request("second temporary user", realm_admin + "/users", {201}, method="POST",
+                data=json.dumps({"username": second_name, "email": second_name + "@clouddsp.test",
+                                 "firstName": "CloudDSP", "lastName": "History Smoke",
+                                 "enabled": True, "emailVerified": True}).encode(), headers=admin_headers)
+            second_user_id = location_id(second_headers, "second temporary user")
+            json_request("second temporary password", realm_admin + f"/users/{quote(second_user_id)}/reset-password",
+                         {204}, method="PUT", payload={"type": "password", "temporary": False,
+                                                       "value": second_password}, headers=admin_headers)
+            _, second_body = request("second user token", kc + "/realms/clouddsp/protocol/openid-connect/token", {200},
+                method="POST", data=urlencode({"grant_type": "password", "client_id": client_name,
+                                               "username": second_name, "password": second_password}).encode(),
+                headers={"Content-Type": "application/x-www-form-urlencoded"})
+            other_headers = {"Authorization": "Bearer " + json.loads(second_body)["access_token"]}
+            if history("/sheet-jobs", other_headers) or history("/jobs", other_headers):
+                raise SmokeFailure("history exposed another account's jobs")
+            denied(f"/sheet-jobs/{job_id}", 404, other_headers)
+            denied(f"/jobs/{stem_job_id}", 404, other_headers)
+            with database() as connection:
+                check = connection.execute("SELECT status, attempt_count, lease_token FROM public.midi_sheet_jobs "
+                                           "WHERE job_id=%s AND owner_sub=%s", (job_id, user_id)).fetchone()
+            if check != ("completed", 1, None):
+                raise SmokeFailure("opening history changed processing state")
+            print("MIDI sheet history smoke passed: authentication, account/studio isolation, retention, source/MIDI restoration")
+
+            # A terminal duplicate must remain terminal with identical durable state.
+            post_signed_file(contract, png)
+            time.sleep(5)
+            wait_queue_empty()
+            with database() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT revision, attempt_count FROM public.midi_sheet_jobs WHERE job_id = %s", (job_id,))
+                    if cursor.fetchone() != (state[2], 1):
+                        raise SmokeFailure("terminal duplicate repeated engraving")
+            print("MIDI sheet smoke: active and terminal duplicate deliveries were idempotent")
+
+            for case, payload, attempts, expected in (
+                ("invalid MIDI", b"This is not a MIDI file.", None, "failed"),
+                ("expired lease", png, 1, "completed"),
+                ("durable attempt cap", png, 3, "failed"),
+                ("transient storage retry", png, None, "completed"),
+            ):
+                contract2 = json_request("score case creation", api + "/sheet-jobs", {201},
+                                        payload={"direction": "midi_to_sheet", "filename": "sheet-smoke.mid",
+                                                 "content_type": "audio/midi", "size_bytes": len(payload)},
+                                        headers=user_headers)
+                extra_id = contract2["job_id"]
+                extra_key = contract2["upload_fields"]["key"]
+                extra_jobs.append((extra_id, extra_key))
+                if attempts is not None:
+                    # Reproduce the durable row left after a Pod loses its lease.
+                    # Only this disposable row is changed by the test administrator.
+                    with database() as connection:
+                        with connection.cursor() as cursor:
+                            cursor.execute("UPDATE public.midi_sheet_jobs SET status='processing', source_uploaded=TRUE, "
+                                           "lease_token=gen_random_uuid(), lease_expires_at=CURRENT_TIMESTAMP-INTERVAL '1 second', "
+                                           "attempt_count=%s, revision=revision+1 WHERE job_id=%s AND owner_sub=%s",
+                                           (attempts, extra_id, user_id))
+                if case == "transient storage retry":
+                    trigger_storage_retry(extra_id, extra_key)
+                post_signed_file(contract2, payload)
+                for _ in range(100):
+                    _, body2 = request("case status", api + f"/sheet-jobs/{extra_id}", {200}, headers=user_headers)
+                    case_result = json.loads(body2)
+                    if case_result.get("status") in ("completed", "failed"):
+                        break
+                    time.sleep(2)
+                if case_result.get("status") != expected:
+                    raise SmokeFailure(f"{case}: did not reach expected terminal state")
+                with database() as connection:
+                    with connection.cursor() as cursor:
+                        cursor.execute("SELECT attempt_count, lease_token FROM public.midi_sheet_jobs WHERE job_id=%s", (extra_id,))
+                        attempt_state = cursor.fetchone()
+                if attempt_state != ((2 if case == "expired lease" else 3 if attempts == 3 else 1), None):
+                    raise SmokeFailure(f"{case}: incorrect attempt count or lease cleanup")
+                print(f"MIDI sheet smoke: {case} passed")
+            wait_queue_empty()
+        except Exception as error:
+            failure = str(error) if isinstance(error, SmokeFailure) else type(error).__name__
+        finally:
+            # Master-realm admin access tokens can expire before CPU engraving
+            # finishes. Refresh only for removal of this test's exact identities.
+            if admin_token and (user_id or client_id):
+                try:
+                    _, body = request("cleanup admin token", kc + "/realms/master/protocol/openid-connect/token",
+                                      {200}, method="POST", data=form,
+                                      headers={"Content-Type": "application/x-www-form-urlencoded"})
+                    admin_token = json.loads(body)["access_token"]
+                except Exception:
+                    cleanup_failures.append("Keycloak token refresh")
+            all_jobs = extra_jobs + ([(job_id, object_key)] if job_id else [])
+            for cleanup_id, cleanup_key in all_jobs:
+                for suffix in ("result.pdf", "result.musicxml"):
+                    try:
+                        s3().delete_object(Bucket="clouddsp-uploads", Key=f"midi-sheet-results/{cleanup_id}/{suffix}")
+                    except Exception:
+                        cleanup_failures.append("score result")
+                if cleanup_key:
+                    try:
+                        s3().delete_object(Bucket="clouddsp-uploads", Key=cleanup_key)
+                    except Exception:
+                        cleanup_failures.append("score object")
+                try:
+                    with database() as connection:
+                        with connection.cursor() as cursor:
+                            cursor.execute("DELETE FROM public.midi_sheet_jobs WHERE job_id = %s::uuid AND owner_sub = %s",
+                                           (cleanup_id, user_id))
+                            if cursor.rowcount != 1:
+                                raise SmokeFailure("temporary score row missing")
+                except Exception:
+                    cleanup_failures.append("score row")
+            if stem_job_id:
+                try:
+                    with database() as connection:
+                        connection.execute("DELETE FROM public.jobs WHERE job_id=%s AND owner_sub=%s", (stem_job_id, user_id))
+                except Exception:
+                    cleanup_failures.append("temporary stem row")
+            if admin_token and second_user_id:
+                try:
+                    request("second temporary user cleanup", kc + f"/admin/realms/clouddsp/users/{quote(second_user_id)}",
+                            {204}, method="DELETE", headers={"Authorization": f"Bearer {admin_token}"})
+                except Exception:
+                    cleanup_failures.append("second temporary user")
+            if admin_token and user_id:
+                try:
+                    request("temporary user cleanup", kc + f"/admin/realms/clouddsp/users/{quote(user_id)}",
+                            {204}, method="DELETE", headers={"Authorization": f"Bearer {admin_token}"})
+                except Exception:
+                    cleanup_failures.append("temporary user")
+            if admin_token and client_id:
+                try:
+                    request("temporary client cleanup", kc + f"/admin/realms/clouddsp/clients/{quote(client_id)}",
+                            {204}, method="DELETE", headers={"Authorization": f"Bearer {admin_token}"})
+                except Exception:
+                    cleanup_failures.append("temporary client")
+        if cleanup_failures:
+            raise SmokeFailure("score OMR smoke cleanup did not complete: " + ", ".join(cleanup_failures))
+        if failure:
+            raise SmokeFailure(failure)
+        print("MIDI sheet smoke passed: completed MIDI, MusicXML, and job state verified; test resources removed")
+
+
+    try:
+        run()
+    except SmokeFailure as error:
+        print(f"Score upload smoke failed: {error}", file=sys.stderr)
+        raise SystemExit(1)
+binaryData:
+  fixture.mid: TVRoZAAAAAYAAAABAeBNVHJrAAAAWwD/UQMKLCoA/1gEAwIYCACQPFqDYIA8AACQPlqDYIA+AACQQFqDYIBAAACQQVqDYIBBAACQQ1qDYIBDAACQRVqDYIBFAACQR1qDYIBHAACQSFqDYIBIAAD/LwA=

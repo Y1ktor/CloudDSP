@@ -1,0 +1,62 @@
+# One process per Pod consumes at most one score at a time. No Service or
+# Ingress exists because all traffic is outbound to private stateful services.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clouddsp-midi-sheet
+  namespace: clouddsp-app
+  labels: {app.kubernetes.io/name: midi-sheet, app.kubernetes.io/component: score-converter, app.kubernetes.io/part-of: clouddsp}
+spec:
+  # KEDA owns /scale; Helm must not write a fixed replica count.
+  revisionHistoryLimit: 2
+  progressDeadlineSeconds: 900
+  strategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 1, maxSurge: 0}}
+  selector:
+    matchLabels: {app.kubernetes.io/name: midi-sheet, app.kubernetes.io/component: score-converter}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: midi-sheet, app.kubernetes.io/component: score-converter, app.kubernetes.io/part-of: clouddsp}
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # A 120-second engraving can finish on TERM;
+      # a forced kill still returns unacknowledged work to RabbitMQ.
+      terminationGracePeriodSeconds: 150
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10007
+        runAsGroup: 10007
+        fsGroup: 10007
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: midi-sheet
+          image: {{ .Values.image.reference }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - {name: HOME, value: /home/midi-sheet}
+            - {name: TMPDIR, value: /tmp}
+            - {name: SHEET_DB_USER, valueFrom: {secretKeyRef: {name: clouddsp-midi-sheet-database-credentials, key: SHEET_DB_USER}}}
+            - {name: SHEET_DB_PASSWORD, valueFrom: {secretKeyRef: {name: clouddsp-midi-sheet-database-credentials, key: SHEET_DB_PASSWORD}}}
+            - {name: SHEET_S3_ACCESS_KEY, valueFrom: {secretKeyRef: {name: clouddsp-midi-sheet-minio-credentials, key: MIDI_SHEET_S3_ACCESS_KEY}}}
+            - {name: SHEET_S3_SECRET_KEY, valueFrom: {secretKeyRef: {name: clouddsp-midi-sheet-minio-credentials, key: MIDI_SHEET_S3_SECRET_KEY}}}
+            - {name: SHEET_AMQP_USER, valueFrom: {secretKeyRef: {name: clouddsp-midi-sheet-rabbitmq-credentials, key: RABBITMQ_MIDI_SHEET_USERNAME}}}
+            - {name: SHEET_AMQP_PASSWORD, valueFrom: {secretKeyRef: {name: clouddsp-midi-sheet-rabbitmq-credentials, key: RABBITMQ_MIDI_SHEET_PASSWORD}}}
+          resources:
+            # CPU engraving needs no GPU. Bound memory and temporary output per Pod.
+            requests: {cpu: "250m", memory: 512Mi, ephemeral-storage: 1Gi}
+            limits: {cpu: "2", memory: 2Gi, ephemeral-storage: 2Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: scratch, mountPath: /worker-scratch}
+            - {name: tmp, mountPath: /tmp}
+            - {name: home, mountPath: /home/midi-sheet}
+      volumes:
+        - name: scratch
+          emptyDir: {sizeLimit: 1Gi}
+        - name: tmp
+          emptyDir: {sizeLimit: 256Mi}
+        - name: home
+          emptyDir: {sizeLimit: 64Mi}

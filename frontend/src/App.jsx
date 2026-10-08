@@ -1,5 +1,5 @@
 /** Route and dialog composition; workspace state remains mounted across tabs. */
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import ArchitecturePage from './components/ArchitecturePage';
 import K8Page from './components/K8Page';
@@ -13,6 +13,7 @@ import PreviousJobs from './components/StemSplitter/PreviousJobs';
 import { useStudioApp } from './app/useStudioApp';
 import { historyKindForPath } from './app/jobHistory';
 import { useScoreJobHistory } from './app/useScoreJobHistory';
+import { useMidiSheetJobSession } from './components/ScoreToMidi/useMidiSheetJobSession';
 import { useScoreJobSession } from './components/ScoreToMidi/useScoreJobSession';
 import { JOB_API_URL, WEBSOCKET_URL } from './app/config';
 import { profile } from '@platform/profile';
@@ -41,7 +42,12 @@ export function StudioPages({ app }) {
     const isScoreStudio = historyKindForPath(pathname) === 'score';
     const scoreFetch = profile.id === 'local' && authProps.session ? authenticatedFetch : null;
     const scoreSession = useScoreJobSession(scoreFetch);
-    const scoreHistory = useScoreJobHistory(scoreFetch);
+    const [direction, setDirection] = useState('sheet-to-midi');
+    const sheetSession = useMidiSheetJobSession(scoreFetch);
+    const sheetHistory = useScoreJobHistory(scoreFetch, 'sheet');
+    const scoreOnlyHistory = useScoreJobHistory(scoreFetch);
+    const scoreHistory = direction === 'midi-to-sheet' ? sheetHistory : scoreOnlyHistory;
+    const activeConversionSession = direction === 'midi-to-sheet' ? sheetSession : scoreSession;
     const { setIsOpen: setScoreHistoryOpen } = scoreHistory;
     const historyOpen = isScoreStudio ? scoreHistory.isOpen : isPreviousJobsOpen;
     const onOpenHistory = isScoreStudio ? scoreHistory.open : authProps.onOpenHistory;
@@ -65,19 +71,19 @@ export function StudioPages({ app }) {
                 onClose={() => setIsDemoLibraryOpen(false)}
             />
             <PreviousJobs
-                key={isScoreStudio ? 'score-history' : 'stem-history'}
-                jobKind={isScoreStudio ? 'score' : 'stem'}
+                key={isScoreStudio ? direction : 'stem-history'}
+                jobKind={isScoreStudio ? (direction === 'midi-to-sheet' ? 'sheet' : 'score') : 'stem'}
                 isOpen={historyOpen}
                 onClose={() => isScoreStudio ? setScoreHistoryOpen(false) : setIsPreviousJobsOpen(false)}
                 jobs={isScoreStudio ? scoreHistory.jobs : previousJobs}
-                activeJobId={isScoreStudio ? scoreSession.scoreUploadState?.jobId : activeJobId}
+                activeJobId={isScoreStudio ? activeConversionSession.scoreUploadState?.jobId : activeJobId}
                 isLoading={isScoreStudio ? scoreHistory.isLoading : isPreviousJobsLoading}
                 error={isScoreStudio ? scoreHistory.error : previousJobsError}
-                onSelect={isScoreStudio ? (job) => { scoreSession.openSavedJob(job); setScoreHistoryOpen(false); } : selectPreviousJob}
+                onSelect={isScoreStudio ? (job) => { activeConversionSession.openSavedJob(job); setScoreHistoryOpen(false); } : selectPreviousJob}
                 onRefresh={isScoreStudio ? scoreHistory.refresh : fetchPreviousJobs}
                 onDelete={isScoreStudio ? null : deletePreviousJob}
                 deletingJobId={isScoreStudio ? null : deletingJobId}
-                selectionDisabled={isScoreStudio && scoreSession.isUploading}
+                selectionDisabled={isScoreStudio && activeConversionSession.isUploading}
             />
             {!authLoading && (!JOB_API_URL || (profile.requiresWebSocket && !WEBSOCKET_URL)) && (
                 <div style={{ margin: '-24px 20px 20px', color: '#8b5a00', fontSize: '13px' }}>
@@ -97,6 +103,9 @@ export function StudioPages({ app }) {
                             authProvider={profile.authKind === 'oidc' ? 'Keycloak' : 'your account'}
                             authenticatedFetch={scoreFetch}
                             scoreSession={scoreSession}
+                            sheetSession={sheetSession}
+                            direction={direction}
+                            setDirection={setDirection}
                         />
                     }
                 />

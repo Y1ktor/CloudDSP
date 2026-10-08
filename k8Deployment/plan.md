@@ -349,3 +349,17 @@ TLS/availability profile, data backup/restore workflow, and NVIDIA GPU profile
 also remain separate work. Preserve the cloud product/security invariants
 when implementing that parity; consult [AGENTS.md](AGENTS.md) and the
 [cloud architecture](../cloudDeployment/docs/architecture.md).
+
+## MIDI-to-sheet implementation (2026-10-08)
+
+The local reverse workflow uses MuseScore 4.7.5, independent `midi_sheet_jobs`
+state, authenticated `/sheet-jobs` creation/list/detail routes, private
+`midi-sheet-inputs/` and `midi-sheet-results/` prefixes in the existing bucket,
+and `clouddsp.midi-sheet-intake` with retry/DLQ. The CPU-only Deployment follows
+KEDA zero-to-two scaling. See the [renderer guide](kubernetes/services/midi-sheet/README.md)
+for contracts, limits, lease/ack ordering, IAM, and rollout prerequisites.
+
+Browse MIDI loads into the editor locally. Queue sheet exports current edited
+notes, BPM, and meter, then creates/uploads a durable job. History selects this
+direction's owner-bound jobs independently of OMR and stems. Completion exposes
+PDF and MusicXML, and reopening history restores the submitted MIDI.

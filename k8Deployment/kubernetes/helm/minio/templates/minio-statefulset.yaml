@@ -209,6 +209,38 @@ spec:
               value: /data/.minio-events/amqp-score
             - name: MINIO_NOTIFY_AMQP_QUEUE_LIMIT_SCORE
               value: "10000"
+            # MIDI engraving routes its own prefix to its own durable queue.
+            - name: MINIO_NOTIFY_AMQP_ENABLE_MIDISHEET
+              value: "on"
+            - name: MINIO_NOTIFY_AMQP_URL_MIDISHEET
+              valueFrom:
+                secretKeyRef:
+                  name: clouddsp-minio-source-intake-rabbitmq-credentials
+                  key: MINIO_NOTIFY_AMQP_URL_INTAKE
+            - name: MINIO_NOTIFY_AMQP_EXCHANGE_MIDISHEET
+              value: clouddsp.source-events
+            - name: MINIO_NOTIFY_AMQP_EXCHANGE_TYPE_MIDISHEET
+              value: direct
+            - name: MINIO_NOTIFY_AMQP_ROUTING_KEY_MIDISHEET
+              value: midi.sheet.upload.created
+            - name: MINIO_NOTIFY_AMQP_MANDATORY_MIDISHEET
+              value: "on"
+            - name: MINIO_NOTIFY_AMQP_DURABLE_MIDISHEET
+              value: "on"
+            - name: MINIO_NOTIFY_AMQP_NO_WAIT_MIDISHEET
+              value: "off"
+            - name: MINIO_NOTIFY_AMQP_INTERNAL_MIDISHEET
+              value: "off"
+            - name: MINIO_NOTIFY_AMQP_AUTO_DELETED_MIDISHEET
+              value: "off"
+            - name: MINIO_NOTIFY_AMQP_DELIVERY_MODE_MIDISHEET
+              value: "2"
+            - name: MINIO_NOTIFY_AMQP_PUBLISHING_CONFIRMS_MIDISHEET
+              value: "on"
+            - name: MINIO_NOTIFY_AMQP_QUEUE_DIR_MIDISHEET
+              value: /data/.minio-events/amqp-midi-sheet
+            - name: MINIO_NOTIFY_AMQP_QUEUE_LIMIT_MIDISHEET
+              value: "10000"
             # The root account is injected from the ignored Secret already
             # applied in this namespace.  It is not a browser credential and
             # application services will later receive narrower access keys.

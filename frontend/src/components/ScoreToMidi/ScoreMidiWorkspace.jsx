@@ -1,5 +1,6 @@
 /** Reuse the Studio timeline and popup editor for a MIDI-only score result. */
-import React from 'react';
+import React, { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
+import { exportMidiForSheet } from './midiSheetExport';
 import MidiEditorPopup from '../StemSplitter/MidiEditorPopup';
 import MidiScheduler from '../StemSplitter/Workspace/MidiScheduler';
 import WorkspaceTimeline from '../StemSplitter/Workspace/WorkspaceTimeline';
@@ -9,7 +10,7 @@ import { useScoreMidiWorkspace } from './useScoreMidiWorkspace';
 const EMPTY = {};
 const noop = () => {};
 
-export default function ScoreMidiWorkspace({ midiFile, downloadUrl, sessionKey }) {
+const ScoreMidiWorkspace = forwardRef(function ScoreMidiWorkspace({ midiFile, downloadUrl, sessionKey, sourceEditor = false, onRetainSnapshot }, ref) {
     const workspace = useScoreMidiWorkspace(midiFile, sessionKey);
     const {
         trackName, audioEngine, timeline, parsedMidiStems, setParsedMidiStems,
@@ -19,6 +20,17 @@ export default function ScoreMidiWorkspace({ midiFile, downloadUrl, sessionKey }
         timelineRows, midiStatusByTrack, midiSynthRefs,
         undoStacks, pushUndoState, handleUndoMidi, handleRevertMidi,
     } = workspace;
+    // Retain only MIDI bytes/metadata across direction or route changes. The
+    // audio hooks still dispose their instruments and transport on unmount.
+    const retainRef = useRef(null);
+    retainRef.current = scoreData && onRetainSnapshot ? () => {
+        try { onRetainSnapshot(exportMidiForSheet(scoreData.midiData, timeline.activeBpm,
+            audioEngine.timeSignature, midiFile.name)); } catch { /* No valid editable snapshot yet. */ }
+    } : null;
+    useEffect(() => () => retainRef.current?.(), []);
+    useImperativeHandle(ref, () => ({
+        exportMidi: () => exportMidiForSheet(scoreData?.midiData, timeline.activeBpm, audioEngine.timeSignature, midiFile.name),
+    }), [scoreData, timeline.activeBpm, audioEngine.timeSignature, midiFile.name]);
     const noteCount = scoreData?.midiData?.tracks?.reduce(
         (count, track) => count + (track.notes?.length || 0), 0,
     ) || 0;
@@ -28,9 +40,9 @@ export default function ScoreMidiWorkspace({ midiFile, downloadUrl, sessionKey }
         <section className="score-midi-result" aria-labelledby="score-midi-result-title">
             <div className="score-midi-result-heading">
                 <div>
-                    <span className="score-midi-kicker">RESULT WORKSPACE</span>
+                    <span className="score-midi-kicker">{sourceEditor ? 'MIDI SOURCE' : 'RESULT WORKSPACE'}</span>
                     <h2 id="score-midi-result-title">MIDI timeline</h2>
-                    <p>Play, inspect, and edit the notes in the same piano roll as Studio.</p>
+                    <p>{sourceEditor ? 'Edit notes, BPM, and meter, then queue this version for sheet rendering.' : 'Play, inspect, and edit the notes in the same piano roll as Studio.'}</p>
                 </div>
                 <div className="score-midi-result-meta">
                     <span>{scoreData ? `${noteCount.toLocaleString()} notes` : 'Preparing MIDI'}</span>
@@ -165,4 +177,6 @@ export default function ScoreMidiWorkspace({ midiFile, downloadUrl, sessionKey }
             )}
         </section>
     );
-}
+});
+
+export default ScoreMidiWorkspace;

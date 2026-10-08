@@ -1,0 +1,5 @@
+# The published image digest freezes the complete ARM64 dependency closure.
+mido==1.3.3
+psycopg[binary]==3.2.12
+boto3==1.40.52
+pika==1.3.2

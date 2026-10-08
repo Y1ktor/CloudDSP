@@ -1,0 +1,61 @@
+# This finite administrator Job provisions a score-only PostgreSQL role after
+# v012. Its bootstrap Secret mirrors the app runtime credential, then is
+# removed; the worker never mounts the database administrator credential.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: midi-sheet-database-bootstrap-v001
+  namespace: clouddsp-data
+  labels: {app.kubernetes.io/name: midi-sheet-database-bootstrap, app.kubernetes.io/component: database-bootstrap}
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 0
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: midi-sheet-database-bootstrap, app.kubernetes.io/component: database-bootstrap}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 999, runAsGroup: 999, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: grant-score-role
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          env:
+            - {name: PGHOST, value: clouddsp-postgresql.clouddsp-data.svc}
+            - {name: PGDATABASE, value: clouddsp_job_api}
+            - {name: PGUSER, valueFrom: {secretKeyRef: {name: clouddsp-postgresql-credentials, key: POSTGRES_USER}}}
+            - {name: PGPASSWORD, valueFrom: {secretKeyRef: {name: clouddsp-postgresql-credentials, key: POSTGRES_PASSWORD}}}
+            - {name: SHEET_DB_USER, valueFrom: {secretKeyRef: {name: clouddsp-midi-sheet-database-bootstrap-credentials, key: SHEET_DB_USER}}}
+            - {name: SHEET_DB_PASSWORD, valueFrom: {secretKeyRef: {name: clouddsp-midi-sheet-database-bootstrap-credentials, key: SHEET_DB_PASSWORD}}}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 100m, memory: 128Mi}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          command:
+            - sh
+            - -ec
+            - |
+              # psql variables quote both identifiers and password literals;
+              # neither SQL text nor logs contain the secret value.
+              psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 \
+                --set=score_user="$SHEET_DB_USER" \
+                --set=score_password="$SHEET_DB_PASSWORD" <<'SQL'
+              SELECT format('CREATE ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT PASSWORD %L', :'score_user', :'score_password')
+                WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'score_user')
+              \gexec
+              ALTER ROLE :"score_user" LOGIN PASSWORD :'score_password';
+              REVOKE ALL ON DATABASE clouddsp_job_api FROM :"score_user";
+              GRANT CONNECT ON DATABASE clouddsp_job_api TO :"score_user";
+              REVOKE ALL ON SCHEMA public FROM :"score_user";
+              GRANT USAGE ON SCHEMA public TO :"score_user";
+              REVOKE ALL ON public.midi_sheet_jobs FROM :"score_user";
+              GRANT SELECT (job_id, input_bucket, input_object_key, source_content_type,
+                            source_size_bytes, status, lease_expires_at, expires_at,
+                            lease_token, revision, attempt_count) ON public.midi_sheet_jobs TO :"score_user";
+              GRANT UPDATE (source_uploaded, status, revision, result_bucket,
+                            result_pdf_key, result_musicxml_key, error_message,
+                            lease_token, lease_expires_at, attempt_count)
+                ON public.midi_sheet_jobs TO :"score_user";
+              SQL

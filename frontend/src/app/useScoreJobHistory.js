@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { loadJobHistory } from './jobHistory';
 
-export function useScoreJobHistory(authenticatedFetch) {
+export function useScoreJobHistory(authenticatedFetch, kind = 'score') {
     const [jobs, setJobs] = useState([]);
     const [isOpen, setIsOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
@@ -20,7 +20,7 @@ export function useScoreJobHistory(authenticatedFetch) {
         if (!authenticatedFetch) return [];
         setIsLoading(true);
         try {
-            const saved = await loadJobHistory(authenticatedFetch, 'score', controller.signal);
+            const saved = await loadJobHistory(authenticatedFetch, kind, controller.signal);
             if (controller.signal.aborted) return [];
             setJobs(saved);
             return saved;
@@ -30,7 +30,7 @@ export function useScoreJobHistory(authenticatedFetch) {
         } finally {
             if (!controller.signal.aborted) setIsLoading(false);
         }
-    }, [authenticatedFetch]);
+    }, [authenticatedFetch, kind]);
 
     const open = useCallback(() => {
         setIsOpen(true);

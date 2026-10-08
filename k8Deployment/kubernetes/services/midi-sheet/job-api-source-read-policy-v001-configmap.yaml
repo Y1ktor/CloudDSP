@@ -1,0 +1,28 @@
+# Owner-checked score history may reopen the original PDF/image. This narrow
+# read-only policy leaves the existing upload and score-result policies intact.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clouddsp-job-api-midi-sheet-sources-policy-v001
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/component: object-storage-policy
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: score-source-history-preview
+immutable: true
+data:
+  midi-sheet-sources-policy.json: |
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Sid": "ReadOnlyScoreSources",
+          "Effect": "Allow",
+          "Action": ["s3:GetObject", "s3:PutObject"],
+          "Resource": "arn:aws:s3:::clouddsp-uploads/midi-sheet-inputs/*"
+        }
+      ]
+    }

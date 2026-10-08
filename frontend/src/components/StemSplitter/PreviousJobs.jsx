@@ -49,8 +49,9 @@ export default function PreviousJobs({
     selectionDisabled = false,
 }) {
     const [pendingDeletion, setPendingDeletion] = React.useState(null);
-    const isScore = jobKind === 'score';
-    const title = isScore ? 'Score to MIDI history' : 'Previous jobs';
+    const isSheet = jobKind === 'sheet';
+    const isScore = jobKind === 'score' || isSheet;
+    const title = isScore ? (isSheet ? 'MIDI to Sheet history' : 'Score to MIDI history') : 'Previous jobs';
     const fallbackName = isScore ? 'Untitled score' : 'Untitled audio';
 
     React.useEffect(() => {
@@ -93,7 +94,7 @@ export default function PreviousJobs({
                     <div style={{ color: 'var(--studio-text)', fontSize: '16px', fontWeight: '700' }}>{title}</div>
                     <div style={{ color: 'var(--studio-text-muted)', fontSize: '12px', flex: 1 }}>
                         {isScore
-                            ? (isLoading ? 'Loading saved scores…' : 'Select a score to reopen its sheet and MIDI.')
+                            ? (isLoading ? 'Loading saved scores…' : (isSheet ? 'Select a job to reopen its submitted MIDI and sheet.' : 'Select a score to reopen its sheet and MIDI.'))
                             : (isLoading ? 'Loading saved tracks…' : 'Select a track to reopen its source, stems, MIDI, and BPM.')}
                     </div>
                     <button

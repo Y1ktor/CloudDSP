@@ -1,0 +1,53 @@
+# Helm actions impersonate this Flux identity. No Score OMR Pod receives its token.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: clouddsp-midi-sheet-helm
+  namespace: flux-system
+automountServiceAccountToken: false
+---
+# Own only the worker chart's API kinds in the existing application namespace.
+# KEDA creates/writes HPAs and /scale. Neither HPA writes nor deployments/scale
+# permission is granted here. Read-only Pods/ReplicaSets support readiness checks.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: clouddsp-midi-sheet-helm
+  namespace: clouddsp-app
+rules:
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [keda.sh]
+    resources: [scaledobjects]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [replicasets]
+    verbs: [get, list, watch]
+  # Helm revision storage requires namespace-wide Secret CRUD, which includes
+  # runtime Secrets; it is not restricted to this release's history prefix.
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, list, watch, create, update, patch, delete]
+---
+# This binding grants no data-namespace, namespace-creation, CRD, or cluster RBAC
+# access. There is no Job, Pod creation, PVC, Service, Ingress, or auth grant.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: clouddsp-midi-sheet-helm
+  namespace: clouddsp-app
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: clouddsp-midi-sheet-helm
+subjects:
+  - kind: ServiceAccount
+    name: clouddsp-midi-sheet-helm
+    namespace: flux-system

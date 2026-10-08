@@ -210,3 +210,12 @@ The local pipeline currently supports direct uploads and polling.
 - [Direct-upload request contract](app/direct_upload_contract.py)
 - [Upload signing](app/presigned_upload.py) and [download signing](app/presigned_download.py)
 - [Container recipe](Dockerfile) and [hash-locked dependencies](requirements.lock)
+
+## MIDI-to-sheet jobs
+
+The independent `/sheet-jobs` POST/GET and `/sheet-jobs/{uuid}` GET routes use
+Keycloak owner checks and the v012 `midi_sheet_jobs` table. Creation returns an
+exact-key, size-constrained MIDI POST form. History excludes expired/foreign
+rows. Detail returns fresh private source/PDF/MusicXML signatures, with no
+stored signed URLs or browser-selected storage paths. See the
+[MIDI renderer contract](../midi-sheet/README.md) for limits and delivery.

@@ -4,14 +4,14 @@ export function historyKindForPath(pathname) {
 }
 
 export async function loadJobHistory(authenticatedFetch, kind, signal) {
-    const path = kind === 'score' ? '/score-jobs' : '/jobs';
+    const path = kind === 'sheet' ? '/sheet-jobs' : kind === 'score' ? '/score-jobs' : '/jobs';
     const response = await authenticatedFetch(path, { signal });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || `Could not load previous jobs (${response.status}).`);
     // Keep score rows explicitly directional, including when another converter
     // later gets its own table/API. Stem libraries retain their existing shape.
     return (Array.isArray(payload.jobs) ? payload.jobs : []).filter(
-        (job) => kind !== 'score' || job.direction === 'score_to_midi',
+        (job) => kind === 'sheet' ? job.direction === 'midi_to_sheet' : kind !== 'score' || job.direction === 'score_to_midi',
     );
 }
 

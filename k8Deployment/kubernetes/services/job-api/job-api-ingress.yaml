@@ -77,3 +77,11 @@ spec:
                 name: clouddsp-job-api
                 port:
                   name: http
+
+          - path: /sheet-jobs
+            pathType: Prefix
+            backend:
+              service:
+                name: clouddsp-job-api
+                port:
+                  name: http

@@ -44,3 +44,14 @@ test('history retention accepts PostgreSQL ISO timestamps and cloud epoch second
     assert.equal(jobExpiryMilliseconds(String(milliseconds / 1000)), milliseconds);
     for (const value of [null, undefined, '', 'invalid']) assert.ok(Number.isNaN(jobExpiryMilliseconds(value)));
 });
+
+test('MIDI-to-sheet history reads its own endpoint and excludes other directions', async () => {
+    const rows = await loadJobHistory(async (path) => {
+        assert.equal(path, '/sheet-jobs');
+        return { ok: true, json: async () => ({ jobs: [
+            { job_id: 'midi-sheet', direction: 'midi_to_sheet' },
+            { job_id: 'omr', direction: 'score_to_midi' },
+        ] }) };
+    }, 'sheet');
+    assert.deepEqual(rows.map((row) => row.job_id), ['midi-sheet']);
+});

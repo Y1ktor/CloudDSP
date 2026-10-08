@@ -1,0 +1,34 @@
+# This one-shot Job uses the existing schema-owner login; the long-lived worker
+# receives a distinct restricted role provisioned after this migration.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: midi-sheet-migration-v012
+  namespace: clouddsp-app
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 0
+  activeDeadlineSeconds: 120
+  template:
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 999, runAsGroup: 999, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: migrate
+          image: docker.io/library/postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          imagePullPolicy: IfNotPresent
+          env:
+            - {name: PGHOST, value: clouddsp-postgresql.clouddsp-data.svc}
+            - {name: PGDATABASE, valueFrom: {secretKeyRef: {name: clouddsp-job-api-database-credentials, key: JOB_API_DB_NAME}}}
+            - {name: PGUSER, valueFrom: {secretKeyRef: {name: clouddsp-job-api-database-credentials, key: JOB_API_DB_USERNAME}}}
+            - {name: PGPASSWORD, valueFrom: {secretKeyRef: {name: clouddsp-job-api-database-credentials, key: JOB_API_DB_PASSWORD}}}
+          command: [sh, -ec, 'psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 --file=/migration/012_midi_sheet.sql']
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 100m, memory: 128Mi}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          volumeMounts: [{name: migration, mountPath: /migration, readOnly: true}]
+      volumes:
+        - name: migration
+          configMap: {name: midi-sheet-migration-v012, defaultMode: 0444}

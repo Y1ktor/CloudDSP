@@ -1,0 +1,7 @@
+# The deployment and its queue autoscaler share one Flux/Helm owner.
+apiVersion: v2
+name: midi-sheet
+description: CloudDSP homr score-to-MIDI consumer
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

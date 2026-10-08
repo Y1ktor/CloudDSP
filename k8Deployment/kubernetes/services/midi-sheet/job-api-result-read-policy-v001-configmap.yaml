@@ -1,0 +1,28 @@
+# Independent, immutable permission expansion for the existing Job API user.
+# Keeping this policy separate leaves the audio uploads-v002 policy untouched.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clouddsp-job-api-midi-sheet-results-policy-v001
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/component: object-storage-policy
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: score-result-browser-download
+immutable: true
+data:
+  midi-sheet-results-policy.json: |
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Sid": "ReadOnlyScoreResults",
+          "Effect": "Allow",
+          "Action": "s3:GetObject",
+          "Resource": "arn:aws:s3:::clouddsp-uploads/midi-sheet-results/*"
+        }
+      ]
+    }

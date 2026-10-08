@@ -1,9 +1,7 @@
 /** Score and MIDI source workspace; score uploads now reach the local queue. */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import ScoreMidiWorkspace from './ScoreMidiWorkspace';
 import './ScoreToMidiPage.css';
-
-const MIDI_EXTENSIONS = new Set(['mid', 'midi']);
 
 function extensionOf(file) {
     return file?.name?.split('.').pop()?.toLowerCase() || '';
@@ -15,14 +13,15 @@ function readableSize(bytes) {
         : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export default function ScoreToMidiPage({ authenticated = false, authLoading = false, authProvider = 'your account', authenticatedFetch = null, scoreSession }) {
-    const [direction, setDirection] = useState('sheet-to-midi');
-    const [sheetSourceMidiFile, setSheetSourceMidiFile] = useState(null);
-    const [sheetSourceMidiError, setSheetSourceMidiError] = useState('');
+export default function ScoreToMidiPage({ authenticated = false, authLoading = false, authProvider = 'your account', authenticatedFetch = null, scoreSession, sheetSession, direction, setDirection }) {
+    const midiEditorRef = useRef(null);
+    const { scoreFile: sheetSourceMidiFile, scoreError: sheetSourceMidiError,
+        isUploading: sheetUploading, scoreUploadState: sheetUpload, scoreJob: sheetJob,
+        editorKey, retainMidi, chooseScore: chooseSheetSourceMidi, submitScore: submitMidi } = sheetSession;
     const [isDragging, setIsDragging] = useState(false);
     const { scoreFile, scoreError, isUploading, scoreUploadState, scoreJob,
         resultMidiFile, chooseScore, submitScore } = scoreSession;
-    const canStageSource = authenticated && !authLoading && !isUploading;
+    const canStageSource = authenticated && !authLoading && !isUploading && !sheetUploading;
     const canUploadScore = canStageSource && Boolean(authenticatedFetch) && Boolean(scoreFile);
     const sourceFilename = scoreFile?.name || scoreJob?.source_filename || scoreUploadState?.sourceFilename;
 
@@ -30,17 +29,7 @@ export default function ScoreToMidiPage({ authenticated = false, authLoading = f
     useEffect(() => () => { if (scoreUrl) URL.revokeObjectURL(scoreUrl); }, [scoreUrl]);
     useEffect(() => {
         if (scoreUploadState?.fromHistory) setDirection('sheet-to-midi');
-    }, [scoreUploadState]);
-
-    const chooseSheetSourceMidi = (file) => {
-        if (!canStageSource || !file) return;
-        if (!MIDI_EXTENSIONS.has(extensionOf(file))) {
-            setSheetSourceMidiError('Choose a .mid or .midi file.');
-            return;
-        }
-        setSheetSourceMidiFile(file);
-        setSheetSourceMidiError('');
-    };
+    }, [scoreUploadState, setDirection]);
 
     const isImage = scoreFile && extensionOf(scoreFile) !== 'pdf';
     const isMidiToSheet = direction === 'midi-to-sheet';
@@ -60,6 +49,7 @@ export default function ScoreToMidiPage({ authenticated = false, authLoading = f
                     <button
                         className="score-midi-direction-button"
                         type="button"
+                        disabled={isUploading || sheetUploading}
                         onClick={() => { setDirection(isMidiToSheet ? 'sheet-to-midi' : 'midi-to-sheet'); setIsDragging(false); }}
                         aria-label={isMidiToSheet ? 'Switch to Score to MIDI' : 'Switch to MIDI to Sheet'}
                         title={isMidiToSheet ? 'Switch to Score to MIDI' : 'Switch to MIDI to Sheet'}
@@ -93,45 +83,39 @@ export default function ScoreToMidiPage({ authenticated = false, authLoading = f
                             <div className="score-midi-file-name" title={sheetSourceMidiFile?.name || 'No MIDI selected'}>
                                 {sheetSourceMidiFile?.name || 'No MIDI selected'}
                             </div>
-                            <button className="score-midi-transcribe-button" type="button" disabled title="Sheet rendering is not connected yet">
-                                Render sheet
+                            <button className="score-midi-transcribe-button" type="button"
+                                disabled={!canStageSource || !authenticatedFetch || !sheetSourceMidiFile}
+                                onClick={() => submitMidi(() => midiEditorRef.current?.exportMidi())}>
+                                {sheetUploading ? 'Uploading…' : 'Queue sheet'}
                             </button>
                         </div>
                         {sheetSourceMidiError && <p className="score-midi-error" role="alert">{sheetSourceMidiError}</p>}
-                        <p className="score-midi-availability">MIDI: MID or MIDI.</p>
+                        <p className="score-midi-availability">MIDI: MID or MIDI · 10 MiB maximum. Files stay in your browser until you queue the sheet.</p>
+                        {sheetUpload && <p className="score-midi-upload-status" role="status">
+                            {sheetJob?.status === 'completed' ? 'Sheet ready.' : sheetJob?.status === 'failed'
+                                ? `Rendering failed: ${sheetJob.error || 'Could not render this MIDI.'}`
+                                : sheetJob?.status === 'processing' ? 'Rendering your sheet…' : 'Sheet queued for rendering.'}
+                            {' '}Job {sheetUpload.jobId}.
+                        </p>}
 
-                        <div className="score-midi-input-grid">
-                            <div
-                                className={`score-midi-preview ${isDragging ? 'score-midi-preview-dragging' : ''}`}
+                        {sheetSourceMidiFile ? <ScoreMidiWorkspace ref={midiEditorRef}
+                            key={editorKey} midiFile={sheetSourceMidiFile} sessionKey={`sheet-${editorKey}`} sourceEditor
+                            onRetainSnapshot={(file) => retainMidi(file, editorKey)} />
+                            : <div className={`score-midi-preview ${isDragging ? 'score-midi-preview-dragging' : ''}`}
                                 onDragOver={(event) => { event.preventDefault(); if (canStageSource) setIsDragging(true); }}
-                                onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setIsDragging(false); }}
-                                onDrop={(event) => {
-                                    event.preventDefault();
-                                    setIsDragging(false);
-                                    if (canStageSource) chooseSheetSourceMidi(event.dataTransfer.files?.[0]);
-                                }}
-                            >
-                                <div className="score-midi-preview-empty">
-                                    <span className="score-midi-score-glyph" aria-hidden="true">♫</span>
-                                    <strong>{sheetSourceMidiFile ? sheetSourceMidiFile.name : 'Your MIDI source appears here'}</strong>
-                                    <span>{sheetSourceMidiFile
-                                        ? `${readableSize(sheetSourceMidiFile.size)} · Ready for sheet rendering`
-                                        : 'Choose a MIDI file above or drop one in this area.'}</span>
-                                </div>
+                                onDragLeave={() => setIsDragging(false)}
+                                onDrop={(event) => { event.preventDefault(); setIsDragging(false);
+                                    if (canStageSource) chooseSheetSourceMidi(event.dataTransfer.files?.[0]); }}>
+                                <div className="score-midi-preview-empty"><span className="score-midi-score-glyph" aria-hidden="true">♫</span>
+                                    <strong>Your MIDI editor appears here</strong><span>Choose a MIDI file above or drop one in this area.</span></div>
+                            </div>}
+                        {sheetJob?.status === 'completed' && <div className="score-midi-result-heading">
+                            <h2>Your sheet is ready</h2>
+                            <div className="score-midi-result-meta">
+                                <a className="score-midi-secondary-button" href={sheetJob.pdf_url} target="_blank" rel="noopener noreferrer">Open PDF ↗</a>
+                                <a className="score-midi-secondary-button" href={sheetJob.musicxml_url} download>Download MusicXML</a>
                             </div>
-                            <div className="score-midi-source-side">
-                                <div className="score-midi-source-caption">SOURCE DETAILS</div>
-                                <h3>{sheetSourceMidiFile ? sheetSourceMidiFile.name : 'Waiting for MIDI'}</h3>
-                                <p>{sheetSourceMidiFile
-                                    ? `${extensionOf(sheetSourceMidiFile).toUpperCase()} · ${readableSize(sheetSourceMidiFile.size)}`
-                                    : 'Upload a MIDI file to stage it for notation rendering.'}</p>
-                                <div className="score-midi-flow-list">
-                                    <div><span className={sheetSourceMidiFile ? 'done' : ''}>1</span><div><strong>Choose MIDI</strong><small>MID or MIDI</small></div></div>
-                                    <div><span>2</span><div><strong>Render notation</strong><small>Sheet rendering service pending</small></div></div>
-                                    <div><span>3</span><div><strong>Review sheet</strong><small>Preview and download PDF</small></div></div>
-                                </div>
-                            </div>
-                        </div>
+                        </div>}
                     </>
                 ) : (
                     <>

@@ -1,0 +1,96 @@
+# A new immutable migration keeps score transcription state separate from the
+# audio/stem job table. Its one-shot Job runs this SQL as the existing schema
+# owner; browser and worker credentials are not included in the ConfigMap.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: midi-sheet-migration-v012
+  namespace: clouddsp-app
+  labels:
+    app.kubernetes.io/name: midi-sheet-migration-v012
+    app.kubernetes.io/component: database-migration
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: independent-score-job-state
+immutable: true
+data:
+  012_midi_sheet.sql: |
+    -- One row is an owner-bound score conversion intent. The dedicated table
+    -- avoids weakening audio jobs' stem_mode/source_type constraints or their
+    -- outbox foreign key. Future intake and workers will use separate grants.
+    BEGIN;
+    SELECT pg_advisory_xact_lock(834929517101);
+
+    DO $migration_guard$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM public.schema_migrations
+        WHERE migration_id = 'v011_score_worker'
+      ) THEN
+        RAISE EXCEPTION 'v012 requires applied migration v011_score_worker';
+      END IF;
+    END;
+    $migration_guard$;
+
+    CREATE TABLE public.midi_sheet_jobs (
+      job_id UUID PRIMARY KEY,
+      owner_sub TEXT NOT NULL CHECK (length(btrim(owner_sub)) > 0),
+      direction TEXT NOT NULL CHECK (direction = 'midi_to_sheet'),
+      input_bucket TEXT NOT NULL CHECK (length(btrim(input_bucket)) > 0),
+      input_object_key TEXT NOT NULL UNIQUE,
+      source_filename TEXT NOT NULL CHECK (length(btrim(source_filename)) > 0),
+      source_content_type TEXT NOT NULL CHECK (
+        source_content_type = 'audio/midi'
+      ),
+      source_size_bytes BIGINT NOT NULL CHECK (
+        source_size_bytes BETWEEN 1 AND 10485760
+      ),
+      source_uploaded BOOLEAN NOT NULL DEFAULT FALSE,
+      status TEXT NOT NULL DEFAULT 'upload_pending' CHECK (
+        status IN ('upload_pending', 'source_uploaded', 'processing', 'completed', 'failed')
+      ),
+      revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+      -- Stable private keys only. Signed URLs are never durable state.
+      result_bucket TEXT,
+      result_pdf_key TEXT,
+      result_musicxml_key TEXT,
+      error_message TEXT CHECK (error_message IS NULL OR length(error_message) <= 1000),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      expires_at TIMESTAMPTZ NOT NULL,
+      lease_token UUID,
+      lease_expires_at TIMESTAMPTZ,
+      attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+      CONSTRAINT midi_sheet_jobs_lease_pair CHECK ((lease_token IS NULL) = (lease_expires_at IS NULL)),
+      CONSTRAINT midi_sheet_jobs_owned_source_key CHECK (
+        input_object_key = 'midi-sheet-inputs/' || job_id::text || '/source.mid'
+      ),
+      CONSTRAINT midi_sheet_jobs_result_coordinates_together CHECK (
+        (result_bucket IS NULL AND result_pdf_key IS NULL AND result_musicxml_key IS NULL) OR
+        (result_bucket IS NOT NULL AND result_pdf_key IS NOT NULL AND result_musicxml_key IS NOT NULL)
+      ),
+      CONSTRAINT midi_sheet_jobs_completed_has_results CHECK (status <> 'completed' OR (result_bucket IS NOT NULL AND result_pdf_key IS NOT NULL AND result_musicxml_key IS NOT NULL)),
+      CONSTRAINT midi_sheet_jobs_result_keys_owned CHECK (
+        (result_pdf_key IS NULL OR result_pdf_key = 'midi-sheet-results/' || job_id::text || '/result.pdf') AND
+        (result_musicxml_key IS NULL OR result_musicxml_key = 'midi-sheet-results/' || job_id::text || '/result.musicxml')
+      )
+    );
+
+    CREATE INDEX midi_sheet_jobs_owner_updated_at_idx ON public.midi_sheet_jobs (owner_sub, updated_at DESC);
+    CREATE INDEX midi_sheet_jobs_expires_at_idx ON public.midi_sheet_jobs (expires_at);
+
+    CREATE FUNCTION public.set_midi_sheet_jobs_updated_at()
+    RETURNS TRIGGER LANGUAGE plpgsql AS $score_updated_at$
+    BEGIN
+      NEW.updated_at = CURRENT_TIMESTAMP;
+      RETURN NEW;
+    END;
+    $score_updated_at$;
+    CREATE TRIGGER midi_sheet_jobs_set_updated_at
+      BEFORE UPDATE ON public.midi_sheet_jobs
+      FOR EACH ROW EXECUTE FUNCTION public.set_midi_sheet_jobs_updated_at();
+
+    INSERT INTO public.schema_migrations (migration_id, description)
+    VALUES ('v012_midi_sheet', 'Independent owner-bound score conversion jobs and private artifact coordinates.');
+    COMMIT;

@@ -60,7 +60,7 @@ SERVICE_NAME = "clouddsp-job-api"
 # This value appears only in the non-sensitive health/readiness responses. It
 # must track the immutable local image milestone so `kubectl exec`/port-forward
 # diagnostics can confirm which API code Kubernetes actually rolled out.
-SERVICE_VERSION = "0.0.12-score-history"
+SERVICE_VERSION = "0.0.13-midi-sheet"
 
 
 # Disable FastAPI's generated schema and interactive documentation until the
@@ -90,10 +90,11 @@ async def direct_upload_request_validation_error(
     work. The original error is passed to FastAPI only on those other routes.
     """
 
-    if request.method == "POST" and request.url.path in {"/jobs", "/score-jobs"}:
+    if request.method == "POST" and request.url.path in {"/jobs", "/score-jobs", "/sheet-jobs"}:
         return JSONResponse(
             status_code=400,
             content={"error": (
+                "Invalid MIDI-upload request." if request.url.path == "/sheet-jobs" else
                 "Invalid score-upload request." if request.url.path == "/score-jobs"
                 else "Invalid direct-upload request."
             )},
@@ -628,3 +629,8 @@ def get_score_job(
         return score_job_snapshot_response(row)
     except (ObjectStorageConfigurationError, PresignedDownloadContractError, PresignedDownloadSigningError):
         return job_snapshot_unavailable_response()
+
+
+# Loaded after common helpers to keep this independent contract explicit.
+from app.sheet_routes import router as sheet_router
+app.include_router(sheet_router)

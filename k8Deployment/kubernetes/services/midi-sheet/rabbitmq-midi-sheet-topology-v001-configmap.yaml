@@ -1,0 +1,89 @@
+# Additive score-upload topology. The existing source-events exchange and
+# audio queues retain their declarations; this immutable ConfigMap adds only
+# score-specific queues and routes for a future OMR consumer.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rabbitmq-midi-sheet-topology-v001
+  namespace: clouddsp-data
+  labels:
+    app.kubernetes.io/name: rabbitmq
+    app.kubernetes.io/component: message-topology
+    app.kubernetes.io/part-of: clouddsp
+    app.kubernetes.io/managed-by: kubectl
+    clouddsp.io/environment: local
+    clouddsp.io/purpose: score-source-event-queue
+immutable: true
+data:
+  rabbitmq-midi-sheet-topology-v001.json: |
+    {
+      "queues": [
+        {
+          "name": "clouddsp.midi-sheet-intake",
+          "vhost": "/clouddsp",
+          "durable": true,
+          "auto_delete": false,
+          "arguments": {
+            "x-queue-type": "quorum",
+            "x-delivery-limit": 5,
+            "x-max-length": 10000,
+            "x-overflow": "reject-publish",
+            "x-dead-letter-exchange": "clouddsp.source-dead-letter",
+            "x-dead-letter-routing-key": "midi.sheet.upload.dead-letter",
+            "x-dead-letter-strategy": "at-least-once"
+          }
+        },
+        {
+          "name": "clouddsp.midi-sheet-intake.retry.30s",
+          "vhost": "/clouddsp",
+          "durable": true,
+          "auto_delete": false,
+          "arguments": {
+            "x-queue-type": "quorum",
+            "x-message-ttl": 30000,
+            "x-max-length": 10000,
+            "x-overflow": "reject-publish",
+            "x-dead-letter-exchange": "clouddsp.source-events",
+            "x-dead-letter-routing-key": "midi.sheet.upload.created",
+            "x-dead-letter-strategy": "at-least-once"
+          }
+        },
+        {
+          "name": "clouddsp.midi-sheet-intake.dlq",
+          "vhost": "/clouddsp",
+          "durable": true,
+          "auto_delete": false,
+          "arguments": {
+            "x-queue-type": "quorum",
+            "x-max-length": 1000,
+            "x-overflow": "reject-publish"
+          }
+        }
+      ],
+      "bindings": [
+        {
+          "source": "clouddsp.source-events",
+          "vhost": "/clouddsp",
+          "destination": "clouddsp.midi-sheet-intake",
+          "destination_type": "queue",
+          "routing_key": "midi.sheet.upload.created",
+          "arguments": {}
+        },
+        {
+          "source": "clouddsp.source-retry",
+          "vhost": "/clouddsp",
+          "destination": "clouddsp.midi-sheet-intake.retry.30s",
+          "destination_type": "queue",
+          "routing_key": "midi.sheet.upload.retry",
+          "arguments": {}
+        },
+        {
+          "source": "clouddsp.source-dead-letter",
+          "vhost": "/clouddsp",
+          "destination": "clouddsp.midi-sheet-intake.dlq",
+          "destination_type": "queue",
+          "routing_key": "midi.sheet.upload.dead-letter",
+          "arguments": {}
+        }
+      ]
+    }
