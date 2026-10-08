@@ -4,7 +4,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: score-omr-smoke-v001
+  name: score-omr-smoke-v002
   namespace: clouddsp-data
   labels:
     app.kubernetes.io/name: score-omr-smoke
@@ -82,7 +82,7 @@ spec:
       volumes:
         - name: smoke-source
           configMap:
-            name: score-omr-smoke-v001
+            name: score-omr-smoke-v002
             defaultMode: 0444
             items:
               - {key: score_omr_smoke.py, path: score_omr_smoke.py}

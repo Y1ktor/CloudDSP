@@ -1,6 +1,6 @@
 # Live homr score conversion smoke
 
-After the score worker chart reaches Ready, apply the immutable v001
+After the score worker chart reaches Ready, apply the immutable v002
 ConfigMap and one-shot Job in this directory. The fixture is an original
 two-bar C-major engraving generated from `fixture.musicxml` with MuseScore
 and rendered at 1800 pixels using Poppler. A local homr 0.7.0 run recognized
@@ -18,8 +18,8 @@ the job to a worker. The Job and ConfigMap stay outside Flux because they
 are disposable test resources.
 
 ```sh
-kubectl --context k3d-clouddsp-local apply -f k8Deployment/kubernetes/tests/score-omr-smoke/score-omr-smoke-v001-configmap.yaml
-kubectl --context k3d-clouddsp-local apply -f k8Deployment/kubernetes/tests/score-omr-smoke/score-omr-smoke-v001-job.yaml
-kubectl --context k3d-clouddsp-local -n clouddsp-data wait --for=condition=complete job/score-omr-smoke-v001 --timeout=900s
-kubectl --context k3d-clouddsp-local -n clouddsp-data logs job/score-omr-smoke-v001
+kubectl --context k3d-clouddsp-local apply -f k8Deployment/kubernetes/tests/score-omr-smoke/score-omr-smoke-v002-configmap.yaml
+kubectl --context k3d-clouddsp-local apply -f k8Deployment/kubernetes/tests/score-omr-smoke/score-omr-smoke-v002-job.yaml
+kubectl --context k3d-clouddsp-local -n clouddsp-data wait --for=condition=complete job/score-omr-smoke-v002 --timeout=900s
+kubectl --context k3d-clouddsp-local -n clouddsp-data logs job/score-omr-smoke-v002
 ```

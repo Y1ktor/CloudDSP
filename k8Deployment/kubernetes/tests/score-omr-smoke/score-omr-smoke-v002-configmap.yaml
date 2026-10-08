@@ -4,7 +4,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: score-omr-smoke-v001
+  name: score-omr-smoke-v002
   namespace: clouddsp-data
   labels:
     app.kubernetes.io/name: score-omr-smoke
@@ -259,6 +259,7 @@ data:
             print(f"Score OMR smoke: completed in {time.monotonic()-started:.1f}s; revision={state[2]}, notes={len(notes)}")
             # A terminal duplicate must remain terminal with identical durable state.
             post_signed_file(contract, png)
+            time.sleep(5)
             wait_queue_empty()
             with database() as connection:
                 with connection.cursor() as cursor:
@@ -308,6 +309,16 @@ data:
         except Exception as error:
             failure = str(error) if isinstance(error, SmokeFailure) else type(error).__name__
         finally:
+            # Master-realm admin access tokens can expire before CPU inference
+            # finishes. Refresh only for removal of this test's exact identities.
+            if admin_token and (user_id or client_id):
+                try:
+                    _, body = request("cleanup admin token", kc + "/realms/master/protocol/openid-connect/token",
+                                      {200}, method="POST", data=form,
+                                      headers={"Content-Type": "application/x-www-form-urlencoded"})
+                    admin_token = json.loads(body)["access_token"]
+                except Exception:
+                    cleanup_failures.append("Keycloak token refresh")
             all_jobs = extra_jobs + ([(job_id, object_key)] if job_id else [])
             for cleanup_id, cleanup_key in all_jobs:
                 for suffix in ("result.mid", "result.musicxml"):
@@ -342,7 +353,7 @@ data:
                 except Exception:
                     cleanup_failures.append("temporary client")
         if cleanup_failures:
-            raise SmokeFailure("score OMR smoke cleanup did not complete")
+            raise SmokeFailure("score OMR smoke cleanup did not complete: " + ", ".join(cleanup_failures))
         if failure:
             raise SmokeFailure(failure)
         print("Score OMR smoke passed: completed MIDI, MusicXML, and job state verified; test resources removed")
