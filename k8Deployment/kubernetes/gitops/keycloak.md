@@ -78,6 +78,15 @@ ruby k8Deployment/kubernetes/scripts/stages/keycloak/keycloak-realm-stage.rb app
 ruby k8Deployment/kubernetes/scripts/stages/keycloak/keycloak-config-verify.rb verify
 ```
 
+The optional session smoke exercises this exact React client's PKCE flow with
+one temporary user, checks issued access/refresh lifetimes and the Remember me
+cookie, verifies the refreshed API owner, then deletes its test identity and
+confirms refresh revocation. It prints no credentials, cookies, codes or tokens:
+
+```sh
+ruby k8Deployment/kubernetes/tests/keycloak-smoke/session-lifetime.rb verify
+```
+
 The migration performs a server dry run, requires its fixed-name Job to be
 absent, and verifies the entire durable configuration after completion. It
 creates no user, rotates no credential, and does not recreate the realm.
