@@ -63,3 +63,35 @@ kubectl --context k3d-clouddsp-local -n clouddsp-data logs -f job/score-omr-smok
 The finite Job has a 900-second deadline and a 600-second TTL after completion.
 Inspect its `Complete` condition as well as its safe summary logs. No secrets,
 private storage coordinates, or signed URLs are printed.
+
+## Score history rollout verified — 2026-10-08
+
+Flux deployed API `0.0.12-score-history` and frontend `0.6.6-score-history`
+from release commit `355b081`. Running Pod image IDs matched the immutable
+lock references, both HelmReleases became Ready, and the native release
+verification scripts confirmed Flux ownership, manifests, readiness and
+protected browser routes. The committed score-source read-only IAM bootstrap
+completed before the API rollout. The deployed score and stem pages loaded
+through the local ingress; anonymous score history returned HTTP 401.
+
+Both v003 and v004 completed successfully. v003 took 90 seconds; its first
+homr transcription returned eight notes in 24.2 seconds. v004 also passed the
+explicit token renewal and returned eight notes in 9.1 seconds on the warm
+local CPU worker. These figures describe the small original fixture in the
+ARM64 k3d environment, rather than representative multi-page throughput.
+
+Live checks proved authenticated score listing, separate stem listing, two
+account subjects, expired-row exclusion, signed source/MIDI restoration, and
+unchanged attempt/lease state after opening a saved score. Duplicate delivery,
+invalid-image failure, expired lease recovery, the durable attempt ceiling,
+and delayed retry all passed. Every disposable score/stem row, source/result
+object, both users and the temporary client were removed by the test.
+
+API unit tests (80), frontend tests (52), lint, both frontend profile builds,
+Helm lint/template and server schema validation passed. Existing frontend
+hook-dependency and chunk-size warnings remain unchanged. Browser fixture
+checks verified context-sensitive History, account reset, tab persistence,
+main/popup BPM and meter synchronization, and the MIDI playback clock.
+The deployed anonymous pages also passed navigation checks. Audible piano
+sample playback was not verified in the earlier Vite fixture because that
+development origin could not load the samples.

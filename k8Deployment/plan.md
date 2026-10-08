@@ -329,7 +329,9 @@ images plus the versioned score-source IAM stage documented in the
 [Job API guide](kubernetes/services/job-api/README.md#score-history-and-rollout).
 The rollout locks API `0.0.12-score-history` and frontend
 `0.6.6-score-history` to committed build provenance and immutable ARM64
-digests. Flux owns their deployment; v004 smoke adds live history coverage.
+digests. Both Flux releases are Ready. The 2026-10-08 v004 live smoke passed
+account/studio isolation, retention, saved source/MIDI restoration and the
+existing inference, duplicate, lease and retry boundaries.
 
 The implemented local API has authenticated identity, job creation through
 direct upload, saved-job listing, and job-detail polling. A local realtime
