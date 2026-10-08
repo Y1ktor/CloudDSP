@@ -88,7 +88,7 @@ spec:
             matchExpressions:
               - key: app.kubernetes.io/name
                 operator: In
-                values: [source-to-outbox-smoke, score-upload-smoke, score-omr-smoke]
+                values: [source-to-outbox-smoke, score-upload-smoke, score-omr-smoke, midi-sheet-smoke]
 
     # The finite six-stem integration Job reads aggregate queue counts for its
     # report. It alone receives this narrow management-port exception and uses
