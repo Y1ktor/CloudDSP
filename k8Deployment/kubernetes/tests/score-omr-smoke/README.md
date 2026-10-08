@@ -41,3 +41,23 @@ If an interrupted test leaves its disposable identity, use
 `python3 k8Deployment/kubernetes/tests/score-omr-smoke/cleanup-identity.py --pod-suffix XXXXX`
 with the five-character suffix from that test's Pod name. This removes only
 the exact smoke user and client; source/result cleanup remains in the test.
+
+## History rollout verification (v003)
+
+The immutable v003 Job extends v002 with anonymous rejection, two real
+Keycloak subjects, separate score/stem history lists, PostgreSQL retention,
+and exact source/MIDI restoration through signed downloads. Opening history
+must leave the completed job's attempt count and lease unchanged. A pending
+stem job and expired score job are created only for this test and removed
+alongside both disposable users and the client. Existing user data is untouched.
+The original inference, duplicate, failure and retry checks still run.
+
+```sh
+kubectl --context k3d-clouddsp-local apply -f k8Deployment/kubernetes/tests/score-omr-smoke/score-omr-smoke-v003-configmap.yaml
+kubectl --context k3d-clouddsp-local apply -f k8Deployment/kubernetes/tests/score-omr-smoke/score-omr-smoke-v003-job.yaml
+kubectl --context k3d-clouddsp-local -n clouddsp-data logs -f job/score-omr-smoke-v003
+```
+
+The finite Job has a 900-second deadline and a 600-second TTL after completion.
+Inspect its `Complete` condition as well as its safe summary logs. No secrets,
+private storage coordinates, or signed URLs are printed.

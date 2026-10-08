@@ -35,7 +35,7 @@ spec:
         - name: score-upload-client
           # The Job API runtime image already contains pinned Psycopg/Boto3.
           # Override Uvicorn and mount this test's immutable Python source.
-          image: clouddsp-registry.localhost:5001/job-api@sha256:e0fd66b646a80711f42b991653725f9635adf575a9040668074123275a419299
+          image: clouddsp-registry.localhost:5001/job-api@sha256:48c79daa63fc35d0dc8d33e466de28065e204a5a72b5e9c24e400be187c7c2a5
           imagePullPolicy: IfNotPresent
           env:
             - name: POD_NAME

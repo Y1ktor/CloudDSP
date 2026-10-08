@@ -73,7 +73,7 @@ spec:
           # This value is copied from images.frontend.immutableReference in
           # ../../images.lock.yaml. The digest, rather than the friendly tag,
           # fixes the exact NGINX/static-asset bytes Kubernetes may run.
-          image: clouddsp-registry.localhost:5001/frontend@sha256:8328c06e816f10950f16fcaeb627e19a7844076a34c7168dff97689e4430f59b
+          image: clouddsp-registry.localhost:5001/frontend@sha256:0131518ddeff8759056e879e8d295b60cad738ca8863e235e4541608384ef4d7
           # A digest cannot move to a different image. If a node already has
           # these exact bytes, reusing its cache is safe and starts locally fast.
           imagePullPolicy: IfNotPresent

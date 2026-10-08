@@ -155,19 +155,18 @@ images:
     pushedAt: "2026-10-07"
 
   job-api:
-    # This locally built API adds owner-bound score status and result URLs.
+    # This locally built API adds owner-bound score history and source/result URLs.
     # Workloads use the digest, not the descriptive tag.
     repository: clouddsp-registry.localhost:5001/job-api
-    sourceTag: "0.0.11-score-omr"
-    digest: sha256:e0fd66b646a80711f42b991653725f9635adf575a9040668074123275a419299
-    immutableReference: clouddsp-registry.localhost:5001/job-api@sha256:e0fd66b646a80711f42b991653725f9635adf575a9040668074123275a419299
+    sourceTag: "0.0.12-score-history"
+    digest: sha256:48c79daa63fc35d0dc8d33e466de28065e204a5a72b5e9c24e400be187c7c2a5
+    immutableReference: clouddsp-registry.localhost:5001/job-api@sha256:48c79daa63fc35d0dc8d33e466de28065e204a5a72b5e9c24e400be187c7c2a5
     supportedPlatforms:
       - linux/arm64/v8
     builtFrom:
-      # The application source is still uncommitted Kubernetes-local work. The
-      # registry digest above nevertheless identifies the exact pushed bytes;
-      # replace this working-tree note with a commit after the task is reviewed.
-      sourceRevision: local-kubernetes-working-tree
+      # Build source is committed before publishing; delivery references are
+      # recorded in the following release commit to avoid a circular Git hash.
+      sourceRevision: b8234f947a47c2486c35310f7e088d90b61e235f
       sourceDirectory: kubernetes/services/job-api/app
       dockerfile: kubernetes/services/job-api/Dockerfile
       requirementsLock: kubernetes/services/job-api/requirements.lock
@@ -181,12 +180,13 @@ images:
       finalizationMigrationTests: kubernetes/services/job-api/tests/test_job_finalization_migration.py
       presignedUploadTests: kubernetes/services/job-api/tests/test_presigned_upload.py
       scoreUploadTests: kubernetes/services/job-api/tests/test_score_upload.py
+      scoreHistoryTests: kubernetes/services/job-api/tests/test_score_history.py
       scoreStatusTests: kubernetes/services/job-api/tests/test_score_status.py
       runtimeImageLock: images.api-python-runtime
       sourceLock: buildSources.api
-    localDockerSizeBytes: 77879849
-    localDockerSize: "74.27 MiB"
-    pushedAt: "2026-10-07"
+    localDockerSizeBytes: 77913258
+    localDockerSize: "74.30 MiB"
+    pushedAt: "2026-10-08"
 
   upload-intake:
     # This is the locally built, outbound-only direct-upload intake worker.
@@ -590,9 +590,9 @@ images:
     # This build selects local adapters from the canonical root frontend;
     # cloud and local screens now share one source and dependency lock.
     repository: clouddsp-registry.localhost:5001/frontend
-    sourceTag: "0.6.5-score-omr"
-    digest: sha256:8328c06e816f10950f16fcaeb627e19a7844076a34c7168dff97689e4430f59b
-    immutableReference: clouddsp-registry.localhost:5001/frontend@sha256:8328c06e816f10950f16fcaeb627e19a7844076a34c7168dff97689e4430f59b
+    sourceTag: "0.6.6-score-history"
+    digest: sha256:0131518ddeff8759056e879e8d295b60cad738ca8863e235e4541608384ef4d7
+    immutableReference: clouddsp-registry.localhost:5001/frontend@sha256:0131518ddeff8759056e879e8d295b60cad738ca8863e235e4541608384ef4d7
     supportedPlatforms:
       - linux/arm64/v8
     builtFrom:
@@ -603,7 +603,7 @@ images:
       # metadata is recorded in the matching Dockerfile and Helm chart. The
       # NGINX recipe also fixes direct SPA routes that share an asset directory.
       sourceBaselineCommit: 6393ae3eb4153b883baf993e7c1d887252f8de1f
-      sourceRevision: local-kubernetes-working-tree
+      sourceRevision: b8234f947a47c2486c35310f7e088d90b61e235f
       # Application source is relative to the repository root; delivery files
       # below retain their Kubernetes-directory-relative locations.
       sourceDirectory: frontend
@@ -618,9 +618,9 @@ images:
       publicObjectStorageOrigin: http://minio.localhost:8080
       midiSampleLock: kubernetes/services/minio/midi-sample-assets.lock.json
       sharedSampleBucket: clouddsp-midi-samples
-    localDockerSizeBytes: 35143301
+    localDockerSizeBytes: 35144623
     localDockerSize: "33.52 MiB"
-    pushedAt: "2026-10-07"
+    pushedAt: "2026-10-08"
 
   frontend-node-builder:
     # Official Node image used only while compiling the local React source.

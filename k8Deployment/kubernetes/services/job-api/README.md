@@ -111,8 +111,9 @@ Run the command from the repository root. It adds only `s3:GetObject` on
 grant to the API. The detail signer checks the exact job UUID and one of the
 four server-chosen `source.<ext>` keys before signing. Fresh score bootstrap
 includes the same stage. No schema migration or queue change is needed.
-The currently locked images predate this history endpoint; publishing source
-alone does not replace the running API or frontend containers.
+The rollout locks API `0.0.12-score-history` and frontend
+`0.6.6-score-history` to immutable ARM64 digests. Flux applies these references;
+the v003 score smoke verifies authenticated history and signed restoration.
 
 ## Ownership and authentication
 

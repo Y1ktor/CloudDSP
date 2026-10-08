@@ -327,7 +327,9 @@ without creating work. Its current workspace stays in React memory across
 tabs and is reset on account change. Rollout requires updated API/frontend
 images plus the versioned score-source IAM stage documented in the
 [Job API guide](kubernetes/services/job-api/README.md#score-history-and-rollout).
-These source changes are not yet in the locked running images.
+The rollout locks API `0.0.12-score-history` and frontend
+`0.6.6-score-history` to committed build provenance and immutable ARM64
+digests. Flux owns their deployment; v003 smoke adds live history coverage.
 
 The implemented local API has authenticated identity, job creation through
 direct upload, saved-job listing, and job-detail polling. A local realtime
