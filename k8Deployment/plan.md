@@ -114,6 +114,10 @@ directly to MinIO. A disposable smoke Job verifies Keycloak, PostgreSQL,
 object metadata and queue delivery. The score OMR consumer validates the event
 against the row and object, claims a bounded lease, runs homr on CPU, writes
 private MusicXML/MIDI results, and commits the terminal state before ACK.
+The worker renders PDF pages at fixed 300 DPI with page-count and decoded-pixel
+bounds, preserves measure offsets across pages, and exports recognized MIDI
+before a separate MusicXML serialization without notation repair. A local
+Debussy benchmark check compares both page XML and combined MIDI exactly.
 KEDA keeps zero to two consumers according to ready and unacknowledged queue
 depth. Authenticated `GET /score-jobs/{job_id}` exposes owner-bound status and
 fresh result URLs; the React score page polls and opens completed MIDI in the

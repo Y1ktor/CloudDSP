@@ -10,9 +10,15 @@ path, reads the owner-bound intent from PostgreSQL, and compares the live MinIO
 object's size and content type. A v011 lease advances the row through
 `upload_pending` → `source_uploaded` → `processing` → `completed` or `failed`.
 Duplicate notifications cannot claim an
-active lease. PDF sources are limited to four rendered pages; images are
-limited to 36 million pixels. Homr writes MusicXML per page, music21 combines
-it into one MusicXML and MIDI, and the worker rejects zero-note output.
+active lease. PDF sources are limited to four pages rendered at a fixed
+300 DPI, matching the evaluated Mac benchmark. Page MediaBoxes are checked
+before rendering and decoded images afterward, with a 36-million-pixel cap.
+Homr writes MusicXML per page. music21 combines pages using a common page
+boundary and each measure's original relative offset, so incomplete staves
+cannot shift the next page. MIDI is exported from that recognized timing;
+a separate copy exports MusicXML with automatic notation repair disabled.
+This avoids rewriting rhythms or failing on sparse polyphonic voice IDs.
+The worker rejects zero-note output.
 Both private objects are uploaded before the lease-guarded completion update;
 only then is the RabbitMQ delivery acknowledged. Bounded transient retries
 pass through the existing 30-second score retry queue. Exhausted transient
@@ -50,3 +56,25 @@ The local CPU profile is suitable for evaluation. Homr can misread key
 signatures or complex notation even from clean pages; the resulting MIDI is
 editable, not a guaranteed faithful score. Retention cleanup of score source
 and result objects is not yet implemented.
+
+## Debussy benchmark regression
+
+`tests/check_benchmark.py` runs the real PDF renderer, homr and both artifact
+exporters, then compares page MusicXML and combined MIDI byte-for-byte with
+the CPU benchmark. Supply the original PDF and benchmark directory as local
+read-only mounts; user sheet music and reference outputs are not committed.
+For example, inside the worker image with `PYTHONPATH=/app` and test source
+mounted read-only at `/tests`:
+
+```sh
+python /tests/check_benchmark.py --pdf /input/debussy.pdf \
+  --benchmark /benchmark --output /comparison/debussy
+```
+
+`/benchmark` contains `cpu/debussy-{1,2}.musicxml` and
+`midi/cpu/debussy-combined.mid`. The output directory must be new and writable.
+The report records image dimensions, page XML equality, MIDI equality, note
+count and duration. Matching the old benchmark preserves its known key and
+note recognition errors; this is a pipeline regression check, not an accuracy
+score or a corrected musical transcription. Existing completed job artifacts
+are retained; a new upload uses the corrected worker after its rollout.

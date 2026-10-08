@@ -4,7 +4,7 @@
 set -euo pipefail
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/../lib/paths.sh"
 readonly SCORE_DIRECTORY="${KUBERNETES_DIRECTORY}/services/score-omr"
-readonly IMAGE="clouddsp-registry.localhost:5001/score-omr:0.1.3"
+readonly IMAGE="clouddsp-registry.localhost:5001/score-omr:0.1.4-benchmark-parity"
 
 if [[ "$#" -ne 0 ]]; then
   printf 'Usage: %s\n' "$0" >&2
