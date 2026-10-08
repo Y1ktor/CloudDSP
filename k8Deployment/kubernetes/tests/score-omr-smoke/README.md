@@ -12,7 +12,7 @@ owner-bound status API, checks PostgreSQL completion and both private result
 objects, then removes its user, client, row, source, and result objects. It
 also verifies all eight notes, signed downloads, active and terminal duplicate
 uploads, invalid-image failure, expired-lease recovery, and the persistent
-three-attempt ceiling. RabbitMQ is inspected without consuming other messages.
+three-attempt ceiling, and delayed retries after a transient storage error. RabbitMQ is inspected without consuming other messages.
 It fails if homr produces no playable MIDI or the processing queue never hands
 the job to a worker. The Job and ConfigMap stay outside Flux because they
 are disposable test resources.

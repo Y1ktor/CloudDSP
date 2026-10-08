@@ -100,6 +100,27 @@ data:
         raise SmokeFailure("score queue did not drain after completed test jobs")
 
 
+    def trigger_storage_retry(job_id, key):
+        # Publish only an event for this test's own not-yet-uploaded source. The
+        # worker's failed HeadObject must durably republish through its restricted
+        # retry identity, rather than ACKing and losing the job.
+        event = {"Records": [{"eventName": "s3:ObjectCreated:Post",
+                              "s3": {"bucket": {"name": "clouddsp-uploads"}, "object": {"key": key}}}]}
+        publish_url = rabbit_queue_url().split("/api/queues/")[0] + "/api/exchanges/%2Fclouddsp/clouddsp.source-events/publish"
+        result = json_request("test retry trigger", publish_url, {200}, payload={
+            "properties": {"delivery_mode": 2}, "routing_key": "score.upload.created",
+            "payload": json.dumps(event), "payload_encoding": "string",
+        }, headers=rabbit_headers())
+        if not result.get("routed"):
+            raise SmokeFailure("test retry trigger was not routed")
+        for _ in range(20):
+            _, body = request("retry queue status", rabbit_queue_url() + ".retry.30s", {200}, headers=rabbit_headers())
+            if json.loads(body).get("messages_ready", 0) > 0:
+                return
+            time.sleep(1)
+        raise SmokeFailure("transient storage error did not reach delayed retry queue")
+
+
     def signed_artifact(url):
         parsed = urlsplit(url)
         if (parsed.scheme, parsed.hostname, parsed.port) != ("http", "minio.localhost", 8080):
@@ -272,6 +293,7 @@ data:
                 ("invalid image", b"This is not a JPEG score.", None, "failed"),
                 ("expired lease", png, 1, "completed"),
                 ("durable attempt cap", png, 3, "failed"),
+                ("transient storage retry", png, None, "completed"),
             ):
                 contract2 = json_request("score case creation", api + "/score-jobs", {201},
                                         payload={"direction": "score_to_midi", "filename": "score-smoke.jpg",
@@ -289,6 +311,8 @@ data:
                                            "lease_token=gen_random_uuid(), lease_expires_at=CURRENT_TIMESTAMP-INTERVAL '1 second', "
                                            "attempt_count=%s, revision=revision+1 WHERE job_id=%s AND owner_sub=%s",
                                            (attempts, extra_id, user_id))
+                if case == "transient storage retry":
+                    trigger_storage_retry(extra_id, extra_key)
                 post_signed_file(contract2, payload)
                 for _ in range(100):
                     _, body2 = request("case status", api + f"/score-jobs/{extra_id}", {200}, headers=user_headers)
